@@ -28,3 +28,5 @@ Thumbs.db
 .tmpcheck/
 erro no destaque do texto de modo de preparo.png
 erro_persistente_quebra_de_linha_modo_de_preparo.png
+docs/*.odt
+docs/.~lock.*
