@@ -1,0 +1,264 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum MembershipRole {
+  OWNER
+  ADMIN
+  MANAGER
+  OPERATOR
+  VIEWER
+}
+
+enum StockMovementType {
+  IN
+  OUT
+  ADJUSTMENT
+  TRANSFER_IN
+  TRANSFER_OUT
+}
+
+enum ProductMeasurementUnit {
+  LITER
+  MILLILITER
+  KILOGRAM
+  GRAM
+}
+
+enum ProductMeasurementKind {
+  VOLUME
+  MASS
+}
+
+model Company {
+  id             String          @id @default(cuid())
+  slug           String          @unique
+  legalName      String
+  tradeName      String?
+  taxId          String?         @unique
+  isActive       Boolean         @default(true)
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+  establishments Establishment[]
+  memberships    Membership[]
+  products       Product[]
+  sectors        Sector[]
+  families       ProductFamily[]
+  subfamilies    ProductSubfamily[]
+  stockMovements StockMovement[]
+}
+
+model User {
+  id           String       @id @default(cuid())
+  name         String
+  email        String       @unique
+  passwordHash String?
+  isActive     Boolean      @default(true)
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+  memberships  Membership[]
+  movements    StockMovement[] @relation("MovementActor")
+}
+
+model Membership {
+  id         String         @id @default(cuid())
+  role       MembershipRole
+  isActive   Boolean        @default(true)
+  createdAt  DateTime       @default(now())
+  updatedAt  DateTime       @updatedAt
+  companyId  String
+  userId     String
+  company    Company        @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  user       User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([companyId, userId])
+  @@index([userId])
+}
+
+model Establishment {
+  id             String           @id @default(cuid())
+  companyId      String
+  code           String?
+  name           String
+  city           String?
+  state          String?
+  isActive       Boolean          @default(true)
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+  company        Company          @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  inventoryItems InventoryItem[]
+  stockMovements StockMovement[]
+
+  @@unique([companyId, code])
+  @@index([companyId])
+}
+
+model Product {
+  id                       String                @id @default(cuid())
+  companyId                String
+  companyProductId         String?
+  name                     String
+  description              String?
+  barcode                  String?
+  measurementKind          ProductMeasurementKind
+  measurementUnit          ProductMeasurementUnit
+  normalizedUnit           ProductMeasurementUnit
+  alcoholPercentage        Decimal?
+  densityFactor            Decimal?
+  densitySampleVolumeMl    Decimal?
+  densitySampleWeightGrams Decimal?
+  familyId                 String?
+  subfamilyId              String?
+  isActive                 Boolean               @default(true)
+  createdAt                DateTime              @default(now())
+  updatedAt                DateTime              @updatedAt
+  company                  Company               @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  family                   ProductFamily?        @relation(fields: [familyId], references: [id], onDelete: SetNull)
+  subfamily                ProductSubfamily?     @relation(fields: [subfamilyId], references: [id], onDelete: SetNull)
+  sectors                  ProductSector[]
+  packages                 ProductPackage[]
+  inventoryItems           InventoryItem[]
+  stockMovements           StockMovement[]
+
+  @@unique([companyId, companyProductId])
+  @@unique([companyId, barcode])
+  @@index([companyId])
+  @@index([familyId])
+  @@index([subfamilyId])
+}
+
+model Sector {
+  id          String         @id @default(cuid())
+  companyId   String
+  name        String
+  code        String?
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+  company     Company        @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  products    ProductSector[]
+
+  @@unique([companyId, name])
+  @@unique([companyId, code])
+  @@index([companyId])
+}
+
+model ProductFamily {
+  id          String             @id @default(cuid())
+  companyId   String
+  name        String
+  code        String?
+  createdAt   DateTime           @default(now())
+  updatedAt   DateTime           @updatedAt
+  company     Company            @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  products    Product[]
+  subfamilies ProductSubfamily[]
+
+  @@unique([companyId, name])
+  @@unique([companyId, code])
+  @@index([companyId])
+}
+
+model ProductSubfamily {
+  id        String          @id @default(cuid())
+  companyId String
+  familyId  String
+  name      String
+  code      String?
+  createdAt DateTime        @default(now())
+  updatedAt DateTime        @updatedAt
+  company   Company         @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  family    ProductFamily   @relation(fields: [familyId], references: [id], onDelete: Cascade)
+  products  Product[]
+
+  @@unique([familyId, name])
+  @@unique([companyId, code])
+  @@index([companyId])
+  @@index([familyId])
+}
+
+model ProductSector {
+  id        String    @id @default(cuid())
+  productId String
+  sectorId  String
+  createdAt DateTime  @default(now())
+  product   Product   @relation(fields: [productId], references: [id], onDelete: Cascade)
+  sector    Sector    @relation(fields: [sectorId], references: [id], onDelete: Cascade)
+
+  @@unique([productId, sectorId])
+  @@index([sectorId])
+}
+
+model ProductPackage {
+  id                     String                 @id @default(cuid())
+  productId              String
+  internalCode           String
+  label                  String?
+  barcode                String?
+  packageQuantity        Decimal
+  packageUnit            ProductMeasurementUnit
+  normalizedQuantity     Decimal
+  normalizedUnit         ProductMeasurementUnit
+  purchasePrice          Decimal?
+  grossWeightGrams       Decimal?
+  packagingWeightGrams   Decimal?
+  isDefault              Boolean                @default(false)
+  createdAt              DateTime               @default(now())
+  updatedAt              DateTime               @updatedAt
+  product                Product                @relation(fields: [productId], references: [id], onDelete: Cascade)
+  inventoryItems         InventoryItem[]
+  stockMovements         StockMovement[]
+
+  @@unique([productId, label])
+  @@unique([productId, barcode])
+  @@unique([productId, internalCode])
+  @@index([productId, isDefault])
+}
+
+model InventoryItem {
+  id              String        @id @default(cuid())
+  establishmentId String
+  productId       String
+  productPackageId String?
+  quantity        Decimal       @default(0)
+  minQuantity     Decimal?
+  openingQuantity Decimal       @default(0)
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+  establishment   Establishment @relation(fields: [establishmentId], references: [id], onDelete: Cascade)
+  product         Product       @relation(fields: [productId], references: [id], onDelete: Cascade)
+  productPackage  ProductPackage? @relation(fields: [productPackageId], references: [id], onDelete: SetNull)
+
+  @@unique([establishmentId, productId, productPackageId])
+  @@index([productId])
+  @@index([productPackageId])
+}
+
+model StockMovement {
+  id                    String            @id @default(cuid())
+  type                  StockMovementType
+  quantity              Decimal
+  reason                String?
+  reference             String?
+  performedAt           DateTime          @default(now())
+  createdAt             DateTime          @default(now())
+  companyId             String
+  establishmentId       String
+  productId             String
+  productPackageId      String?
+  performedByUserId     String?
+  company               Company           @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  establishment         Establishment     @relation(fields: [establishmentId], references: [id], onDelete: Cascade)
+  product               Product           @relation(fields: [productId], references: [id], onDelete: Cascade)
+  productPackage        ProductPackage?   @relation(fields: [productPackageId], references: [id], onDelete: SetNull)
+  performedByUser       User?             @relation("MovementActor", fields: [performedByUserId], references: [id], onDelete: SetNull)
+
+  @@index([companyId, performedAt])
+  @@index([establishmentId, performedAt])
+  @@index([productId, performedAt])
+  @@index([productPackageId, performedAt])
+}

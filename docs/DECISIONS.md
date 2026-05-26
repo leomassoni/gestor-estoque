@@ -1,0 +1,120 @@
+# Decisoes do Projeto
+
+Ultima atualizacao: 2026-05-19
+
+## Objetivo deste arquivo
+
+Registrar o que foi decidido, o que foi adiado e o que foi descartado, com foco em evitar retrabalho e duvida futura.
+
+## Decisoes ativas
+
+### Formularios de ficha tecnica devem obedecer configuracoes centralizadas
+
+- Decisao: os campos de ficha tecnica podem ser configurados como exibidos e/ou obrigatorios por tipo de ficha.
+- Motivo: permitir adequacao do sistema ao uso real sem editar codigo para cada ajuste operacional.
+- Status: implementado.
+
+### O painel de configuracoes deve refletir a estrutura das fichas
+
+- Decisao: no painel `Configuracoes`, os campos aparecem organizados por blocos equivalentes aos blocos das fichas.
+- Motivo: reduzir carga cognitiva e facilitar manutencao.
+- Status: implementado.
+
+### O grupo `Cadastros` deve existir nas permissoes
+
+- Decisao: `Cadastros` aparece como grupo visual nas permissoes, com opcoes filhas independentes.
+- Motivo: a sidebar tem hierarquia visivel e a regra de acesso precisa refletir isso.
+- Status: implementado.
+
+### PREPARO principal e PREPARO aninhado devem compartilhar os mesmos blocos
+
+- Decisao: o formulario principal de `PREPARO` e seu modal aninhado nao devem manter JSX paralelo.
+- Motivo: evitar divergencia quando houver ajustes futuros na ficha.
+- Status: implementado.
+
+### O editor de modo de preparo deve manter texto em maiusculas
+
+- Decisao: a digitacao no editor permanece em maiusculas.
+- Motivo: padrao operacional solicitado para os textos de preparo.
+- Status: implementado.
+
+### O editor de modo de preparo nao pode quebrar a edicao no meio do texto
+
+- Decisao: priorizar estabilidade do cursor e da selecao durante a digitacao.
+- Motivo: o comportamento anterior inviabilizava pequenas correcoes em textos longos.
+- Status: implementado.
+
+### O autocomplete do modo de preparo deve sugerir insumos da ficha atual
+
+- Decisao: as sugestoes devem se basear nos produtos cadastrados na propria ficha tecnica em edicao.
+- Motivo: o objetivo e acelerar a montagem do texto de preparo com os insumos efetivamente usados.
+- Status: implementado.
+
+## Decisoes de escopo atual
+
+### EXECUCAO e VENDA ainda nao tem modal aninhado de ficha tecnica
+
+- Decisao: por enquanto, nao assumir que existem fluxos aninhados equivalentes ao de `PREPARO`.
+- Motivo: o codigo atual nao oferece esse fluxo; fingir que existe criaria uma falsa sensacao de cobertura.
+- Status: mantido como esta.
+
+### Nao criar agora um sistema complexo de tracking interno
+
+- Decisao: usar arquivos simples em `docs/` em vez de implantar agora ferramenta mais pesada de acompanhamento.
+- Motivo: baixo custo, alta clareza e nenhuma dependencia externa.
+- Status: implementado.
+
+## Coisas adiadas
+
+### Resolver ambiguidade quando um PREPARO tem mais de um centro produtor valido
+
+- Decisao: adiar a regra final de desempate para envio de requisicoes de `PREPARO` quando existir mais de um centro produtor possivel para o mesmo item.
+- Motivo: o fluxo atual ja separa remessas por centro produtor, mas ainda exige destino univoco por item para evitar envio incorreto.
+- Status: adiado.
+
+### Refatoracao ampla de `src/App.tsx`
+
+- Decisao: adiar a quebra estrutural maior do arquivo.
+- Motivo: prioridade recente esteve em entregar comportamento e consistencia funcional.
+- Risco aceito: manutencao mais lenta e maior risco de regressao local.
+
+### Melhorar o code splitting do bundle
+
+- Decisao: nao atacar agora o aviso de chunks grandes do build.
+- Motivo: nao estava no caminho critico das ultimas tarefas.
+- Status: adiado.
+
+### Criar modais aninhados para EXECUCAO e VENDA
+
+- Decisao: nao implementar isso agora sem demanda funcional clara.
+- Motivo: hoje so `PREPARO` usa esse fluxo de forma real.
+- Status: adiado.
+
+### Integracao com vendas externas antes de relatorios cruzados mais avancados
+
+- Decisao: adiar relatorios que dependam de venda / consumo teorico cruzado com PDV ate existir uma integracao confiavel com fonte externa de vendas.
+- Motivo: o sistema ainda nao opera como ponto de venda e nao deve simular dados que nao possui.
+- Status: adiado.
+
+### Construtor de relatorios customizados fica como segunda fase do modulo de relatorios
+
+- Decisao: primeiro estruturar relatorios prontos do modulo `Estoque`; depois evoluir para um construtor customizado pelo usuario final.
+- Motivo: entregar valor rapido com relatorios mais pedidos e, so depois, abrir flexibilidade analitica maior.
+- Status: adiado.
+
+## Coisas que deram errado e viraram regra
+
+### Corrigir o cursor do editor sem perder o comportamento existente
+
+- Problema: uma correcao do cursor reintroduziu efeitos colaterais no editor, incluindo comportamento ruim com espacos e perda de consistencia em maiusculas/sugestoes.
+- Regra extraida: qualquer ajuste no editor de `modo de preparo` precisa validar ao menos:
+  - digitacao no meio do texto
+  - espacos consecutivos
+  - maiusculas
+  - autocomplete
+  - destaque de insumos
+
+### Assumir que EXECUCAO e VENDA tinham pop-ups equivalentes
+
+- Problema: havia percepcao de que talvez os outros tipos de ficha tambem tivessem aninhamento equivalente.
+- Regra extraida: antes de afirmar cobertura estrutural, confirmar no codigo se o fluxo realmente existe.

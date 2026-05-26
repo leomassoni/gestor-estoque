@@ -1,0 +1,23 @@
+{
+  "name": "gestor-estoque-server",
+  "version": "0.1.0",
+  "description": "API e persistencia do Gestor de Estoque",
+  "main": "server.js",
+  "scripts": {
+    "dev": "node --watch server.js",
+    "start": "node server.js",
+    "prisma:generate": "prisma generate --schema prisma/schema.prisma",
+    "prisma:push": "prisma db push --schema prisma/schema.prisma",
+    "prisma:studio": "prisma studio --schema prisma/schema.prisma"
+  },
+  "type": "commonjs",
+  "dependencies": {
+    "@prisma/client": "^6.19.0",
+    "cors": "^2.8.5",
+    "express": "^5.1.0",
+    "zod": "^4.1.12"
+  },
+  "devDependencies": {
+    "prisma": "^6.19.0"
+  }
+}

@@ -1,0 +1,30 @@
+# Common local artifacts
+.env
+.env.*
+
+# Dependencies
+node_modules/
+server/node_modules/
+
+# Build outputs
+dist/
+coverage/
+*.tsbuildinfo
+
+# Prisma / local database
+server/prisma/*.db
+server/prisma/*.db-*
+
+# OS/editor files
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+# Logs
+*.log
+
+# Local scratch / screenshots
+.tmpcheck/
+erro no destaque do texto de modo de preparo.png
+erro_persistente_quebra_de_linha_modo_de_preparo.png
