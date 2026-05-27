@@ -1,0 +1,8 @@
+CREATE TABLE "AppStateSnapshot" (
+  "key" TEXT NOT NULL,
+  "payload" JSONB NOT NULL,
+  "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+  CONSTRAINT "AppStateSnapshot_pkey" PRIMARY KEY ("key")
+);

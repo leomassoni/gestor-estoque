@@ -262,3 +262,10 @@ model StockMovement {
   @@index([productId, performedAt])
   @@index([productPackageId, performedAt])
 }
+
+model AppStateSnapshot {
+  key       String   @id
+  payload   Json
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}

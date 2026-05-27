@@ -2510,9 +2510,129 @@ const requisitionsStorageKey = 'gestor-estoque:requisitions'
 const requisitionNotificationsStorageKey = 'gestor-estoque:requisition-notifications'
 const stockReportColumnOrderStorageKey = 'gestor-estoque:stock-report-column-order'
 const stockReportModelsStorageKey = 'gestor-estoque:stock-report-models'
+const syncedAppStorageKeys = [
+  companiesStorageKey,
+  usersStorageKey,
+  accessProfilesStorageKey,
+  technicalSheetSettingsStorageKey,
+  productsStorageKey,
+  serviceItemsStorageKey,
+  technicalSheetsStorageKey,
+  stockCentersStorageKey,
+  requisitionsStorageKey,
+  requisitionNotificationsStorageKey,
+  inventoryRecordsStorageKey,
+  inventoryActiveRecordsStorageKey,
+  inventoryCountSessionsStorageKey,
+  inventoryActiveSessionsStorageKey,
+  inventoryCountsStorageKey,
+  pendingInventoryMovementsStorageKey,
+  inventoryStorageLocationsStorageKey,
+  stockModuleSettingsStorageKey,
+] as const
+
+type SyncedAppStorageKey = (typeof syncedAppStorageKeys)[number]
+
+type RemoteAppStatePayload = {
+  version: 1
+  entries: Partial<Record<SyncedAppStorageKey, string>>
+}
 const masterCredentials = {
   username: 'igarape.aeb',
   password: 'Leo180613*',
+}
+
+function readRemoteAppStatePayloadFromLocalStorage(): RemoteAppStatePayload {
+  const entries: Partial<Record<SyncedAppStorageKey, string>> = {}
+
+  if (typeof window === 'undefined') {
+    return { version: 1, entries }
+  }
+
+  syncedAppStorageKeys.forEach((key) => {
+    const raw = window.localStorage.getItem(key)
+    if (typeof raw === 'string') {
+      entries[key] = raw
+    }
+  })
+
+  return {
+    version: 1,
+    entries,
+  }
+}
+
+function writeRemoteAppStatePayloadToLocalStorage(payload: RemoteAppStatePayload) {
+  if (typeof window === 'undefined') {
+    return
+  }
+
+  syncedAppStorageKeys.forEach((key) => {
+    const nextValue = payload.entries[key]
+    if (typeof nextValue === 'string') {
+      window.localStorage.setItem(key, nextValue)
+      return
+    }
+
+    window.localStorage.removeItem(key)
+  })
+}
+
+function normalizeRemoteAppStatePayload(payload: unknown): RemoteAppStatePayload | null {
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+    return null
+  }
+
+  const version = (payload as { version?: unknown }).version
+  const entries = (payload as { entries?: unknown }).entries
+  if (version !== 1 || !entries || typeof entries !== 'object' || Array.isArray(entries)) {
+    return null
+  }
+
+  const normalizedEntries: Partial<Record<SyncedAppStorageKey, string>> = {}
+  syncedAppStorageKeys.forEach((key) => {
+    const value = (entries as Record<string, unknown>)[key]
+    if (typeof value === 'string') {
+      normalizedEntries[key] = value
+    }
+  })
+
+  return {
+    version: 1,
+    entries: normalizedEntries,
+  }
+}
+
+function scoreRemoteAppStatePayload(payload: RemoteAppStatePayload | null): number {
+  if (!payload) {
+    return 0
+  }
+
+  return syncedAppStorageKeys.reduce((total, key) => {
+    const raw = payload.entries[key]
+    if (typeof raw !== 'string' || raw.trim() === '') {
+      return total
+    }
+
+    try {
+      const parsed = JSON.parse(raw) as unknown
+      if (Array.isArray(parsed)) {
+        return total + parsed.length * 100 + raw.length
+      }
+
+      if (parsed && typeof parsed === 'object') {
+        return total + Object.keys(parsed as Record<string, unknown>).length * 20 + raw.length
+      }
+    } catch {
+      return total + raw.length
+    }
+
+    return total + raw.length
+  }, 0)
+}
+
+function logRemoteAppStateMessage(message: string) {
+  console.info(`[remote-app-state] ${message}`)
 }
 
 export default function App() {
@@ -2527,6 +2647,8 @@ export default function App() {
   const packageListId = useId()
   const replacementSectorListId = useId()
   const replacementTaxonomyListId = useId()
+  const remoteAppStateSyncTimeoutRef = useRef<number | null>(null)
+  const [isRemoteAppStateReady, setIsRemoteAppStateReady] = useState(false)
 
   const [session, setSession] = useState<Session>(() => loadAuthState().session)
   const [currentCompanyId, setCurrentCompanyId] = useState<number | null>(() => loadAuthState().currentCompanyId)
@@ -3485,6 +3607,84 @@ export default function App() {
     () => new Map(products.filter((product) => product.companyId === currentCompanyId).map((product) => [product.id, product] as const)),
     [currentCompanyId, products],
   )
+  function hydrateAppStateFromLocalStorageSnapshot() {
+    setCompanies(loadCompaniesState())
+    setUsers(loadUsersState())
+    setAccessProfiles(loadAccessProfilesState())
+    setTechnicalSheetSettingsRecords(loadTechnicalSheetSettingsState())
+    setProducts(loadProductsState())
+    setServiceItems(loadServiceItemsState())
+    setTechnicalSheets(loadTechnicalSheetsState())
+    setStockCenters(loadStockCentersState())
+    setRequisitions(loadRequisitionsState())
+    setRequisitionNotifications(loadRequisitionNotificationsState())
+    setInventoryRecords(loadInventoryRecordsState())
+    setInventoryActiveRecordLinks(loadInventoryActiveRecordLinksState())
+    setInventoryCountSessions(loadInventoryCountSessionsState())
+    setInventoryActiveSessionLinks(loadInventoryActiveSessionLinksState())
+    setInventoryCounts(loadInventoryCountsState())
+    setPendingInventoryMovements(loadPendingInventoryMovementsState())
+    setInventoryStorageLocations(loadInventoryStorageLocationsState())
+    setStockModuleSettings(loadStockModuleSettingsState())
+  }
+
+  useEffect(() => {
+    let isCancelled = false
+
+    async function bootstrapRemoteAppState() {
+      try {
+        const localPayload = readRemoteAppStatePayloadFromLocalStorage()
+        const response = await fetch('/api/state')
+        if (!response.ok) {
+          throw new Error(`Falha ao carregar estado remoto (${response.status}).`)
+        }
+
+        const data = await response.json()
+        const serverPayload = normalizeRemoteAppStatePayload(data?.snapshot?.payload ?? null)
+
+        if (isCancelled) {
+          return
+        }
+
+        const localScore = scoreRemoteAppStatePayload(localPayload)
+        const serverScore = scoreRemoteAppStatePayload(serverPayload)
+
+        if (serverPayload && serverScore > localScore) {
+          writeRemoteAppStatePayloadToLocalStorage(serverPayload)
+          hydrateAppStateFromLocalStorageSnapshot()
+          logRemoteAppStateMessage('Dados carregados do servidor.')
+        } else if (localScore > 0) {
+          logRemoteAppStateMessage(
+            serverPayload
+              ? 'Os dados locais deste navegador sao mais completos e serao usados para atualizar o servidor.'
+              : 'Nenhum estado remoto encontrado. O estado local sera usado para semear o servidor.',
+          )
+        } else {
+          logRemoteAppStateMessage(
+            serverPayload
+              ? 'Os dados do servidor e deste navegador estao vazios. O sistema seguira com o estado padrao.'
+              : 'Nenhum estado remoto encontrado. O sistema seguira com o estado padrao deste navegador.',
+          )
+        }
+      } catch (error) {
+        console.error(error)
+        if (!isCancelled) {
+          logRemoteAppStateMessage('Nao foi possivel carregar o estado remoto. O estado local continuara ativo neste navegador.')
+        }
+      } finally {
+        if (!isCancelled) {
+          setIsRemoteAppStateReady(true)
+        }
+      }
+    }
+
+    bootstrapRemoteAppState()
+
+    return () => {
+      isCancelled = true
+    }
+  }, [])
+
   useEffect(() => {
     const currentDefinition = stockReportTabDefinitions.find((definition) => definition.key === stockReportTab) ?? null
     if (currentDefinition) {
@@ -9375,6 +9575,58 @@ export default function App() {
   useEffect(() => {
     saveTechnicalSheetsState(technicalSheets)
   }, [technicalSheets])
+
+  useEffect(() => {
+    if (!isRemoteAppStateReady) {
+      return
+    }
+
+    if (remoteAppStateSyncTimeoutRef.current !== null) {
+      window.clearTimeout(remoteAppStateSyncTimeoutRef.current)
+    }
+
+    remoteAppStateSyncTimeoutRef.current = window.setTimeout(() => {
+      const payload = readRemoteAppStatePayloadFromLocalStorage()
+
+      fetch('/api/state', {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ payload }),
+      }).catch((error) => {
+        console.error(error)
+        logRemoteAppStateMessage('Falha ao sincronizar os dados com o servidor. Este navegador continua com os dados locais.')
+      })
+    }, 300)
+
+    return () => {
+      if (remoteAppStateSyncTimeoutRef.current !== null) {
+        window.clearTimeout(remoteAppStateSyncTimeoutRef.current)
+        remoteAppStateSyncTimeoutRef.current = null
+      }
+    }
+  }, [
+    accessProfiles,
+    companies,
+    inventoryActiveRecordLinks,
+    inventoryActiveSessionLinks,
+    inventoryCountSessions,
+    inventoryCounts,
+    inventoryRecords,
+    inventoryStorageLocations,
+    isRemoteAppStateReady,
+    pendingInventoryMovements,
+    products,
+    requisitionNotifications,
+    requisitions,
+    serviceItems,
+    stockCenters,
+    stockModuleSettings,
+    technicalSheetSettingsRecords,
+    technicalSheets,
+    users,
+  ])
 
   useEffect(() => {
     setTechnicalSheetSettingsDraft(currentCompanyTechnicalSheetSettings)
