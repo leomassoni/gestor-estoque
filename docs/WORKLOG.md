@@ -1,6 +1,6 @@
 # Worklog
 
-Ultima atualizacao: 2026-05-19
+Ultima atualizacao: 2026-05-26
 
 ## Objetivo deste arquivo
 
@@ -54,3 +54,22 @@ Registrar um historico resumido do que foi feito, do que falhou e do que ficou p
 - Os `PREPARO` continuam nao aparecendo corretamente como opcao para incluir como producao de um centro de estoque marcado como `PRODUTOR`, mesmo apos ajustes de filtro no codigo.
 - O modulo `Estoque` ainda nao possui integracao com relatorios de venda / PDV externo; isso ficou marcado para avaliacao futura.
 - Foi levantada a necessidade futura de um construtor de relatorios customizados para o usuario final, em uma linha de "Power BI facil" interno.
+
+## 2026-05-26
+
+### Confirmado / implementado
+
+- Projeto preparado para GitHub com repositorio proprio.
+- Projeto preparado para deploy no Render com `render.yaml`.
+- Backend Prisma ajustado para PostgreSQL.
+- Migration inicial do schema atual do backend criada e validada localmente.
+- Deploy no Render concluido com sucesso.
+
+### Melhorias futuras registradas
+
+- Logs do Render confirmaram que o bundle principal do frontend continua grande.
+- Isso nao bloqueou o deploy, mas ficou registrado como melhoria futura de performance.
+- Direcoes anotadas:
+  - code splitting com `dynamic import()`
+  - modularizacao maior de [`src/App.tsx`](/home/leomassoni/Documentos/Igarapé/Projetos/TCC-SP/gestor-estoque/src/App.tsx)
+  - avaliacao de `manualChunks` no build

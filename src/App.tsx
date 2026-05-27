@@ -682,6 +682,7 @@ type ProductionDraftState = {
   confirmedBrix: string
   ingredientOverrides: Record<number, string>
   manualOverrideIngredientIds: number[]
+  consumptionSessionId?: number | null
 }
 
 type ManualSupplyDraftLine = {
@@ -2122,7 +2123,7 @@ function buildCompanyAccessProfilesForSettings(
   const storedProfiles =
     companyId === null
       ? []
-      : accessProfiles.filter((profile) => profile.companyId === companyId && profile.isActive)
+      : accessProfiles.filter((profile) => profile.companyId === companyId)
 
   const defaultIds = new Set(defaultProfiles.map((profile) => profile.id))
   const mergedDefaults = defaultProfiles.map((profile) => {
@@ -2537,6 +2538,7 @@ type RemoteAppStatePayload = {
   version: 1
   entries: Partial<Record<SyncedAppStorageKey, string>>
 }
+
 const masterCredentials = {
   username: 'igarape.aeb',
   password: 'Leo180613*',
@@ -2649,6 +2651,7 @@ export default function App() {
   const replacementTaxonomyListId = useId()
   const remoteAppStateSyncTimeoutRef = useRef<number | null>(null)
   const [isRemoteAppStateReady, setIsRemoteAppStateReady] = useState(false)
+  const [isImportingRemoteSnapshot, setIsImportingRemoteSnapshot] = useState(false)
 
   const [session, setSession] = useState<Session>(() => loadAuthState().session)
   const [currentCompanyId, setCurrentCompanyId] = useState<number | null>(() => loadAuthState().currentCompanyId)
@@ -2669,6 +2672,7 @@ export default function App() {
   const [activeSection, setActiveSection] = useState<AppSection>('Produtos')
   const [isCadastrosMenuOpen, setIsCadastrosMenuOpen] = useState(false)
   const [isEstoqueMenuOpen, setIsEstoqueMenuOpen] = useState(false)
+  const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false)
   const [screenMode, setScreenMode] = useState<ScreenMode>('list')
   const [products, setProducts] = useState<ProductRecord[]>(() => loadProductsState())
   const [serviceItems, setServiceItems] = useState<ServiceItemRecord[]>(() => loadServiceItemsState())
@@ -2743,6 +2747,9 @@ export default function App() {
     () => loadInventoryStorageLocationsState(),
   )
   const [stockModuleSettings, setStockModuleSettings] = useState<StockModuleSettingsRecord[]>(() => loadStockModuleSettingsState())
+  const isLocalhostEnvironment =
+    typeof window !== 'undefined' &&
+    (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')
   const [stockCenterSearch, setStockCenterSearch] = useState('')
   const [stockCenterMinimumSearch, setStockCenterMinimumSearch] = useState('')
   const [stockCenterForm, setStockCenterForm] = useState<StockCenterFormState>(emptyStockCenterForm())
@@ -3061,6 +3068,20 @@ export default function App() {
   const isCadastrosActive = cadastroSections.includes(activeSection)
   const hasEstoqueAccess = allowedEstoqueSections.length > 0
   const isEstoqueActive = estoqueSections.includes(activeSection)
+  const getSectionDisplayLabel = (section: AppSection) => {
+    if (section === 'FichasTecnicas') return 'Fichas Tecnicas'
+    if (section === 'Itens') return 'Utensilios e Recipientes'
+    if (section === 'CentrosEstoque') return 'Centros de estoque'
+    if (section === 'ConfiguracoesEstoque') return 'Configuracoes'
+    if (section === 'Requisicoes') return 'Requisicao'
+    if (section === 'RelatoriosEstoque') return 'Relatorios'
+    if (section === 'EntradaProducoes') return 'Entrada de producoes'
+    return section
+  }
+  const handleSectionNavigation = (section: AppSection) => {
+    setActiveSection(section)
+    setIsMobileSidebarOpen(false)
+  }
   const preparationModeIngredientNames = useMemo(
     () =>
       normalizePreparationModeIngredientNames([
@@ -3238,7 +3259,7 @@ export default function App() {
         const previousQuantity = balanceByAggregation.get(aggregationKey) ?? 0
         const movementQuantity = getInventoryTrackedMovementQuantity(event.record)
         const nextQuantity =
-          event.record.storageLocation === 'SAIDA PARA REQUISICAO'
+          event.record.storageLocation === 'SAIDA PARA REQUISICAO' || event.record.storageLocation === 'SAIDA PARA PRODUCAO'
             ? previousQuantity - movementQuantity
             : previousQuantity + movementQuantity
         balanceByAggregation.set(aggregationKey, nextQuantity)
@@ -3607,6 +3628,7 @@ export default function App() {
     () => new Map(products.filter((product) => product.companyId === currentCompanyId).map((product) => [product.id, product] as const)),
     [currentCompanyId, products],
   )
+
   function hydrateAppStateFromLocalStorageSnapshot() {
     setCompanies(loadCompaniesState())
     setUsers(loadUsersState())
@@ -3626,6 +3648,63 @@ export default function App() {
     setPendingInventoryMovements(loadPendingInventoryMovementsState())
     setInventoryStorageLocations(loadInventoryStorageLocationsState())
     setStockModuleSettings(loadStockModuleSettingsState())
+  }
+
+  async function importRemoteAppStateSnapshot() {
+    if (typeof window === 'undefined') {
+      return
+    }
+
+    const suggestedBaseUrl = `${window.location.protocol}//${window.location.hostname}`
+    const typedBaseUrl = window.prompt(
+      'Informe a URL base do sistema publicado para importar os dados. Ex.: https://gestor-estoque.onrender.com',
+      suggestedBaseUrl,
+    )
+
+    if (!typedBaseUrl) {
+      return
+    }
+
+    const normalizedBaseUrl = typedBaseUrl.trim().replace(/\/+$/, '')
+    if (!normalizedBaseUrl) {
+      return
+    }
+
+    setIsImportingRemoteSnapshot(true)
+
+    try {
+      const response = await fetch(`${normalizedBaseUrl}/api/state`)
+      if (!response.ok) {
+        throw new Error(`Falha ao buscar o snapshot remoto (${response.status}).`)
+      }
+
+      const data = await response.json()
+      const remotePayload = normalizeRemoteAppStatePayload(data?.snapshot?.payload ?? null)
+      const remoteScore = scoreRemoteAppStatePayload(remotePayload)
+      if (!remotePayload || remoteScore <= 0) {
+        throw new Error('A URL informada nao retornou um snapshot de dados utilizavel.')
+      }
+
+      writeRemoteAppStatePayloadToLocalStorage(remotePayload)
+      hydrateAppStateFromLocalStorageSnapshot()
+      setIsRemoteAppStateReady(true)
+      logRemoteAppStateMessage(`Snapshot importado de ${normalizedBaseUrl}.`)
+      setSaveFeedback({
+        status: 'success',
+        title: 'Dados importados para o ambiente local',
+        message:
+          'O snapshot remoto foi trazido para este navegador no localhost. Aguarde a tela atualizar e depois valide os fluxos localmente.',
+      })
+    } catch (error) {
+      console.error(error)
+      setSaveFeedback({
+        status: 'error',
+        title: 'Nao foi possivel importar os dados do ambiente publicado',
+        message: error instanceof Error ? error.message : 'Revise a URL informada e tente novamente.',
+      })
+    } finally {
+      setIsImportingRemoteSnapshot(false)
+    }
   }
 
   useEffect(() => {
@@ -4322,6 +4401,10 @@ export default function App() {
   const companyAccessProfiles = useMemo(() => {
     return buildCompanyAccessProfilesForSettings(currentCompanyId, accessProfiles)
   }, [accessProfiles, currentCompanyId])
+  const activeCompanyAccessProfiles = useMemo(
+    () => companyAccessProfiles.filter((profile) => profile.isActive),
+    [companyAccessProfiles],
+  )
   const visibleOpenInventoryRecords = useMemo(
     () =>
       inventoryRecords
@@ -5647,7 +5730,7 @@ export default function App() {
         const previousQuantity = balanceByAggregation.get(aggregationKey) ?? 0
         const movementQuantity = getInventoryTrackedMovementQuantity(event.record)
         const nextQuantity =
-          event.record.storageLocation === 'SAIDA PARA REQUISICAO'
+          event.record.storageLocation === 'SAIDA PARA REQUISICAO' || event.record.storageLocation === 'SAIDA PARA PRODUCAO'
             ? previousQuantity - movementQuantity
             : previousQuantity + movementQuantity
         const signedMovementQuantity = nextQuantity - previousQuantity
@@ -5686,6 +5769,8 @@ export default function App() {
             status:
               event.record.storageLocation === 'ENTRADA DE PRODUCAO'
                 ? 'Producao confirmada'
+                : event.record.storageLocation === 'SAIDA PARA PRODUCAO'
+                  ? 'Producao iniciada'
                 : event.record.storageLocation === 'SAIDA PARA REQUISICAO'
                   ? 'Transferencia de saida'
                   : 'Transferencia de entrada',
@@ -7789,21 +7874,21 @@ export default function App() {
   )
   const selectableAccessProfilesByRole = useMemo(() => {
     return {
-      Administrativo: companyAccessProfiles.filter((profile) => profile.role === 'Administrativo'),
-      Gestor: companyAccessProfiles.filter((profile) => profile.role === 'Gestor'),
-      Colaborador: companyAccessProfiles.filter((profile) => profile.role === 'Colaborador'),
+      Administrativo: activeCompanyAccessProfiles.filter((profile) => profile.role === 'Administrativo'),
+      Gestor: activeCompanyAccessProfiles.filter((profile) => profile.role === 'Gestor'),
+      Colaborador: activeCompanyAccessProfiles.filter((profile) => profile.role === 'Colaborador'),
     } satisfies Record<CompanyUserRole, AccessProfileRecord[]>
-  }, [companyAccessProfiles])
+  }, [activeCompanyAccessProfiles])
   const listedCompanyAccessProfiles = companyAccessProfiles
   const accessProfilesById = useMemo(() => {
     return new Map(companyAccessProfiles.map((profile) => [profile.id, profile]))
   }, [companyAccessProfiles])
   const assignableAccessProfiles = useMemo(() => {
     if (canAssignPrivilegedUserRoles) {
-      return companyAccessProfiles
+      return activeCompanyAccessProfiles
     }
-    return companyAccessProfiles.filter((profile) => profile.role === 'Colaborador')
-  }, [canAssignPrivilegedUserRoles, companyAccessProfiles])
+    return activeCompanyAccessProfiles.filter((profile) => profile.role === 'Colaborador')
+  }, [activeCompanyAccessProfiles, canAssignPrivilegedUserRoles])
   const generatedProductId = useMemo(() => buildProductId(productForm.name), [productForm.name])
   const generatedServiceItemId = useMemo(
     () => buildServiceItemId(serviceItemForm.name, serviceItemForm.kind),
@@ -8120,7 +8205,10 @@ export default function App() {
   ])
   const technicalSheetIngredientMetrics = useMemo(() => {
     return technicalSheetIngredients.map((ingredient) => {
-      const linkedProduct = products.find((item) => item.id === ingredient.productId) ?? null
+      const linkedTechnicalSheet =
+        technicalSheets.find((item) => item.productId === ingredient.productId && item.companyId === currentCompanyId) ?? null
+      const linkedProduct =
+        products.find((item) => item.id === ingredient.productId && item.companyId === currentCompanyId) ?? null
       const costPerUnit = linkedProduct ? calculateProductUnitCost(linkedProduct, technicalSheets, products) : 0
       const inputQuantity = parseDecimal(ingredient.quantity) ?? 0
       const yieldQuantity = parseDecimal(ingredient.yieldQuantity) ?? 0
@@ -8129,7 +8217,9 @@ export default function App() {
       const recipeCost = costPerUnit * effectiveInputQuantity
       const lossQuantity = Math.max(effectiveInputQuantity - effectiveYieldQuantity, 0)
       const lossCost = costPerUnit * lossQuantity
-      const alcoholPercentage = parseDecimal(linkedProduct?.alcoholPercentage ?? '') ?? 0
+      const alcoholPercentage = linkedTechnicalSheet
+        ? calculateTechnicalSheetAlcoholPercentage(linkedTechnicalSheet, technicalSheets, products)
+        : parseDecimal(linkedProduct?.alcoholPercentage ?? '') ?? 0
 
       return {
         ingredientId: ingredient.id,
@@ -8140,13 +8230,20 @@ export default function App() {
         lossQuantity,
         lossCost,
         alcoholPercentage: ingredient.isActive ? alcoholPercentage : 0,
-        productUnitLabel: linkedProduct ? getProductDisplayUnitLabel(linkedProduct, technicalSheets) : '--',
+        productUnitLabel: linkedProduct
+          ? getProductDisplayUnitLabel(linkedProduct, technicalSheets)
+          : linkedTechnicalSheet
+            ? formatControlUnitShort(linkedTechnicalSheet.outputUnit)
+            : '--',
       } satisfies TechnicalSheetIngredientMetrics
     })
-  }, [products, technicalSheetIngredients, technicalSheets])
+  }, [currentCompanyId, products, technicalSheetIngredients, technicalSheets])
   const technicalSheetGarnishIngredientMetrics = useMemo(() => {
     return technicalSheetGarnishIngredients.map((ingredient) => {
-      const linkedProduct = products.find((item) => item.id === ingredient.productId) ?? null
+      const linkedTechnicalSheet =
+        technicalSheets.find((item) => item.productId === ingredient.productId && item.companyId === currentCompanyId) ?? null
+      const linkedProduct =
+        products.find((item) => item.id === ingredient.productId && item.companyId === currentCompanyId) ?? null
       const costPerUnit = linkedProduct ? calculateProductUnitCost(linkedProduct, technicalSheets, products) : 0
       const inputQuantity = parseDecimal(ingredient.quantity) ?? 0
       const yieldQuantity = parseDecimal(ingredient.yieldQuantity) ?? 0
@@ -8155,7 +8252,9 @@ export default function App() {
       const recipeCost = costPerUnit * effectiveInputQuantity
       const lossQuantity = Math.max(effectiveInputQuantity - effectiveYieldQuantity, 0)
       const lossCost = costPerUnit * lossQuantity
-      const alcoholPercentage = parseDecimal(linkedProduct?.alcoholPercentage ?? '') ?? 0
+      const alcoholPercentage = linkedTechnicalSheet
+        ? calculateTechnicalSheetAlcoholPercentage(linkedTechnicalSheet, technicalSheets, products)
+        : parseDecimal(linkedProduct?.alcoholPercentage ?? '') ?? 0
 
       return {
         ingredientId: ingredient.id,
@@ -8166,10 +8265,14 @@ export default function App() {
         lossQuantity,
         lossCost,
         alcoholPercentage: ingredient.isActive ? alcoholPercentage : 0,
-        productUnitLabel: linkedProduct ? getProductDisplayUnitLabel(linkedProduct, technicalSheets) : '--',
+        productUnitLabel: linkedProduct
+          ? getProductDisplayUnitLabel(linkedProduct, technicalSheets)
+          : linkedTechnicalSheet
+            ? formatControlUnitShort(linkedTechnicalSheet.outputUnit)
+            : '--',
       } satisfies TechnicalSheetIngredientMetrics
     })
-  }, [products, technicalSheetGarnishIngredients, technicalSheets])
+  }, [currentCompanyId, products, technicalSheetGarnishIngredients, technicalSheets])
   const technicalSheetMixtureUnitLabel = useMemo(() => {
     const units = [...technicalSheetIngredientMetrics, ...technicalSheetGarnishIngredientMetrics]
       .map((item) => item.productUnitLabel)
@@ -8190,18 +8293,21 @@ export default function App() {
       (sum, item) => sum + (item.yieldQuantity > 0 ? item.yieldQuantity : item.inputQuantity),
       0,
     )
+    const portionSize =
+      isCommercialTechnicalSheetKind(technicalSheetForm.kind) ? 1 : parseDecimal(technicalSheetForm.portionSize) ?? 0
+    const manuallyDefinedOutputQuantity = parseDecimal(technicalSheetForm.outputQuantity) ?? 0
     const totalYield =
       technicalSheetForm.kind === 'VENDA'
         ? technicalSheetForm.outputUnit === 'COMBO'
           ? vendaComboYield
           : totalMixtureVolume
+        : technicalSheetForm.kind === 'PREPARO' && technicalSheetForm.outputUnit === 'UNIT'
+          ? manuallyDefinedOutputQuantity
         : totalMixtureVolume
     const totalPureAlcoholVolume = yieldMetrics.reduce(
       (sum, item) => sum + item.yieldQuantity * (item.alcoholPercentage / 100),
       0,
     )
-    const portionSize =
-      isCommercialTechnicalSheetKind(technicalSheetForm.kind) ? 1 : parseDecimal(technicalSheetForm.portionSize) ?? 0
     const portionsYield = portionSize > 0 ? totalYield / portionSize : 0
     const costPerPortion = portionsYield > 0 ? totalRecipeCost / portionsYield : 0
     const alcoholDenominator = totalMixtureVolume > 0 ? totalMixtureVolume : totalYield
@@ -10205,7 +10311,12 @@ export default function App() {
       family: productForm.family,
       subfamily: productForm.subfamily,
       sectors: productForm.sectors,
-      outputUnit: productForm.controlUnit === 'GRAM' ? 'GRAM' : 'MILLILITER',
+      outputUnit:
+        productForm.controlUnit === 'GRAM'
+          ? 'GRAM'
+          : productForm.controlUnit === 'UNIT'
+            ? 'UNIT'
+            : 'MILLILITER',
     })
     const nextIngredient = emptyTechnicalSheetIngredient()
     setTechnicalSheetIngredients([nextIngredient])
@@ -10223,7 +10334,12 @@ export default function App() {
       ...current,
       companyProductId: technicalSheetForm.companyProductId,
       name: technicalSheetForm.name,
-      controlUnit: technicalSheetForm.outputUnit === 'GRAM' ? 'GRAM' : 'MILLILITER',
+      controlUnit:
+        technicalSheetForm.outputUnit === 'GRAM'
+          ? 'GRAM'
+          : technicalSheetForm.outputUnit === 'UNIT'
+            ? 'UNIT'
+            : 'MILLILITER',
       family: technicalSheetForm.family,
       subfamily: technicalSheetForm.subfamily,
       sectors: technicalSheetForm.sectors,
@@ -14224,17 +14340,97 @@ export default function App() {
   }
 
   function beginProductionDraft() {
-    if (!productionDraftState) {
+    if (!productionDraftState || !selectedProductionSheet || !selectedProductionCenter || currentCompanyId === null) {
       return
     }
 
     const now = new Date().toISOString()
+    const countedAt = getTodayDateInputValue()
+    const movementSessionId = Date.now()
+    let consumptionMovementResult: 'applied' | 'queued' | null = null
+
+    if (!productionDraftState.startedAt && productionPreparedData) {
+      const consumptionSession: InventoryCountSessionRecord = {
+        id: movementSessionId,
+        inventoryId: null,
+        companyId: currentCompanyId,
+        stockCenterId: selectedProductionCenter.id,
+        countedAt,
+        isClosed: true,
+        startedAt: now,
+        startedByUserId: currentAppUser?.id ?? null,
+        startedByUserName: currentAppUser?.fullName || 'Administrador do sistema',
+        closedAt: now,
+        closedByUserId: currentAppUser?.id ?? null,
+        closedByUserName: currentAppUser?.fullName || 'Administrador do sistema',
+      }
+
+      const consumptionRecords: InventoryCountRecord[] = productionPreparedData.ingredientMetrics
+        .filter((ingredient) => ingredient.productId.trim() !== '' && ingredient.scaledInputQuantity > 0)
+        .map((ingredient, index) => {
+          const linkedTechnicalSheet =
+            technicalSheets.find(
+              (entry) => entry.productId === ingredient.productId && entry.companyId === selectedProductionSheet.companyId,
+            ) ?? null
+          const linkedProduct =
+            products.find(
+              (entry) => entry.id === ingredient.productId && entry.companyId === selectedProductionSheet.companyId,
+            ) ?? null
+
+          return {
+            id: movementSessionId + index + 1,
+            inventoryId: null,
+            sessionId: movementSessionId,
+            companyId: currentCompanyId,
+            stockCenterId: selectedProductionCenter.id,
+            countedAt,
+            storageLocation: 'SAIDA PARA PRODUCAO',
+            technicalSheetId: linkedTechnicalSheet?.id ?? null,
+            productId: linkedTechnicalSheet ? '' : linkedProduct?.id ?? '',
+            serviceItemId: '',
+            packageId: null,
+            technicalSheetName: ingredient.label,
+            technicalSheetKind: linkedTechnicalSheet ? 'PREPARO' : 'PRODUTO',
+            recipientItemId: '',
+            recipientLabel: `PRODUCAO INICIADA • ${selectedProductionSheet.name}`,
+            closedItemsQuantity: formatDecimal(-ingredient.scaledInputQuantity),
+            hasOpenItems: false,
+            openItemsGrossWeight: '',
+            openItemsContainerQuantity: '',
+            openItemsNetQuantity: '',
+            totalCountedQuantity: formatDecimal(-ingredient.scaledInputQuantity),
+            totalCountedUnit:
+              linkedTechnicalSheet?.outputUnit === 'GRAM'
+                ? 'GRAM'
+                : linkedTechnicalSheet?.outputUnit === 'UNIT'
+                  ? 'UNIT'
+                  : linkedProduct?.controlUnit === 'GRAM'
+                    ? 'GRAM'
+                    : linkedProduct?.controlUnit === 'UNIT'
+                      ? 'UNIT'
+                      : 'MILLILITER',
+            createdByUserId: currentAppUser?.id ?? null,
+            createdByUserName: currentAppUser?.fullName ?? 'Administrador do sistema',
+          } satisfies InventoryCountRecord
+        })
+
+      if (consumptionRecords.length > 0) {
+        consumptionMovementResult = registerOperationalInventoryMovement(
+          selectedProductionCenter.id,
+          `SAIDA PARA PRODUCAO • ${selectedProductionSheet.name}`,
+          consumptionSession,
+          consumptionRecords,
+        )
+      }
+    }
+
     const nextDraft: ProductionDraftState = {
       ...productionDraftState,
       draftId: productionDraftState.draftId ?? Date.now(),
       startedAt: productionDraftState.startedAt || now,
       startedByUserId: productionDraftState.startedByUserId ?? currentAppUser?.id ?? null,
       startedByUserName: productionDraftState.startedByUserName || currentAppUser?.fullName || 'Administrador do sistema',
+      consumptionSessionId: productionDraftState.consumptionSessionId ?? (consumptionMovementResult ? movementSessionId : null),
     }
 
     upsertProductionInProgressDraft(nextDraft)
@@ -14243,7 +14439,10 @@ export default function App() {
     setSaveFeedback({
       status: 'success',
       title: 'Producao iniciada',
-      message: 'A producao entrou em andamento. Voce pode fechar o pop-up, iniciar outras producoes e continuar esta depois.',
+      message:
+        consumptionMovementResult === 'queued'
+          ? 'A producao entrou em andamento. Os insumos foram registrados como pendentes porque o centro esta com inventario aberto e serao baixados quando esse inventario for finalizado.'
+          : 'A producao entrou em andamento, os insumos foram retirados do estoque e voce pode fechar o pop-up, iniciar outras producoes e continuar esta depois.',
     })
   }
 
@@ -14360,7 +14559,12 @@ export default function App() {
       openItemsContainerQuantity: '',
       openItemsNetQuantity: '',
       totalCountedQuantity: formatDecimal(finalYield),
-      totalCountedUnit: selectedProductionSheet.outputUnit === 'GRAM' ? 'GRAM' : 'MILLILITER',
+      totalCountedUnit:
+        selectedProductionSheet.outputUnit === 'GRAM'
+          ? 'GRAM'
+          : selectedProductionSheet.outputUnit === 'UNIT'
+            ? 'UNIT'
+            : 'MILLILITER',
       productionExpectedYield: productionDraftState.desiredYield.trim(),
       productionFinalYield: formatDecimal(finalYield),
       productionYieldDifference: formatDecimal(finalYield - (parseDecimal(productionDraftState.desiredYield) ?? 0)),
@@ -15762,11 +15966,12 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
       targetProfile.role,
     )
 
-    setAccessProfiles((current) =>
-      current.map((profile) =>
-        profile.id === profileId ? { ...profile, isActive: !profile.isActive } : profile,
-      ),
-    )
+    setAccessProfiles((current) => {
+      const nextProfile = { ...targetProfile, isActive: !targetProfile.isActive }
+      return current.some((profile) => profile.id === profileId)
+        ? current.map((profile) => (profile.id === profileId ? nextProfile : profile))
+        : [nextProfile, ...current]
+    })
 
     if (userForm.accessProfileId === String(profileId) && targetProfile.isActive) {
       setUserForm((current) => ({
@@ -15820,7 +16025,11 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
       targetProfile.role,
     )
 
-    setAccessProfiles((current) => current.filter((profile) => profile.id !== profileId))
+    setAccessProfiles((current) =>
+      profileId < 0
+        ? [{ ...targetProfile, isActive: false }, ...current.filter((profile) => profile.id !== profileId)]
+        : current.filter((profile) => profile.id !== profileId),
+    )
     setStockModuleSettings((current) =>
       current.map((record) =>
         record.companyId === targetProfile.companyId
@@ -16490,7 +16699,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
   ) {
     if (field === 'kind') {
       const nextKind = value as TechnicalSheetKind
-      setTechnicalSheetForm((current) => ({
+    setTechnicalSheetForm((current) => ({
         ...current,
         kind: nextKind,
         outputUnit:
@@ -16502,7 +16711,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
               ? current.outputUnit === 'UNIT' || current.outputUnit === 'COMBO'
                 ? current.outputUnit
                 : 'UNIT'
-              : current.outputUnit === 'MILLILITER' || current.outputUnit === 'GRAM'
+              : current.outputUnit === 'MILLILITER' || current.outputUnit === 'GRAM' || current.outputUnit === 'UNIT'
                 ? current.outputUnit
                 : 'GRAM',
         portionSize: isCommercialTechnicalSheetKind(nextKind) ? '1' : current.portionSize === '1' ? '1000' : current.portionSize,
@@ -16586,7 +16795,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
         ...current,
         [field]:
           (field === 'preparationMode' || field === 'storytelling'
-            ? String(value)
+            ? normalizeFreeText(String(value))
             : normalizeRegistrationText(String(value))) as TechnicalSheetFormState[K],
       }))
       return
@@ -16782,6 +16991,15 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
     setEditingTechnicalSheetIngredientId(null)
   }
 
+  function openTechnicalSheetIngredientProductModal(ingredientId: number) {
+    const currentIngredient = technicalSheetIngredients.find((ingredient) => ingredient.id === ingredientId) ?? null
+    if (!currentIngredient || currentIngredient.productId.trim() !== '' || currentIngredient.productLabel.trim() === '') {
+      return
+    }
+
+    openNewProductFormFromTechnicalSheet(ingredientId, currentIngredient.productLabel)
+  }
+
   function handleTechnicalSheetGarnishIngredientEnter(
     event: KeyboardEvent<HTMLInputElement>,
     ingredientId: number,
@@ -16819,6 +17037,15 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
     setEditingTechnicalSheetGarnishIngredientId(null)
   }
 
+  function openTechnicalSheetGarnishIngredientProductModal(ingredientId: number) {
+    const currentIngredient = technicalSheetGarnishIngredients.find((ingredient) => ingredient.id === ingredientId) ?? null
+    if (!currentIngredient || currentIngredient.productId.trim() !== '' || currentIngredient.productLabel.trim() === '') {
+      return
+    }
+
+    openNewProductFormFromTechnicalSheetGarnish(ingredientId, currentIngredient.productLabel)
+  }
+
   function handleTechnicalSheetServiceItemEnter(
     event: KeyboardEvent<HTMLInputElement>,
     serviceItemId: number,
@@ -16854,6 +17081,15 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
     }
 
     setEditingTechnicalSheetServiceItemId(null)
+  }
+
+  function openTechnicalSheetServiceItemModalFromDraft(serviceItemId: number) {
+    const currentItem = technicalSheetServiceItems.find((item) => item.id === serviceItemId) ?? null
+    if (!currentItem || currentItem.itemId.trim() !== '' || currentItem.itemLabel.trim() === '') {
+      return
+    }
+
+    openNewServiceItemFormFromTechnicalSheet(serviceItemId, currentItem.itemLabel)
   }
 
   function toggleTechnicalSheetIngredient(ingredientId: number) {
@@ -17164,7 +17400,10 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
         family: normalizedFamily,
         subfamily: normalizedSubfamily,
         sectors: normalizedSectors,
-        alcoholPercentage: '',
+        alcoholPercentage:
+          technicalSheetForm.kind === 'PREPARO'
+            ? formatDecimal(calculateTechnicalSheetAlcoholPercentage(technicalSheetToSave, technicalSheets, products))
+            : '',
         densitySampleVolume: isCommercialTechnicalSheetKind(technicalSheetForm.kind) ? '' : technicalSheetForm.densitySampleVolume.trim(),
         densitySampleWeight: isCommercialTechnicalSheetKind(technicalSheetForm.kind) ? '' : technicalSheetForm.densitySampleWeight.trim(),
         isActive: true,
@@ -18560,6 +18799,19 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
             </button>
           </form>
 
+          {isLocalhostEnvironment ? (
+            <div className="form-actions">
+              <button
+                type="button"
+                className="ghost-button auth-button"
+                onClick={importRemoteAppStateSnapshot}
+                disabled={isImportingRemoteSnapshot}
+              >
+                {isImportingRemoteSnapshot ? 'Importando dados...' : 'Importar dados do ambiente publicado'}
+              </button>
+            </div>
+          ) : null}
+
           {loginError ? <div className="feedback error compact-feedback">{loginError}</div> : null}
         </section>
       </main>
@@ -18799,7 +19051,20 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
       {(mode === 'nested' || isTechnicalSheetFieldVisible('PREPARO', 'serviceItems')) ? (
         <label className="field">
           <span>Rendimento final</span>
-          <input value={formatDecimal(technicalSheetTotals.totalYield)} disabled />
+          <input
+            value={
+              technicalSheetForm.outputUnit === 'UNIT'
+                ? technicalSheetForm.outputQuantity
+                : formatDecimal(technicalSheetTotals.totalYield)
+            }
+            onChange={
+              technicalSheetForm.outputUnit === 'UNIT'
+                ? (event) => updateTechnicalSheetForm('outputQuantity', event.target.value)
+                : undefined
+            }
+            disabled={technicalSheetForm.outputUnit !== 'UNIT'}
+            placeholder={technicalSheetForm.outputUnit === 'UNIT' ? 'EX.: 24' : undefined}
+          />
         </label>
       ) : null}
       {isTechnicalSheetFieldVisible('PREPARO', 'outputUnit') ? (
@@ -18811,6 +19076,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
           >
             <option value="GRAM">GRAMA</option>
             <option value="MILLILITER">MILILITRO</option>
+            <option value="UNIT">UNIDADE</option>
           </select>
         </label>
       ) : null}
@@ -18957,18 +19223,29 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
         {technicalSheetEditingIngredient ? (
           <div className="ingredient-entry-form">
             <div className="ingredient-row ingredient-row-entry">
-              <label className="field field-wide">
+              <div className="field field-wide">
                 <span>Insumo</span>
-                <input
-                  list={technicalSheetProductListId}
-                  value={technicalSheetEditingIngredient.productLabel}
-                  onChange={(event) =>
-                    updateTechnicalSheetIngredientProductLabel(technicalSheetEditingIngredient.id, event.target.value)
-                  }
-                  onKeyDown={(event) => handleTechnicalSheetIngredientEnter(event, technicalSheetEditingIngredient.id)}
-                  placeholder="DIGITE O PRODUTO"
-                />
-              </label>
+                <div className="inline-select-action">
+                  <input
+                    list={technicalSheetProductListId}
+                    value={technicalSheetEditingIngredient.productLabel}
+                    onChange={(event) =>
+                      updateTechnicalSheetIngredientProductLabel(technicalSheetEditingIngredient.id, event.target.value)
+                    }
+                    onKeyDown={(event) => handleTechnicalSheetIngredientEnter(event, technicalSheetEditingIngredient.id)}
+                    placeholder="DIGITE O PRODUTO"
+                  />
+                  {technicalSheetEditingIngredient.productId.trim() === '' && technicalSheetEditingIngredient.productLabel.trim() !== '' ? (
+                    <button
+                      type="button"
+                      className="ghost-button"
+                      onClick={() => openTechnicalSheetIngredientProductModal(technicalSheetEditingIngredient.id)}
+                    >
+                      Cadastrar
+                    </button>
+                  ) : null}
+                </div>
+              </div>
               <label className="field">
                 <span>Entrada</span>
                 <input
@@ -19093,18 +19370,30 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
           {technicalSheetEditingServiceItem ? (
             <div className="ingredient-entry-form">
               <div className="ingredient-row ingredient-row-entry">
-                <label className="field field-wide">
+                <div className="field field-wide">
                   <span>Recipiente</span>
-                  <input
-                    list={technicalSheetServiceItemListId}
-                    value={technicalSheetEditingServiceItem.itemLabel}
-                    onChange={(event) =>
-                      updateTechnicalSheetServiceItemLabel(technicalSheetEditingServiceItem.id, event.target.value)
-                    }
-                    onKeyDown={(event) => handleTechnicalSheetServiceItemEnter(event, technicalSheetEditingServiceItem.id)}
-                    placeholder="DIGITE O RECIPIENTE"
-                  />
-                </label>
+                  <div className="inline-select-action">
+                    <input
+                      list={technicalSheetServiceItemListId}
+                      value={technicalSheetEditingServiceItem.itemLabel}
+                      onChange={(event) =>
+                        updateTechnicalSheetServiceItemLabel(technicalSheetEditingServiceItem.id, event.target.value)
+                      }
+                      onKeyDown={(event) => handleTechnicalSheetServiceItemEnter(event, technicalSheetEditingServiceItem.id)}
+                      placeholder="DIGITE O RECIPIENTE"
+                    />
+                    {technicalSheetEditingServiceItem.itemId.trim() === '' &&
+                    technicalSheetEditingServiceItem.itemLabel.trim() !== '' ? (
+                      <button
+                        type="button"
+                        className="ghost-button"
+                        onClick={() => openTechnicalSheetServiceItemModalFromDraft(technicalSheetEditingServiceItem.id)}
+                      >
+                        Cadastrar
+                      </button>
+                    ) : null}
+                  </div>
+                </div>
                 <label className="field">
                   <span>Entrada</span>
                   <input
@@ -19292,8 +19581,8 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
 
       <div className="package-summary package-summary-technical">
         <div>
-          <span>{technicalSheetForm.outputUnit === 'MILLILITER' ? 'Volume final' : 'Peso final'}</span>
-          <strong>{formatDecimal(technicalSheetTotals.totalYield)} {technicalSheetForm.outputUnit === 'MILLILITER' ? 'ML' : 'G'}</strong>
+          <span>{technicalSheetForm.outputUnit === 'MILLILITER' ? 'Volume final' : technicalSheetForm.outputUnit === 'GRAM' ? 'Peso final' : 'Quantidade final'}</span>
+          <strong>{formatDecimal(technicalSheetTotals.totalYield)} {formatControlUnitShort(technicalSheetForm.outputUnit)}</strong>
         </div>
         <div>
           <span>Custo total da receita</span>
@@ -19314,7 +19603,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
         {mode === 'main' ? (
           <div>
             <span>Porcao considerada</span>
-            <strong>{formatDecimal(technicalSheetTotals.portionSize)} {technicalSheetForm.outputUnit === 'MILLILITER' ? 'ML' : 'G'}</strong>
+            <strong>{formatDecimal(technicalSheetTotals.portionSize)} {formatControlUnitShort(technicalSheetForm.outputUnit)}</strong>
           </div>
         ) : null}
       </div>
@@ -19388,8 +19677,13 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
   }
 
   return (
-    <div className="app-shell">
-      <aside className="sidebar">
+    <div className={`app-shell${isMobileSidebarOpen ? ' mobile-sidebar-open' : ''}`}>
+      <div
+        className={`sidebar-backdrop${isMobileSidebarOpen ? ' open' : ''}`}
+        role="presentation"
+        onClick={() => setIsMobileSidebarOpen(false)}
+      />
+      <aside className={`sidebar${isMobileSidebarOpen ? ' open' : ''}`}>
         <div className="sidebar-inner">
           <div>
             <p className="kicker auth-eyebrow sidebar-title">Gestor de Estoque</p>
@@ -19403,7 +19697,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                   key={section}
                   type="button"
                   className={activeSection === section ? 'nav-item active' : 'nav-item'}
-                  onClick={() => setActiveSection(section)}
+                  onClick={() => handleSectionNavigation(section)}
                 >
                   Receituarios
                 </button>
@@ -19429,7 +19723,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                         type="button"
                         className={activeSection === section ? 'nav-subitem active' : 'nav-subitem'}
                         onClick={() => {
-                          setActiveSection(section)
+                          handleSectionNavigation(section)
                           if (section === 'Produtos') {
                             setScreenMode('list')
                           }
@@ -19441,11 +19735,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                           }
                         }}
                       >
-                        {section === 'FichasTecnicas'
-                          ? 'Fichas Tecnicas'
-                          : section === 'Itens'
-                          ? 'Utensilios e Recipientes'
-                          : section}
+                        {getSectionDisplayLabel(section)}
                       </button>
                     ))}
                   </div>
@@ -19472,21 +19762,9 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                         key={section}
                         type="button"
                         className={activeSection === section ? 'nav-subitem active' : 'nav-subitem'}
-                        onClick={() => setActiveSection(section)}
+                        onClick={() => handleSectionNavigation(section)}
                       >
-                        {section === 'CentrosEstoque'
-                          ? 'Centros de estoque'
-                          : section === 'Inventario'
-                            ? 'Inventario'
-                            : section === 'ConfiguracoesEstoque'
-                              ? 'Configuracoes'
-                            : section === 'Requisicoes'
-                              ? 'Requisicao'
-                              : section === 'Suprimentos'
-                                ? 'Suprimentos'
-                                : section === 'RelatoriosEstoque'
-                                  ? 'Relatorios'
-                                  : 'Entrada de producoes'}
+                        {getSectionDisplayLabel(section)}
                       </button>
                     ))}
                   </div>
@@ -19500,12 +19778,19 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                   key={section}
                   type="button"
                   className={activeSection === section ? 'nav-item active' : 'nav-item'}
-                  onClick={() => setActiveSection(section)}
+                  onClick={() => handleSectionNavigation(section)}
                 >
                   {section}
                 </button>
               ))}
-            <button type="button" className="nav-item sidebar-logout" onClick={logout}>
+            <button
+              type="button"
+              className="nav-item sidebar-logout"
+              onClick={() => {
+                setIsMobileSidebarOpen(false)
+                logout()
+              }}
+            >
               Sair
             </button>
           </nav>
@@ -19515,6 +19800,21 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
 
       <main className="content">
         <div className="shell">
+        <section className="mobile-topbar">
+          <button
+            type="button"
+            className="ghost-button mobile-menu-button"
+            onClick={() => setIsMobileSidebarOpen((current) => !current)}
+            aria-expanded={isMobileSidebarOpen}
+            aria-label={isMobileSidebarOpen ? 'Fechar menu principal' : 'Abrir menu principal'}
+          >
+            {isMobileSidebarOpen ? '✕' : '☰'}
+          </button>
+          <div className="mobile-topbar-copy">
+            <p className="kicker">Navegacao</p>
+            <strong>{getSectionDisplayLabel(activeSection)}</strong>
+          </div>
+        </section>
         {currentCompany ? (
           <section className="hero-panel">
             <div>
@@ -20305,6 +20605,18 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                 <span>Codigo do item (fabricante)</span>
                 <input value={serviceItemForm.manufacturerCode} onChange={(event) => updateServiceItemForm('manufacturerCode', event.target.value)} />
               </label>
+              <label className="field field-wide">
+                <span>Setor *</span>
+                <MultiSelectChips
+                  selectedValues={serviceItemForm.sectors}
+                  suggestions={dynamicSectorSuggestions}
+                  inputValue={serviceItemSectorInput}
+                  onInputChange={(value) => setServiceItemSectorInput(normalizeRegistrationText(value))}
+                  onChange={(nextValues) => updateServiceItemForm('sectors', nextValues)}
+                  placeholder="BUSQUE E SELECIONE SETORES"
+                  onHideSuggestion={canDeleteSectors && (isManagerUser || isSystemAdmin) ? requestDeleteSector : undefined}
+                />
+              </label>
               <label className="field">
                 <span>Tipo do item *</span>
                 <SingleValueAutocomplete
@@ -20964,6 +21276,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                             <>
                               <option value="GRAM">GRAMA</option>
                               <option value="MILLILITER">MILILITRO</option>
+                              <option value="UNIT">UNIDADE</option>
                             </>
                           )}
                         </select>
@@ -21034,18 +21347,29 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
               {technicalSheetEditingIngredient ? (
                 <div className="ingredient-entry-form">
                   <div className="ingredient-row ingredient-row-entry">
-                    <label className="field field-wide">
+                    <div className="field field-wide">
                       <span>Insumo</span>
-                      <input
-                        list={technicalSheetProductListId}
-                        value={technicalSheetEditingIngredient.productLabel}
-                        onChange={(event) =>
-                          updateTechnicalSheetIngredientProductLabel(technicalSheetEditingIngredient.id, event.target.value)
-                        }
-                        onKeyDown={(event) => handleTechnicalSheetIngredientEnter(event, technicalSheetEditingIngredient.id)}
-                        placeholder="DIGITE O PRODUTO"
-                      />
-                    </label>
+                      <div className="inline-select-action">
+                        <input
+                          list={technicalSheetProductListId}
+                          value={technicalSheetEditingIngredient.productLabel}
+                          onChange={(event) =>
+                            updateTechnicalSheetIngredientProductLabel(technicalSheetEditingIngredient.id, event.target.value)
+                          }
+                          onKeyDown={(event) => handleTechnicalSheetIngredientEnter(event, technicalSheetEditingIngredient.id)}
+                          placeholder="DIGITE O PRODUTO"
+                        />
+                        {technicalSheetEditingIngredient.productId.trim() === '' && technicalSheetEditingIngredient.productLabel.trim() !== '' ? (
+                          <button
+                            type="button"
+                            className="ghost-button"
+                            onClick={() => openTechnicalSheetIngredientProductModal(technicalSheetEditingIngredient.id)}
+                          >
+                            Cadastrar
+                          </button>
+                        ) : null}
+                      </div>
+                    </div>
                     <label className="field">
                       <span>Entrada</span>
                       <input
@@ -21171,26 +21495,42 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                   {technicalSheetEditingGarnishIngredient ? (
                     <div className="ingredient-entry-form">
                       <div className="ingredient-row ingredient-row-entry">
-                        <label className="field field-wide">
+                        <div className="field field-wide">
                           <span>Insumo</span>
-                          <input
-                            list={technicalSheetProductListId}
-                            value={technicalSheetEditingGarnishIngredient.productLabel}
-                            onChange={(event) =>
-                              updateTechnicalSheetGarnishIngredientProductLabel(
-                                technicalSheetEditingGarnishIngredient.id,
-                                event.target.value,
-                              )
-                            }
-                            onKeyDown={(event) =>
-                              handleTechnicalSheetGarnishIngredientEnter(
-                                event,
-                                technicalSheetEditingGarnishIngredient.id,
-                              )
-                            }
-                            placeholder="DIGITE O PRODUTO"
-                          />
-                        </label>
+                          <div className="inline-select-action">
+                            <input
+                              list={technicalSheetProductListId}
+                              value={technicalSheetEditingGarnishIngredient.productLabel}
+                              onChange={(event) =>
+                                updateTechnicalSheetGarnishIngredientProductLabel(
+                                  technicalSheetEditingGarnishIngredient.id,
+                                  event.target.value,
+                                )
+                              }
+                              onKeyDown={(event) =>
+                                handleTechnicalSheetGarnishIngredientEnter(
+                                  event,
+                                  technicalSheetEditingGarnishIngredient.id,
+                                )
+                              }
+                              placeholder="DIGITE O PRODUTO"
+                            />
+                            {technicalSheetEditingGarnishIngredient.productId.trim() === '' &&
+                            technicalSheetEditingGarnishIngredient.productLabel.trim() !== '' ? (
+                              <button
+                                type="button"
+                                className="ghost-button"
+                                onClick={() =>
+                                  openTechnicalSheetGarnishIngredientProductModal(
+                                    technicalSheetEditingGarnishIngredient.id,
+                                  )
+                                }
+                              >
+                                Cadastrar
+                              </button>
+                            ) : null}
+                          </div>
+                        </div>
                         <label className="field">
                           <span>Entrada</span>
                           <input
@@ -21345,18 +21685,30 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
               {technicalSheetEditingServiceItem ? (
                 <div className="ingredient-entry-form">
                   <div className="ingredient-row ingredient-row-entry">
-                    <label className="field field-wide">
+                    <div className="field field-wide">
                       <span>Recipiente</span>
-                      <input
-                        list={technicalSheetServiceItemListId}
-                        value={technicalSheetEditingServiceItem.itemLabel}
-                        onChange={(event) =>
-                          updateTechnicalSheetServiceItemLabel(technicalSheetEditingServiceItem.id, event.target.value)
-                        }
-                        onKeyDown={(event) => handleTechnicalSheetServiceItemEnter(event, technicalSheetEditingServiceItem.id)}
-                        placeholder="DIGITE O RECIPIENTE"
-                      />
-                    </label>
+                      <div className="inline-select-action">
+                        <input
+                          list={technicalSheetServiceItemListId}
+                          value={technicalSheetEditingServiceItem.itemLabel}
+                          onChange={(event) =>
+                            updateTechnicalSheetServiceItemLabel(technicalSheetEditingServiceItem.id, event.target.value)
+                          }
+                          onKeyDown={(event) => handleTechnicalSheetServiceItemEnter(event, technicalSheetEditingServiceItem.id)}
+                          placeholder="DIGITE O RECIPIENTE"
+                        />
+                        {technicalSheetEditingServiceItem.itemId.trim() === '' &&
+                        technicalSheetEditingServiceItem.itemLabel.trim() !== '' ? (
+                          <button
+                            type="button"
+                            className="ghost-button"
+                            onClick={() => openTechnicalSheetServiceItemModalFromDraft(technicalSheetEditingServiceItem.id)}
+                          >
+                            Cadastrar
+                          </button>
+                        ) : null}
+                      </div>
+                    </div>
                     <label className="field">
                       <span>Entrada</span>
                       <input
@@ -21501,8 +21853,8 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                 ) : (
                   <>
                     <div>
-                      <span>{technicalSheetForm.outputUnit === 'MILLILITER' ? 'Volume final' : 'Peso final'}</span>
-                      <strong>{formatDecimal(technicalSheetTotals.totalYield)} {technicalSheetForm.outputUnit === 'MILLILITER' ? 'ML' : 'G'}</strong>
+                      <span>{technicalSheetForm.outputUnit === 'MILLILITER' ? 'Volume final' : technicalSheetForm.outputUnit === 'GRAM' ? 'Peso final' : 'Quantidade final'}</span>
+                      <strong>{formatDecimal(technicalSheetTotals.totalYield)} {formatControlUnitShort(technicalSheetForm.outputUnit)}</strong>
                     </div>
                     <div>
                       <span>Custo total da receita</span>
@@ -21522,7 +21874,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                     </div>
                     <div>
                       <span>Porcao considerada</span>
-                      <strong>{formatDecimal(technicalSheetTotals.portionSize)} {technicalSheetForm.outputUnit === 'MILLILITER' ? 'ML' : 'G'}</strong>
+                      <strong>{formatDecimal(technicalSheetTotals.portionSize)} {formatControlUnitShort(technicalSheetForm.outputUnit)}</strong>
                     </div>
                   </>
                 )}
@@ -24915,84 +25267,82 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                     <h2>Acessos do perfil</h2>
                   </div>
 	                </div>
-		                <div className="access-menu-list">
-		                  <label className="checkbox-row access-menu-item">
-		                    <input
-		                      type="checkbox"
-		                      checked={accessProfileForm.sectionAccess.Receituarios}
-		                      onChange={(event) =>
-		                        updateAccessProfileSectionAccess('Receituarios', event.target.checked)
-		                      }
-		                    />
-		                    <span>Receituarios</span>
-		                  </label>
-		                  <div className="access-group-card">
-		                    <label className="checkbox-row access-group-title access-menu-item">
+                  <div className="settings-block-list">
+                    <section className="settings-block">
+		                  <div className="access-menu-list">
+		                    <label className="checkbox-row access-menu-item">
 		                      <input
 		                        type="checkbox"
-		                        checked={cadastroAccessSectionOptions.every((section) => accessProfileForm.sectionAccess[section.key])}
-		                        onChange={(event) => updateAccessProfileCadastrosAccess(event.target.checked)}
-		                      />
-		                      <span>Cadastros</span>
-		                    </label>
-		                    <p className="access-group-copy">
-		                      Dentro de Cadastros: Fichas Tecnicas, Produtos, Utensilios e Recipientes e Configuracoes.
-		                    </p>
-		                    <div className="access-group-children">
-		                      {cadastroAccessSectionOptions.map((section) => (
-		                        <label key={section.key} className="checkbox-row access-group-child">
-		                          <input
-		                            type="checkbox"
-		                            checked={accessProfileForm.sectionAccess[section.key]}
-		                            onChange={(event) =>
-		                              updateAccessProfileSectionAccess(section.key, event.target.checked)
-		                            }
-		                          />
-		                          <span>{section.label}</span>
-		                        </label>
-		                      ))}
-		                    </div>
-		                  </div>
-		                  <div className="access-group-card">
-		                    <label className="checkbox-row access-group-title access-menu-item">
-		                      <input
-		                        type="checkbox"
-		                        checked={estoqueAccessSectionOptions.every((section) => accessProfileForm.sectionAccess[section.key])}
-		                        onChange={(event) => updateAccessProfileEstoqueAccess(event.target.checked)}
-		                      />
-		                      <span>Estoque</span>
-		                    </label>
-		                    <p className="access-group-copy">
-		                      Dentro de Estoque: Centros de estoque, Inventario, Requisicao, Suprimentos e Entrada de producoes.
-		                    </p>
-		                    <div className="access-group-children">
-		                      {estoqueAccessSectionOptions.map((section) => (
-		                        <label key={section.key} className="checkbox-row access-group-child">
-		                          <input
-		                            type="checkbox"
-		                            checked={accessProfileForm.sectionAccess[section.key]}
-		                            onChange={(event) =>
-		                              updateAccessProfileSectionAccess(section.key, event.target.checked)
-		                            }
-		                          />
-		                          <span>{section.label}</span>
-		                        </label>
-		                      ))}
-		                    </div>
-		                  </div>
-		                  {(['Empresa', 'Usuarios'] as const).map((section) => (
-		                    <label key={section} className="checkbox-row access-menu-item">
-		                      <input
-		                        type="checkbox"
-		                        checked={accessProfileForm.sectionAccess[section]}
+		                        checked={accessProfileForm.sectionAccess.Receituarios}
 		                        onChange={(event) =>
-		                          updateAccessProfileSectionAccess(section, event.target.checked)
+		                          updateAccessProfileSectionAccess('Receituarios', event.target.checked)
 		                        }
 		                      />
-		                      <span>{section}</span>
+		                      <span>Receituarios</span>
 		                    </label>
-		                  ))}
-		                </div>
+		                    <div className="access-group-card">
+		                      <label className="checkbox-row access-group-title access-menu-item">
+		                        <input
+		                          type="checkbox"
+		                          checked={cadastroAccessSectionOptions.every((section) => accessProfileForm.sectionAccess[section.key])}
+		                          onChange={(event) => updateAccessProfileCadastrosAccess(event.target.checked)}
+		                        />
+		                        <span>Cadastros</span>
+		                      </label>
+		                      <div className="access-group-children">
+		                        {cadastroAccessSectionOptions.map((section) => (
+		                          <label key={section.key} className="checkbox-row access-group-child">
+		                            <input
+		                              type="checkbox"
+		                              checked={accessProfileForm.sectionAccess[section.key]}
+		                              onChange={(event) =>
+		                                updateAccessProfileSectionAccess(section.key, event.target.checked)
+		                              }
+		                            />
+		                            <span>{section.label}</span>
+		                          </label>
+		                        ))}
+		                      </div>
+		                    </div>
+		                    <div className="access-group-card">
+		                      <label className="checkbox-row access-group-title access-menu-item">
+		                        <input
+		                          type="checkbox"
+		                          checked={estoqueAccessSectionOptions.every((section) => accessProfileForm.sectionAccess[section.key])}
+		                          onChange={(event) => updateAccessProfileEstoqueAccess(event.target.checked)}
+		                        />
+		                        <span>Estoque</span>
+		                      </label>
+		                      <div className="access-group-children">
+		                        {estoqueAccessSectionOptions.map((section) => (
+		                          <label key={section.key} className="checkbox-row access-group-child">
+		                            <input
+		                              type="checkbox"
+		                              checked={accessProfileForm.sectionAccess[section.key]}
+		                              onChange={(event) =>
+		                                updateAccessProfileSectionAccess(section.key, event.target.checked)
+		                              }
+		                            />
+		                            <span>{section.label}</span>
+		                          </label>
+		                        ))}
+		                      </div>
+		                    </div>
+		                    {(['Empresa', 'Usuarios'] as const).map((section) => (
+		                      <label key={section} className="checkbox-row access-menu-item">
+		                        <input
+		                          type="checkbox"
+		                          checked={accessProfileForm.sectionAccess[section]}
+		                          onChange={(event) =>
+		                            updateAccessProfileSectionAccess(section, event.target.checked)
+		                          }
+		                        />
+		                        <span>{section}</span>
+		                      </label>
+		                    ))}
+		                  </div>
+                    </section>
+                  </div>
 	              </div>
               <div className="field field-span-all">
                 <div className="section-heading section-heading-inline">
@@ -25001,104 +25351,126 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                     <h2>Permissoes de opcoes de cadastro</h2>
                   </div>
                 </div>
-                <div className="checkbox-grid">
-                  <div className="catalog-access-grid">
-                    <div className="catalog-access-row">
-                      <span className="catalog-access-label">Setores</span>
-                      <label className="checkbox-row">
-                        <input
-                          type="checkbox"
-                          checked={accessProfileForm.catalogAccess.sectorsCreate}
-                          onChange={(event) => updateAccessProfileCatalogAccess('sectorsCreate', event.target.checked)}
-                        />
-                        <span>Cadastrar</span>
-                      </label>
-                      <label className="checkbox-row">
-                        <input
-                          type="checkbox"
-                          checked={accessProfileForm.catalogAccess.sectorsDelete}
-                          onChange={(event) => updateAccessProfileCatalogAccess('sectorsDelete', event.target.checked)}
-                        />
-                        <span>Excluir</span>
-                      </label>
+                <div className="settings-block-list">
+                  <section className="settings-block">
+                    <div className="settings-field-list access-menu-list">
+                      <article className="settings-field-row access-menu-item profile-permission-row">
+                        <div className="settings-field-copy">
+                          <strong>Setores</strong>
+                        </div>
+                        <div className="settings-field-control catalog-access-actions">
+                          <label className="checkbox-row">
+                            <input
+                              type="checkbox"
+                              checked={accessProfileForm.catalogAccess.sectorsCreate}
+                              onChange={(event) => updateAccessProfileCatalogAccess('sectorsCreate', event.target.checked)}
+                            />
+                            <span>Cadastrar</span>
+                          </label>
+                          <label className="checkbox-row">
+                            <input
+                              type="checkbox"
+                              checked={accessProfileForm.catalogAccess.sectorsDelete}
+                              onChange={(event) => updateAccessProfileCatalogAccess('sectorsDelete', event.target.checked)}
+                            />
+                            <span>Excluir</span>
+                          </label>
+                        </div>
+                      </article>
+                      <article className="settings-field-row access-menu-item profile-permission-row">
+                        <div className="settings-field-copy">
+                          <strong>Familias</strong>
+                        </div>
+                        <div className="settings-field-control catalog-access-actions">
+                          <label className="checkbox-row">
+                            <input
+                              type="checkbox"
+                              checked={accessProfileForm.catalogAccess.familiesCreate}
+                              onChange={(event) => updateAccessProfileCatalogAccess('familiesCreate', event.target.checked)}
+                            />
+                            <span>Cadastrar</span>
+                          </label>
+                          <label className="checkbox-row">
+                            <input
+                              type="checkbox"
+                              checked={accessProfileForm.catalogAccess.familiesDelete}
+                              onChange={(event) => updateAccessProfileCatalogAccess('familiesDelete', event.target.checked)}
+                            />
+                            <span>Excluir</span>
+                          </label>
+                        </div>
+                      </article>
+                      <article className="settings-field-row access-menu-item profile-permission-row">
+                        <div className="settings-field-copy">
+                          <strong>Subfamilias</strong>
+                        </div>
+                        <div className="settings-field-control catalog-access-actions">
+                          <label className="checkbox-row">
+                            <input
+                              type="checkbox"
+                              checked={accessProfileForm.catalogAccess.subfamiliesCreate}
+                              onChange={(event) => updateAccessProfileCatalogAccess('subfamiliesCreate', event.target.checked)}
+                            />
+                            <span>Cadastrar</span>
+                          </label>
+                          <label className="checkbox-row">
+                            <input
+                              type="checkbox"
+                              checked={accessProfileForm.catalogAccess.subfamiliesDelete}
+                              onChange={(event) => updateAccessProfileCatalogAccess('subfamiliesDelete', event.target.checked)}
+                            />
+                            <span>Excluir</span>
+                          </label>
+                        </div>
+                      </article>
+                      <article className="settings-field-row access-menu-item profile-permission-row">
+                        <div className="settings-field-copy">
+                          <strong>Tipo do item</strong>
+                        </div>
+                        <div className="settings-field-control catalog-access-actions">
+                          <label className="checkbox-row">
+                            <input
+                              type="checkbox"
+                              checked={accessProfileForm.catalogAccess.itemTypesCreate}
+                              onChange={(event) => updateAccessProfileCatalogAccess('itemTypesCreate', event.target.checked)}
+                            />
+                            <span>Cadastrar</span>
+                          </label>
+                          <label className="checkbox-row">
+                            <input
+                              type="checkbox"
+                              checked={accessProfileForm.catalogAccess.itemTypesDelete}
+                              onChange={(event) => updateAccessProfileCatalogAccess('itemTypesDelete', event.target.checked)}
+                            />
+                            <span>Excluir</span>
+                          </label>
+                        </div>
+                      </article>
+                      <article className="settings-field-row access-menu-item profile-permission-row">
+                        <div className="settings-field-copy">
+                          <strong>Material</strong>
+                        </div>
+                        <div className="settings-field-control catalog-access-actions">
+                          <label className="checkbox-row">
+                            <input
+                              type="checkbox"
+                              checked={accessProfileForm.catalogAccess.materialsCreate}
+                              onChange={(event) => updateAccessProfileCatalogAccess('materialsCreate', event.target.checked)}
+                            />
+                            <span>Cadastrar</span>
+                          </label>
+                          <label className="checkbox-row">
+                            <input
+                              type="checkbox"
+                              checked={accessProfileForm.catalogAccess.materialsDelete}
+                              onChange={(event) => updateAccessProfileCatalogAccess('materialsDelete', event.target.checked)}
+                            />
+                            <span>Excluir</span>
+                          </label>
+                        </div>
+                      </article>
                     </div>
-                    <div className="catalog-access-row">
-                      <span className="catalog-access-label">Familias</span>
-                      <label className="checkbox-row">
-                        <input
-                          type="checkbox"
-                          checked={accessProfileForm.catalogAccess.familiesCreate}
-                          onChange={(event) => updateAccessProfileCatalogAccess('familiesCreate', event.target.checked)}
-                        />
-                        <span>Cadastrar</span>
-                      </label>
-                      <label className="checkbox-row">
-                        <input
-                          type="checkbox"
-                          checked={accessProfileForm.catalogAccess.familiesDelete}
-                          onChange={(event) => updateAccessProfileCatalogAccess('familiesDelete', event.target.checked)}
-                        />
-                        <span>Excluir</span>
-                      </label>
-                    </div>
-                    <div className="catalog-access-row">
-                      <span className="catalog-access-label">Subfamilias</span>
-                      <label className="checkbox-row">
-                        <input
-                          type="checkbox"
-                          checked={accessProfileForm.catalogAccess.subfamiliesCreate}
-                          onChange={(event) => updateAccessProfileCatalogAccess('subfamiliesCreate', event.target.checked)}
-                        />
-                        <span>Cadastrar</span>
-                      </label>
-                      <label className="checkbox-row">
-                        <input
-                          type="checkbox"
-                          checked={accessProfileForm.catalogAccess.subfamiliesDelete}
-                          onChange={(event) => updateAccessProfileCatalogAccess('subfamiliesDelete', event.target.checked)}
-                        />
-                        <span>Excluir</span>
-                      </label>
-                    </div>
-                    <div className="catalog-access-row">
-                      <span className="catalog-access-label">Tipo do item</span>
-                      <label className="checkbox-row">
-                        <input
-                          type="checkbox"
-                          checked={accessProfileForm.catalogAccess.itemTypesCreate}
-                          onChange={(event) => updateAccessProfileCatalogAccess('itemTypesCreate', event.target.checked)}
-                        />
-                        <span>Cadastrar</span>
-                      </label>
-                      <label className="checkbox-row">
-                        <input
-                          type="checkbox"
-                          checked={accessProfileForm.catalogAccess.itemTypesDelete}
-                          onChange={(event) => updateAccessProfileCatalogAccess('itemTypesDelete', event.target.checked)}
-                        />
-                        <span>Excluir</span>
-                      </label>
-                    </div>
-                    <div className="catalog-access-row">
-                      <span className="catalog-access-label">Material</span>
-                      <label className="checkbox-row">
-                        <input
-                          type="checkbox"
-                          checked={accessProfileForm.catalogAccess.materialsCreate}
-                          onChange={(event) => updateAccessProfileCatalogAccess('materialsCreate', event.target.checked)}
-                        />
-                        <span>Cadastrar</span>
-                      </label>
-                      <label className="checkbox-row">
-                        <input
-                          type="checkbox"
-                          checked={accessProfileForm.catalogAccess.materialsDelete}
-                          onChange={(event) => updateAccessProfileCatalogAccess('materialsDelete', event.target.checked)}
-                        />
-                        <span>Excluir</span>
-                      </label>
-                    </div>
-                  </div>
+                  </section>
                 </div>
               </div>
               <div className="field field-span-all">
@@ -25110,8 +25482,8 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                 </div>
                 <div className="settings-block-list">
                   <section className="settings-block">
-                    <div className="settings-field-list">
-                      <article className="settings-field-row">
+                    <div className="settings-field-list access-menu-list">
+                      <article className="settings-field-row access-menu-item profile-permission-row">
                         <div className="settings-field-copy">
                           <strong>Editar itens do resumo do inventario</strong>
                         </div>
@@ -25126,7 +25498,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                           <span>Permitir</span>
                         </label>
                       </article>
-                      <article className="settings-field-row">
+                      <article className="settings-field-row access-menu-item profile-permission-row">
                         <div className="settings-field-copy">
                           <strong>Excluir itens do resumo do inventario</strong>
                         </div>
@@ -25141,7 +25513,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                           <span>Permitir</span>
                         </label>
                       </article>
-                      <article className="settings-field-row">
+                      <article className="settings-field-row access-menu-item profile-permission-row">
                         <div className="settings-field-copy">
                           <strong>Reabrir inventarios fechados</strong>
                         </div>
@@ -25156,7 +25528,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                           <span>Permitir</span>
                         </label>
                       </article>
-                      <article className="settings-field-row">
+                      <article className="settings-field-row access-menu-item profile-permission-row">
                         <div className="settings-field-copy">
                           <strong>Excluir inventarios fechados</strong>
                         </div>
@@ -25211,7 +25583,6 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                         type="button"
                         className={profile.isActive ? 'warning-button' : 'ghost-button'}
                         onClick={() => toggleAccessProfileStatus(profile.id)}
-                        disabled={profile.id < 0}
                       >
                         {profile.isActive ? 'Inativar' : 'Ativar'}
                       </button>
@@ -25219,7 +25590,6 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                         type="button"
                         className="danger-button"
                         onClick={() => deleteAccessProfile(profile.id)}
-                        disabled={profile.id < 0}
                       >
                         Excluir
                       </button>
@@ -25825,6 +26195,19 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                 <span>Codigo do item (fabricante)</span>
                 <input value={serviceItemForm.manufacturerCode} onChange={(event) => updateServiceItemForm('manufacturerCode', event.target.value)} />
               </label>
+              <div className="field field-wide">
+                <span>Setores *</span>
+                <MultiSelectChips
+                  selectedValues={serviceItemForm.sectors}
+                  suggestions={dynamicSectorSuggestions}
+                  inputValue={serviceItemSectorInput}
+                  onInputChange={(value) => setServiceItemSectorInput(normalizeRegistrationText(value))}
+                  onChange={(nextValues) => updateServiceItemForm('sectors', nextValues)}
+                  placeholder="BUSQUE E SELECIONE SETORES"
+                  onHideSuggestion={canDeleteSectors && (isManagerUser || isSystemAdmin) ? requestDeleteSector : undefined}
+                  allowCreate={canCreateSectors}
+                />
+              </div>
               <label className="field">
                 <span>Tipo do item *</span>
                 <SingleValueAutocomplete
@@ -31409,6 +31792,7 @@ function buildServiceItemInventoryLabel(item: ServiceItemRecord) {
 function isOperationalInventoryMovementLocation(value: string) {
   return (
     value === 'ENTRADA DE PRODUCAO' ||
+    value === 'SAIDA PARA PRODUCAO' ||
     value === 'SAIDA PARA REQUISICAO' ||
     value === 'RECEBIMENTO DE REQUISICAO'
   )
@@ -34359,7 +34743,8 @@ function calculateTechnicalSheetCost(
     .filter((ingredient) => ingredient.isActive)
     .reduce((sum, ingredient) => {
       const quantity = parseDecimal(ingredient.quantity) ?? 0
-      const linkedTechnicalSheet = technicalSheets.find((item) => item.productId === ingredient.productId) ?? null
+      const linkedTechnicalSheet =
+        technicalSheets.find((item) => item.productId === ingredient.productId && item.companyId === sheet.companyId) ?? null
 
       if (linkedTechnicalSheet) {
         const linkedCost: number = calculateTechnicalSheetCost(linkedTechnicalSheet, technicalSheets, products, nextVisited)
@@ -34408,7 +34793,7 @@ function calculateTechnicalSheetAlcoholPercentage(
         return (
           sum +
           yieldQuantity *
-            calculateTechnicalSheetAlcoholPercentage(linkedTechnicalSheet, technicalSheets, products, nextVisited)
+            (calculateTechnicalSheetAlcoholPercentage(linkedTechnicalSheet, technicalSheets, products, nextVisited) / 100)
         )
       }
 

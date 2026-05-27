@@ -1,6 +1,6 @@
 # Decisoes do Projeto
 
-Ultima atualizacao: 2026-05-19
+Ultima atualizacao: 2026-05-26
 
 ## Objetivo deste arquivo
 
@@ -82,6 +82,16 @@ Registrar o que foi decidido, o que foi adiado e o que foi descartado, com foco 
 
 - Decisao: nao atacar agora o aviso de chunks grandes do build.
 - Motivo: nao estava no caminho critico das ultimas tarefas.
+- Status: adiado.
+
+### O bundle grande do frontend fica como melhoria futura, nao como bloqueio de deploy
+
+- Decisao: manter o deploy atual mesmo com aviso de chunk acima de 500 kB, e tratar isso depois como melhoria de performance.
+- Motivo: o sistema ja conseguiu build e deploy com sucesso no Render; o problema e de carregamento/otimizacao, nao de funcionalidade.
+- Direcao futura:
+  - adotar `dynamic import()`
+  - quebrar [`src/App.tsx`](/home/leomassoni/Documentos/Igarapé/Projetos/TCC-SP/gestor-estoque/src/App.tsx) em partes menores
+  - avaliar `manualChunks`
 - Status: adiado.
 
 ### Criar modais aninhados para EXECUCAO e VENDA

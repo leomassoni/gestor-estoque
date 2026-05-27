@@ -1,6 +1,6 @@
 # Status do Sistema
 
-Ultima atualizacao: 2026-05-19
+Ultima atualizacao: 2026-05-26
 
 ## Objetivo deste arquivo
 
@@ -11,6 +11,7 @@ Registrar em que pe o sistema esta hoje, por area, para consulta rapida antes de
 - O projeto esta funcionalmente concentrado em um frontend React/Vite com grande parte da logica em [`src/App.tsx`](/home/leomassoni/Documentos/Igarapé/Projetos/TCC-SP/gestor-estoque/src/App.tsx).
 - O backend local existe em `server/`, mas o acompanhamento recente de produto aconteceu principalmente no frontend.
 - Nao ha historico Git util neste diretorio no momento; este arquivo passa a ser a referencia manual de progresso.
+- O projeto agora possui repositorio proprio no GitHub, `render.yaml` para deploy no Render e base Prisma preparada para PostgreSQL.
 
 ## Cadastro de fichas tecnicas
 
@@ -100,6 +101,12 @@ Registrar em que pe o sistema esta hoje, por area, para consulta rapida antes de
 - O projeto ainda depende fortemente de estado local e renderizacao centralizada.
 - Nao existe ainda um historico estruturado de releases, tarefas e regressos anteriores fora destes arquivos em `docs/`.
 - O bundle web esta grande; o build gera aviso de chunk acima de 500 kB.
+- O deploy no Render foi concluido com sucesso, mas os logs confirmam que o frontend continua com bundle principal muito grande.
+  - Isso nao bloqueia operacao nem deploy.
+  - Fica como melhoria futura de performance:
+    - code splitting com `dynamic import()`
+    - quebrar [`src/App.tsx`](/home/leomassoni/Documentos/Igarapé/Projetos/TCC-SP/gestor-estoque/src/App.tsx) em modulos menores
+    - avaliar `manualChunks` no Vite/Rollup
 - Ainda nao existe integracao com relatorios de venda / ponto de venda externo.
   - Isso limita relatorios mais avancados de consumo teorico vs venda, CMV real por periodo e comparacoes entre estoque e venda.
 - Ha uma regressao aberta no cadastro de `Centros de estoque` produtores:
