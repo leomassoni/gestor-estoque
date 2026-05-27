@@ -12233,8 +12233,27 @@ export default function App() {
       return
     }
 
+    if (!selectedRequisitionLatestInventoryDate) {
+      setSaveFeedback({
+        status: 'error',
+        title: 'Requisicao indisponivel',
+        message: 'Este centro ainda nao possui inventario consolidado para gerar requisicao.',
+      })
+      return
+    }
+
+    const nextDraftLines = buildRequisitionDraftLines(selectedRequisitionStockCenter)
+    if (nextDraftLines.length === 0) {
+      setSaveFeedback({
+        status: 'error',
+        title: 'Requisicao sem itens',
+        message: 'Nao ha itens com estoque minimo configurado para este centro de estoque.',
+      })
+      return
+    }
+
     setEditingRequisitionId(null)
-    setRequisitionDraftLines(buildRequisitionDraftLines(selectedRequisitionStockCenter))
+    setRequisitionDraftLines(nextDraftLines)
     setRequisitionDraftSearch('')
     setIsRequisitionEditModalOpen(false)
     setRequisitionTab('new')
@@ -24082,7 +24101,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                           type="button"
                           className="primary-button"
                           onClick={generateRequisitionDraft}
-                          disabled={!selectedRequisitionStockCenter || !selectedRequisitionLatestInventoryDate}
+                          disabled={!selectedRequisitionStockCenter}
                         >
                           Montar requisicao
                         </button>
