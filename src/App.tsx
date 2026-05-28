@@ -190,6 +190,7 @@ type TechnicalSheetRecord = {
   colorTagOne: string
   colorTagTwo: string
   desiredCmvPercentage: string
+  dilutionRatePercentage: string
   imageDataUrl: string
   finalSalePrice: string
   flavorSweet: string
@@ -226,6 +227,7 @@ type TechnicalSheetFormState = {
   colorTagOne: string
   colorTagTwo: string
   desiredCmvPercentage: string
+  dilutionRatePercentage: string
   imageDataUrl: string
   finalSalePrice: string
   flavorSweet: string
@@ -259,6 +261,7 @@ type TechnicalSheetConfigurationFieldKey =
   | 'targetPh'
   | 'targetBrix'
   | 'desiredCmvPercentage'
+  | 'dilutionRatePercentage'
   | 'finalSalePrice'
   | 'imageDataUrl'
   | 'garnishIngredients'
@@ -1525,6 +1528,7 @@ const technicalSheetConfigurationFieldDefinitions: Array<{
   { key: 'targetPh', label: 'Meta de PH', kinds: ['PREPARO'], block: 'Controle' },
   { key: 'targetBrix', label: 'Meta de Brix', kinds: ['PREPARO'], block: 'Controle' },
   { key: 'desiredCmvPercentage', label: 'CMV desejado (%)', kinds: ['EXECUCAO', 'VENDA'], block: 'Controle' },
+  { key: 'dilutionRatePercentage', label: 'Taxa de diluicao (%)', kinds: ['EXECUCAO'], block: 'Controle' },
   { key: 'finalSalePrice', label: 'Valor de venda final', kinds: ['EXECUCAO', 'VENDA'], block: 'Controle' },
   { key: 'flavorSweet', label: 'Doce', kinds: ['EXECUCAO'], block: 'Perfil sensorial' },
   { key: 'flavorSour', label: 'Azedo', kinds: ['EXECUCAO'], block: 'Perfil sensorial' },
@@ -2446,6 +2450,7 @@ const emptyTechnicalSheetForm = (): TechnicalSheetFormState => ({
   colorTagOne: '',
   colorTagTwo: '',
   desiredCmvPercentage: '',
+  dilutionRatePercentage: '',
   imageDataUrl: '',
   finalSalePrice: '',
   flavorSweet: '0',
@@ -8348,11 +8353,17 @@ export default function App() {
     const portionSize =
       isCommercialTechnicalSheetKind(technicalSheetForm.kind) ? 1 : parseDecimal(technicalSheetForm.portionSize) ?? 0
     const manuallyDefinedOutputQuantity = parseDecimal(technicalSheetForm.outputQuantity) ?? 0
+    const dilutionRatePercentage =
+      technicalSheetForm.kind === 'EXECUCAO' ? Math.max(parseDecimal(technicalSheetForm.dilutionRatePercentage) ?? 0, 0) : 0
+    const dilutionQuantity =
+      technicalSheetForm.kind === 'EXECUCAO' ? totalMixtureVolume * (dilutionRatePercentage / 100) : 0
     const totalYield =
       technicalSheetForm.kind === 'VENDA'
         ? technicalSheetForm.outputUnit === 'COMBO'
           ? vendaComboYield
           : totalMixtureVolume
+        : technicalSheetForm.kind === 'EXECUCAO'
+          ? totalMixtureVolume + dilutionQuantity
         : technicalSheetForm.kind === 'PREPARO' && technicalSheetForm.outputUnit === 'UNIT'
           ? manuallyDefinedOutputQuantity
         : totalMixtureVolume
@@ -8362,7 +8373,8 @@ export default function App() {
     )
     const portionsYield = portionSize > 0 ? totalYield / portionSize : 0
     const costPerPortion = portionsYield > 0 ? totalRecipeCost / portionsYield : 0
-    const alcoholDenominator = totalMixtureVolume > 0 ? totalMixtureVolume : totalYield
+    const alcoholDenominator =
+      technicalSheetForm.kind === 'EXECUCAO' ? totalYield : totalMixtureVolume > 0 ? totalMixtureVolume : totalYield
     const finalAlcoholPercentage =
       alcoholDenominator > 0 ? (totalPureAlcoholVolume / alcoholDenominator) * 100 : 0
     const desiredCmvPercentage = parseDecimal(technicalSheetForm.desiredCmvPercentage) ?? 0
@@ -8393,6 +8405,7 @@ export default function App() {
     }
   }, [
     technicalSheetForm.desiredCmvPercentage,
+    technicalSheetForm.dilutionRatePercentage,
     technicalSheetForm.finalSalePrice,
     technicalSheetForm.kind,
     technicalSheetForm.portionSize,
@@ -8755,7 +8768,8 @@ export default function App() {
     const portionSize = isCommercialTechnicalSheetKind(sheet.kind) ? 1 : parseDecimal(sheet.portionSize) ?? 1000
     const portionsYield = portionSize > 0 ? safeDesiredYield / portionSize : 0
     const costPerPortion = portionsYield > 0 ? totalRecipeCost / portionsYield : 0
-    const alcoholDenominator = totalMixtureVolume > 0 ? totalMixtureVolume : safeDesiredYield
+    const alcoholDenominator =
+      sheet.kind === 'EXECUCAO' ? safeDesiredYield : totalMixtureVolume > 0 ? totalMixtureVolume : safeDesiredYield
     const finalAlcoholPercentage =
       alcoholDenominator > 0 ? (totalPureAlcoholVolume / alcoholDenominator) * 100 : 0
     const desiredCmvPercentage = parseDecimal(sheet.desiredCmvPercentage) ?? 0
@@ -16780,6 +16794,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
       colorTagOne: technicalSheet.colorTagOne || '',
       colorTagTwo: technicalSheet.colorTagTwo || '',
       desiredCmvPercentage: technicalSheet.desiredCmvPercentage || '',
+      dilutionRatePercentage: technicalSheet.dilutionRatePercentage || '',
       imageDataUrl: technicalSheet.imageDataUrl || '',
       finalSalePrice: technicalSheet.finalSalePrice || '',
       flavorSweet: technicalSheet.flavorSweet || '0',
@@ -16861,6 +16876,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
         colorTagOne: nextKind === 'PREPARO' ? current.colorTagOne : '',
         colorTagTwo: nextKind === 'PREPARO' ? current.colorTagTwo : '',
         desiredCmvPercentage: isCommercialTechnicalSheetKind(nextKind) ? current.desiredCmvPercentage : '',
+        dilutionRatePercentage: nextKind === 'EXECUCAO' ? current.dilutionRatePercentage : '',
         imageDataUrl: nextKind === 'EXECUCAO' ? current.imageDataUrl : '',
         finalSalePrice: isCommercialTechnicalSheetKind(nextKind) ? current.finalSalePrice : '',
         flavorSweet: nextKind === 'EXECUCAO' ? current.flavorSweet : '0',
@@ -17488,6 +17504,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
       colorTagOne: technicalSheetForm.kind === 'PREPARO' ? technicalSheetForm.colorTagOne.trim() : '',
       colorTagTwo: technicalSheetForm.kind === 'PREPARO' ? technicalSheetForm.colorTagTwo.trim() : '',
       desiredCmvPercentage: isCommercialTechnicalSheetKind(technicalSheetForm.kind) ? technicalSheetForm.desiredCmvPercentage.trim() : '',
+      dilutionRatePercentage: technicalSheetForm.kind === 'EXECUCAO' ? technicalSheetForm.dilutionRatePercentage.trim() : '',
       imageDataUrl: technicalSheetForm.kind === 'EXECUCAO' ? technicalSheetForm.imageDataUrl : '',
       finalSalePrice:
         isCommercialTechnicalSheetKind(technicalSheetForm.kind)
@@ -21449,6 +21466,17 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
 	                    />
 	                  </label>
 	                ) : null}
+	                {technicalSheetForm.kind === 'EXECUCAO' &&
+	                isTechnicalSheetFieldVisible(technicalSheetForm.kind, 'dilutionRatePercentage') ? (
+	                  <label className="field">
+	                    <span>Taxa de diluicao (%) {isTechnicalSheetFieldRequired(technicalSheetForm.kind, 'dilutionRatePercentage') ? '*' : ''}</span>
+	                    <input
+	                      value={technicalSheetForm.dilutionRatePercentage}
+	                      onChange={(event) => updateTechnicalSheetForm('dilutionRatePercentage', event.target.value)}
+	                      placeholder="EX.: 10"
+	                    />
+	                  </label>
+	                ) : null}
 	                {technicalSheetForm.kind === 'EXECUCAO' && isTechnicalSheetFieldVisible(technicalSheetForm.kind, 'imageDataUrl') ? (
 	                  <div className="field field-wide field-image-upload-wrapper">
                     <div className="technical-sheet-image-field">
@@ -21970,6 +21998,12 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                       <span>% alcool final</span>
                       <strong>{formatDecimal(technicalSheetTotals.finalAlcoholPercentage)}%</strong>
                     </div>
+                    {isExecutionTechnicalSheetKind(technicalSheetForm.kind) ? (
+                      <div>
+                        <span>Taxa de diluicao</span>
+                        <strong>{formatDecimal(parseDecimal(technicalSheetForm.dilutionRatePercentage) ?? 0)}%</strong>
+                      </div>
+                    ) : null}
                     <div>
                       <span>CMV desejado</span>
                       <strong>{formatDecimal(technicalSheetTotals.desiredCmvPercentage)}%</strong>
@@ -33487,6 +33521,7 @@ function recoverTechnicalSheetsFromProductsStorage() {
         colorTagOne: '',
         colorTagTwo: '',
         desiredCmvPercentage: '',
+        dilutionRatePercentage: '',
         imageDataUrl: '',
         finalSalePrice: '',
         flavorSweet: '0',
@@ -34467,6 +34502,7 @@ function normalizeTechnicalSheetRecord(value: unknown): TechnicalSheetRecord | n
     colorTagOne: typeof item.colorTagOne === 'string' ? item.colorTagOne : '',
     colorTagTwo: typeof item.colorTagTwo === 'string' ? item.colorTagTwo : '',
     desiredCmvPercentage: typeof item.desiredCmvPercentage === 'string' ? item.desiredCmvPercentage : '',
+    dilutionRatePercentage: typeof item.dilutionRatePercentage === 'string' ? item.dilutionRatePercentage : '',
     imageDataUrl: typeof item.imageDataUrl === 'string' ? item.imageDataUrl : '',
     finalSalePrice: typeof item.finalSalePrice === 'string' ? item.finalSalePrice : '',
     flavorSweet: typeof item.flavorSweet === 'string' ? item.flavorSweet : '0',
@@ -35000,6 +35036,19 @@ function calculateTechnicalSheetIngredientYieldSum(
 
 function calculateTechnicalSheetEffectiveYield(sheet: TechnicalSheetRecord) {
   const includeGarnishesInYield = sheet.kind !== 'EXECUCAO'
+
+  if (sheet.kind === 'EXECUCAO') {
+    const savedYield = parseDecimal(sheet.outputQuantity) ?? 0
+    if (savedYield > 0) {
+      return savedYield
+    }
+
+    const ingredientYield = calculateTechnicalSheetIngredientYieldSum(sheet, {
+      includeGarnishes: includeGarnishesInYield,
+    })
+
+    return ingredientYield
+  }
 
   if (sheet.kind === 'VENDA') {
     if (sheet.outputUnit === 'COMBO') {
