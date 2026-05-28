@@ -62,6 +62,7 @@ type AppUserRecord = {
   password: string
   role: CompanyUserRole
   companyId: number | null
+  companyIds: number[]
   sectors: string[]
   sectionAccess: UserSectionAccess
   catalogAccess: UserCatalogAccess
@@ -1099,6 +1100,7 @@ type UserFormState = {
   username: string
   password: string
   role: CompanyUserRole
+  companyIds: number[]
   sectors: string[]
   sectionAccess: UserSectionAccess
   catalogAccess: UserCatalogAccess
@@ -2420,6 +2422,7 @@ const emptyUserForm = (): UserFormState => ({
   username: '',
   password: '',
   role: 'Gestor',
+  companyIds: [],
   sectors: [],
   sectionAccess: defaultSectionAccessByRole('Gestor'),
   catalogAccess: defaultCatalogAccessByRole('Gestor'),
@@ -2968,6 +2971,7 @@ export default function App() {
   const [editingUserId, setEditingUserId] = useState<number | null>(null)
   const [userActionState, setUserActionState] =
     useState<{ action: 'disable' | 'enable' | 'delete'; userId: number } | null>(null)
+  const [userCompanyInput, setUserCompanyInput] = useState('')
 
   const [editingProductId, setEditingProductId] = useState<string | null>(null)
   const [productForm, setProductForm] = useState<ProductFormState>(emptyProductForm())
@@ -3092,16 +3096,36 @@ export default function App() {
   )
   const currentUserSectorScope = session?.kind === 'appUser' ? session.user.sectors : []
   const shouldFilterByUserSectors = session?.kind === 'appUser' && currentUserSectorScope.length > 0
+  const currentAppUser = session?.kind === 'appUser' ? session.user : null
+  const currentAppUserCompanyIds = useMemo(
+    () =>
+      currentAppUser
+        ? Array.from(
+            new Set(
+              [
+                ...(Array.isArray(currentAppUser.companyIds) ? currentAppUser.companyIds : []),
+                ...(typeof currentAppUser.companyId === 'number' ? [currentAppUser.companyId] : []),
+              ].filter((companyId): companyId is number => typeof companyId === 'number'),
+            ),
+          )
+        : [],
+    [currentAppUser],
+  )
   const currentCompany =
     currentCompanyId === null ? null : companies.find((item) => item.id === currentCompanyId) ?? null
+  const userBelongsToCompany = (user: AppUserRecord, companyId: number | null) =>
+    companyId !== null && (user.companyIds.includes(companyId) || user.companyId === companyId)
   const companyUsers = useMemo(
     () =>
       users
-        .filter((user) => currentCompanyId !== null && user.companyId === currentCompanyId && user.isActive)
+        .filter(
+          (user) =>
+            userBelongsToCompany(user, currentCompanyId) &&
+            user.isActive,
+        )
         .sort((a, b) => a.fullName.localeCompare(b.fullName, 'pt-BR')),
     [currentCompanyId, users],
   )
-  const currentAppUser = session?.kind === 'appUser' ? session.user : null
   const inventorySessionUserKey = currentAppUser ? `app-user:${currentAppUser.id}` : 'system-admin'
   const inventoryAccessibleStockCenters = useMemo(
     () =>
@@ -7850,16 +7874,15 @@ export default function App() {
   ) => currentCompanyTechnicalSheetSettings[kind][key].visible && currentCompanyTechnicalSheetSettings[kind][key].required
   const companyRecordsForView = useMemo(
     () =>
-      isSystemAdmin || isAdministrative
+      isSystemAdmin
         ? companies
-        : companies.filter((item) => item.id === currentCompanyId),
-    [companies, currentCompanyId, isAdministrative, isSystemAdmin],
+        : companies.filter((item) => currentAppUserCompanyIds.includes(item.id)),
+    [companies, currentAppUserCompanyIds, isSystemAdmin],
   )
   const visibleUsers = useMemo(
     () =>
       users.filter((item) => {
-        const companyVisible =
-          isSystemAdmin || isAdministrative ? true : currentCompanyId !== null && item.companyId === currentCompanyId
+        const companyVisible = isSystemAdmin ? true : userBelongsToCompany(item, currentCompanyId)
         if (!companyVisible) {
           return false
         }
@@ -7870,7 +7893,7 @@ export default function App() {
 
         return hasSectorOverlap(item.sectors, currentUserSectorScope)
       }),
-    [currentCompanyId, currentUserSectorScope, isAdministrative, isSystemAdmin, shouldFilterByUserSectors, users],
+    [currentCompanyId, currentUserSectorScope, isSystemAdmin, shouldFilterByUserSectors, users],
   )
   const selectableAccessProfilesByRole = useMemo(() => {
     return {
@@ -7889,6 +7912,35 @@ export default function App() {
     }
     return activeCompanyAccessProfiles.filter((profile) => profile.role === 'Colaborador')
   }, [activeCompanyAccessProfiles, canAssignPrivilegedUserRoles])
+  const userAssignableCompanies = useMemo(
+    () =>
+      companies
+        .filter((company) => (isSystemAdmin ? true : currentCompanyId !== null && company.id === currentCompanyId))
+        .sort((left, right) => left.tradeName.localeCompare(right.tradeName, 'pt-BR')),
+    [companies, currentCompanyId, isSystemAdmin],
+  )
+  const userAssignableCompanyLabels = useMemo(
+    () => userAssignableCompanies.map((company) => `${company.tradeName} (${company.cnpj || `ID ${company.id}`})`),
+    [userAssignableCompanies],
+  )
+  const userAssignableCompanyIdByLabel = useMemo(
+    () =>
+      new Map(
+        userAssignableCompanies.map((company) => [
+          normalizeRegistrationText(`${company.tradeName} (${company.cnpj || `ID ${company.id}`})`),
+          company.id,
+        ] as const),
+      ),
+    [userAssignableCompanies],
+  )
+  const selectedUserCompanyLabels = useMemo(
+    () =>
+      userForm.companyIds
+        .map((companyId) => userAssignableCompanies.find((company) => company.id === companyId) ?? null)
+        .filter((company): company is CompanyRecord => company !== null)
+        .map((company) => `${company.tradeName} (${company.cnpj || `ID ${company.id}`})`),
+    [userAssignableCompanies, userForm.companyIds],
+  )
   const generatedProductId = useMemo(() => buildProductId(productForm.name), [productForm.name])
   const generatedServiceItemId = useMemo(
     () => buildServiceItemId(serviceItemForm.name, serviceItemForm.kind),
@@ -8060,7 +8112,7 @@ export default function App() {
             .filter((item) => item.companyId === currentCompanyId)
             .flatMap((item) => item.sectors),
           ...users
-            .filter((user) => currentCompanyId === null || user.companyId === currentCompanyId)
+            .filter((user) => userBelongsToCompany(user, currentCompanyId))
             .flatMap((user) => user.sectors),
         ]
           .map((sector) => normalizeRegistrationText(sector))
@@ -9796,6 +9848,7 @@ export default function App() {
       refreshedUser.password !== session.user.password ||
       refreshedUser.role !== session.user.role ||
       refreshedUser.companyId !== session.user.companyId ||
+      refreshedUser.companyIds.join('|') !== session.user.companyIds.join('|') ||
       refreshedUser.sectors.join('|') !== session.user.sectors.join('|') ||
       JSON.stringify(refreshedUser.sectionAccess) !== JSON.stringify(session.user.sectionAccess) ||
       JSON.stringify(refreshedUser.catalogAccess) !== JSON.stringify(session.user.catalogAccess) ||
@@ -9804,6 +9857,27 @@ export default function App() {
       setSession({ kind: 'appUser', user: refreshedUser })
     }
   }, [session, users])
+
+  useEffect(() => {
+    if (session?.kind !== 'appUser') {
+      return
+    }
+
+    const accessibleCompanyIds = currentAppUserCompanyIds.filter(
+      (companyId) => companies.some((company) => company.id === companyId && company.status === 'ATIVA'),
+    )
+
+    if (accessibleCompanyIds.length === 0) {
+      logout()
+      return
+    }
+
+    if (currentCompanyId !== null && accessibleCompanyIds.includes(currentCompanyId)) {
+      return
+    }
+
+    setCurrentCompanyId(accessibleCompanyIds.length === 1 ? accessibleCompanyIds[0] : null)
+  }, [companies, currentAppUserCompanyIds, currentCompanyId, session])
 
   useEffect(() => {
     if (editingUserId !== null) {
@@ -9828,6 +9902,20 @@ export default function App() {
       }
     })
   }, [assignableAccessProfiles, editingUserId])
+
+  useEffect(() => {
+    if (editingUserId !== null || currentCompanyId === null) {
+      return
+    }
+
+    setUserForm((current) => {
+      if (isSystemAdmin) {
+        return current.companyIds.length > 0 ? current : { ...current, companyIds: [currentCompanyId] }
+      }
+
+      return { ...current, companyIds: [currentCompanyId] }
+    })
+  }, [currentCompanyId, editingUserId, isSystemAdmin])
 
   useEffect(() => {
     setUsers((current) =>
@@ -10404,24 +10492,34 @@ export default function App() {
       return
     }
 
-    if (appUser.companyId === null) {
+    const linkedCompanyIds = Array.from(
+      new Set(
+        [
+          ...(Array.isArray(appUser.companyIds) ? appUser.companyIds : []),
+          ...(typeof appUser.companyId === 'number' ? [appUser.companyId] : []),
+        ].filter((companyId): companyId is number => typeof companyId === 'number'),
+      ),
+    )
+
+    if (linkedCompanyIds.length === 0) {
       setLoginError(`O usuario ${appUser.role.toLowerCase()} nao possui empresa vinculada.`)
       return
     }
 
-    const linkedCompany = companies.find((item) => item.id === appUser.companyId)
-    if (!linkedCompany) {
+    const linkedCompanies = companies.filter((item) => linkedCompanyIds.includes(item.id))
+    if (linkedCompanies.length === 0) {
       setLoginError('A empresa vinculada a este usuario nao esta disponivel.')
       return
     }
 
-    if (linkedCompany.status !== 'ATIVA') {
+    const activeLinkedCompanies = linkedCompanies.filter((company) => company.status === 'ATIVA')
+    if (activeLinkedCompanies.length === 0) {
       setLoginError('A empresa vinculada a este usuario esta inativa.')
       return
     }
 
     setSession({ kind: 'appUser', user: appUser })
-    setCurrentCompanyId(appUser.companyId)
+    setCurrentCompanyId(activeLinkedCompanies.length === 1 ? activeLinkedCompanies[0].id : null)
     setLoginError('')
     setActiveSection('Produtos')
     setScreenMode('list')
@@ -10445,6 +10543,7 @@ export default function App() {
     setServiceItemPackages([])
     setTechnicalSheetPackages([])
     setUserForm(emptyUserForm())
+    setUserCompanyInput('')
     setUserSectorInput('')
     setTechnicalSheetScreenMode('list')
     setTechnicalSheetDraftStack([])
@@ -10484,7 +10583,7 @@ export default function App() {
 
     const matchingUsers = users.filter(
       (user) =>
-        (currentCompanyId === null || user.companyId === currentCompanyId) &&
+        userBelongsToCompany(user, currentCompanyId) &&
         user.sectors.includes(normalizedSector),
     )
     const impactedUsers = matchingUsers
@@ -10940,6 +11039,16 @@ export default function App() {
       return
     }
 
+    if (field === 'companyIds') {
+      setUserForm((current) => ({
+        ...current,
+        companyIds: Array.from(
+          new Set((value as number[]).filter((companyId): companyId is number => typeof companyId === 'number')),
+        ),
+      }))
+      return
+    }
+
     setUserForm((current) => ({ ...current, [field]: value }))
   }
 
@@ -11037,7 +11146,7 @@ export default function App() {
       userIds:
         field === 'sector'
           ? current.userIds.filter((userId) => {
-              const user = users.find((candidate) => candidate.id === userId && candidate.companyId === currentCompanyId)
+              const user = users.find((candidate) => candidate.id === userId && userBelongsToCompany(candidate, currentCompanyId))
               return typeof value === 'string' && value ? user?.sectors.includes(value) === true : false
             })
           : current.userIds,
@@ -12016,7 +12125,7 @@ export default function App() {
     }
 
     const validUserIds = Array.from(new Set(stockCenterForm.userIds)).filter((userId) => {
-      const user = users.find((candidate) => candidate.id === userId && candidate.companyId === currentCompanyId)
+      const user = users.find((candidate) => candidate.id === userId && userBelongsToCompany(candidate, currentCompanyId))
       return user?.isActive === true && user.sectors.includes(stockCenterForm.sector)
     })
 
@@ -16094,7 +16203,13 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
     const fullName = normalizeRegistrationText(userForm.fullName.trim())
     const username = userForm.username.trim()
     const password = userForm.password.trim()
-    const companyId = currentCompanyId
+    const selectedCompanyIds = Array.from(
+      new Set(
+        (isSystemAdmin ? userForm.companyIds : currentCompanyId !== null ? [currentCompanyId] : [])
+          .filter((companyId): companyId is number => typeof companyId === 'number'),
+      ),
+    )
+    const companyId = selectedCompanyIds[0] ?? currentCompanyId
     const selectedProfile =
       userForm.accessProfileId === ''
         ? null
@@ -16113,8 +16228,8 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
     if (!password) {
       errors.push('senha obrigatoria')
     }
-    if (companyId === null) {
-      errors.push('selecione uma empresa antes de cadastrar usuarios')
+    if (selectedCompanyIds.length === 0 || companyId === null) {
+      errors.push('selecione ao menos uma empresa antes de cadastrar usuarios')
     }
     if (userForm.role !== 'Administrativo' && normalizedSectors.length === 0) {
       errors.push(`ao menos 1 setor obrigatorio para usuario ${userForm.role.toLowerCase()}`)
@@ -16162,6 +16277,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
       password,
       role: selectedProfile?.role ?? userForm.role,
       companyId,
+      companyIds: selectedCompanyIds,
       sectors: normalizedSectors,
       sectionAccess: selectedProfile?.sectionAccess ?? userForm.sectionAccess,
       catalogAccess: selectedProfile?.catalogAccess ?? userForm.catalogAccess,
@@ -16175,6 +16291,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
         : [userToSave, ...current],
     )
     setUserForm(emptyUserForm())
+    setUserCompanyInput('')
     setUserSectorInput('')
     setEditingUserId(null)
     setSaveFeedback({
@@ -16195,12 +16312,14 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
 
     setActiveSection('Usuarios')
     setEditingUserId(userId)
+    setUserCompanyInput('')
     setUserSectorInput('')
     setUserForm({
       fullName: targetUser.fullName,
       username: targetUser.username,
       password: targetUser.password,
       role: targetUser.role,
+      companyIds: targetUser.companyIds.length > 0 ? targetUser.companyIds : targetUser.companyId !== null ? [targetUser.companyId] : [],
       sectors: targetUser.sectors,
       sectionAccess: targetUser.sectionAccess,
       catalogAccess: targetUser.catalogAccess,
@@ -16234,6 +16353,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
       if (editingUserId === userActionState.userId) {
         setEditingUserId(null)
         setUserForm(emptyUserForm())
+        setUserCompanyInput('')
         setUserSectorInput('')
       }
     }
@@ -16420,7 +16540,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
   }
 
   function switchCompany(companyId: number) {
-    if (!isSystemAdmin && currentCompanyId !== companyId) {
+    if (!isSystemAdmin && !currentAppUserCompanyIds.includes(companyId)) {
       return
     }
     setCurrentCompanyId(companyId)
@@ -18935,13 +19055,13 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
     )
   }
 
-  if (isSystemAdmin && currentCompanyId === null) {
+  if ((isSystemAdmin || (session?.kind === 'appUser' && currentAppUserCompanyIds.length > 1)) && currentCompanyId === null) {
     return (
       <main className="auth-shell">
         <section className="auth-card selector-card">
           <div className="selector-header">
             <div>
-              <p className="kicker">Administrador do sistema</p>
+              <p className="kicker">{isSystemAdmin ? 'Administrador do sistema' : 'Usuario multiempresa'}</p>
               <h1 className="selector-title">Selecione uma empresa</h1>
             </div>
             <button type="button" className="ghost-button" onClick={logout}>
@@ -18960,45 +19080,49 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                   <span>Status: {company.status}</span>
                   <span>{company.cnpj || 'CNPJ nao informado'}</span>
                 </button>
-                <div className="selector-row">
-                  <button
-                    type="button"
-                    className="ghost-button"
-                    onClick={() => openEditCompanyModal(company)}
-                  >
-                    Atualizar dados
-                  </button>
-                  <button
-                    type="button"
-                    className={company.status === 'ATIVA' ? 'warning-button' : 'ghost-button'}
-                    onClick={() => toggleCompanyStatus(company.id)}
-                  >
-                    {company.status === 'ATIVA' ? 'Inativar empresa' : 'Ativar empresa'}
-                  </button>
-                  {canDeleteRecords ? (
+                {isSystemAdmin ? (
+                  <div className="selector-row">
                     <button
                       type="button"
-                      className="danger-button"
-                      onClick={() => deleteCompany(company.id)}
-                      disabled={company.status !== 'INATIVA'}
+                      className="ghost-button"
+                      onClick={() => openEditCompanyModal(company)}
                     >
-                      Excluir empresa
+                      Atualizar dados
                     </button>
-                  ) : null}
-                </div>
+                    <button
+                      type="button"
+                      className={company.status === 'ATIVA' ? 'warning-button' : 'ghost-button'}
+                      onClick={() => toggleCompanyStatus(company.id)}
+                    >
+                      {company.status === 'ATIVA' ? 'Inativar empresa' : 'Ativar empresa'}
+                    </button>
+                    {canDeleteRecords ? (
+                      <button
+                        type="button"
+                        className="danger-button"
+                        onClick={() => deleteCompany(company.id)}
+                        disabled={company.status !== 'INATIVA'}
+                      >
+                        Excluir empresa
+                      </button>
+                    ) : null}
+                  </div>
+                ) : null}
               </article>
             ))}
           </div>
 
-          <div className="selector-actions">
-            <button
-              type="button"
-              className="ghost-button"
-              onClick={openCreateCompanyModal}
-            >
-              Cadastrar nova empresa
-            </button>
-          </div>
+          {isSystemAdmin ? (
+            <div className="selector-actions">
+              <button
+                type="button"
+                className="ghost-button"
+                onClick={openCreateCompanyModal}
+              >
+                Cadastrar nova empresa
+              </button>
+            </div>
+          ) : null}
         </section>
       </main>
     )
@@ -19847,7 +19971,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
               </div>
             </div>
             <div className="hero-meta">
-              {isSystemAdmin ? (
+              {isSystemAdmin || currentAppUserCompanyIds.length > 1 ? (
                 <button type="button" className="ghost-button" onClick={() => setCurrentCompanyId(null)}>
                   Trocar empresa
                 </button>
@@ -25142,6 +25266,32 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                 </button>
               </div>
             </label>
+            <div className="field field-span-all">
+              <span>Empresas vinculadas</span>
+              {isSystemAdmin ? (
+                <MultiSelectChips
+                  selectedValues={selectedUserCompanyLabels}
+                  suggestions={userAssignableCompanyLabels}
+                  inputValue={userCompanyInput}
+                  onInputChange={setUserCompanyInput}
+                  onChange={(labels) =>
+                    updateUserFormField(
+                      'companyIds',
+                      labels
+                        .map((label) => userAssignableCompanyIdByLabel.get(normalizeRegistrationText(label)) ?? null)
+                        .filter((companyId): companyId is number => typeof companyId === 'number'),
+                    )
+                  }
+                  placeholder="Busque e selecione as empresas"
+                  allowCreate={false}
+                />
+              ) : (
+                <div className="empty-state empty-state-inline requisition-info-card">
+                  <strong>{currentCompany?.tradeName || 'Nenhuma empresa selecionada'}</strong>
+                  <p>Usuarios internos ficam vinculados a empresa ativa. Vinculos multiplos sao definidos apenas pelo usuario master.</p>
+                </div>
+              )}
+            </div>
             <label className="field company-field-wide">
               <span>Perfil</span>
               <select
@@ -33512,6 +33662,14 @@ function normalizeSessionUser(value: unknown): AppUserRecord | null {
     password: user.password,
     role: user.role,
     companyId: typeof user.companyId === 'number' ? user.companyId : null,
+    companyIds: Array.from(
+      new Set(
+        [
+          ...(Array.isArray(user.companyIds) ? user.companyIds : []),
+          ...(typeof user.companyId === 'number' ? [user.companyId] : []),
+        ].filter((companyId): companyId is number => typeof companyId === 'number'),
+      ),
+    ),
     sectors: user.sectors
       .filter((item): item is string => typeof item === 'string')
       .map((item) => normalizeRegistrationText(item))
