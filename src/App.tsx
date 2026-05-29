@@ -22326,50 +22326,27 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                               </label>
                             </div>
 
-                            <div className="receituario-service-inline">
-                              <div className="section-heading">
-                                <div>
-                                  <p className="kicker">Composicao de recipientes</p>
-                                  <h3>Recipientes de servico</h3>
-                                </div>
-                              </div>
-
-                              {recipePanelData.serviceItemMetrics.length > 0 ? (
-                                <div className="table-wrap receituario-service-inline-table">
-                                  <table className="product-table">
-                                    <thead>
-                                      <tr>
-                                        <th>Recipiente</th>
-                                        <th>Tamanho/capacidade</th>
-                                      </tr>
-                                    </thead>
-                                    <tbody>
-                                      {recipePanelData.serviceItemMetrics.map((serviceItem) => (
-                                        <tr key={serviceItem.id}>
-                                          <td>
-                                            <div className="receituario-service-item-cell">
-                                              {serviceItem.imageDataUrl ? (
-                                                <img
-                                                  src={serviceItem.imageDataUrl}
-                                                  alt={`Foto de ${serviceItem.label}`}
-                                                  className="receituario-service-item-image"
-                                                />
-                                              ) : null}
-                                              <strong>{serviceItem.label}</strong>
-                                            </div>
-                                          </td>
-                                          <td>{serviceItem.sizeLabel || '-'}</td>
-                                        </tr>
-                                      ))}
-                                    </tbody>
-                                  </table>
-                                </div>
-                              ) : (
-                                <div className="empty-state empty-state-inline">
-                                  <strong>Nenhum recipiente de servico cadastrado.</strong>
-                                </div>
-                              )}
+                            <div className="receituario-summary-grid receituario-summary-grid-metrics">
+                              <article className="receituario-metric-card">
+                                <span>Rendimento final</span>
+                                <strong>
+                                  {formatDecimal(recipePanelData.desiredYield)} {getTechnicalSheetYieldUnitLabel(recipePanelData.sheet, technicalSheets, products)}
+                                </strong>
+                              </article>
+                              <article className="receituario-metric-card">
+                                <span>% alcool final</span>
+                                <strong>{formatDecimal(recipePanelData.finalAlcoholPercentage)}%</strong>
+                              </article>
+                              <article className="receituario-metric-card">
+                                <span>CMV final</span>
+                                <strong>{formatDecimal(recipePanelData.finalCmvPercentage)}%</strong>
+                              </article>
+                              <article className="receituario-metric-card">
+                                <span>Valor final de venda</span>
+                                <strong>R$ {formatMoney(recipePanelData.finalSalePrice)}</strong>
+                              </article>
                             </div>
+
                           </div>
 
                           <aside className="receituario-hero-media receituario-hero-media-execucao" aria-label="Apresentacao visual do produto">
@@ -22490,6 +22467,53 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                     </div>
                   </section>
 
+                  {recipePanelTab === 'EXECUCAO' ? (
+                    <section className="inner-panel">
+                      <div className="section-heading">
+                        <div>
+                          <p className="kicker">Composicao de recipientes</p>
+                          <h2>Recipientes de servico</h2>
+                        </div>
+                      </div>
+
+                      {recipePanelData.serviceItemMetrics.length > 0 ? (
+                        <div className="table-wrap receituario-service-inline-table">
+                          <table className="product-table">
+                            <thead>
+                              <tr>
+                                <th>Recipiente</th>
+                                <th>Tamanho/capacidade</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {recipePanelData.serviceItemMetrics.map((serviceItem) => (
+                                <tr key={serviceItem.id}>
+                                  <td>
+                                    <div className="receituario-service-item-cell">
+                                      {serviceItem.imageDataUrl ? (
+                                        <img
+                                          src={serviceItem.imageDataUrl}
+                                          alt={`Foto de ${serviceItem.label}`}
+                                          className="receituario-service-item-image"
+                                        />
+                                      ) : null}
+                                      <strong>{serviceItem.label}</strong>
+                                    </div>
+                                  </td>
+                                  <td>{serviceItem.sizeLabel || '-'}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      ) : (
+                        <div className="empty-state empty-state-inline">
+                          <strong>Nenhum recipiente de servico cadastrado.</strong>
+                        </div>
+                      )}
+                    </section>
+                  ) : null}
+
                   <section className="inner-panel">
                     <div className="section-heading">
                       <div>
@@ -22505,7 +22529,6 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                             <tr>
                               <th>Insumo</th>
                               <th>Entrada</th>
-                              <th>Rendimento</th>
                               <th>% alcool</th>
                             </tr>
                           </thead>
@@ -22517,9 +22540,6 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                                 </td>
                                 <td>
                                   {formatDecimal(ingredient.scaledInputQuantity)} {ingredient.unitLabel}
-                                </td>
-                                <td>
-                                  {formatDecimal(ingredient.scaledYieldQuantity)} {ingredient.unitLabel}
                                 </td>
                                 <td>{formatDecimal(ingredient.alcoholPercentage)}%</td>
                               </tr>
@@ -22656,7 +22676,6 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                                 <tr>
                                   <th>Guarnicao</th>
                                   <th>Entrada</th>
-                                  <th>Rendimento</th>
                                   <th>% alcool</th>
                                 </tr>
                               </thead>
@@ -22668,9 +22687,6 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                                     </td>
                                     <td>
                                       {formatDecimal(ingredient.scaledInputQuantity)} {ingredient.unitLabel}
-                                    </td>
-                                    <td>
-                                      {formatDecimal(ingredient.scaledYieldQuantity)} {ingredient.unitLabel}
                                     </td>
                                     <td>{formatDecimal(ingredient.alcoholPercentage)}%</td>
                                   </tr>
@@ -22755,35 +22771,6 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                         </p>
                       </section>
 
-                      <section className="inner-panel">
-                        <div className="section-heading">
-                          <div>
-                            <p className="kicker">Resumo</p>
-                            <h2>Dados tecnicos</h2>
-                          </div>
-                        </div>
-
-                        <div className="receituario-summary-grid receituario-summary-grid-metrics">
-                          <article className="receituario-metric-card">
-                            <span>Rendimento final</span>
-                            <strong>
-                              {formatDecimal(recipePanelData.desiredYield)} {getTechnicalSheetYieldUnitLabel(recipePanelData.sheet, technicalSheets, products)}
-                            </strong>
-                          </article>
-                          <article className="receituario-metric-card">
-                            <span>% alcool final</span>
-                            <strong>{formatDecimal(recipePanelData.finalAlcoholPercentage)}%</strong>
-                          </article>
-                          <article className="receituario-metric-card">
-                            <span>CMV final</span>
-                            <strong>{formatDecimal(recipePanelData.finalCmvPercentage)}%</strong>
-                          </article>
-                          <article className="receituario-metric-card">
-                            <span>Valor final de venda</span>
-                            <strong>R$ {formatMoney(recipePanelData.finalSalePrice)}</strong>
-                          </article>
-                        </div>
-                      </section>
                     </>
                   )}
 
