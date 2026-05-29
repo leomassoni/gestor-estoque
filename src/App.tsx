@@ -671,6 +671,8 @@ type ProductionRequestRow = {
   baseUnitLabel: string
   priority: number
   statusLabel: string
+  manualRequestIds: number[]
+  cancellableManualRequestIds: number[]
 }
 
 type ProductionDraftState = {
@@ -687,6 +689,31 @@ type ProductionDraftState = {
   ingredientOverrides: Record<number, string>
   manualOverrideIngredientIds: number[]
   consumptionSessionId?: number | null
+  manualRequestIds?: number[]
+}
+
+type ManualProductionRequestRecord = {
+  id: number
+  companyId: number
+  centerId: number
+  sheetId: number
+  desiredYield: string
+  createdAt: string
+  createdByUserId: number | null
+  createdByUserName: string
+  rootRequestId: number
+  parentRequestId: number | null
+  isDependencyRequest: boolean
+}
+
+type ManualProductionPreviewState = {
+  centerId: number
+  centerName: string
+  sheetId: number
+  sheetName: string
+  desiredYield: number
+  dependencyRequests: Array<{ centerId: number; sheetId: number; desiredYield: number }>
+  shortageLines: RequisitionLineRecord[]
 }
 
 type ManualSupplyDraftLine = {
@@ -2522,6 +2549,8 @@ const inventoryStorageLocationsStorageKey = 'gestor-estoque:inventory-storage-lo
 const stockModuleSettingsStorageKey = 'gestor-estoque:stock-module-settings'
 const requisitionsStorageKey = 'gestor-estoque:requisitions'
 const requisitionNotificationsStorageKey = 'gestor-estoque:requisition-notifications'
+const manualProductionRequestsStorageKey = 'gestor-estoque:manual-production-requests'
+const productionInProgressDraftsStorageKey = 'gestor-estoque:production-in-progress-drafts'
 const stockReportColumnOrderStorageKey = 'gestor-estoque:stock-report-column-order'
 const stockReportModelsStorageKey = 'gestor-estoque:stock-report-models'
 const syncedAppStorageKeys = [
@@ -2543,6 +2572,8 @@ const syncedAppStorageKeys = [
   pendingInventoryMovementsStorageKey,
   inventoryStorageLocationsStorageKey,
   stockModuleSettingsStorageKey,
+  manualProductionRequestsStorageKey,
+  productionInProgressDraftsStorageKey,
 ] as const
 
 type SyncedAppStorageKey = (typeof syncedAppStorageKeys)[number]
@@ -2910,6 +2941,12 @@ export default function App() {
   const [isManualProductionModalOpen, setIsManualProductionModalOpen] = useState(false)
   const [manualProductionCenterId, setManualProductionCenterId] = useState('')
   const [manualProductionSheetId, setManualProductionSheetId] = useState('')
+  const [manualProductionRecipeCount, setManualProductionRecipeCount] = useState('1')
+  const [manualProductionDesiredYield, setManualProductionDesiredYield] = useState('')
+  const [manualProductionRequests, setManualProductionRequests] = useState<ManualProductionRequestRecord[]>(
+    () => loadManualProductionRequestsState(),
+  )
+  const [manualProductionPreviewState, setManualProductionPreviewState] = useState<ManualProductionPreviewState | null>(null)
   const [isManualSupplyModalOpen, setIsManualSupplyModalOpen] = useState(false)
   const [manualSupplySourceCenterId, setManualSupplySourceCenterId] = useState('')
   const [manualSupplyTargetCenterId, setManualSupplyTargetCenterId] = useState('')
@@ -2917,9 +2954,12 @@ export default function App() {
   const [productionCenterId, setProductionCenterId] = useState('')
   const [productionSearch, setProductionSearch] = useState('')
   const [productionDraftState, setProductionDraftState] = useState<ProductionDraftState | null>(null)
-  const [productionInProgressDrafts, setProductionInProgressDrafts] = useState<ProductionDraftState[]>([])
+  const [productionInProgressDrafts, setProductionInProgressDrafts] = useState<ProductionDraftState[]>(
+    () => loadProductionInProgressDraftsState(),
+  )
   const [isProductionStartConfirmOpen, setIsProductionStartConfirmOpen] = useState(false)
   const [isProductionFinishConfirmOpen, setIsProductionFinishConfirmOpen] = useState(false)
+  const [pendingProductionCancelRow, setPendingProductionCancelRow] = useState<ProductionRequestRow | null>(null)
   const [recipePanelTab, setRecipePanelTab] = useState<RecipePanelTab>('PREPARO')
   const [recipePanelSearch, setRecipePanelSearch] = useState<Record<RecipePanelTab, string>>({
     PREPARO: '',
@@ -3004,6 +3044,7 @@ export default function App() {
   const isSystemAdmin = session?.kind === 'systemAdmin'
   const isAdministrative = session?.kind === 'appUser' && session.user.role === 'Administrativo'
   const isManagerUser = session?.kind === 'appUser' && session.user.role === 'Gestor'
+  const canAccessUsersPanel = isSystemAdmin || (session?.kind === 'appUser' && session.user.sectionAccess.Usuarios === true)
   const canManageCompanies = isSystemAdmin
   const canEditCompanyData =
     isSystemAdmin || (session?.kind === 'appUser' && session.user.sectionAccess.Empresa === true)
@@ -3358,6 +3399,24 @@ export default function App() {
 
     const sheetById = new Map(producedSheets.map((sheet) => [sheet.id, sheet] as const))
     const sheetByProductId = new Map(producedSheets.map((sheet) => [sheet.productId, sheet] as const))
+    const manualRequestIdsBySheetId = new Map<number, number[]>()
+    const cancellableManualRequestIdsBySheetId = new Map<number, number[]>()
+    const manualRequestedQuantityBySheetId = new Map<number, number>()
+    manualProductionRequests
+      .filter((request) => request.companyId === currentCompanyId && request.centerId === selectedProductionCenter.id)
+      .forEach((request) => {
+        manualRequestIdsBySheetId.set(request.sheetId, [...(manualRequestIdsBySheetId.get(request.sheetId) ?? []), request.id])
+        if (!request.isDependencyRequest) {
+          cancellableManualRequestIdsBySheetId.set(
+            request.sheetId,
+            [...(cancellableManualRequestIdsBySheetId.get(request.sheetId) ?? []), request.id],
+          )
+        }
+        manualRequestedQuantityBySheetId.set(
+          request.sheetId,
+          (manualRequestedQuantityBySheetId.get(request.sheetId) ?? 0) + (parseDecimal(request.desiredYield) ?? 0),
+        )
+      })
     const currentQuantityBySheetId = new Map<number, number>()
     producedSheets.forEach((sheet) => {
       const aggregationKey = buildInventoryAggregationKey({
@@ -3527,7 +3586,9 @@ export default function App() {
         const currentQuantity = currentQuantityBySheetId.get(sheet.id) ?? 0
         const useMinimumQuantity = useMinimumBySheetId.get(sheet.id) ?? 0
         const realMinimumQuantity = computeEffectiveMinimum(sheet.id)
-        const suggestedProductionQuantity = Math.max(realMinimumQuantity - currentQuantity, 0)
+        const automaticSuggestedQuantity = Math.max(realMinimumQuantity - currentQuantity, 0)
+        const manualRequestedQuantity = manualRequestedQuantityBySheetId.get(sheet.id) ?? 0
+        const suggestedProductionQuantity = automaticSuggestedQuantity + manualRequestedQuantity
         const priority = computePriority(sheet.id)
         const inProgressDraft = productionInProgressDraftByKey.get(`${selectedProductionCenter.id}:${sheet.id}`) ?? null
 
@@ -3549,6 +3610,8 @@ export default function App() {
           baseUnitLabel: formatControlUnitShort(sheet.outputUnit),
           priority,
           statusLabel: inProgressDraft ? 'Em producao' : suggestedProductionQuantity > 0 ? 'A produzir' : 'Produzido',
+          manualRequestIds: manualRequestIdsBySheetId.get(sheet.id) ?? [],
+          cancellableManualRequestIds: cancellableManualRequestIdsBySheetId.get(sheet.id) ?? [],
         } satisfies ProductionRequestRow
       })
       .filter((row) => row.suggestedProductionQuantity > 0 || productionInProgressDraftByKey.has(`${row.centerId}:${row.sheetId}`))
@@ -3560,7 +3623,7 @@ export default function App() {
         )
       })
       .sort((a, b) => a.priority - b.priority || a.sheetName.localeCompare(b.sheetName, 'pt-BR'))
-  }, [currentCompanyId, latestInventoryQuantityByCenterAndAggregation, productionInProgressDraftByKey, productionSearch, requisitions, selectedProductionCenter, technicalSheets])
+  }, [currentCompanyId, latestInventoryQuantityByCenterAndAggregation, manualProductionRequests, productionInProgressDraftByKey, productionSearch, requisitions, selectedProductionCenter, technicalSheets])
   const selectedProductionSheet = useMemo(
     () =>
       productionDraftState
@@ -9231,6 +9294,14 @@ export default function App() {
   }, [requisitionNotifications])
 
   useEffect(() => {
+    saveManualProductionRequestsState(manualProductionRequests)
+  }, [manualProductionRequests])
+
+  useEffect(() => {
+    saveProductionInProgressDraftsState(productionInProgressDrafts)
+  }, [productionInProgressDrafts])
+
+  useEffect(() => {
     saveInventoryRecordsState(inventoryRecords)
   }, [inventoryRecords])
 
@@ -12360,15 +12431,6 @@ export default function App() {
       return
     }
 
-    if (!selectedRequisitionLatestInventoryDate) {
-      setSaveFeedback({
-        status: 'error',
-        title: 'Requisicao indisponivel',
-        message: 'Este centro ainda nao possui inventario consolidado para gerar requisicao.',
-      })
-      return
-    }
-
     const nextDraftLines = buildRequisitionDraftLines(selectedRequisitionStockCenter)
     if (nextDraftLines.length === 0) {
       setSaveFeedback({
@@ -12387,11 +12449,11 @@ export default function App() {
   }
 
   function saveRequisitionDraft() {
-    if (currentCompanyId === null || !selectedRequisitionStockCenter || !selectedRequisitionLatestInventoryDate) {
+    if (currentCompanyId === null || !selectedRequisitionStockCenter) {
       setSaveFeedback({
         status: 'error',
         title: 'Requisicao incompleta',
-        message: 'Este centro ainda nao possui inventario consolidado para gerar requisicao.',
+        message: 'Selecione um centro de estoque para salvar a requisicao.',
       })
       return
     }
@@ -12406,6 +12468,7 @@ export default function App() {
       return
     }
 
+    const requisitionReferenceDate = selectedRequisitionLatestInventoryDate || getTodayDateInputValue()
     const now = new Date().toISOString()
     if (editingRequisitionId === null) {
       const nextRequisition: RequisitionRecord = {
@@ -12417,7 +12480,7 @@ export default function App() {
         supplyCenterId: null,
         supplyCenterName: '',
         sector: selectedRequisitionStockCenter.sector,
-        countedAt: selectedRequisitionLatestInventoryDate,
+        countedAt: requisitionReferenceDate,
         status: 'PENDING_APPROVAL',
         editScope: 'FULL',
         lines: linesToSave,
@@ -12672,16 +12735,24 @@ export default function App() {
     const nextDraftLines =
       targetRequisition.editScope === 'LINES_ONLY'
         ? targetRequisition.lines.map((line) => ({ ...line }))
-        : buildRequisitionDraftLines(center).map((line) => {
-            const savedLine = savedLineByKey.get(line.key) ?? null
-            return savedLine
-              ? {
-                  ...line,
-                  suggestedQuantity: savedLine.suggestedQuantity,
-                  requestedQuantity: savedLine.requestedQuantity,
-                }
-              : line
-          })
+        : (() => {
+            const generatedLines = buildRequisitionDraftLines(center)
+            const generatedLineKeys = new Set(generatedLines.map((line) => line.key))
+            const mergedGeneratedLines = generatedLines.map((line) => {
+              const savedLine = savedLineByKey.get(line.key) ?? null
+              return savedLine
+                ? {
+                    ...line,
+                    suggestedQuantity: savedLine.suggestedQuantity,
+                    requestedQuantity: savedLine.requestedQuantity,
+                  }
+                : line
+            })
+            const savedOnlyLines = targetRequisition.lines
+              .filter((line) => !generatedLineKeys.has(line.key))
+              .map((line) => ({ ...line }))
+            return [...savedOnlyLines, ...mergedGeneratedLines]
+          })()
     setRequisitionDraftLines(nextDraftLines)
     setRequisitionDraftSearch('')
     setIsRequisitionEditModalOpen(true)
@@ -14275,10 +14346,15 @@ export default function App() {
   }
 
   function startProduction(row: ProductionRequestRow) {
-    openProductionDraft(row.centerId, row.sheetId, row.suggestedProductionQuantity > 0 ? row.suggestedProductionQuantity : row.realMinimumQuantity)
+    openProductionDraft(
+      row.centerId,
+      row.sheetId,
+      row.suggestedProductionQuantity > 0 ? row.suggestedProductionQuantity : row.realMinimumQuantity,
+      row.manualRequestIds,
+    )
   }
 
-  function openProductionDraft(centerId: number, sheetId: number, desiredYieldOverride?: number) {
+  function openProductionDraft(centerId: number, sheetId: number, desiredYieldOverride?: number, manualRequestIds: number[] = []) {
     const existingDraft = productionInProgressDraftByKey.get(`${centerId}:${sheetId}`) ?? null
     if (existingDraft) {
       setProductionCenterId(String(centerId))
@@ -14319,7 +14395,66 @@ export default function App() {
         (baseData?.ingredientMetrics ?? []).map((ingredient) => [ingredient.id, formatDecimal(ingredient.scaledInputQuantity)]),
       ),
       manualOverrideIngredientIds: [],
+      manualRequestIds,
     })
+  }
+
+  function updateManualProductionSelection(nextCenterId: string, nextSheetId?: string) {
+    const nextCenter = productionEligibleCenters.find((center) => String(center.id) === nextCenterId) ?? null
+    const resolvedSheetId =
+      typeof nextSheetId === 'string'
+        ? nextSheetId
+        : nextCenter?.producedTechnicalSheetIds[0]
+          ? String(nextCenter.producedTechnicalSheetIds[0])
+          : ''
+    const targetSheet =
+      technicalSheets.find(
+        (sheet) =>
+          sheet.companyId === currentCompanyId &&
+          sheet.kind === 'PREPARO' &&
+          String(sheet.id) === resolvedSheetId,
+      ) ?? null
+    const baseYield = targetSheet ? getTechnicalSheetBaseYield(targetSheet) : 0
+    const recipeCount = parseDecimal(manualProductionRecipeCount) ?? 1
+    setManualProductionCenterId(nextCenterId)
+    setManualProductionSheetId(resolvedSheetId)
+    setManualProductionDesiredYield(baseYield > 0 ? formatDecimal(baseYield * (recipeCount > 0 ? recipeCount : 1)) : '')
+  }
+
+  function updateManualProductionRecipeCount(value: string) {
+    setManualProductionRecipeCount(value)
+    const targetSheet =
+      technicalSheets.find(
+        (sheet) =>
+          sheet.companyId === currentCompanyId &&
+          sheet.kind === 'PREPARO' &&
+          String(sheet.id) === manualProductionSheetId,
+      ) ?? null
+    const baseYield = targetSheet ? getTechnicalSheetBaseYield(targetSheet) : 0
+    const recipeCount = parseDecimal(value) ?? 0
+    if (baseYield > 0 && recipeCount > 0) {
+      setManualProductionDesiredYield(formatDecimal(baseYield * recipeCount))
+    } else if (value.trim() === '') {
+      setManualProductionDesiredYield('')
+    }
+  }
+
+  function updateManualProductionDesiredYieldValue(value: string) {
+    setManualProductionDesiredYield(value)
+    const targetSheet =
+      technicalSheets.find(
+        (sheet) =>
+          sheet.companyId === currentCompanyId &&
+          sheet.kind === 'PREPARO' &&
+          String(sheet.id) === manualProductionSheetId,
+      ) ?? null
+    const baseYield = targetSheet ? getTechnicalSheetBaseYield(targetSheet) : 0
+    const desiredYield = parseDecimal(value) ?? 0
+    if (baseYield > 0 && desiredYield > 0) {
+      setManualProductionRecipeCount(formatDecimal(desiredYield / baseYield))
+    } else if (value.trim() === '') {
+      setManualProductionRecipeCount('')
+    }
   }
 
   function openManualProductionModal() {
@@ -14328,20 +14463,349 @@ export default function App() {
     const nextSheetId = nextCenter?.producedTechnicalSheetIds[0] ? String(nextCenter.producedTechnicalSheetIds[0]) : ''
     setManualProductionCenterId(nextCenterId)
     setManualProductionSheetId(nextSheetId)
+    setManualProductionRecipeCount('1')
+    const nextSheet =
+      technicalSheets.find(
+        (sheet) =>
+          sheet.companyId === currentCompanyId &&
+          sheet.kind === 'PREPARO' &&
+          String(sheet.id) === nextSheetId,
+      ) ?? null
+    setManualProductionDesiredYield(nextSheet ? formatDecimal(getTechnicalSheetBaseYield(nextSheet)) : '')
     setIsManualProductionModalOpen(true)
   }
 
-  function saveManualProduction() {
+  function buildManualProductionShortageLines(
+    stockCenter: StockCenterRecord,
+    targetSheet: TechnicalSheetRecord,
+    desiredYield: number,
+  ) {
+    const availableByAggregationKey = new Map<string, number>()
+    latestInventoryQuantityByCenterAndAggregation.forEach((value, centerAggregationKey) => {
+      if (centerAggregationKey.startsWith(`${stockCenter.id}:`)) {
+        availableByAggregationKey.set(centerAggregationKey.slice(String(stockCenter.id).length + 1), value)
+      }
+    })
+
+    const lineMap = new Map<string, RequisitionLineRecord>()
+    const plannedProductionRequests = new Map<string, { centerId: number; sheetId: number; desiredYield: number }>()
+    const dependencySheetByProductId = new Map(
+      technicalSheets
+        .filter(
+          (sheet) =>
+            sheet.companyId === currentCompanyId &&
+            sheet.kind === 'PREPARO' &&
+            sheet.isActive &&
+            sheet.productId.trim() !== '',
+        )
+        .map((sheet) => [sheet.productId, sheet] as const),
+    )
+    const activeProductById = new Map(
+      products
+        .filter((product) => product.companyId === currentCompanyId && product.isActive)
+        .map((product) => [product.id, product] as const),
+    )
+
+    const queueManualProductionRequest = (centerId: number, sheetId: number, requiredYield: number) => {
+      const requestKey = `${centerId}:${sheetId}`
+      const currentRequest = plannedProductionRequests.get(requestKey) ?? null
+      plannedProductionRequests.set(requestKey, {
+        centerId,
+        sheetId,
+        desiredYield: (currentRequest?.desiredYield ?? 0) + requiredYield,
+      })
+    }
+
+    const resolveDependencyProducerCenter = (sheetId: number, preferredCenterId: number) => {
+      const producerAssignments = stockCenters.filter(
+        (center) =>
+          center.companyId === currentCompanyId &&
+          center.isActive &&
+          center.isProducer &&
+          center.producedTechnicalSheetIds.includes(sheetId),
+      )
+
+      return (
+        producerAssignments.find((center) => center.id === preferredCenterId) ??
+        (producerAssignments.length === 1 ? producerAssignments[0] : null)
+      )
+    }
+
+    const addProductShortageLine = (
+      linkedProduct: ProductRecord,
+      shortageQuantity: number,
+      existingLine: RequisitionLineRecord | null,
+      lineKey: string,
+    ) => {
+      const selectedPackage = linkedProduct.packages.find((item) => item.isActive) ?? null
+      const packageQuantity =
+        selectedPackage ? calculateNormalizedPackageQuantity(selectedPackage, linkedProduct.controlUnit) : 1
+      const nextRequestedQuantity =
+        (parseDecimal(existingLine?.requestedQuantity ?? '0') ?? 0) +
+        (packageQuantity > 0 ? shortageQuantity / packageQuantity : shortageQuantity)
+
+      lineMap.set(lineKey, {
+        key: existingLine?.key ?? `${lineKey}:${Date.now()}:${lineMap.size}`,
+        kind: 'PRODUTO',
+        technicalSheetId: null,
+        productId: linkedProduct.id,
+        serviceItemId: '',
+        packageId: selectedPackage?.id ?? null,
+        itemName: linkedProduct.name,
+        itemTypeLabel: 'PRODUTO',
+        family: linkedProduct.family,
+        suggestedQuantity: formatDecimal(nextRequestedQuantity),
+        requestedQuantity: formatDecimal(nextRequestedQuantity),
+        requestUnitLabel: 'EMBALAGENS',
+        currentQuantity: '0',
+        currentUnitLabel: selectedPackage
+          ? `${formatDecimal(parseDecimal(selectedPackage.packageQuantity) ?? 0)} ${formatUnit(selectedPackage.packageUnit)}`
+          : formatControlUnitShort(linkedProduct.controlUnit),
+        minimumDefinitionLabel: '-',
+        destinationType: 'DISTRIBUICAO',
+        destinationCenterId: null,
+        destinationCenterName: '',
+        destinationLabel: 'ESTOQUE CENTRAL DE DISTRIBUICAO',
+        receiptStatus: 'PENDING',
+      })
+    }
+
+    const consumeOrRegisterShortage = (sheet: TechnicalSheetRecord, requiredYield: number, sourceCenterId: number) => {
+      const recipeCount = requiredYield > 0 ? requiredYield / getTechnicalSheetBaseYield(sheet) : 0
+      const recipeData = buildRecipePanelDataForSheet(sheet, requiredYield, recipeCount)
+      ;[...recipeData.ingredientMetrics, ...recipeData.garnishMetrics]
+        .filter((ingredient) => ingredient.productId.trim() !== '' && ingredient.scaledInputQuantity > 0)
+        .forEach((ingredient) => {
+          const dependencySheet = dependencySheetByProductId.get(ingredient.productId) ?? null
+          const linkedProduct = activeProductById.get(ingredient.productId) ?? null
+
+          const aggregationKey = buildInventoryAggregationKey({
+            kind: dependencySheet ? 'PREPARO' : 'PRODUTO',
+            technicalSheetId: dependencySheet?.id ?? null,
+            productId: dependencySheet ? '' : ingredient.productId,
+            serviceItemId: '',
+          })
+          const availableQuantity = availableByAggregationKey.get(aggregationKey) ?? 0
+          const requiredQuantity = ingredient.scaledInputQuantity
+          const consumedQuantity = Math.min(availableQuantity, requiredQuantity)
+          if (consumedQuantity > 0) {
+            availableByAggregationKey.set(aggregationKey, availableQuantity - consumedQuantity)
+          }
+
+          const shortageQuantity = Math.max(requiredQuantity - availableQuantity, 0)
+          if (shortageQuantity <= 0) {
+            return
+          }
+
+          const lineKey = dependencySheet ? `PREPARO:${dependencySheet.id}` : `PRODUTO:${ingredient.productId}`
+          const existingLine = lineMap.get(lineKey) ?? null
+
+          if (dependencySheet) {
+            const producerCenter = resolveDependencyProducerCenter(dependencySheet.id, sourceCenterId)
+
+            if (producerCenter) {
+              queueManualProductionRequest(producerCenter.id, dependencySheet.id, shortageQuantity)
+              consumeOrRegisterShortage(dependencySheet, shortageQuantity, producerCenter.id)
+              return
+            }
+
+            const nextRequestedQuantity = (parseDecimal(existingLine?.requestedQuantity ?? '0') ?? 0) + shortageQuantity
+            lineMap.set(lineKey, {
+              key: existingLine?.key ?? `${lineKey}:${Date.now()}:${lineMap.size}`,
+              kind: 'PREPARO',
+              technicalSheetId: dependencySheet.id,
+              productId: '',
+              serviceItemId: '',
+              packageId: null,
+              itemName: dependencySheet.name,
+              itemTypeLabel: 'PRE-PREPARO',
+              family: dependencySheet.family,
+              suggestedQuantity: formatDecimal(nextRequestedQuantity),
+              requestedQuantity: formatDecimal(nextRequestedQuantity),
+              requestUnitLabel: formatControlUnitShort(dependencySheet.outputUnit),
+              currentQuantity: '0',
+              currentUnitLabel: formatControlUnitShort(dependencySheet.outputUnit),
+              minimumDefinitionLabel: '-',
+              destinationType: 'PRODUCOES',
+              destinationCenterId: null,
+              destinationCenterName: '',
+              destinationLabel: 'CENTRO PRODUTOR NAO DEFINIDO',
+              receiptStatus: 'PENDING',
+            })
+            return
+          }
+
+          if (!linkedProduct) {
+            return
+          }
+
+          addProductShortageLine(linkedProduct, shortageQuantity, existingLine, lineKey)
+        })
+    }
+
+    consumeOrRegisterShortage(targetSheet, desiredYield, stockCenter.id)
+    return {
+      shortageLines: Array.from(lineMap.values()),
+      dependencyRequests: Array.from(plannedProductionRequests.values()),
+    }
+  }
+
+  function prepareManualProductionPlan() {
     if (!manualProductionCenter || !manualProductionSheetId) {
       setSaveFeedback({
         status: 'error',
         title: 'Nova producao incompleta',
         message: 'Selecione o centro produtor e o pre-preparo para continuar.',
       })
+      return null
+    }
+
+    const desiredYield = parseDecimal(manualProductionDesiredYield) ?? 0
+    if (desiredYield <= 0) {
+      setSaveFeedback({
+        status: 'error',
+        title: 'Nova producao incompleta',
+        message: 'Informe uma quantidade de receitas ou quantidade final desejada valida para continuar.',
+      })
+      return null
+    }
+
+    const targetSheet =
+      technicalSheets.find(
+        (sheet) =>
+          sheet.companyId === currentCompanyId &&
+          sheet.kind === 'PREPARO' &&
+          sheet.id === Number(manualProductionSheetId),
+      ) ?? null
+    if (!targetSheet || currentCompanyId === null) {
+      return null
+    }
+
+    const { shortageLines, dependencyRequests } = buildManualProductionShortageLines(
+      manualProductionCenter,
+      targetSheet,
+      desiredYield,
+    )
+
+    return {
+      centerId: manualProductionCenter.id,
+      centerName: manualProductionCenter.name,
+      sheetId: targetSheet.id,
+      sheetName: targetSheet.name,
+      desiredYield,
+      dependencyRequests,
+      shortageLines,
+    } satisfies ManualProductionPreviewState
+  }
+
+  function requestSaveManualProduction() {
+    const plan = prepareManualProductionPlan()
+    if (!plan) {
       return
     }
 
-    openProductionDraft(manualProductionCenter.id, Number(manualProductionSheetId))
+    setManualProductionPreviewState(plan)
+  }
+
+  function confirmSaveManualProduction() {
+    if (!manualProductionPreviewState || currentCompanyId === null) {
+      return
+    }
+
+    const requestId = Date.now()
+    setManualProductionRequests((current) => [
+      {
+        id: requestId,
+        companyId: currentCompanyId,
+        centerId: manualProductionPreviewState.centerId,
+        sheetId: manualProductionPreviewState.sheetId,
+        desiredYield: formatDecimal(manualProductionPreviewState.desiredYield),
+        createdAt: new Date().toISOString(),
+        createdByUserId: currentAppUser?.id ?? null,
+        createdByUserName: currentAppUser?.fullName ?? 'Administrador do sistema',
+        rootRequestId: requestId,
+        parentRequestId: null,
+        isDependencyRequest: false,
+      },
+      ...current,
+    ])
+
+    const { shortageLines, dependencyRequests } = manualProductionPreviewState
+    if (dependencyRequests.length > 0) {
+      setManualProductionRequests((current) => [
+        ...dependencyRequests.map((request, index) => ({
+          id: requestId + 1 + index,
+          companyId: currentCompanyId,
+          centerId: request.centerId,
+          sheetId: request.sheetId,
+          desiredYield: formatDecimal(request.desiredYield),
+          createdAt: new Date().toISOString(),
+          createdByUserId: currentAppUser?.id ?? null,
+          createdByUserName: currentAppUser?.fullName ?? 'Administrador do sistema',
+          rootRequestId: requestId,
+          parentRequestId: requestId,
+          isDependencyRequest: true,
+        })),
+        ...current,
+      ])
+    }
+    if (shortageLines.length > 0) {
+      const now = new Date().toISOString()
+      const requisitionId = Date.now() + 1
+      const nextRequisition: RequisitionRecord = {
+        id: requisitionId,
+        companyId: currentCompanyId,
+        requisitionGroupId: requisitionId,
+        stockCenterId: manualProductionPreviewState.centerId,
+        stockCenterName: manualProductionPreviewState.centerName,
+        supplyCenterId: null,
+        supplyCenterName: '',
+        sector: stockCenters.find((center) => center.id === manualProductionPreviewState.centerId)?.sector ?? '',
+        countedAt: getTodayDateInputValue(),
+        status: 'PENDING_APPROVAL',
+        editScope: 'LINES_ONLY',
+        lines: shortageLines,
+        createdAt: now,
+        createdByUserId: currentAppUser?.id ?? null,
+        createdByUserName: currentAppUser?.fullName ?? 'Administrador do sistema',
+        approvedAt: '',
+        approvedByUserId: null,
+        approvedByUserName: '',
+        sentAt: '',
+        sentByUserId: null,
+        sentByUserName: '',
+        preparedAt: '',
+        preparedByUserId: null,
+        preparedByUserName: '',
+        receivedAt: '',
+        receivedByUserId: null,
+        receivedByUserName: '',
+        lastUpdatedAt: now,
+        lastUpdatedByUserId: currentAppUser?.id ?? null,
+        lastUpdatedByUserName: currentAppUser?.fullName ?? 'Administrador do sistema',
+      }
+      setRequisitions((current) => [nextRequisition, ...current])
+      setSaveFeedback({
+        status: 'success',
+        title: 'Producao registrada',
+        message:
+          dependencyRequests.length > 0
+            ? 'A producao foi incluida na fila, as producoes dependentes tambem entraram na fila e uma requisicao foi criada para os itens faltantes.'
+            : 'A producao foi incluida na fila e uma requisicao foi criada para os itens faltantes.',
+      })
+    } else {
+      setSaveFeedback({
+        status: 'success',
+        title: 'Producao registrada',
+        message:
+          dependencyRequests.length > 0
+            ? 'A producao foi incluida na fila e as producoes dependentes tambem entraram automaticamente na fila.'
+            : 'A producao foi incluida na fila e ja pode ser iniciada pelo botao Produzir.',
+      })
+    }
+
+    setManualProductionPreviewState(null)
+    setIsManualProductionModalOpen(false)
   }
 
   function openManualSupplyModal() {
@@ -14579,6 +15043,12 @@ export default function App() {
       consumptionSessionId: productionDraftState.consumptionSessionId ?? (consumptionMovementResult ? movementSessionId : null),
     }
 
+    if ((nextDraft.manualRequestIds?.length ?? 0) > 0) {
+      setManualProductionRequests((current) =>
+        current.filter((request) => !nextDraft.manualRequestIds?.includes(request.id)),
+      )
+    }
+
     upsertProductionInProgressDraft(nextDraft)
     setProductionDraftState(nextDraft)
     setIsProductionStartConfirmOpen(false)
@@ -14597,6 +15067,39 @@ export default function App() {
       return
     }
     setIsProductionFinishConfirmOpen(true)
+  }
+
+  function requestCancelProductionRow(row: ProductionRequestRow) {
+    if (row.cancellableManualRequestIds.length === 0 || row.statusLabel === 'Em producao') {
+      return
+    }
+    setPendingProductionCancelRow(row)
+  }
+
+  function confirmCancelProductionRow() {
+    if (!pendingProductionCancelRow) {
+      return
+    }
+
+    const targetRow = pendingProductionCancelRow
+    const rootRequestIds = new Set(targetRow.cancellableManualRequestIds)
+    const affectedDependencyRequests = manualProductionRequests.filter(
+      (request) => request.isDependencyRequest && rootRequestIds.has(request.rootRequestId),
+    )
+    setManualProductionRequests((current) =>
+      current.filter((request) => !rootRequestIds.has(request.rootRequestId)),
+    )
+    setPendingProductionCancelRow(null)
+    setSaveFeedback({
+      status: 'success',
+      title: 'Producao cancelada',
+      message:
+        affectedDependencyRequests.length > 0
+          ? `A solicitacao manual dessa producao foi retirada da fila junto com ${affectedDependencyRequests.length} producao(oes) dependente(s) vinculada(s) a ela.`
+          : targetRow.statusLabel === 'A produzir'
+            ? 'A solicitacao manual dessa producao foi retirada da fila.'
+            : 'A solicitacao manual vinculada a essa producao foi cancelada.',
+    })
   }
 
   function updateProductionDesiredYield(value: string) {
@@ -14817,6 +15320,23 @@ export default function App() {
 
     exportRequisition(requisition, requisitionExportState.format)
     setRequisitionExportState(null)
+  }
+
+  function requestRequisitionExport(requisition: RequisitionRecord) {
+    if (requisition.status === 'CANCELLED') {
+      return
+    }
+
+    if (requisition.status === 'PENDING_APPROVAL') {
+      setSaveFeedback({
+        status: 'error',
+        title: 'Exportacao indisponivel',
+        message: 'A exportacao da requisicao depende de aprovacao previa do responsavel pelo centro de estoque.',
+      })
+      return
+    }
+
+    setRequisitionExportState({ requisitionId: requisition.id, format: 'pdf' })
   }
 
   function cancelOrDeleteRequisition(requisitionId: number) {
@@ -15042,12 +15562,15 @@ export default function App() {
                     {requisitionDraftColumnVisibility.suggestion ? <td>{formatRequisitionEffectiveQuantity(line, line.suggestedQuantity)}</td> : null}
                     {requisitionDraftColumnVisibility.requested ? <td>
                       <input
-                        value={line.requestedQuantity}
+                        value={getRequisitionEffectiveQuantityInputValue(line, line.requestedQuantity)}
                         onChange={(event) =>
                           setRequisitionDraftLines((current) =>
                             current.map((candidate) =>
                               candidate.key === line.key
-                                ? { ...candidate, requestedQuantity: event.target.value }
+                                ? {
+                                    ...candidate,
+                                    requestedQuantity: convertEffectiveQuantityToRequestedQuantity(line, event.target.value),
+                                  }
                                 : candidate,
                             ),
                           )
@@ -17733,7 +18256,6 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
       'Peso bruto (g)',
       'Peso embalagem (g)',
       'Valor compra',
-      'Estoque inicial',
       'Status embalagem',
     ]
 
@@ -17755,7 +18277,6 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
       item.pesoBruto,
       item.pesoEmbalagem,
       item.valorCompra,
-      item.estoqueInicial,
       item.statusEmbalagem,
     ])
 
@@ -20522,10 +21043,6 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                         <span>Valor de compra</span>
                         <strong>R$ {item.purchasePrice || '0,00'}</strong>
                       </div>
-                      <div>
-                        <span>Estoque inicial</span>
-                        <strong>{item.openingQuantity || '0'}</strong>
-                      </div>
                     </div>
                   </article>
                 ))}
@@ -20538,7 +21055,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                 <p>
                   {packages.length > 0
                     ? 'Use "Exibir inativas" para visualizar as embalagens inativas deste produto.'
-                    : 'Adicione a primeira apresentacao para informar custo, peso e estoque inicial.'}
+                    : 'Adicione a primeira apresentacao para informar custo e peso.'}
                 </p>
               </div>
             )}
@@ -24182,7 +24699,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
               </div>
             </div>
             <p className="context-copy">
-              Gere pedidos de reabastecimento com base no ultimo inventario consolidado do centro e no estoque minimo configurado.
+              Gere pedidos de reabastecimento com base no saldo atual do centro e no estoque minimo configurado.
             </p>
           </section>
 
@@ -24456,7 +24973,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                                   >
                                     {canApproveRequisition(record) && record.createdByUserId !== currentAppUser?.id ? 'Cancelar' : 'Excluir'}
                                   </button>
-                                  <button type="button" className="ghost-button" onClick={() => setRequisitionExportState({ requisitionId: record.id, format: 'pdf' })} disabled={record.status === 'PENDING_APPROVAL' || record.status === 'CANCELLED'}>
+                                  <button type="button" className="ghost-button" onClick={() => requestRequisitionExport(record)} disabled={record.status === 'CANCELLED'}>
                                     Exportar
                                   </button>
                                   <button
@@ -24488,7 +25005,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                 ) : (
                   <div className="empty-state">
                     <strong>Nenhuma requisicao gerada.</strong>
-                    <p>Monte uma nova requisicao a partir do ultimo inventario do centro.</p>
+                    <p>Monte uma nova requisicao a partir do saldo atual do centro.</p>
                   </div>
                 )}
               </>
@@ -24778,6 +25295,15 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                               >
                                   {row.statusLabel === 'Em producao' ? 'Continuar' : 'Produzir'}
                               </button>
+                              {row.cancellableManualRequestIds.length > 0 && row.statusLabel !== 'Em producao' ? (
+                                <button
+                                  type="button"
+                                  className="ghost-button"
+                                  onClick={() => requestCancelProductionRow(row)}
+                                >
+                                  Cancelar
+                                </button>
+                              ) : null}
                               </div>
                             </td>
                           </tr>
@@ -25237,7 +25763,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
             >
               Cadastro de usuario
             </button>
-            {canAssignPrivilegedUserRoles ? (
+            {canAccessUsersPanel ? (
               <button
                 type="button"
                 className={userPanelTab === 'profiles' ? 'panel-tab active' : 'panel-tab'}
@@ -25443,7 +25969,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
           </div>
           </section>
           </>
-          ) : canAssignPrivilegedUserRoles ? (
+          ) : canAccessUsersPanel ? (
           <section className="inner-panel">
             <div className="section-heading">
               <div>
@@ -26002,14 +26528,6 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                 </>
               )}
 
-              <label className="field">
-                <span>Estoque inicial</span>
-                <input
-                  value={draftPackage.openingQuantity}
-                  onChange={(event) => updateDraftPackage('openingQuantity', event.target.value)}
-                  placeholder="Ex.: 24"
-                />
-              </label>
             </div>
 
             <div className="modal-actions">
@@ -26823,10 +27341,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                 <select
                   value={manualProductionCenterId}
                   onChange={(event) => {
-                    const nextCenterId = event.target.value
-                    const nextCenter = productionEligibleCenters.find((center) => String(center.id) === nextCenterId) ?? null
-                    setManualProductionCenterId(nextCenterId)
-                    setManualProductionSheetId(nextCenter?.producedTechnicalSheetIds[0] ? String(nextCenter.producedTechnicalSheetIds[0]) : '')
+                    updateManualProductionSelection(event.target.value)
                   }}
                 >
                   <option value="">Selecione</option>
@@ -26837,17 +27352,151 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
               </label>
               <label className="field company-field-wide">
                 <span>Pre-preparo</span>
-                <select value={manualProductionSheetId} onChange={(event) => setManualProductionSheetId(event.target.value)}>
+                <select value={manualProductionSheetId} onChange={(event) => updateManualProductionSelection(manualProductionCenterId, event.target.value)}>
                   <option value="">Selecione</option>
                   {manualProductionSheets.map((sheet) => (
                     <option key={sheet.id} value={String(sheet.id)}>{sheet.name}</option>
                   ))}
                 </select>
               </label>
+              <label className="field company-field-wide">
+                <span>Quantidade de receitas</span>
+                <input
+                  value={manualProductionRecipeCount}
+                  onChange={(event) => updateManualProductionRecipeCount(event.target.value)}
+                  placeholder="1"
+                />
+              </label>
+              <label className="field company-field-wide">
+                <span>Quantidade final desejada</span>
+                <input
+                  value={manualProductionDesiredYield}
+                  onChange={(event) => updateManualProductionDesiredYieldValue(event.target.value)}
+                  placeholder="0"
+                />
+              </label>
             </form>
             <div className="modal-actions">
               <button type="button" className="ghost-button" onClick={() => setIsManualProductionModalOpen(false)}>Cancelar</button>
-              <button type="button" className="primary-button" onClick={saveManualProduction}>Abrir receituario</button>
+              <button type="button" className="primary-button" onClick={requestSaveManualProduction}>Entrar producao</button>
+            </div>
+          </section>
+        </div>
+      ) : null}
+
+      {manualProductionPreviewState ? (
+        <div className="modal-backdrop modal-backdrop-front" role="presentation" onClick={() => setManualProductionPreviewState(null)}>
+          <section
+            className="modal-card modal-card-full"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="manual-production-preview-title"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="section-heading">
+              <div>
+                <p className="kicker">Entrada de producoes</p>
+                <h2 id="manual-production-preview-title">Confirmar entrada de producao</h2>
+              </div>
+            </div>
+
+            <div className="requisition-draft-overview">
+              <div className="pill requisition-overview-pill">Centro: {manualProductionPreviewState.centerName}</div>
+              <div className="pill requisition-overview-pill">Producao: {manualProductionPreviewState.sheetName}</div>
+              <div className="pill requisition-overview-pill">Quantidade: {formatDecimal(manualProductionPreviewState.desiredYield)}</div>
+            </div>
+
+            <section className="inner-panel">
+              <div className="section-heading section-heading-inline">
+                <div>
+                  <p className="kicker">Dependencias</p>
+                  <h2>Producoes relacionadas</h2>
+                </div>
+              </div>
+              {manualProductionPreviewState.dependencyRequests.length > 0 ? (
+                <>
+                  <p className="context-copy">
+                    Esta producao depende dos pre-preparos abaixo. Se nao houver saldo disponivel deles no centro produtor, estas quantidades entrarao automaticamente na fila de producoes.
+                  </p>
+                  <div className="selector-list company-management-list">
+                    {manualProductionPreviewState.dependencyRequests.map((request) => {
+                      const dependencySheet =
+                        technicalSheets.find((sheet) => sheet.id === request.sheetId && sheet.companyId === currentCompanyId) ?? null
+                      const dependencyCenter =
+                        stockCenters.find((center) => center.id === request.centerId && center.companyId === currentCompanyId) ?? null
+                      return (
+                        <article
+                          key={`manual-production-dependency-${request.centerId}-${request.sheetId}`}
+                          className="list-row"
+                        >
+                          <strong>{dependencySheet?.name ?? `PRE-PREPARO ${request.sheetId}`}</strong>
+                          <div className="row-meta">
+                            <span>
+                              <strong className="meta-label">Centro:</strong> {dependencyCenter?.name ?? `CENTRO ${request.centerId}`}
+                            </span>
+                            <span>
+                              <strong className="meta-label">Quantidade:</strong>{' '}
+                              {formatDecimal(request.desiredYield)}{' '}
+                              {dependencySheet ? formatControlUnitShort(dependencySheet.outputUnit) : ''}
+                            </span>
+                          </div>
+                        </article>
+                      )
+                    })}
+                  </div>
+                </>
+              ) : (
+                <p className="context-copy">Esta producao nao depende de outros pre-preparos faltantes.</p>
+              )}
+            </section>
+
+            <section className="inner-panel">
+              <div className="section-heading section-heading-inline">
+                <div>
+                  <p className="kicker">Requisicao</p>
+                  <h2>Ingredientes faltantes</h2>
+                </div>
+              </div>
+              {manualProductionPreviewState.shortageLines.length > 0 ? (
+                <>
+                  <p className="context-copy">
+                    O centro nao possui saldo suficiente destes ingredientes. As quantidades abaixo serao enviadas automaticamente para requisicao.
+                  </p>
+                  <div className="table-wrap">
+                    <table className="product-table">
+                      <thead>
+                        <tr>
+                          <th>Ingrediente</th>
+                          <th>Tipo</th>
+                          <th>Quantidade</th>
+                          <th>Destino</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {manualProductionPreviewState.shortageLines.map((line) => (
+                          <tr key={`manual-production-shortage-${line.key}`}>
+                            <td className="sticky-product-cell"><strong>{line.itemName}</strong></td>
+                            <td>{line.itemTypeLabel}</td>
+                            <td>{formatRequisitionEffectiveQuantity(line, line.requestedQuantity)}</td>
+                            <td>{line.destinationLabel}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </>
+              ) : (
+                <p className="context-copy">Nao sera necessario criar requisicao para ingredientes desta producao.</p>
+              )}
+            </section>
+
+            <div className="modal-actions">
+              <button type="button" className="ghost-button" onClick={() => setManualProductionPreviewState(null)}>
+                Cancelar
+              </button>
+              <button type="button" className="primary-button" onClick={confirmSaveManualProduction}>
+                Confirmar entrada de producao
+              </button>
             </div>
           </section>
         </div>
@@ -27199,6 +27848,35 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
           onCancel={() => setIsProductionFinishConfirmOpen(false)}
           onConfirm={confirmProductionDraft}
         />
+      ) : null}
+
+      {pendingProductionCancelRow ? (
+        (() => {
+          const rootRequestIds = new Set(pendingProductionCancelRow.cancellableManualRequestIds)
+          const affectedDependencies = manualProductionRequests.filter(
+            (request) => request.isDependencyRequest && rootRequestIds.has(request.rootRequestId),
+          )
+          const dependencySummary = affectedDependencies
+            .map((request) => {
+              const sheet = technicalSheets.find((entry) => entry.id === request.sheetId && entry.companyId === currentCompanyId) ?? null
+              return `${sheet?.name ?? `PRE-PREPARO ${request.sheetId}`} (${formatDecimal(parseDecimal(request.desiredYield) ?? 0)})`
+            })
+            .join(', ')
+          return (
+            <ConfirmationModal
+              title="Cancelar producao?"
+              message={
+                affectedDependencies.length > 0
+                  ? `Deseja cancelar esta producao da fila? Isso tambem cancelara automaticamente as producoes dependentes vinculadas a ela: ${dependencySummary}. Se essa linha tambem existir por minimo real do centro, a sugestao automatica continuara aparecendo.`
+                  : 'Deseja cancelar esta producao da fila? Isso remove apenas a solicitacao manual registrada em Entrada de producoes. Se essa linha tambem existir por minimo real do centro, a sugestao automatica continuara aparecendo.'
+              }
+              actionClass="danger-button"
+              actionLabel="Cancelar producao"
+              onCancel={() => setPendingProductionCancelRow(null)}
+              onConfirm={confirmCancelProductionRow}
+            />
+          )
+        })()
       ) : null}
 
       {isCompanyModalOpen ? (
@@ -29031,7 +29709,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
       ) : null}
 
       {requisitionExportState ? (
-        <div className="modal-backdrop" role="presentation" onClick={() => setRequisitionExportState(null)}>
+        <div className="modal-backdrop modal-backdrop-front" role="presentation" onClick={() => setRequisitionExportState(null)}>
           <section
             className="modal-card modal-card-compact"
             role="dialog"
@@ -33389,6 +34067,162 @@ function saveRequisitionNotificationsState(notifications: RequisitionNotificatio
   }
 }
 
+function normalizeManualProductionRequestRecord(value: unknown): ManualProductionRequestRecord | null {
+  if (!value || typeof value !== 'object') {
+    return null
+  }
+
+  const record = value as Partial<ManualProductionRequestRecord>
+  if (
+    typeof record.id !== 'number' ||
+    typeof record.companyId !== 'number' ||
+    typeof record.centerId !== 'number' ||
+    typeof record.sheetId !== 'number' ||
+    typeof record.desiredYield !== 'string' ||
+    typeof record.createdAt !== 'string' ||
+    typeof record.createdByUserName !== 'string'
+  ) {
+    return null
+  }
+
+  return {
+    id: record.id,
+    companyId: record.companyId,
+    centerId: record.centerId,
+    sheetId: record.sheetId,
+    desiredYield: record.desiredYield.trim(),
+    createdAt: record.createdAt,
+    createdByUserId: typeof record.createdByUserId === 'number' ? record.createdByUserId : null,
+    createdByUserName: record.createdByUserName,
+    rootRequestId: typeof record.rootRequestId === 'number' ? record.rootRequestId : record.id,
+    parentRequestId: typeof record.parentRequestId === 'number' ? record.parentRequestId : null,
+    isDependencyRequest: record.isDependencyRequest === true,
+  }
+}
+
+function loadManualProductionRequestsState(): ManualProductionRequestRecord[] {
+  if (typeof window === 'undefined') {
+    return []
+  }
+
+  try {
+    const raw = window.localStorage.getItem(manualProductionRequestsStorageKey)
+    if (!raw) {
+      return []
+    }
+
+    const parsed = JSON.parse(raw) as unknown
+    if (!Array.isArray(parsed)) {
+      return []
+    }
+
+    return parsed
+      .map(normalizeManualProductionRequestRecord)
+      .filter((item): item is ManualProductionRequestRecord => item !== null)
+  } catch {
+    return []
+  }
+}
+
+function saveManualProductionRequestsState(requests: ManualProductionRequestRecord[]) {
+  if (typeof window === 'undefined') {
+    return
+  }
+
+  try {
+    window.localStorage.setItem(manualProductionRequestsStorageKey, JSON.stringify(requests))
+  } catch {
+    return
+  }
+}
+
+function normalizeProductionDraftState(value: unknown): ProductionDraftState | null {
+  if (!value || typeof value !== 'object') {
+    return null
+  }
+
+  const draft = value as Partial<ProductionDraftState>
+  if (
+    typeof draft.centerId !== 'number' ||
+    typeof draft.sheetId !== 'number' ||
+    typeof draft.startedAt !== 'string' ||
+    typeof draft.startedByUserName !== 'string' ||
+    typeof draft.desiredYield !== 'string' ||
+    typeof draft.finalYield !== 'string' ||
+    typeof draft.confirmedPh !== 'string' ||
+    typeof draft.confirmedBrix !== 'string' ||
+    !draft.ingredientOverrides ||
+    typeof draft.ingredientOverrides !== 'object' ||
+    Array.isArray(draft.ingredientOverrides) ||
+    !Array.isArray(draft.manualOverrideIngredientIds)
+  ) {
+    return null
+  }
+
+  const normalizedOverrides = Object.fromEntries(
+    Object.entries(draft.ingredientOverrides).filter(
+      ([key, value]) => typeof key === 'string' && typeof value === 'string',
+    ),
+  ) as Record<number, string>
+
+  return {
+    draftId: typeof draft.draftId === 'number' ? draft.draftId : null,
+    centerId: draft.centerId,
+    sheetId: draft.sheetId,
+    startedAt: draft.startedAt,
+    startedByUserId: typeof draft.startedByUserId === 'number' ? draft.startedByUserId : null,
+    startedByUserName: draft.startedByUserName,
+    desiredYield: draft.desiredYield,
+    finalYield: draft.finalYield,
+    confirmedPh: draft.confirmedPh,
+    confirmedBrix: draft.confirmedBrix,
+    ingredientOverrides: normalizedOverrides,
+    manualOverrideIngredientIds: draft.manualOverrideIngredientIds.filter(
+      (item): item is number => typeof item === 'number',
+    ),
+    consumptionSessionId: typeof draft.consumptionSessionId === 'number' ? draft.consumptionSessionId : null,
+    manualRequestIds: Array.isArray(draft.manualRequestIds)
+      ? draft.manualRequestIds.filter((item): item is number => typeof item === 'number')
+      : [],
+  }
+}
+
+function loadProductionInProgressDraftsState(): ProductionDraftState[] {
+  if (typeof window === 'undefined') {
+    return []
+  }
+
+  try {
+    const raw = window.localStorage.getItem(productionInProgressDraftsStorageKey)
+    if (!raw) {
+      return []
+    }
+
+    const parsed = JSON.parse(raw) as unknown
+    if (!Array.isArray(parsed)) {
+      return []
+    }
+
+    return parsed
+      .map(normalizeProductionDraftState)
+      .filter((item): item is ProductionDraftState => item !== null)
+  } catch {
+    return []
+  }
+}
+
+function saveProductionInProgressDraftsState(drafts: ProductionDraftState[]) {
+  if (typeof window === 'undefined') {
+    return
+  }
+
+  try {
+    window.localStorage.setItem(productionInProgressDraftsStorageKey, JSON.stringify(drafts))
+  } catch {
+    return
+  }
+}
+
 function loadTechnicalSheetSettingsState(): TechnicalSheetSettingsRecord[] {
   if (typeof window === 'undefined') {
     return []
@@ -34905,11 +35739,10 @@ function calculatePackageOnlyProductUnitCost(product: ProductRecord) {
     .map((item) => {
       const quantity = calculateNormalizedPackageQuantity(item, product.controlUnit)
       const price = parseDecimal(item.purchasePrice) ?? 0
-      const stock = parseDecimal(item.openingQuantity) ?? 0
       const unitCost = quantity > 0 ? price / quantity : 0
       return {
         unitCost,
-        weight: stock > 0 ? stock * quantity : quantity,
+        weight: quantity,
       }
     })
     .filter((item) => item.unitCost > 0 && item.weight > 0)
