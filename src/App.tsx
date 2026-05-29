@@ -836,9 +836,14 @@ type ServiceItemActionState = {
 
 type TechnicalSheetDraftState = {
   form: TechnicalSheetFormState
+  sectorInput: string
+  productionCenterInput: string
   ingredients: TechnicalSheetIngredient[]
+  editingIngredientId: number | null
   garnishIngredients: TechnicalSheetIngredient[]
+  editingGarnishIngredientId: number | null
   serviceItems: TechnicalSheetServiceItem[]
+  editingServiceItemId: number | null
   packages: PackageForm[]
   editingId: number | null
   pendingIngredientId: number | null
@@ -10205,9 +10210,14 @@ export default function App() {
       ...current,
       {
         form: technicalSheetForm,
+        sectorInput: technicalSheetSectorInput,
+        productionCenterInput: technicalSheetProductionCenterInput,
         ingredients: technicalSheetIngredients,
+        editingIngredientId: editingTechnicalSheetIngredientId,
         garnishIngredients: technicalSheetGarnishIngredients,
+        editingGarnishIngredientId: editingTechnicalSheetGarnishIngredientId,
         serviceItems: technicalSheetServiceItems,
+        editingServiceItemId: editingTechnicalSheetServiceItemId,
         packages: technicalSheetPackages,
         editingId: editingTechnicalSheetId,
         pendingIngredientId: ingredientId,
@@ -10236,9 +10246,14 @@ export default function App() {
       ...current,
       {
         form: technicalSheetForm,
+        sectorInput: technicalSheetSectorInput,
+        productionCenterInput: technicalSheetProductionCenterInput,
         ingredients: technicalSheetIngredients,
+        editingIngredientId: editingTechnicalSheetIngredientId,
         garnishIngredients: technicalSheetGarnishIngredients,
+        editingGarnishIngredientId: editingTechnicalSheetGarnishIngredientId,
         serviceItems: technicalSheetServiceItems,
+        editingServiceItemId: editingTechnicalSheetServiceItemId,
         packages: technicalSheetPackages,
         editingId: editingTechnicalSheetId,
         pendingIngredientId: null,
@@ -10267,9 +10282,14 @@ export default function App() {
       ...current,
       {
         form: technicalSheetForm,
+        sectorInput: technicalSheetSectorInput,
+        productionCenterInput: technicalSheetProductionCenterInput,
         ingredients: technicalSheetIngredients,
+        editingIngredientId: editingTechnicalSheetIngredientId,
         garnishIngredients: technicalSheetGarnishIngredients,
+        editingGarnishIngredientId: editingTechnicalSheetGarnishIngredientId,
         serviceItems: technicalSheetServiceItems,
+        editingServiceItemId: editingTechnicalSheetServiceItemId,
         packages: technicalSheetPackages,
         editingId: editingTechnicalSheetId,
         pendingIngredientId: null,
@@ -10298,19 +10318,7 @@ export default function App() {
   function closeTechnicalSheetProductModal() {
     setIsTechnicalSheetProductModalOpen(false)
     setTechnicalSheetIngredientCreationMode('product')
-    setTechnicalSheetDraftStack((current) => {
-      const draft = current[current.length - 1]
-      if (draft) {
-        setEditingTechnicalSheetId(draft.editingId)
-        setTechnicalSheetForm(draft.form)
-        setTechnicalSheetIngredients(draft.ingredients)
-        setTechnicalSheetGarnishIngredients(draft.garnishIngredients)
-        setTechnicalSheetServiceItems(draft.serviceItems)
-        setTechnicalSheetPackages(draft.packages)
-      }
-
-      return current.slice(0, -1)
-    })
+    restoreTopTechnicalSheetDraft()
     setEditingProductId(null)
     setProductForm(emptyProductForm())
     setProductSectorInput('')
@@ -10321,19 +10329,7 @@ export default function App() {
 
   function closeTechnicalSheetServiceItemModal() {
     setIsTechnicalSheetServiceItemModalOpen(false)
-    setTechnicalSheetDraftStack((current) => {
-      const draft = current[current.length - 1]
-      if (draft) {
-        setEditingTechnicalSheetId(draft.editingId)
-        setTechnicalSheetForm(draft.form)
-        setTechnicalSheetIngredients(draft.ingredients)
-        setTechnicalSheetGarnishIngredients(draft.garnishIngredients)
-        setTechnicalSheetServiceItems(draft.serviceItems)
-        setTechnicalSheetPackages(draft.packages)
-      }
-
-      return current.slice(0, -1)
-    })
+    restoreTopTechnicalSheetDraft()
     setEditingServiceItemId(null)
     setServiceItemForm(emptyServiceItemForm())
     setServiceItemSectorInput('')
@@ -10342,36 +10338,62 @@ export default function App() {
     setPackageEditorContext('product')
   }
 
+  function restoreTechnicalSheetDraftState(
+    draft: TechnicalSheetDraftState,
+    shouldRemainNested: boolean,
+    overrides?: Partial<Pick<TechnicalSheetDraftState, 'ingredients' | 'garnishIngredients' | 'serviceItems'>>,
+  ) {
+    setActiveSection('FichasTecnicas')
+    setTechnicalSheetScreenMode('form')
+    setEditingTechnicalSheetId(draft.editingId)
+    setTechnicalSheetForm(draft.form)
+    setTechnicalSheetSectorInput(draft.sectorInput)
+    setTechnicalSheetProductionCenterInput(draft.productionCenterInput)
+    setTechnicalSheetIngredients(overrides?.ingredients ?? draft.ingredients)
+    setEditingTechnicalSheetIngredientId(draft.editingIngredientId)
+    setTechnicalSheetGarnishIngredients(overrides?.garnishIngredients ?? draft.garnishIngredients)
+    setEditingTechnicalSheetGarnishIngredientId(draft.editingGarnishIngredientId)
+    setTechnicalSheetServiceItems(overrides?.serviceItems ?? draft.serviceItems)
+    setEditingTechnicalSheetServiceItemId(draft.editingServiceItemId)
+    setTechnicalSheetPackages(draft.packages)
+    setPendingNestedTechnicalSheetKind(shouldRemainNested ? 'PREPARO' : null)
+  }
+
+  function restoreTopTechnicalSheetDraft(
+    overrides?: Partial<Pick<TechnicalSheetDraftState, 'ingredients' | 'garnishIngredients' | 'serviceItems'>>,
+  ) {
+    let restored = false
+    setTechnicalSheetDraftStack((current) => {
+      const draft = current[current.length - 1]
+      if (!draft) {
+        return current
+      }
+
+      restoreTechnicalSheetDraftState(draft, current.length > 1, overrides)
+      restored = true
+      return current.slice(0, -1)
+    })
+    return restored
+  }
+
   function restoreTechnicalSheetDraftWithCreatedIngredient(productId: string, productLabel: string) {
     const draft = technicalSheetDraftStack[technicalSheetDraftStack.length - 1]
     if (!draft) {
       return false
     }
 
-    setActiveSection('FichasTecnicas')
-    setTechnicalSheetScreenMode('form')
-    setEditingTechnicalSheetId(draft.editingId)
-    setTechnicalSheetForm(draft.form)
-    setTechnicalSheetIngredients(
-      draft.ingredients.map((ingredient) =>
+    restoreTopTechnicalSheetDraft({
+      ingredients: draft.ingredients.map((ingredient) =>
         ingredient.id === draft.pendingIngredientId
           ? { ...ingredient, productId, productLabel }
           : ingredient,
       ),
-    )
-    setTechnicalSheetGarnishIngredients(
-      draft.garnishIngredients.map((ingredient) =>
+      garnishIngredients: draft.garnishIngredients.map((ingredient) =>
         ingredient.id === draft.pendingGarnishIngredientId
           ? { ...ingredient, productId, productLabel }
           : ingredient,
       ),
-    )
-    setTechnicalSheetServiceItems(draft.serviceItems)
-    setTechnicalSheetPackages(draft.packages)
-    setTechnicalSheetDraftStack((current) => current.slice(0, -1))
-    setPendingNestedTechnicalSheetKind(
-      draft.form.kind === 'PREPARO' && pendingNestedTechnicalSheetKind === 'PREPARO' ? 'PREPARO' : null,
-    )
+    })
     return true
   }
 
@@ -10381,21 +10403,13 @@ export default function App() {
       return false
     }
 
-    setActiveSection('FichasTecnicas')
-    setTechnicalSheetScreenMode('form')
-    setEditingTechnicalSheetId(draft.editingId)
-    setTechnicalSheetForm(draft.form)
-    setTechnicalSheetIngredients(draft.ingredients)
-    setTechnicalSheetGarnishIngredients(draft.garnishIngredients)
-    setTechnicalSheetServiceItems(
-      draft.serviceItems.map((serviceItem) =>
+    restoreTopTechnicalSheetDraft({
+      serviceItems: draft.serviceItems.map((serviceItem) =>
         serviceItem.id === draft.pendingServiceItemId
           ? { ...serviceItem, itemId, itemLabel }
           : serviceItem,
       ),
-    )
-    setTechnicalSheetPackages(draft.packages)
-    setTechnicalSheetDraftStack((current) => current.slice(0, -1))
+    })
     return true
   }
 
@@ -10454,21 +10468,11 @@ export default function App() {
   }
 
   function closeTechnicalSheetForm() {
-    const draft = technicalSheetDraftStack[technicalSheetDraftStack.length - 1]
-    if (pendingNestedTechnicalSheetKind && draft) {
-      setActiveSection('FichasTecnicas')
-      setTechnicalSheetScreenMode('form')
-      setEditingTechnicalSheetId(draft.editingId)
-      setTechnicalSheetForm(draft.form)
-      setTechnicalSheetIngredients(draft.ingredients)
-      setTechnicalSheetGarnishIngredients(draft.garnishIngredients)
-      setTechnicalSheetServiceItems(draft.serviceItems)
-      setTechnicalSheetPackages(draft.packages)
-      setPendingNestedTechnicalSheetKind(null)
-      setTechnicalSheetDraftStack((current) => current.slice(0, -1))
+    if (restoreTopTechnicalSheetDraft()) {
       return
     }
 
+    setPendingNestedTechnicalSheetKind(null)
     setTechnicalSheetScreenMode('list')
   }
 
@@ -16749,6 +16753,8 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
     const nextServiceItem = emptyTechnicalSheetServiceItem()
     setActiveSection('FichasTecnicas')
     setTechnicalSheetScreenMode('form')
+    setTechnicalSheetDraftStack([])
+    setPendingNestedTechnicalSheetKind(null)
     setEditingTechnicalSheetId(null)
     setTechnicalSheetForm({
       ...emptyTechnicalSheetForm(),
@@ -16775,6 +16781,8 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
 
     setActiveSection('FichasTecnicas')
     setTechnicalSheetScreenMode('form')
+    setTechnicalSheetDraftStack([])
+    setPendingNestedTechnicalSheetKind(null)
     setEditingTechnicalSheetId(technicalSheetId)
     setTechnicalSheetSectorInput('')
     setTechnicalSheetForm({
@@ -21335,7 +21343,9 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                 </div>
                 <div className="toolbar-actions">
                   <button className="ghost-button" type="button" onClick={closeTechnicalSheetForm}>
-                    {pendingNestedTechnicalSheetKind ? 'Voltar para ficha anterior' : 'Voltar para lista'}
+                    {pendingNestedTechnicalSheetKind || technicalSheetDraftStack.length > 0
+                      ? 'Voltar para ficha anterior'
+                      : 'Voltar para lista'}
                   </button>
                 </div>
               </div>
