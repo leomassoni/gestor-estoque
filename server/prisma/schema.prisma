@@ -344,6 +344,7 @@ model AppProductRecord {
   alcoholPercentage   String
   densitySampleVolume String
   densitySampleWeight String
+  ignoreStock         Boolean  @default(false)
   isActive            Boolean  @default(true)
   technicalSheetId    Int?
   packages            Json
@@ -391,6 +392,9 @@ model AppTechnicalSheetRecord {
   outputUnit            String
   densitySampleVolume   String
   densitySampleWeight   String
+  yieldDifferenceDestination String
+  yieldDifferenceByproductName String
+  yieldDifferenceByproductTechnicalSheetId Int?
   targetPh              String
   targetBrix            String
   portionSize           String

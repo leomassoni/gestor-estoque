@@ -691,6 +691,7 @@ function normalizeProductPayload(value) {
     typeof product.alcoholPercentage !== 'string' ||
     typeof product.densitySampleVolume !== 'string' ||
     typeof product.densitySampleWeight !== 'string' ||
+    typeof product.ignoreStock !== 'boolean' ||
     typeof product.isActive !== 'boolean' ||
     !Array.isArray(product.packages)
   ) {
@@ -709,6 +710,7 @@ function normalizeProductPayload(value) {
     alcoholPercentage: product.alcoholPercentage,
     densitySampleVolume: product.densitySampleVolume,
     densitySampleWeight: product.densitySampleWeight,
+    ignoreStock: product.ignoreStock,
     isActive: product.isActive,
     technicalSheetId: typeof product.technicalSheetId === 'number' ? product.technicalSheetId : null,
     packages: product.packages,
@@ -782,6 +784,8 @@ function normalizeTechnicalSheetPayload(value) {
     typeof sheet.outputUnit !== 'string' ||
     typeof sheet.densitySampleVolume !== 'string' ||
     typeof sheet.densitySampleWeight !== 'string' ||
+    typeof sheet.yieldDifferenceDestination !== 'string' ||
+    typeof sheet.yieldDifferenceByproductName !== 'string' ||
     typeof sheet.targetPh !== 'string' ||
     typeof sheet.targetBrix !== 'string' ||
     typeof sheet.portionSize !== 'string' ||
@@ -824,6 +828,10 @@ function normalizeTechnicalSheetPayload(value) {
     outputUnit: sheet.outputUnit,
     densitySampleVolume: sheet.densitySampleVolume,
     densitySampleWeight: sheet.densitySampleWeight,
+    yieldDifferenceDestination: sheet.yieldDifferenceDestination,
+    yieldDifferenceByproductName: sheet.yieldDifferenceByproductName,
+    yieldDifferenceByproductTechnicalSheetId:
+      typeof sheet.yieldDifferenceByproductTechnicalSheetId === 'number' ? sheet.yieldDifferenceByproductTechnicalSheetId : null,
     targetPh: sheet.targetPh,
     targetBrix: sheet.targetBrix,
     portionSize: sheet.portionSize,
