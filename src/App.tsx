@@ -2751,6 +2751,10 @@ function buildProductDiscardSnapshot(state: {
   return JSON.stringify(state)
 }
 
+function buildNormalizedRegistrationNameKey(value: string) {
+  return normalizeRegistrationText(value).replace(/\s+/g, ' ').trim()
+}
+
 function buildServiceItemDiscardSnapshot(state: {
   form: ServiceItemFormState
   packages: PackageForm[]
@@ -2826,6 +2830,9 @@ export default function App() {
   const [serviceItemActionState, setServiceItemActionState] = useState<ServiceItemActionState | null>(null)
   const [technicalSheetActionState, setTechnicalSheetActionState] = useState<TechnicalSheetActionState | null>(null)
   const [saveFeedback, setSaveFeedback] = useState<SaveFeedback | null>(null)
+  const [isSavingProduct, setIsSavingProduct] = useState(false)
+  const [isSavingServiceItem, setIsSavingServiceItem] = useState(false)
+  const [isSavingTechnicalSheet, setIsSavingTechnicalSheet] = useState(false)
   const [productExportState, setProductExportState] = useState<ProductExportState | null>(null)
   const [recipeExportState, setRecipeExportState] = useState<RecipeExportState | null>(null)
   const [requisitionExportState, setRequisitionExportState] = useState<RequisitionExportState | null>(null)
@@ -10701,6 +10708,10 @@ export default function App() {
   }
 
   async function saveServiceItem() {
+    if (isSavingServiceItem) {
+      return
+    }
+
     const normalizedName = normalizeRegistrationText(serviceItemForm.name.trim())
     const normalizedFamily = normalizeRegistrationText(serviceItemForm.family.trim())
     const normalizedSubfamily = normalizeRegistrationText(serviceItemForm.subfamily.trim())
@@ -10731,6 +10742,22 @@ export default function App() {
       return
     }
 
+    const normalizedNameKey = buildNormalizedRegistrationNameKey(normalizedName)
+    const duplicateServiceItem = serviceItems.find(
+      (item) =>
+        item.companyId === (currentCompanyId ?? 0) &&
+        item.id !== editingServiceItemId &&
+        buildNormalizedRegistrationNameKey(item.name) === normalizedNameKey,
+    )
+    if (duplicateServiceItem) {
+      setSaveFeedback({
+        status: 'error',
+        title: 'Falha ao salvar item',
+        message: `Ja existe um item cadastrado com o nome ${normalizedName}.`,
+      })
+      return
+    }
+
     const itemToSave: ServiceItemRecord = {
       companyId: currentCompanyId ?? 0,
       id: generatedServiceItemId,
@@ -10750,6 +10777,7 @@ export default function App() {
       packages: serviceItemPackages.map((entry) => ({ ...entry, barcode: '', grossWeightGrams: '', packagingWeightGrams: '' })),
     }
 
+    setIsSavingServiceItem(true)
     try {
       await upsertServiceItemRecordOnApi(itemToSave, editingServiceItemId)
     } catch (error) {
@@ -10760,6 +10788,8 @@ export default function App() {
         message: error instanceof Error ? error.message : 'Erro ao salvar item no servidor.',
       })
       return
+    } finally {
+      setIsSavingServiceItem(false)
     }
 
     setServiceItems((current) =>
@@ -18075,6 +18105,10 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
   }
 
   async function saveProduct() {
+    if (isSavingProduct) {
+      return
+    }
+
     const previousProduct = editingProductId ? products.find((product) => product.id === editingProductId) ?? null : null
     const normalizedName = normalizeRegistrationText(productForm.name.trim())
     const normalizedFamily = normalizeRegistrationText(productForm.family.trim())
@@ -18109,6 +18143,22 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
         status: 'error',
         title: 'Falha ao salvar produto',
         message: `Erro: ${errors.join('; ')}.`,
+      })
+      return
+    }
+
+    const normalizedNameKey = buildNormalizedRegistrationNameKey(normalizedName)
+    const duplicateProduct = products.find(
+      (product) =>
+        product.companyId === (currentCompanyId ?? 0) &&
+        product.id !== editingProductId &&
+        buildNormalizedRegistrationNameKey(product.name) === normalizedNameKey,
+    )
+    if (duplicateProduct) {
+      setSaveFeedback({
+        status: 'error',
+        title: 'Falha ao salvar produto',
+        message: `Ja existe um produto cadastrado com o nome ${normalizedName}.`,
       })
       return
     }
@@ -18164,6 +18214,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
             )
     }
 
+    setIsSavingProduct(true)
     try {
       await upsertProductRecordOnApi(productToSave, editingProductId)
       await persistChangedTechnicalSheetsOnApi(technicalSheets, nextTechnicalSheets)
@@ -18175,6 +18226,8 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
         message: error instanceof Error ? error.message : 'Erro ao salvar produto no servidor.',
       })
       return
+    } finally {
+      setIsSavingProduct(false)
     }
 
     setProducts(nextProducts)
@@ -18827,6 +18880,10 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
   }
 
   async function saveTechnicalSheet() {
+    if (isSavingTechnicalSheet) {
+      return
+    }
+
     const previousTechnicalSheet =
       editingTechnicalSheetId ? technicalSheets.find((sheet) => sheet.id === editingTechnicalSheetId) ?? null : null
     const normalizedName = normalizeRegistrationText(technicalSheetForm.name.trim())
@@ -19009,6 +19066,22 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
       return
     }
 
+    const normalizedNameKey = buildNormalizedRegistrationNameKey(normalizedName)
+    const duplicateTechnicalSheet = technicalSheets.find(
+      (sheet) =>
+        sheet.companyId === (currentCompanyId ?? 0) &&
+        sheet.id !== editingTechnicalSheetId &&
+        buildNormalizedRegistrationNameKey(sheet.name) === normalizedNameKey,
+    )
+    if (duplicateTechnicalSheet) {
+      setSaveFeedback({
+        status: 'error',
+        title: 'Falha ao salvar ficha tecnica',
+        message: `Ja existe uma ficha tecnica cadastrada com o nome ${normalizedName}.`,
+      })
+      return
+    }
+
     const technicalSheetId =
       editingTechnicalSheetId ??
       (technicalSheets.length > 0 ? Math.max(...technicalSheets.map((item) => item.id)) + 1 : 1)
@@ -19106,6 +19179,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
         )
       : [technicalProduct, ...products]
 
+    setIsSavingTechnicalSheet(true)
     try {
       await upsertTechnicalSheetRecordOnApi(technicalSheetToSave)
       await persistChangedTechnicalSheetsOnApi(technicalSheets, nextTechnicalSheets)
@@ -19130,6 +19204,8 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
         message: error instanceof Error ? error.message : 'Erro ao salvar ficha tecnica no servidor.',
       })
       return
+    } finally {
+      setIsSavingTechnicalSheet(false)
     }
 
     setTechnicalSheets(nextTechnicalSheets)
@@ -22001,7 +22077,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                 <span className={hasPackages ? 'product-status product-status-ready' : 'product-status product-status-draft'}>
                   {hasPackages ? 'Pronto para uso' : 'Rascunho incompleto'}
                 </span>
-                <button className="ghost-button" type="button" onClick={requestProductDiscard}>
+                <button className="ghost-button" type="button" onClick={requestProductDiscard} disabled={isSavingProduct}>
                   Voltar para lista
                 </button>
               </div>
@@ -22273,8 +22349,8 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                 uma apresentacao cadastrada.
               </p>
               <div className="save-product-actions">
-                <button className="primary-button" type="button" onClick={saveProduct}>
-                  Salvar
+                <button className="primary-button" type="button" onClick={saveProduct} disabled={isSavingProduct}>
+                  {isSavingProduct ? 'Registrando, aguarde...' : 'Salvar'}
                 </button>
               </div>
             </div>
@@ -22445,7 +22521,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                 <span className={hasServiceItemPackages ? 'product-status product-status-ready' : 'product-status product-status-draft'}>
                   {hasServiceItemPackages ? 'Pronto para uso' : 'Rascunho incompleto'}
                 </span>
-                <button className="ghost-button" type="button" onClick={() => setItemScreenMode('list')}>
+                <button className="ghost-button" type="button" onClick={() => setItemScreenMode('list')} disabled={isSavingServiceItem}>
                   Voltar para lista
                 </button>
               </div>
@@ -22648,8 +22724,8 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                 O item pode ser salvo sem embalagem para continuar o cadastro depois, mas so fica disponivel para uso quando tiver ao menos uma embalagem cadastrada.
               </p>
               <div className="save-product-actions">
-                <button className="primary-button" type="button" onClick={saveServiceItem}>
-                  Salvar
+                <button className="primary-button" type="button" onClick={saveServiceItem} disabled={isSavingServiceItem}>
+                  {isSavingServiceItem ? 'Registrando, aguarde...' : 'Salvar'}
                 </button>
               </div>
             </div>
@@ -23053,7 +23129,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                   </h2>
                 </div>
                 <div className="toolbar-actions">
-                  <button className="ghost-button" type="button" onClick={() => requestTechnicalSheetDiscard('technicalSheetForm')}>
+                  <button className="ghost-button" type="button" onClick={() => requestTechnicalSheetDiscard('technicalSheetForm')} disabled={isSavingTechnicalSheet}>
                     {pendingNestedTechnicalSheetKind || technicalSheetDraftStack.length > 0
                       ? 'Voltar para ficha anterior'
                       : 'Voltar para lista'}
@@ -23940,8 +24016,8 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                   na lista de produtos, deixando-o disponivel para novos pre-preparos.
                 </p>
                 <div className="save-product-actions">
-                  <button className="primary-button" type="button" onClick={saveTechnicalSheet}>
-                    Salvar
+                  <button className="primary-button" type="button" onClick={saveTechnicalSheet} disabled={isSavingTechnicalSheet}>
+                    {isSavingTechnicalSheet ? 'Registrando, aguarde...' : 'Salvar'}
                   </button>
                 </div>
               </div>
@@ -27747,7 +27823,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
       ) : null}
 
       {pendingNestedTechnicalSheetKind === 'PREPARO' ? (
-        <div className="modal-backdrop" role="presentation" onClick={() => requestTechnicalSheetDiscard('technicalSheetForm')}>
+        <div className="modal-backdrop" role="presentation" onClick={() => !isSavingTechnicalSheet && requestTechnicalSheetDiscard('technicalSheetForm')}>
           <section
             className="modal-card modal-card-full"
             role="dialog"
@@ -27760,7 +27836,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                 <p className="kicker">Nova ficha tecnica</p>
                 <h2 id="nested-preparo-modal-title">Cadastrar pre-preparo pela ficha tecnica</h2>
               </div>
-              <button className="ghost-button" type="button" onClick={() => requestTechnicalSheetDiscard('technicalSheetForm')}>
+              <button className="ghost-button" type="button" onClick={() => requestTechnicalSheetDiscard('technicalSheetForm')} disabled={isSavingTechnicalSheet}>
                 Fechar
               </button>
             </div>
@@ -27798,11 +27874,11 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
 	            {renderPreparoExecutionPanel('nested')}
 
             <div className="modal-actions">
-              <button className="ghost-button" type="button" onClick={() => requestTechnicalSheetDiscard('technicalSheetForm')}>
+              <button className="ghost-button" type="button" onClick={() => requestTechnicalSheetDiscard('technicalSheetForm')} disabled={isSavingTechnicalSheet}>
                 Cancelar
               </button>
-              <button className="primary-button" type="button" onClick={saveTechnicalSheet}>
-                Salvar ficha
+              <button className="primary-button" type="button" onClick={saveTechnicalSheet} disabled={isSavingTechnicalSheet}>
+                {isSavingTechnicalSheet ? 'Registrando, aguarde...' : 'Salvar ficha'}
               </button>
             </div>
           </section>
@@ -27813,7 +27889,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
         <div
           className="modal-backdrop"
           role="presentation"
-          onClick={() => requestTechnicalSheetDiscard('technicalSheetProductModal')}
+          onClick={() => !isSavingProduct && requestTechnicalSheetDiscard('technicalSheetProductModal')}
         >
           <section
             className="modal-card modal-card-full"
@@ -27827,7 +27903,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                 <p className="kicker">Novo insumo</p>
                 <h2 id="technical-sheet-product-modal-title">Cadastrar insumo pela ficha tecnica</h2>
               </div>
-              <button className="ghost-button" type="button" onClick={() => requestTechnicalSheetDiscard('technicalSheetProductModal')}>
+              <button className="ghost-button" type="button" onClick={() => requestTechnicalSheetDiscard('technicalSheetProductModal')} disabled={isSavingProduct}>
                 Fechar
               </button>
             </div>
@@ -28063,11 +28139,11 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                 )}
               </div>
               <div className="modal-actions field-span-all">
-                <button type="button" className="ghost-button" onClick={() => requestTechnicalSheetDiscard('technicalSheetProductModal')}>
+                <button type="button" className="ghost-button" onClick={() => requestTechnicalSheetDiscard('technicalSheetProductModal')} disabled={isSavingProduct}>
                   Cancelar
                 </button>
-                <button type="button" className="primary-button" onClick={saveProduct}>
-                  Salvar produto
+                <button type="button" className="primary-button" onClick={saveProduct} disabled={isSavingProduct}>
+                  {isSavingProduct ? 'Registrando, aguarde...' : 'Salvar produto'}
                 </button>
               </div>
             </form>
@@ -28079,7 +28155,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
         <div
           className="modal-backdrop"
           role="presentation"
-          onClick={() => requestTechnicalSheetDiscard('technicalSheetServiceItemModal')}
+          onClick={() => !isSavingServiceItem && requestTechnicalSheetDiscard('technicalSheetServiceItemModal')}
         >
           <section
             className="modal-card modal-card-full"
@@ -28093,7 +28169,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                 <p className="kicker">Novo recipiente</p>
                 <h2 id="technical-sheet-service-item-modal-title">Cadastrar recipiente pela ficha tecnica</h2>
               </div>
-              <button className="ghost-button" type="button" onClick={() => requestTechnicalSheetDiscard('technicalSheetServiceItemModal')}>
+              <button className="ghost-button" type="button" onClick={() => requestTechnicalSheetDiscard('technicalSheetServiceItemModal')} disabled={isSavingServiceItem}>
                 Fechar
               </button>
             </div>
@@ -28265,11 +28341,11 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                 )}
               </div>
               <div className="modal-actions field-span-all">
-                <button type="button" className="ghost-button" onClick={() => requestTechnicalSheetDiscard('technicalSheetServiceItemModal')}>
+                <button type="button" className="ghost-button" onClick={() => requestTechnicalSheetDiscard('technicalSheetServiceItemModal')} disabled={isSavingServiceItem}>
                   Cancelar
                 </button>
-                <button type="button" className="primary-button" onClick={saveServiceItem}>
-                  Salvar recipiente
+                <button type="button" className="primary-button" onClick={saveServiceItem} disabled={isSavingServiceItem}>
+                  {isSavingServiceItem ? 'Registrando, aguarde...' : 'Salvar recipiente'}
                 </button>
               </div>
             </form>

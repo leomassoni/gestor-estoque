@@ -337,12 +337,17 @@ app.post('/api/products', async (request, response) => {
     return
   }
 
-  const saved = await prisma.appProductRecord.upsert({
-    where: { id: product.id },
-    create: product,
-    update: product,
-  })
-  response.json({ product: saved })
+  try {
+    await ensureUniqueProductName(product)
+    const saved = await prisma.appProductRecord.upsert({
+      where: { id: product.id },
+      create: product,
+      update: product,
+    })
+    response.json({ product: saved })
+  } catch (error) {
+    response.status(error.statusCode ?? 500).json({ error: error.message ?? 'Erro ao salvar produto.' })
+  }
 })
 
 app.put('/api/products/:id', async (request, response) => {
@@ -353,12 +358,17 @@ app.put('/api/products/:id', async (request, response) => {
     return
   }
 
-  const saved = await prisma.appProductRecord.upsert({
-    where: { id: productId },
-    create: product,
-    update: product,
-  })
-  response.json({ product: saved })
+  try {
+    await ensureUniqueProductName(product)
+    const saved = await prisma.appProductRecord.upsert({
+      where: { id: productId },
+      create: product,
+      update: product,
+    })
+    response.json({ product: saved })
+  } catch (error) {
+    response.status(error.statusCode ?? 500).json({ error: error.message ?? 'Erro ao salvar produto.' })
+  }
 })
 
 app.delete('/api/products/:id', async (request, response) => {
@@ -389,12 +399,17 @@ app.post('/api/service-items', async (request, response) => {
     return
   }
 
-  const saved = await prisma.appServiceItemRecord.upsert({
-    where: { id: serviceItem.id },
-    create: serviceItem,
-    update: serviceItem,
-  })
-  response.json({ serviceItem: saved })
+  try {
+    await ensureUniqueServiceItemName(serviceItem)
+    const saved = await prisma.appServiceItemRecord.upsert({
+      where: { id: serviceItem.id },
+      create: serviceItem,
+      update: serviceItem,
+    })
+    response.json({ serviceItem: saved })
+  } catch (error) {
+    response.status(error.statusCode ?? 500).json({ error: error.message ?? 'Erro ao salvar item.' })
+  }
 })
 
 app.put('/api/service-items/:id', async (request, response) => {
@@ -405,12 +420,17 @@ app.put('/api/service-items/:id', async (request, response) => {
     return
   }
 
-  const saved = await prisma.appServiceItemRecord.upsert({
-    where: { id: serviceItemId },
-    create: serviceItem,
-    update: serviceItem,
-  })
-  response.json({ serviceItem: saved })
+  try {
+    await ensureUniqueServiceItemName(serviceItem)
+    const saved = await prisma.appServiceItemRecord.upsert({
+      where: { id: serviceItemId },
+      create: serviceItem,
+      update: serviceItem,
+    })
+    response.json({ serviceItem: saved })
+  } catch (error) {
+    response.status(error.statusCode ?? 500).json({ error: error.message ?? 'Erro ao salvar item.' })
+  }
 })
 
 app.delete('/api/service-items/:id', async (request, response) => {
@@ -441,12 +461,17 @@ app.post('/api/technical-sheets', async (request, response) => {
     return
   }
 
-  const saved = await prisma.appTechnicalSheetRecord.upsert({
-    where: { id: technicalSheet.id },
-    create: technicalSheet,
-    update: technicalSheet,
-  })
-  response.json({ technicalSheet: saved })
+  try {
+    await ensureUniqueTechnicalSheetName(technicalSheet)
+    const saved = await prisma.appTechnicalSheetRecord.upsert({
+      where: { id: technicalSheet.id },
+      create: technicalSheet,
+      update: technicalSheet,
+    })
+    response.json({ technicalSheet: saved })
+  } catch (error) {
+    response.status(error.statusCode ?? 500).json({ error: error.message ?? 'Erro ao salvar ficha tecnica.' })
+  }
 })
 
 app.put('/api/technical-sheets/:id', async (request, response) => {
@@ -457,12 +482,17 @@ app.put('/api/technical-sheets/:id', async (request, response) => {
     return
   }
 
-  const saved = await prisma.appTechnicalSheetRecord.upsert({
-    where: { id: technicalSheetId },
-    create: technicalSheet,
-    update: technicalSheet,
-  })
-  response.json({ technicalSheet: saved })
+  try {
+    await ensureUniqueTechnicalSheetName(technicalSheet)
+    const saved = await prisma.appTechnicalSheetRecord.upsert({
+      where: { id: technicalSheetId },
+      create: technicalSheet,
+      update: technicalSheet,
+    })
+    response.json({ technicalSheet: saved })
+  } catch (error) {
+    response.status(error.statusCode ?? 500).json({ error: error.message ?? 'Erro ao salvar ficha tecnica.' })
+  }
 })
 
 app.delete('/api/technical-sheets/:id', async (request, response) => {
@@ -528,6 +558,72 @@ function parseIntegerParam(value) {
   const resolved = Array.isArray(value) ? value[0] : value
   const parsed = Number.parseInt(String(resolved ?? ''), 10)
   return Number.isFinite(parsed) ? parsed : null
+}
+
+function normalizeRegistrationNameKey(value) {
+  if (typeof value !== 'string') {
+    return ''
+  }
+
+  return value
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toUpperCase()
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+async function ensureUniqueProductName(product) {
+  const existing = await prisma.appProductRecord.findMany({
+    where: { companyId: product.companyId },
+    select: { id: true, name: true },
+  })
+
+  const duplicate = existing.find(
+    (record) => record.id !== product.id && normalizeRegistrationNameKey(record.name) === normalizeRegistrationNameKey(product.name),
+  )
+
+  if (duplicate) {
+    const error = new Error(`Ja existe um produto cadastrado com o nome ${product.name}.`)
+    error.statusCode = 409
+    throw error
+  }
+}
+
+async function ensureUniqueServiceItemName(serviceItem) {
+  const existing = await prisma.appServiceItemRecord.findMany({
+    where: { companyId: serviceItem.companyId },
+    select: { id: true, name: true },
+  })
+
+  const duplicate = existing.find(
+    (record) => record.id !== serviceItem.id && normalizeRegistrationNameKey(record.name) === normalizeRegistrationNameKey(serviceItem.name),
+  )
+
+  if (duplicate) {
+    const error = new Error(`Ja existe um item cadastrado com o nome ${serviceItem.name}.`)
+    error.statusCode = 409
+    throw error
+  }
+}
+
+async function ensureUniqueTechnicalSheetName(technicalSheet) {
+  const existing = await prisma.appTechnicalSheetRecord.findMany({
+    where: { companyId: technicalSheet.companyId },
+    select: { id: true, name: true },
+  })
+
+  const duplicate = existing.find(
+    (record) =>
+      record.id !== technicalSheet.id &&
+      normalizeRegistrationNameKey(record.name) === normalizeRegistrationNameKey(technicalSheet.name),
+  )
+
+  if (duplicate) {
+    const error = new Error(`Ja existe uma ficha tecnica cadastrada com o nome ${technicalSheet.name}.`)
+    error.statusCode = 409
+    throw error
+  }
 }
 
 function normalizeCompanyPayload(value) {
