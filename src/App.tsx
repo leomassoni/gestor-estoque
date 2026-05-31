@@ -894,6 +894,7 @@ type TechnicalSheetIngredientMetrics = {
 
 type TechnicalSheetTotals = {
   totalRecipeCost: number
+  suggestedYield: number
   totalYield: number
   finalAlcoholPercentage: number
   portionsYield: number
@@ -8790,18 +8791,24 @@ export default function App() {
       technicalSheetForm.kind === 'EXECUCAO' ? Math.max(parseDecimal(technicalSheetForm.dilutionRatePercentage) ?? 0, 0) : 0
     const dilutionQuantity =
       technicalSheetForm.kind === 'EXECUCAO' ? totalMixtureVolume * (dilutionRatePercentage / 100) : 0
-    const totalYield =
+    const suggestedYield =
       technicalSheetForm.kind === 'VENDA'
         ? technicalSheetForm.outputUnit === 'COMBO'
           ? vendaComboYield
           : totalMixtureVolume
         : technicalSheetForm.kind === 'EXECUCAO'
           ? totalMixtureVolume + dilutionQuantity
-        : technicalSheetForm.kind === 'PREPARO' && technicalSheetForm.outputUnit === 'UNIT'
+          : totalMixtureVolume
+    const totalYield =
+      technicalSheetForm.kind === 'PREPARO'
+        ? manuallyDefinedOutputQuantity > 0
           ? manuallyDefinedOutputQuantity
-        : totalMixtureVolume
+          : suggestedYield
+        : suggestedYield
+    const finalYieldScaleFactor =
+      technicalSheetForm.kind === 'PREPARO' && totalMixtureVolume > 0 ? totalYield / totalMixtureVolume : 1
     const totalPureAlcoholVolume = yieldMetrics.reduce(
-      (sum, item) => sum + item.yieldQuantity * (item.alcoholPercentage / 100),
+      (sum, item) => sum + item.yieldQuantity * finalYieldScaleFactor * (item.alcoholPercentage / 100),
       0,
     )
     const portionsYield = portionSize > 0 ? totalYield / portionSize : 0
@@ -8826,6 +8833,7 @@ export default function App() {
 
     return {
       totalRecipeCost,
+      suggestedYield,
       totalYield,
       finalAlcoholPercentage,
       portionsYield,
@@ -20596,18 +20604,9 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
         <label className="field">
           <span>Rendimento final</span>
           <input
-            value={
-              technicalSheetForm.outputUnit === 'UNIT'
-                ? technicalSheetForm.outputQuantity
-                : formatDecimal(technicalSheetTotals.totalYield)
-            }
-            onChange={
-              technicalSheetForm.outputUnit === 'UNIT'
-                ? (event) => updateTechnicalSheetForm('outputQuantity', event.target.value)
-                : undefined
-            }
-            disabled={technicalSheetForm.outputUnit !== 'UNIT'}
-            placeholder={technicalSheetForm.outputUnit === 'UNIT' ? 'EX.: 24' : undefined}
+            value={technicalSheetForm.outputQuantity}
+            onChange={(event) => updateTechnicalSheetForm('outputQuantity', event.target.value)}
+            placeholder={formatDecimal(technicalSheetTotals.suggestedYield)}
           />
         </label>
       ) : null}
@@ -36669,10 +36668,10 @@ function calculateTechnicalSheetCost(
         technicalSheets.find((item) => item.productId === ingredient.productId && item.companyId === sheet.companyId) ?? null
 
       if (linkedTechnicalSheet) {
-        const linkedCost: number = calculateTechnicalSheetCost(linkedTechnicalSheet, technicalSheets, products, nextVisited)
-        const linkedYield = parseDecimal(linkedTechnicalSheet.outputQuantity) ?? 0
-        const linkedUnitCost: number = linkedYield > 0 ? linkedCost / linkedYield : linkedCost
-        return sum + linkedUnitCost * quantity
+      const linkedCost: number = calculateTechnicalSheetCost(linkedTechnicalSheet, technicalSheets, products, nextVisited)
+      const linkedYield = calculateTechnicalSheetEffectiveYield(linkedTechnicalSheet)
+      const linkedUnitCost: number = linkedYield > 0 ? linkedCost / linkedYield : linkedCost
+      return sum + linkedUnitCost * quantity
       }
 
       const linkedProduct = products.find((item) => item.id === ingredient.productId) ?? null
@@ -36698,6 +36697,10 @@ function calculateTechnicalSheetAlcoholPercentage(
 
   const nextVisited = new Set(visited)
   nextVisited.add(sheet.id)
+  const referenceYield = calculateTechnicalSheetIngredientYieldSum(sheet, {
+    includeGarnishes: sheet.kind !== 'EXECUCAO',
+  })
+  const finalYieldScaleFactor = referenceYield > 0 ? totalMixtureVolume / referenceYield : 1
 
   const alcoholSourceIngredients =
     sheet.kind === 'EXECUCAO' ? sheet.ingredients : [...sheet.ingredients, ...sheet.garnishIngredients]
@@ -36715,13 +36718,14 @@ function calculateTechnicalSheetAlcoholPercentage(
         return (
           sum +
           yieldQuantity *
+            finalYieldScaleFactor *
             (calculateTechnicalSheetAlcoholPercentage(linkedTechnicalSheet, technicalSheets, products, nextVisited) / 100)
         )
       }
 
       const linkedProduct = products.find((item) => item.id === ingredient.productId) ?? null
       const alcoholPercentage = parseDecimal(linkedProduct?.alcoholPercentage ?? '') ?? 0
-      const pureAlcoholVolume = yieldQuantity * (alcoholPercentage / 100)
+      const pureAlcoholVolume = yieldQuantity * finalYieldScaleFactor * (alcoholPercentage / 100)
       return sum + pureAlcoholVolume
     }, 0)
 
@@ -36757,6 +36761,13 @@ function calculateTechnicalSheetEffectiveYield(sheet: TechnicalSheetRecord) {
     })
 
     return ingredientYield
+  }
+
+  if (sheet.kind === 'PREPARO') {
+    const savedYield = parseDecimal(sheet.outputQuantity) ?? 0
+    if (savedYield > 0) {
+      return savedYield
+    }
   }
 
   if (sheet.kind === 'VENDA') {
