@@ -20873,7 +20873,11 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
         <label className="field">
           <span>Rendimento final</span>
           <input
-            value={technicalSheetForm.outputQuantity}
+            value={
+              technicalSheetOutputQuantityMode === 'auto'
+                ? formatDecimal(technicalSheetTotals.suggestedYield)
+                : technicalSheetForm.outputQuantity
+            }
             onChange={(event) => updateTechnicalSheetForm('outputQuantity', event.target.value)}
             placeholder={formatDecimal(technicalSheetTotals.suggestedYield)}
           />
@@ -20925,14 +20929,13 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
           </div>
         </div>
       ) : null}
-      {mode === 'main' &&
-      activeProducerStockCenters.length > 0 &&
+      {activeProducerStockCenters.length > 0 &&
       isTechnicalSheetFieldVisible('PREPARO', 'productionCenters') ? (
         <div className="field field-span-all">
           <div className="section-heading section-heading-inline stock-center-subheading">
             <div>
               <p className="kicker">Producao</p>
-              <h2>Centros produtores deste pre-preparo</h2>
+              <h2>{mode === 'nested' ? 'Centro produtor deste pre-preparo' : 'Centros produtores deste pre-preparo'}</h2>
             </div>
           </div>
           <div className="field field-span-all">
