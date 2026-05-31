@@ -716,6 +716,8 @@ type ManualProductionPreviewState = {
   shortageLines: RequisitionLineRecord[]
 }
 
+type TechnicalSheetDiscardTarget = 'technicalSheetForm' | 'technicalSheetProductModal' | 'technicalSheetServiceItemModal' | 'packageModal'
+
 type ManualSupplyDraftLine = {
   id: number
   itemKey: string
@@ -2554,9 +2556,6 @@ const productionInProgressDraftsStorageKey = 'gestor-estoque:production-in-progr
 const stockReportColumnOrderStorageKey = 'gestor-estoque:stock-report-column-order'
 const stockReportModelsStorageKey = 'gestor-estoque:stock-report-models'
 const syncedAppStorageKeys = [
-  companiesStorageKey,
-  usersStorageKey,
-  accessProfilesStorageKey,
   technicalSheetSettingsStorageKey,
   productsStorageKey,
   serviceItemsStorageKey,
@@ -2571,7 +2570,6 @@ const syncedAppStorageKeys = [
   inventoryCountsStorageKey,
   pendingInventoryMovementsStorageKey,
   inventoryStorageLocationsStorageKey,
-  stockModuleSettingsStorageKey,
   manualProductionRequestsStorageKey,
   productionInProgressDraftsStorageKey,
 ] as const
@@ -2681,6 +2679,44 @@ function logRemoteAppStateMessage(message: string) {
   console.info(`[remote-app-state] ${message}`)
 }
 
+function buildTechnicalSheetDiscardSnapshot(state: {
+  form: TechnicalSheetFormState
+  sectorInput: string
+  productionCenterInput: string
+  ingredients: TechnicalSheetIngredient[]
+  garnishIngredients: TechnicalSheetIngredient[]
+  serviceItems: TechnicalSheetServiceItem[]
+  packages: PackageForm[]
+  editingId: number | null
+}) {
+  return JSON.stringify(state)
+}
+
+function buildProductDiscardSnapshot(state: {
+  form: ProductFormState
+  sectorInput: string
+  packages: PackageForm[]
+  editingId: string | null
+}) {
+  return JSON.stringify(state)
+}
+
+function buildServiceItemDiscardSnapshot(state: {
+  form: ServiceItemFormState
+  packages: PackageForm[]
+  editingId: string | null
+}) {
+  return JSON.stringify(state)
+}
+
+function buildPackageDiscardSnapshot(state: {
+  draft: PackageForm
+  editingId: number | null
+  context: PackageEditorContext
+}) {
+  return JSON.stringify(state)
+}
+
 export default function App() {
   const productListId = useId()
   const serviceItemListId = useId()
@@ -2694,6 +2730,9 @@ export default function App() {
   const replacementSectorListId = useId()
   const replacementTaxonomyListId = useId()
   const remoteAppStateSyncTimeoutRef = useRef<number | null>(null)
+  const remoteAppStatePollingIntervalRef = useRef<number | null>(null)
+  const lastRemoteAppStateUpdatedAtRef = useRef<string | null>(null)
+  const lastRemoteAppStatePayloadSignatureRef = useRef('')
   const [isRemoteAppStateReady, setIsRemoteAppStateReady] = useState(false)
   const [isImportingRemoteSnapshot, setIsImportingRemoteSnapshot] = useState(false)
 
@@ -3006,6 +3045,11 @@ export default function App() {
   const [technicalSheetIngredientCreationMode, setTechnicalSheetIngredientCreationMode] =
     useState<'product' | 'preparo'>('product')
   const [pendingNestedTechnicalSheetKind, setPendingNestedTechnicalSheetKind] = useState<'PREPARO' | null>(null)
+  const [technicalSheetDiscardState, setTechnicalSheetDiscardState] = useState<TechnicalSheetDiscardTarget | null>(null)
+  const [technicalSheetDiscardBaseline, setTechnicalSheetDiscardBaseline] = useState('')
+  const [technicalSheetProductDiscardBaseline, setTechnicalSheetProductDiscardBaseline] = useState('')
+  const [technicalSheetServiceItemDiscardBaseline, setTechnicalSheetServiceItemDiscardBaseline] = useState('')
+  const [packageDiscardBaseline, setPackageDiscardBaseline] = useState('')
   const recipeExportContainerRef = useRef<HTMLDivElement | null>(null)
   const [userForm, setUserForm] = useState<UserFormState>(emptyUserForm())
   const [accessProfileForm, setAccessProfileForm] = useState<AccessProfileFormState>(emptyAccessProfileForm())
@@ -3026,6 +3070,8 @@ export default function App() {
   const [editingProductId, setEditingProductId] = useState<string | null>(null)
   const [productForm, setProductForm] = useState<ProductFormState>(emptyProductForm())
   const [productSectorInput, setProductSectorInput] = useState('')
+  const [productDiscardState, setProductDiscardState] = useState(false)
+  const [productDiscardBaseline, setProductDiscardBaseline] = useState('')
   const [editingServiceItemId, setEditingServiceItemId] = useState<string | null>(null)
   const [serviceItemForm, setServiceItemForm] = useState<ServiceItemFormState>(emptyServiceItemForm())
   const [serviceItemSectorInput, setServiceItemSectorInput] = useState('')
@@ -3040,6 +3086,56 @@ export default function App() {
   const [editingPackageId, setEditingPackageId] = useState<number | null>(null)
   const [packageActionState, setPackageActionState] =
     useState<{ action: 'disable' | 'enable' | 'delete'; packageId: number; context: PackageEditorContext } | null>(null)
+
+  const technicalSheetCurrentDiscardSnapshot = useMemo(
+    () =>
+      buildTechnicalSheetDiscardSnapshot({
+        form: technicalSheetForm,
+        sectorInput: technicalSheetSectorInput,
+        productionCenterInput: technicalSheetProductionCenterInput,
+        ingredients: technicalSheetIngredients,
+        garnishIngredients: technicalSheetGarnishIngredients,
+        serviceItems: technicalSheetServiceItems,
+        packages: technicalSheetPackages,
+        editingId: editingTechnicalSheetId,
+      }),
+    [
+      editingTechnicalSheetId,
+      technicalSheetForm,
+      technicalSheetGarnishIngredients,
+      technicalSheetIngredients,
+      technicalSheetPackages,
+      technicalSheetServiceItems,
+    ],
+  )
+  const technicalSheetProductCurrentDiscardSnapshot = useMemo(
+    () =>
+      buildProductDiscardSnapshot({
+        form: productForm,
+        sectorInput: productSectorInput,
+        packages,
+        editingId: editingProductId,
+      }),
+    [editingProductId, packages, productForm, productSectorInput],
+  )
+  const technicalSheetServiceItemCurrentDiscardSnapshot = useMemo(
+    () =>
+      buildServiceItemDiscardSnapshot({
+        form: serviceItemForm,
+        packages: serviceItemPackages,
+        editingId: editingServiceItemId,
+      }),
+    [editingServiceItemId, serviceItemForm, serviceItemPackages],
+  )
+  const packageCurrentDiscardSnapshot = useMemo(
+    () =>
+      buildPackageDiscardSnapshot({
+        draft: draftPackage,
+        editingId: editingPackageId,
+        context: packageEditorContext,
+      }),
+    [draftPackage, editingPackageId, packageEditorContext],
+  )
 
   const isSystemAdmin = session?.kind === 'systemAdmin'
   const isAdministrative = session?.kind === 'appUser' && session.user.role === 'Administrativo'
@@ -3804,6 +3900,115 @@ export default function App() {
     }
   }
 
+  async function refreshAppAdminRecordsFromApi() {
+    const [companiesResponse, usersResponse, accessProfilesResponse, stockModuleSettingsResponse] = await Promise.all([
+      fetch('/api/companies'),
+      fetch('/api/users'),
+      fetch('/api/access-profiles'),
+      fetch('/api/stock-module-settings'),
+    ])
+
+    if (!companiesResponse.ok || !usersResponse.ok || !accessProfilesResponse.ok || !stockModuleSettingsResponse.ok) {
+      throw new Error('Falha ao carregar empresas, usuarios ou perfis do servidor.')
+    }
+
+    const [companiesData, usersData, accessProfilesData, stockModuleSettingsData] = await Promise.all([
+      companiesResponse.json(),
+      usersResponse.json(),
+      accessProfilesResponse.json(),
+      stockModuleSettingsResponse.json(),
+    ])
+
+    const nextCompanies = Array.isArray(companiesData?.companies)
+      ? (companiesData.companies as unknown[]).map(normalizeCompanyRecord).filter((item): item is CompanyRecord => item !== null)
+      : []
+    const nextUsers = Array.isArray(usersData?.users)
+      ? (usersData.users as unknown[]).map(normalizeSessionUser).filter((item): item is AppUserRecord => item !== null)
+      : []
+    const nextAccessProfiles = Array.isArray(accessProfilesData?.accessProfiles)
+      ? (accessProfilesData.accessProfiles as unknown[])
+          .map(normalizeAccessProfileRecord)
+          .filter((item): item is AccessProfileRecord => item !== null)
+      : []
+    const nextStockModuleSettings = Array.isArray(stockModuleSettingsData?.stockModuleSettings)
+      ? (stockModuleSettingsData.stockModuleSettings as unknown[])
+          .map(normalizeStockModuleSettingsRecord)
+          .filter((item): item is StockModuleSettingsRecord => item !== null)
+      : []
+
+    setCompanies(nextCompanies)
+    setUsers(nextUsers)
+    setAccessProfiles(nextAccessProfiles)
+    setStockModuleSettings(nextStockModuleSettings)
+  }
+
+  function getRemoteAppStatePayloadSignature(payload: RemoteAppStatePayload | null) {
+    return payload ? JSON.stringify(payload) : ''
+  }
+
+  async function pushRemoteAppState(payload: RemoteAppStatePayload, options?: { keepalive?: boolean; useBeacon?: boolean }) {
+    const body = JSON.stringify({ payload })
+    const signature = getRemoteAppStatePayloadSignature(payload)
+
+    if (options?.useBeacon && typeof navigator !== 'undefined' && typeof navigator.sendBeacon === 'function') {
+      const sent = navigator.sendBeacon('/api/state', new Blob([body], { type: 'application/json' }))
+      if (sent) {
+        lastRemoteAppStatePayloadSignatureRef.current = signature
+      }
+      return
+    }
+
+    const response = await fetch('/api/state', {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body,
+      keepalive: options?.keepalive ?? false,
+    })
+
+    if (!response.ok) {
+      throw new Error(`Falha ao sincronizar estado remoto (${response.status}).`)
+    }
+
+    const data = await response.json()
+    lastRemoteAppStateUpdatedAtRef.current =
+      typeof data?.updatedAt === 'string' ? data.updatedAt : lastRemoteAppStateUpdatedAtRef.current
+    lastRemoteAppStatePayloadSignatureRef.current = signature
+  }
+
+  async function refreshRemoteAppStateFromServer() {
+    const response = await fetch('/api/state')
+    if (!response.ok) {
+      throw new Error(`Falha ao carregar estado remoto (${response.status}).`)
+    }
+
+    const data = await response.json()
+    const serverPayload = normalizeRemoteAppStatePayload(data?.snapshot?.payload ?? null)
+    const serverUpdatedAt = typeof data?.snapshot?.updatedAt === 'string' ? data.snapshot.updatedAt : null
+    const serverSignature = getRemoteAppStatePayloadSignature(serverPayload)
+    const localPayload = readRemoteAppStatePayloadFromLocalStorage()
+    const localSignature = getRemoteAppStatePayloadSignature(localPayload)
+
+    if (
+      serverPayload &&
+      serverSignature !== '' &&
+      serverSignature !== localSignature &&
+      serverUpdatedAt !== lastRemoteAppStateUpdatedAtRef.current
+    ) {
+      writeRemoteAppStatePayloadToLocalStorage(serverPayload)
+      hydrateAppStateFromLocalStorageSnapshot()
+      logRemoteAppStateMessage('Dados atualizados automaticamente a partir do servidor.')
+    }
+
+    if (serverUpdatedAt) {
+      lastRemoteAppStateUpdatedAtRef.current = serverUpdatedAt
+    }
+    if (serverSignature) {
+      lastRemoteAppStatePayloadSignatureRef.current = serverSignature
+    }
+  }
+
   useEffect(() => {
     let isCancelled = false
 
@@ -3817,6 +4022,7 @@ export default function App() {
 
         const data = await response.json()
         const serverPayload = normalizeRemoteAppStatePayload(data?.snapshot?.payload ?? null)
+        const serverUpdatedAt = typeof data?.snapshot?.updatedAt === 'string' ? data.snapshot.updatedAt : null
 
         if (isCancelled) {
           return
@@ -3824,6 +4030,8 @@ export default function App() {
 
         const localScore = scoreRemoteAppStatePayload(localPayload)
         const serverScore = scoreRemoteAppStatePayload(serverPayload)
+        lastRemoteAppStateUpdatedAtRef.current = serverUpdatedAt
+        lastRemoteAppStatePayloadSignatureRef.current = getRemoteAppStatePayloadSignature(serverPayload)
 
         if (serverPayload && serverScore > localScore) {
           writeRemoteAppStatePayloadToLocalStorage(serverPayload)
@@ -3858,6 +4066,36 @@ export default function App() {
 
     return () => {
       isCancelled = true
+    }
+  }, [])
+
+  useEffect(() => {
+    let isCancelled = false
+
+    const load = async () => {
+      try {
+        await refreshAppAdminRecordsFromApi()
+      } catch (error) {
+        console.error(error)
+        if (!isCancelled) {
+          logRemoteAppStateMessage('Falha ao carregar empresas, usuarios e perfis pelo backend. O cache local continuara como fallback.')
+        }
+      }
+    }
+
+    void load()
+    const intervalId = window.setInterval(() => {
+      void load()
+    }, 5000)
+    const handleFocus = () => {
+      void load()
+    }
+    window.addEventListener('focus', handleFocus)
+
+    return () => {
+      isCancelled = true
+      window.clearInterval(intervalId)
+      window.removeEventListener('focus', handleFocus)
     }
   }, [])
 
@@ -9836,17 +10074,11 @@ export default function App() {
     remoteAppStateSyncTimeoutRef.current = window.setTimeout(() => {
       const payload = readRemoteAppStatePayloadFromLocalStorage()
 
-      fetch('/api/state', {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ payload }),
-      }).catch((error) => {
+      pushRemoteAppState(payload).catch((error) => {
         console.error(error)
         logRemoteAppStateMessage('Falha ao sincronizar os dados com o servidor. Este navegador continua com os dados locais.')
       })
-    }, 300)
+    }, 120)
 
     return () => {
       if (remoteAppStateSyncTimeoutRef.current !== null) {
@@ -9875,6 +10107,42 @@ export default function App() {
     technicalSheets,
     users,
   ])
+
+  useEffect(() => {
+    if (!isRemoteAppStateReady) {
+      return
+    }
+
+    const poll = () => {
+      refreshRemoteAppStateFromServer().catch((error) => {
+        console.error(error)
+      })
+    }
+
+    remoteAppStatePollingIntervalRef.current = window.setInterval(poll, 5000)
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        void poll()
+      } else {
+        const payload = readRemoteAppStatePayloadFromLocalStorage()
+        void pushRemoteAppState(payload, { keepalive: true, useBeacon: true })
+      }
+    }
+
+    document.addEventListener('visibilitychange', handleVisibilityChange)
+    window.addEventListener('focus', poll)
+    window.addEventListener('beforeunload', handleVisibilityChange)
+
+    return () => {
+      if (remoteAppStatePollingIntervalRef.current !== null) {
+        window.clearInterval(remoteAppStatePollingIntervalRef.current)
+        remoteAppStatePollingIntervalRef.current = null
+      }
+      document.removeEventListener('visibilitychange', handleVisibilityChange)
+      window.removeEventListener('focus', poll)
+      window.removeEventListener('beforeunload', handleVisibilityChange)
+    }
+  }, [isRemoteAppStateReady])
 
   useEffect(() => {
     setTechnicalSheetSettingsDraft(currentCompanyTechnicalSheetSettings)
@@ -10107,14 +10375,23 @@ export default function App() {
   }, [activeSection, allowedSections])
 
   function openNewProductForm() {
+    const nextProductForm = emptyProductForm()
     setActiveSection('Produtos')
     setEditingProductId(null)
-    setProductForm(emptyProductForm())
+    setProductForm(nextProductForm)
     setProductSectorInput('')
     setPackages([])
     setShowInactivePackages(false)
     setPackageEditorContext('product')
     setScreenMode('form')
+    setProductDiscardBaseline(
+      buildProductDiscardSnapshot({
+        form: nextProductForm,
+        sectorInput: '',
+        packages: [],
+        editingId: null,
+      }),
+    )
   }
 
   function openNewServiceItemForm(kind: ServiceItemKind = 'UTENSILIO_ELETRONICO') {
@@ -10277,6 +10554,13 @@ export default function App() {
   }
 
   function openNewProductFormFromTechnicalSheet(ingredientId: number, draftProductName = '') {
+    const nextProductForm =
+      draftProductName.trim() !== ''
+        ? {
+            ...emptyProductForm(),
+            name: normalizeRegistrationText(draftProductName),
+          }
+        : emptyProductForm()
     setTechnicalSheetDraftStack((current) => [
       ...current,
       {
@@ -10298,21 +10582,30 @@ export default function App() {
     ])
     setTechnicalSheetIngredientCreationMode('product')
     setEditingProductId(null)
-    setProductForm(emptyProductForm())
+    setProductForm(nextProductForm)
     setProductSectorInput('')
     setPackages([])
     setShowInactivePackages(false)
     setPackageEditorContext('product')
     setIsTechnicalSheetProductModalOpen(true)
-    if (draftProductName.trim() !== '') {
-      setProductForm((current) => ({
-        ...current,
-        name: normalizeRegistrationText(draftProductName),
-      }))
-    }
+    setTechnicalSheetProductDiscardBaseline(
+      buildProductDiscardSnapshot({
+        form: nextProductForm,
+        sectorInput: '',
+        packages: [],
+        editingId: null,
+      }),
+    )
   }
 
   function openNewProductFormFromTechnicalSheetGarnish(ingredientId: number, draftProductName = '') {
+    const nextProductForm =
+      draftProductName.trim() !== ''
+        ? {
+            ...emptyProductForm(),
+            name: normalizeRegistrationText(draftProductName),
+          }
+        : emptyProductForm()
     setTechnicalSheetDraftStack((current) => [
       ...current,
       {
@@ -10334,21 +10627,28 @@ export default function App() {
     ])
     setTechnicalSheetIngredientCreationMode('product')
     setEditingProductId(null)
-    setProductForm(emptyProductForm())
+    setProductForm(nextProductForm)
     setProductSectorInput('')
     setPackages([])
     setShowInactivePackages(false)
     setPackageEditorContext('product')
     setIsTechnicalSheetProductModalOpen(true)
-    if (draftProductName.trim() !== '') {
-      setProductForm((current) => ({
-        ...current,
-        name: normalizeRegistrationText(draftProductName),
-      }))
-    }
+    setTechnicalSheetProductDiscardBaseline(
+      buildProductDiscardSnapshot({
+        form: nextProductForm,
+        sectorInput: '',
+        packages: [],
+        editingId: null,
+      }),
+    )
   }
 
   function openNewServiceItemFormFromTechnicalSheet(serviceItemId: number, draftItemName = '') {
+    const nextServiceItemForm = {
+      ...emptyServiceItemForm(),
+      kind: 'RECIPIENTE_SERVICO' as const,
+      name: draftItemName.trim() !== '' ? normalizeRegistrationText(draftItemName) : '',
+    }
     setTechnicalSheetDraftStack((current) => [
       ...current,
       {
@@ -10369,21 +10669,19 @@ export default function App() {
       },
     ])
     setEditingServiceItemId(null)
-    setServiceItemForm({
-      ...emptyServiceItemForm(),
-      kind: 'RECIPIENTE_SERVICO',
-    })
+    setServiceItemForm(nextServiceItemForm)
     setServiceItemSectorInput('')
     setServiceItemPackages([])
     setShowInactiveServiceItemPackages(false)
     setPackageEditorContext('serviceItem')
     setIsTechnicalSheetServiceItemModalOpen(true)
-    if (draftItemName.trim() !== '') {
-      setServiceItemForm((current) => ({
-        ...current,
-        name: normalizeRegistrationText(draftItemName),
-      }))
-    }
+    setTechnicalSheetServiceItemDiscardBaseline(
+      buildServiceItemDiscardSnapshot({
+        form: nextServiceItemForm,
+        packages: [],
+        editingId: null,
+      }),
+    )
   }
 
   function closeTechnicalSheetProductModal() {
@@ -10396,6 +10694,85 @@ export default function App() {
     setPackages([])
     setShowInactivePackages(false)
     setPackageEditorContext('product')
+  }
+
+  function closeProductForm() {
+    setEditingProductId(null)
+    setProductForm(emptyProductForm())
+    setProductSectorInput('')
+    setPackages([])
+    setShowInactivePackages(false)
+    setPackageEditorContext('product')
+    setScreenMode('list')
+  }
+
+  function requestProductDiscard() {
+    if (technicalSheetProductCurrentDiscardSnapshot === productDiscardBaseline) {
+      closeProductForm()
+      return
+    }
+
+    setProductDiscardState(true)
+  }
+
+  function confirmProductDiscard() {
+    setProductDiscardState(false)
+    closeProductForm()
+  }
+
+  function shouldConfirmTechnicalSheetDiscard(target: TechnicalSheetDiscardTarget) {
+    if (target === 'technicalSheetForm') {
+      return technicalSheetCurrentDiscardSnapshot !== technicalSheetDiscardBaseline
+    }
+
+    if (target === 'technicalSheetProductModal') {
+      return technicalSheetProductCurrentDiscardSnapshot !== technicalSheetProductDiscardBaseline
+    }
+
+    if (target === 'technicalSheetServiceItemModal') {
+      return technicalSheetServiceItemCurrentDiscardSnapshot !== technicalSheetServiceItemDiscardBaseline
+    }
+
+    return packageCurrentDiscardSnapshot !== packageDiscardBaseline
+  }
+
+  function requestTechnicalSheetDiscard(target: TechnicalSheetDiscardTarget) {
+    if (!shouldConfirmTechnicalSheetDiscard(target)) {
+      if (target === 'technicalSheetForm') {
+        closeTechnicalSheetForm()
+      } else if (target === 'technicalSheetProductModal') {
+        closeTechnicalSheetProductModal()
+      } else if (target === 'technicalSheetServiceItemModal') {
+        closeTechnicalSheetServiceItemModal()
+      } else {
+        setIsPackageModalOpen(false)
+      }
+      return
+    }
+
+    setTechnicalSheetDiscardState(target)
+  }
+
+  function confirmTechnicalSheetDiscard() {
+    const target = technicalSheetDiscardState
+    if (!target) {
+      return
+    }
+
+    setTechnicalSheetDiscardState(null)
+    if (target === 'technicalSheetForm') {
+      closeTechnicalSheetForm()
+      return
+    }
+    if (target === 'technicalSheetProductModal') {
+      closeTechnicalSheetProductModal()
+      return
+    }
+    if (target === 'technicalSheetServiceItemModal') {
+      closeTechnicalSheetServiceItemModal()
+      return
+    }
+    setIsPackageModalOpen(false)
   }
 
   function closeTechnicalSheetServiceItemModal() {
@@ -10414,20 +10791,35 @@ export default function App() {
     shouldRemainNested: boolean,
     overrides?: Partial<Pick<TechnicalSheetDraftState, 'ingredients' | 'garnishIngredients' | 'serviceItems'>>,
   ) {
+    const nextIngredients = overrides?.ingredients ?? draft.ingredients
+    const nextGarnishIngredients = overrides?.garnishIngredients ?? draft.garnishIngredients
+    const nextServiceItems = overrides?.serviceItems ?? draft.serviceItems
     setActiveSection('FichasTecnicas')
     setTechnicalSheetScreenMode('form')
     setEditingTechnicalSheetId(draft.editingId)
     setTechnicalSheetForm(draft.form)
     setTechnicalSheetSectorInput(draft.sectorInput)
     setTechnicalSheetProductionCenterInput(draft.productionCenterInput)
-    setTechnicalSheetIngredients(overrides?.ingredients ?? draft.ingredients)
+    setTechnicalSheetIngredients(nextIngredients)
     setEditingTechnicalSheetIngredientId(draft.editingIngredientId)
-    setTechnicalSheetGarnishIngredients(overrides?.garnishIngredients ?? draft.garnishIngredients)
+    setTechnicalSheetGarnishIngredients(nextGarnishIngredients)
     setEditingTechnicalSheetGarnishIngredientId(draft.editingGarnishIngredientId)
-    setTechnicalSheetServiceItems(overrides?.serviceItems ?? draft.serviceItems)
+    setTechnicalSheetServiceItems(nextServiceItems)
     setEditingTechnicalSheetServiceItemId(draft.editingServiceItemId)
     setTechnicalSheetPackages(draft.packages)
     setPendingNestedTechnicalSheetKind(shouldRemainNested ? 'PREPARO' : null)
+    setTechnicalSheetDiscardBaseline(
+      buildTechnicalSheetDiscardSnapshot({
+        form: draft.form,
+        sectorInput: draft.sectorInput,
+        productionCenterInput: draft.productionCenterInput,
+        ingredients: nextIngredients,
+        garnishIngredients: nextGarnishIngredients,
+        serviceItems: nextServiceItems,
+        packages: draft.packages,
+        editingId: draft.editingId,
+      }),
+    )
   }
 
   function restoreTopTechnicalSheetDraft(
@@ -10485,14 +10877,9 @@ export default function App() {
   }
 
   function startPreparoCreationFromTechnicalSheetModal() {
-    setIsTechnicalSheetProductModalOpen(false)
-    setPendingNestedTechnicalSheetKind('PREPARO')
-    setActiveSection('FichasTecnicas')
-    setTechnicalSheetScreenMode('form')
-    setEditingTechnicalSheetId(null)
-    setTechnicalSheetForm({
+    const nextForm = {
       ...emptyTechnicalSheetForm(),
-      kind: 'PREPARO',
+      kind: 'PREPARO' as const,
       companyProductId: productForm.companyProductId,
       name: productForm.name,
       family: productForm.family,
@@ -10504,19 +10891,55 @@ export default function App() {
           : productForm.controlUnit === 'UNIT'
             ? 'UNIT'
             : 'MILLILITER',
-    })
+    } satisfies TechnicalSheetFormState
     const nextIngredient = emptyTechnicalSheetIngredient()
+    const nextGarnishIngredient = emptyTechnicalSheetIngredient()
+    const nextServiceItem = emptyTechnicalSheetServiceItem()
+    setIsTechnicalSheetProductModalOpen(false)
+    setPendingNestedTechnicalSheetKind('PREPARO')
+    setActiveSection('FichasTecnicas')
+    setTechnicalSheetScreenMode('form')
+    setEditingTechnicalSheetId(null)
+    setTechnicalSheetForm(nextForm)
     setTechnicalSheetIngredients([nextIngredient])
     setEditingTechnicalSheetIngredientId(nextIngredient.id)
-    setTechnicalSheetGarnishIngredients([emptyTechnicalSheetIngredient()])
+    setTechnicalSheetGarnishIngredients([nextGarnishIngredient])
     setEditingTechnicalSheetGarnishIngredientId(null)
-    setTechnicalSheetServiceItems([emptyTechnicalSheetServiceItem()])
+    setTechnicalSheetServiceItems([nextServiceItem])
     setEditingTechnicalSheetServiceItemId(null)
     setTechnicalSheetPackages([])
     setPackageEditorContext('technicalSheet')
+    setTechnicalSheetDiscardBaseline(
+      buildTechnicalSheetDiscardSnapshot({
+        form: nextForm,
+        sectorInput: '',
+        productionCenterInput: '',
+        ingredients: [nextIngredient],
+        garnishIngredients: [nextGarnishIngredient],
+        serviceItems: [nextServiceItem],
+        packages: [],
+        editingId: null,
+      }),
+    )
   }
 
   function returnToProductCreationFromNestedPreparo() {
+    const nextProductForm = {
+      ...productForm,
+      companyProductId: technicalSheetForm.companyProductId,
+      name: technicalSheetForm.name,
+      controlUnit:
+        technicalSheetForm.outputUnit === 'GRAM'
+          ? 'GRAM'
+          : technicalSheetForm.outputUnit === 'UNIT'
+            ? 'UNIT'
+            : 'MILLILITER',
+      family: technicalSheetForm.family,
+      subfamily: technicalSheetForm.subfamily,
+      sectors: technicalSheetForm.sectors,
+      densitySampleVolume: technicalSheetForm.densitySampleVolume,
+      densitySampleWeight: technicalSheetForm.densitySampleWeight,
+    } satisfies ProductFormState
     setProductForm((current) => ({
       ...current,
       companyProductId: technicalSheetForm.companyProductId,
@@ -10536,6 +10959,14 @@ export default function App() {
     setProductSectorInput('')
     setPendingNestedTechnicalSheetKind(null)
     setIsTechnicalSheetProductModalOpen(true)
+    setTechnicalSheetProductDiscardBaseline(
+      buildProductDiscardSnapshot({
+        form: nextProductForm,
+        sectorInput: '',
+        packages,
+        editingId: editingProductId,
+      }),
+    )
   }
 
   function closeTechnicalSheetForm() {
@@ -16470,7 +16901,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
     })
   }
 
-  function saveAccessProfile() {
+  async function saveAccessProfile() {
     const companyId = currentCompanyId
     const name = normalizeRegistrationText(accessProfileForm.name.trim())
     const errors: string[] = []
@@ -16521,25 +16952,27 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
           : editingStoredProfile?.isActive ?? true,
     }
 
-    setAccessProfiles((current) =>
-      editingAccessProfileId === null
-        ? [profileToSave, ...current]
-        : current.some((profile) => profile.id === editingAccessProfileId)
-        ? current.map((profile) => (profile.id === editingAccessProfileId ? profileToSave : profile))
-        : [profileToSave, ...current],
-    )
-    setUsers((current) =>
-      current.map((user) =>
-        user.accessProfileId === profileToSave.id
-          ? {
-              ...user,
-              role: profileToSave.role,
-              sectionAccess: profileToSave.sectionAccess,
-              catalogAccess: profileToSave.catalogAccess,
-            }
-          : user,
-      ),
-    )
+    try {
+      const response = await fetch(
+        editingAccessProfileId === null ? '/api/access-profiles' : `/api/access-profiles/${profileToSave.id}`,
+        {
+          method: editingAccessProfileId === null ? 'POST' : 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(profileToSave),
+        },
+      )
+      if (!response.ok) {
+        throw new Error('Nao foi possivel salvar o perfil de acesso no servidor.')
+      }
+    } catch (error) {
+      console.error(error)
+      setSaveFeedback({
+        status: 'error',
+        title: 'Falha ao salvar perfil de acesso',
+        message: error instanceof Error ? error.message : 'Erro ao salvar perfil no servidor.',
+      })
+      return
+    }
 
     if (userForm.accessProfileId === String(profileToSave.id)) {
       setUserForm((current) => ({
@@ -16551,7 +16984,8 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
       }))
     }
 
-    setStockModuleSettings((current) => {
+    const nextStockModuleSettings = (() => {
+      const current = stockModuleSettings
       const nextRecord =
         current.find((record) => record.companyId === profileToSave.companyId) ?? {
           companyId: profileToSave.companyId,
@@ -16589,7 +17023,32 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
       return current.some((record) => record.companyId === profileToSave.companyId)
         ? current.map((record) => (record.companyId === profileToSave.companyId ? updatedRecord : record))
         : [...current, updatedRecord]
-    })
+    })()
+
+    const targetStockModuleSettings =
+      nextStockModuleSettings.find((record) => record.companyId === profileToSave.companyId) ?? null
+    if (targetStockModuleSettings) {
+      try {
+        const response = await fetch(`/api/stock-module-settings/${profileToSave.companyId}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(targetStockModuleSettings),
+        })
+        if (!response.ok) {
+          throw new Error('Nao foi possivel salvar as permissoes de estoque do perfil no servidor.')
+        }
+      } catch (error) {
+        console.error(error)
+        setSaveFeedback({
+          status: 'error',
+          title: 'Falha ao salvar perfil de acesso',
+          message: error instanceof Error ? error.message : 'Erro ao salvar permissoes do perfil no servidor.',
+        })
+        return
+      }
+    }
+
+    await refreshAppAdminRecordsFromApi()
 
     setAccessProfileForm(emptyAccessProfileForm())
     setEditingAccessProfileId(null)
@@ -16624,7 +17083,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
     })
   }
 
-  function toggleAccessProfileStatus(profileId: number) {
+  async function toggleAccessProfileStatus(profileId: number) {
     const targetProfile = companyAccessProfiles.find((profile) => profile.id === profileId)
     if (!targetProfile) {
       return
@@ -16635,12 +17094,58 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
       targetProfile.role,
     )
 
-    setAccessProfiles((current) => {
-      const nextProfile = { ...targetProfile, isActive: !targetProfile.isActive }
-      return current.some((profile) => profile.id === profileId)
-        ? current.map((profile) => (profile.id === profileId ? nextProfile : profile))
-        : [nextProfile, ...current]
-    })
+    const nextProfile = { ...targetProfile, isActive: !targetProfile.isActive }
+    try {
+      const response = await fetch(`/api/access-profiles/${profileId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(nextProfile),
+      })
+      if (!response.ok) {
+        throw new Error('Nao foi possivel atualizar o perfil no servidor.')
+      }
+      if (targetProfile.isActive) {
+        await Promise.all(
+          users
+            .filter((user) => user.accessProfileId === profileId)
+            .map((user) =>
+              fetch(`/api/users/${user.id}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  ...user,
+                  accessProfileId: fallbackProfile?.id ?? null,
+                  sectionAccess: fallbackProfile?.sectionAccess ?? defaultSectionAccessByRole(user.role),
+                  catalogAccess: fallbackProfile?.catalogAccess ?? defaultCatalogAccessByRole(user.role),
+                }),
+              }),
+            ),
+        )
+        const targetStockModuleSettings = stockModuleSettings.find((record) => record.companyId === targetProfile.companyId) ?? null
+        if (targetStockModuleSettings) {
+          const nextSettings = {
+            ...targetStockModuleSettings,
+            inventorySummaryEditProfileIds: targetStockModuleSettings.inventorySummaryEditProfileIds.filter((item) => item !== profileId),
+            inventorySummaryDeleteProfileIds: targetStockModuleSettings.inventorySummaryDeleteProfileIds.filter((item) => item !== profileId),
+            closedInventoryReopenProfileIds: targetStockModuleSettings.closedInventoryReopenProfileIds.filter((item) => item !== profileId),
+            closedInventoryDeleteProfileIds: targetStockModuleSettings.closedInventoryDeleteProfileIds.filter((item) => item !== profileId),
+          }
+          await fetch(`/api/stock-module-settings/${targetProfile.companyId}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(nextSettings),
+          })
+        }
+      }
+    } catch (error) {
+      console.error(error)
+      setSaveFeedback({
+        status: 'error',
+        title: 'Falha ao atualizar perfil',
+        message: error instanceof Error ? error.message : 'Erro ao atualizar perfil no servidor.',
+      })
+      return
+    }
 
     if (userForm.accessProfileId === String(profileId) && targetProfile.isActive) {
       setUserForm((current) => ({
@@ -16651,39 +17156,10 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
       }))
     }
 
-    if (targetProfile.isActive) {
-      setUsers((current) =>
-        current.map((user) =>
-          user.accessProfileId === profileId
-            ? {
-                ...user,
-                accessProfileId: fallbackProfile?.id ?? null,
-                sectionAccess: fallbackProfile?.sectionAccess ?? defaultSectionAccessByRole(user.role),
-                catalogAccess: fallbackProfile?.catalogAccess ?? defaultCatalogAccessByRole(user.role),
-              }
-            : user,
-        ),
-      )
-    }
-
-    if (targetProfile.isActive) {
-      setStockModuleSettings((current) =>
-        current.map((record) =>
-          record.companyId === targetProfile.companyId
-            ? {
-                ...record,
-                inventorySummaryEditProfileIds: record.inventorySummaryEditProfileIds.filter((item) => item !== profileId),
-                inventorySummaryDeleteProfileIds: record.inventorySummaryDeleteProfileIds.filter((item) => item !== profileId),
-                closedInventoryReopenProfileIds: record.closedInventoryReopenProfileIds.filter((item) => item !== profileId),
-                closedInventoryDeleteProfileIds: record.closedInventoryDeleteProfileIds.filter((item) => item !== profileId),
-              }
-            : record,
-        ),
-      )
-    }
+    await refreshAppAdminRecordsFromApi()
   }
 
-  function deleteAccessProfile(profileId: number) {
+  async function deleteAccessProfile(profileId: number) {
     const targetProfile = companyAccessProfiles.find((profile) => profile.id === profileId)
     if (!targetProfile) {
       return
@@ -16694,36 +17170,36 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
       targetProfile.role,
     )
 
-    setAccessProfiles((current) =>
-      profileId < 0
-        ? [{ ...targetProfile, isActive: false }, ...current.filter((profile) => profile.id !== profileId)]
-        : current.filter((profile) => profile.id !== profileId),
-    )
-    setStockModuleSettings((current) =>
-      current.map((record) =>
-        record.companyId === targetProfile.companyId
-          ? {
-              ...record,
-              inventorySummaryEditProfileIds: record.inventorySummaryEditProfileIds.filter((item) => item !== profileId),
-              inventorySummaryDeleteProfileIds: record.inventorySummaryDeleteProfileIds.filter((item) => item !== profileId),
-              closedInventoryReopenProfileIds: record.closedInventoryReopenProfileIds.filter((item) => item !== profileId),
-              closedInventoryDeleteProfileIds: record.closedInventoryDeleteProfileIds.filter((item) => item !== profileId),
-            }
-          : record,
-      ),
-    )
-    setUsers((current) =>
-      current.map((user) =>
-        user.accessProfileId === profileId
-          ? {
-              ...user,
-              accessProfileId: fallbackProfile?.id ?? null,
-              sectionAccess: fallbackProfile?.sectionAccess ?? defaultSectionAccessByRole(user.role),
-              catalogAccess: fallbackProfile?.catalogAccess ?? defaultCatalogAccessByRole(user.role),
-            }
-          : user,
-      ),
-    )
+    try {
+      const response = await fetch(`/api/access-profiles/${profileId}`, { method: 'DELETE' })
+      if (!response.ok) {
+        throw new Error('Nao foi possivel excluir o perfil no servidor.')
+      }
+      await Promise.all(
+        users
+          .filter((user) => user.accessProfileId === profileId)
+          .map((user) =>
+            fetch(`/api/users/${user.id}`, {
+              method: 'PUT',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                ...user,
+                accessProfileId: fallbackProfile?.id ?? null,
+                sectionAccess: fallbackProfile?.sectionAccess ?? defaultSectionAccessByRole(user.role),
+                catalogAccess: fallbackProfile?.catalogAccess ?? defaultCatalogAccessByRole(user.role),
+              }),
+            }),
+          ),
+      )
+    } catch (error) {
+      console.error(error)
+      setSaveFeedback({
+        status: 'error',
+        title: 'Falha ao excluir perfil',
+        message: error instanceof Error ? error.message : 'Erro ao excluir perfil no servidor.',
+      })
+      return
+    }
 
     if (editingAccessProfileId === profileId) {
       setEditingAccessProfileId(null)
@@ -16738,9 +17214,10 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
         catalogAccess: fallbackProfile?.catalogAccess ?? defaultCatalogAccessByRole(current.role),
       }))
     }
+    await refreshAppAdminRecordsFromApi()
   }
 
-  function saveUser() {
+  async function saveUser() {
     const fullName = normalizeRegistrationText(userForm.fullName.trim())
     const username = userForm.username.trim()
     const password = userForm.password.trim()
@@ -16826,11 +17303,25 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
       isActive: editingUserId ? users.find((item) => item.id === editingUserId)?.isActive ?? true : true,
     }
 
-    setUsers((current) =>
-      editingUserId
-        ? current.map((item) => (item.id === editingUserId ? userToSave : item))
-        : [userToSave, ...current],
-    )
+    try {
+      const response = await fetch(editingUserId ? `/api/users/${userToSave.id}` : '/api/users', {
+        method: editingUserId ? 'PUT' : 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(userToSave),
+      })
+      if (!response.ok) {
+        throw new Error('Nao foi possivel salvar o usuario no servidor.')
+      }
+    } catch (error) {
+      console.error(error)
+      setSaveFeedback({
+        status: 'error',
+        title: 'Falha ao salvar usuario',
+        message: error instanceof Error ? error.message : 'Erro ao salvar usuario no servidor.',
+      })
+      return
+    }
+    await refreshAppAdminRecordsFromApi()
     setUserForm(emptyUserForm())
     setUserCompanyInput('')
     setUserSectorInput('')
@@ -16868,35 +17359,51 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
     })
   }
 
-  function runUserAction() {
+  async function runUserAction() {
     if (!userActionState) {
       return
     }
 
-    if (userActionState.action === 'disable') {
-      setUsers((current) =>
-        current.map((item) =>
-          item.id === userActionState.userId ? { ...item, isActive: false } : item,
-        ),
-      )
-    }
-
-    if (userActionState.action === 'enable') {
-      setUsers((current) =>
-        current.map((item) =>
-          item.id === userActionState.userId ? { ...item, isActive: true } : item,
-        ),
-      )
-    }
-
-    if (userActionState.action === 'delete') {
-      setUsers((current) => current.filter((item) => item.id !== userActionState.userId))
-      if (editingUserId === userActionState.userId) {
-        setEditingUserId(null)
-        setUserForm(emptyUserForm())
-        setUserCompanyInput('')
-        setUserSectorInput('')
+    try {
+      if (userActionState.action === 'delete') {
+        const response = await fetch(`/api/users/${userActionState.userId}`, { method: 'DELETE' })
+        if (!response.ok) {
+          throw new Error('Nao foi possivel excluir o usuario no servidor.')
+        }
+      } else {
+        const targetUser = users.find((item) => item.id === userActionState.userId) ?? null
+        if (!targetUser) {
+          throw new Error('Usuario nao encontrado.')
+        }
+        const response = await fetch(`/api/users/${userActionState.userId}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            ...targetUser,
+            isActive: userActionState.action === 'enable',
+          }),
+        })
+        if (!response.ok) {
+          throw new Error('Nao foi possivel atualizar o usuario no servidor.')
+        }
       }
+      await refreshAppAdminRecordsFromApi()
+    } catch (error) {
+      console.error(error)
+      setSaveFeedback({
+        status: 'error',
+        title: 'Falha ao atualizar usuario',
+        message: error instanceof Error ? error.message : 'Erro ao atualizar usuario no servidor.',
+      })
+      setUserActionState(null)
+      return
+    }
+
+    if (userActionState.action === 'delete' && editingUserId === userActionState.userId) {
+      setEditingUserId(null)
+      setUserForm(emptyUserForm())
+      setUserCompanyInput('')
+      setUserSectorInput('')
     }
 
     setUserActionState(null)
@@ -17009,7 +17516,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
     setIsCompanyModalOpen(true)
   }
 
-  function submitCompany(event?: FormEvent<HTMLFormElement>, mode: 'create' | 'modal' = 'create') {
+  async function submitCompany(event?: FormEvent<HTMLFormElement>, mode: 'create' | 'modal' = 'create') {
     event?.preventDefault()
     if (mode === 'modal') {
       if (!canEditCompanyData) {
@@ -17058,11 +17565,28 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
         : 'ATIVA',
     }
 
-    setCompanies((current) =>
-      editingCompanyId
-        ? current.map((company) => (company.id === editingCompanyId ? companyToSave : company))
-        : [...current, companyToSave],
-    )
+    try {
+      const response = await fetch(
+        editingCompanyId ? `/api/companies/${companyToSave.id}` : '/api/companies',
+        {
+          method: editingCompanyId ? 'PUT' : 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(companyToSave),
+        },
+      )
+      if (!response.ok) {
+        throw new Error('Nao foi possivel salvar a empresa no servidor.')
+      }
+      await refreshAppAdminRecordsFromApi()
+    } catch (error) {
+      console.error(error)
+      setSaveFeedback({
+        status: 'error',
+        title: 'Falha ao salvar empresa',
+        message: error instanceof Error ? error.message : 'Erro ao salvar empresa no servidor.',
+      })
+      return
+    }
     setCurrentCompanyId(companyToSave.id)
     setCompanyForm(emptyCompanyForm())
     setCompanyCepFeedback('')
@@ -17087,27 +17611,58 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
     setCurrentCompanyId(companyId)
   }
 
-  function toggleCompanyStatus(companyId: number) {
+  async function toggleCompanyStatus(companyId: number) {
     if (!canManageCompanies) {
       return
     }
-    setCompanies((current) =>
-      current.map((company) =>
-        company.id === companyId
-          ? { ...company, status: company.status === 'ATIVA' ? 'INATIVA' : 'ATIVA' }
-          : company,
-      ),
-    )
+    const targetCompany = companies.find((company) => company.id === companyId) ?? null
+    if (!targetCompany) {
+      return
+    }
+    try {
+      const response = await fetch(`/api/companies/${companyId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ...targetCompany,
+          status: targetCompany.status === 'ATIVA' ? 'INATIVA' : 'ATIVA',
+        }),
+      })
+      if (!response.ok) {
+        throw new Error('Nao foi possivel atualizar a empresa no servidor.')
+      }
+      await refreshAppAdminRecordsFromApi()
+    } catch (error) {
+      console.error(error)
+      setSaveFeedback({
+        status: 'error',
+        title: 'Falha ao atualizar empresa',
+        message: error instanceof Error ? error.message : 'Erro ao atualizar empresa no servidor.',
+      })
+    }
   }
 
-  function deleteCompany(companyId: number) {
+  async function deleteCompany(companyId: number) {
     if (!canManageCompanies) {
       return
     }
-    setCompanies((current) => current.filter((company) => company.id !== companyId))
+    try {
+      const response = await fetch(`/api/companies/${companyId}`, { method: 'DELETE' })
+      if (!response.ok) {
+        throw new Error('Nao foi possivel excluir a empresa no servidor.')
+      }
+      await refreshAppAdminRecordsFromApi()
+    } catch (error) {
+      console.error(error)
+      setSaveFeedback({
+        status: 'error',
+        title: 'Falha ao excluir empresa',
+        message: error instanceof Error ? error.message : 'Erro ao excluir empresa no servidor.',
+      })
+      return
+    }
     setProducts((current) => current.filter((product) => product.companyId !== companyId))
     setServiceItems((current) => current.filter((item) => item.companyId !== companyId))
-    setUsers((current) => current.filter((user) => user.companyId !== companyId))
     setStockCenters((current) => current.filter((center) => center.companyId !== companyId))
     setInventoryCounts((current) => current.filter((record) => record.companyId !== companyId))
     setInventoryStorageLocations((current) => current.filter((location) => location.companyId !== companyId))
@@ -17122,10 +17677,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
       return
     }
 
-    setEditingProductId(product.id)
-    setActiveSection('Produtos')
-    setProductSectorInput('')
-    setProductForm({
+    const nextProductForm = {
       companyProductId: product.companyProductId,
       name: product.name,
       controlUnit: product.controlUnit,
@@ -17135,11 +17687,24 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
       alcoholPercentage: product.alcoholPercentage,
       densitySampleVolume: product.densitySampleVolume,
       densitySampleWeight: product.densitySampleWeight,
-    })
+    } satisfies ProductFormState
+
+    setEditingProductId(product.id)
+    setActiveSection('Produtos')
+    setProductSectorInput('')
+    setProductForm(nextProductForm)
     setPackages(product.packages)
     setShowInactivePackages(false)
     setPackageEditorContext('product')
     setScreenMode('form')
+    setProductDiscardBaseline(
+      buildProductDiscardSnapshot({
+        form: nextProductForm,
+        sectorInput: '',
+        packages: product.packages,
+        editingId: product.id,
+      }),
+    )
   }
 
   function updateProductForm<K extends keyof ProductFormState>(field: K, value: ProductFormState[K]) {
@@ -17274,17 +17839,18 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
     const nextIngredient = emptyTechnicalSheetIngredient()
     const nextGarnishIngredient = emptyTechnicalSheetIngredient()
     const nextServiceItem = emptyTechnicalSheetServiceItem()
+    const nextForm = {
+      ...emptyTechnicalSheetForm(),
+      kind,
+      outputUnit: getDefaultTechnicalSheetOutputUnit(kind),
+      portionSize: isCommercialTechnicalSheetKind(kind) ? '1' : '1000',
+    }
     setActiveSection('FichasTecnicas')
     setTechnicalSheetScreenMode('form')
     setTechnicalSheetDraftStack([])
     setPendingNestedTechnicalSheetKind(null)
     setEditingTechnicalSheetId(null)
-    setTechnicalSheetForm({
-      ...emptyTechnicalSheetForm(),
-      kind,
-      outputUnit: getDefaultTechnicalSheetOutputUnit(kind),
-      portionSize: isCommercialTechnicalSheetKind(kind) ? '1' : '1000',
-    })
+    setTechnicalSheetForm(nextForm)
     setTechnicalSheetSectorInput('')
     setTechnicalSheetIngredients([nextIngredient])
     setEditingTechnicalSheetIngredientId(nextIngredient.id)
@@ -17294,6 +17860,18 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
     setEditingTechnicalSheetServiceItemId(kind === 'EXECUCAO' ? nextServiceItem.id : null)
     setTechnicalSheetPackages([])
     setPackageEditorContext('technicalSheet')
+    setTechnicalSheetDiscardBaseline(
+      buildTechnicalSheetDiscardSnapshot({
+        form: nextForm,
+        sectorInput: '',
+        productionCenterInput: '',
+        ingredients: [nextIngredient],
+        garnishIngredients: [nextGarnishIngredient],
+        serviceItems: [nextServiceItem],
+        packages: [],
+        editingId: null,
+      }),
+    )
   }
 
   function openEditTechnicalSheetForm(technicalSheetId: number) {
@@ -17302,13 +17880,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
       return
     }
 
-    setActiveSection('FichasTecnicas')
-    setTechnicalSheetScreenMode('form')
-    setTechnicalSheetDraftStack([])
-    setPendingNestedTechnicalSheetKind(null)
-    setEditingTechnicalSheetId(technicalSheetId)
-    setTechnicalSheetSectorInput('')
-    setTechnicalSheetForm({
+    const nextForm = {
       kind: technicalSheet.kind ?? 'PREPARO',
       companyProductId: technicalSheet.companyProductId,
       name: technicalSheet.name,
@@ -17339,7 +17911,14 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
       shelfLifeRefrigerated: technicalSheet.shelfLifeRefrigerated,
       shelfLifeFrozen: technicalSheet.shelfLifeFrozen,
       productionCenters: technicalSheet.productionCenters ?? [],
-    })
+    } satisfies TechnicalSheetFormState
+    setActiveSection('FichasTecnicas')
+    setTechnicalSheetScreenMode('form')
+    setTechnicalSheetDraftStack([])
+    setPendingNestedTechnicalSheetKind(null)
+    setEditingTechnicalSheetId(technicalSheetId)
+    setTechnicalSheetSectorInput('')
+    setTechnicalSheetForm(nextForm)
     const savedIngredients =
       technicalSheet.ingredients.length > 0
         ? technicalSheet.ingredients.map((ingredient) => ({
@@ -17376,6 +17955,18 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
       products.find((product) => product.technicalSheetId === technicalSheetId && product.companyId === currentCompanyId) ?? null
     setTechnicalSheetPackages(linkedTechnicalSheetProduct?.packages ?? [])
     setPackageEditorContext('technicalSheet')
+    setTechnicalSheetDiscardBaseline(
+      buildTechnicalSheetDiscardSnapshot({
+        form: nextForm,
+        sectorInput: '',
+        productionCenterInput: '',
+        ingredients: [...savedIngredients, nextIngredient],
+        garnishIngredients: [...savedGarnishIngredients, nextGarnishIngredient],
+        serviceItems: [...savedServiceItems, nextServiceItem],
+        packages: linkedTechnicalSheetProduct?.packages ?? [],
+        editingId: technicalSheetId,
+      }),
+    )
   }
 
   function updateTechnicalSheetForm<K extends keyof TechnicalSheetFormState>(
@@ -19219,7 +19810,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
     const nextCode = buildPackageInternalCode(sourcePackages.length + 1)
     setEditingPackageId(null)
     setPackageEditorContext(context)
-    setDraftPackage({
+    const nextDraftPackage = {
       ...emptyPackage(),
       internalCode: nextCode,
       packageUnit:
@@ -19232,8 +19823,16 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
           : productForm.controlUnit === 'MILLILITER'
           ? 'MILLILITER'
           : 'GRAM',
-    })
+    } satisfies PackageForm
+    setDraftPackage(nextDraftPackage)
     setIsPackageModalOpen(true)
+    setPackageDiscardBaseline(
+      buildPackageDiscardSnapshot({
+        draft: nextDraftPackage,
+        editingId: null,
+        context,
+      }),
+    )
   }
 
   function openEditPackageModal(item: PackageForm, context: PackageEditorContext = 'product') {
@@ -19241,6 +19840,13 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
     setPackageEditorContext(context)
     setDraftPackage({ ...item })
     setIsPackageModalOpen(true)
+    setPackageDiscardBaseline(
+      buildPackageDiscardSnapshot({
+        draft: { ...item },
+        editingId: item.id,
+        context,
+      }),
+    )
   }
 
   function updateDraftPackage<K extends keyof PackageForm>(field: K, value: PackageForm[K]) {
@@ -20815,7 +21421,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                 <span className={hasPackages ? 'product-status product-status-ready' : 'product-status product-status-draft'}>
                   {hasPackages ? 'Pronto para uso' : 'Rascunho incompleto'}
                 </span>
-                <button className="ghost-button" type="button" onClick={() => setScreenMode('list')}>
+                <button className="ghost-button" type="button" onClick={requestProductDiscard}>
                   Voltar para lista
                 </button>
               </div>
@@ -21859,7 +22465,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                   </h2>
                 </div>
                 <div className="toolbar-actions">
-                  <button className="ghost-button" type="button" onClick={closeTechnicalSheetForm}>
+                  <button className="ghost-button" type="button" onClick={() => requestTechnicalSheetDiscard('technicalSheetForm')}>
                     {pendingNestedTechnicalSheetKind || technicalSheetDraftStack.length > 0
                       ? 'Voltar para ficha anterior'
                       : 'Voltar para lista'}
@@ -26390,7 +26996,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
               : 'modal-backdrop'
           }
           role="presentation"
-          onClick={() => setIsPackageModalOpen(false)}
+          onClick={() => requestTechnicalSheetDiscard('packageModal')}
         >
           <section
             className="modal-card"
@@ -26406,7 +27012,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                   {editingPackageId === null ? 'Cadastro de embalagem' : 'Editar embalagem'}
                 </h2>
               </div>
-              <button className="ghost-button" type="button" onClick={() => setIsPackageModalOpen(false)}>
+              <button className="ghost-button" type="button" onClick={() => requestTechnicalSheetDiscard('packageModal')}>
                 Fechar
               </button>
             </div>
@@ -26531,7 +27137,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
             </div>
 
             <div className="modal-actions">
-              <button className="ghost-button" type="button" onClick={() => setIsPackageModalOpen(false)}>
+              <button className="ghost-button" type="button" onClick={() => requestTechnicalSheetDiscard('packageModal')}>
                 Cancelar
               </button>
               <button className="primary-button" type="button" onClick={savePackage}>
@@ -26543,7 +27149,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
       ) : null}
 
       {pendingNestedTechnicalSheetKind === 'PREPARO' ? (
-        <div className="modal-backdrop" role="presentation" onClick={closeTechnicalSheetForm}>
+        <div className="modal-backdrop" role="presentation" onClick={() => requestTechnicalSheetDiscard('technicalSheetForm')}>
           <section
             className="modal-card modal-card-full"
             role="dialog"
@@ -26556,7 +27162,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                 <p className="kicker">Nova ficha tecnica</p>
                 <h2 id="nested-preparo-modal-title">Cadastrar pre-preparo pela ficha tecnica</h2>
               </div>
-              <button className="ghost-button" type="button" onClick={closeTechnicalSheetForm}>
+              <button className="ghost-button" type="button" onClick={() => requestTechnicalSheetDiscard('technicalSheetForm')}>
                 Fechar
               </button>
             </div>
@@ -26594,7 +27200,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
 	            {renderPreparoExecutionPanel('nested')}
 
             <div className="modal-actions">
-              <button className="ghost-button" type="button" onClick={closeTechnicalSheetForm}>
+              <button className="ghost-button" type="button" onClick={() => requestTechnicalSheetDiscard('technicalSheetForm')}>
                 Cancelar
               </button>
               <button className="primary-button" type="button" onClick={saveTechnicalSheet}>
@@ -26609,7 +27215,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
         <div
           className="modal-backdrop"
           role="presentation"
-          onClick={closeTechnicalSheetProductModal}
+          onClick={() => requestTechnicalSheetDiscard('technicalSheetProductModal')}
         >
           <section
             className="modal-card modal-card-full"
@@ -26623,7 +27229,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                 <p className="kicker">Novo insumo</p>
                 <h2 id="technical-sheet-product-modal-title">Cadastrar insumo pela ficha tecnica</h2>
               </div>
-              <button className="ghost-button" type="button" onClick={closeTechnicalSheetProductModal}>
+              <button className="ghost-button" type="button" onClick={() => requestTechnicalSheetDiscard('technicalSheetProductModal')}>
                 Fechar
               </button>
             </div>
@@ -26859,7 +27465,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                 )}
               </div>
               <div className="modal-actions field-span-all">
-                <button type="button" className="ghost-button" onClick={closeTechnicalSheetProductModal}>
+                <button type="button" className="ghost-button" onClick={() => requestTechnicalSheetDiscard('technicalSheetProductModal')}>
                   Cancelar
                 </button>
                 <button type="button" className="primary-button" onClick={saveProduct}>
@@ -26875,7 +27481,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
         <div
           className="modal-backdrop"
           role="presentation"
-          onClick={closeTechnicalSheetServiceItemModal}
+          onClick={() => requestTechnicalSheetDiscard('technicalSheetServiceItemModal')}
         >
           <section
             className="modal-card modal-card-full"
@@ -26889,7 +27495,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                 <p className="kicker">Novo recipiente</p>
                 <h2 id="technical-sheet-service-item-modal-title">Cadastrar recipiente pela ficha tecnica</h2>
               </div>
-              <button className="ghost-button" type="button" onClick={closeTechnicalSheetServiceItemModal}>
+              <button className="ghost-button" type="button" onClick={() => requestTechnicalSheetDiscard('technicalSheetServiceItemModal')}>
                 Fechar
               </button>
             </div>
@@ -27061,7 +27667,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                 )}
               </div>
               <div className="modal-actions field-span-all">
-                <button type="button" className="ghost-button" onClick={closeTechnicalSheetServiceItemModal}>
+                <button type="button" className="ghost-button" onClick={() => requestTechnicalSheetDiscard('technicalSheetServiceItemModal')}>
                   Cancelar
                 </button>
                 <button type="button" className="primary-button" onClick={saveServiceItem}>
@@ -27877,6 +28483,30 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
             />
           )
         })()
+      ) : null}
+
+      {productDiscardState ? (
+        <ConfirmationModal
+          title="Cadastro nao completo"
+          message="O cadastro nao esta completo. Deseja sair? Seu progresso nao sera salvo."
+          actionClass="danger-button"
+          actionLabel="Sair sem salvar"
+          onCancel={() => setProductDiscardState(false)}
+          onConfirm={confirmProductDiscard}
+          bringToFront={isPackageModalOpen}
+        />
+      ) : null}
+
+      {technicalSheetDiscardState ? (
+        <ConfirmationModal
+          title="Ficha nao completa"
+          message="A ficha nao esta completa. Deseja sair? Seu progresso nao sera salvo."
+          actionClass="danger-button"
+          actionLabel="Sair sem salvar"
+          onCancel={() => setTechnicalSheetDiscardState(null)}
+          onConfirm={confirmTechnicalSheetDiscard}
+          bringToFront
+        />
       ) : null}
 
       {isCompanyModalOpen ? (

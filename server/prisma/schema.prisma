@@ -269,3 +269,65 @@ model AppStateSnapshot {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }
+
+model AppCompanyRecord {
+  id           Int      @id
+  tradeName    String
+  legalName    String
+  cnpj         String
+  cep          String
+  street       String
+  number       String
+  complement   String
+  neighborhood String
+  city         String
+  state        String
+  status       String
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
+model AppAccessProfileRecord {
+  id            Int      @id
+  companyId     Int
+  name          String
+  role          String
+  sectionAccess Json
+  catalogAccess Json
+  isActive      Boolean  @default(true)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([companyId])
+  @@unique([companyId, name])
+}
+
+model AppUserRecord {
+  id             Int      @id
+  fullName       String
+  username       String   @unique
+  password       String
+  role           String
+  companyId      Int?
+  companyIds     Int[]
+  sectors        String[]
+  sectionAccess  Json
+  catalogAccess  Json
+  accessProfileId Int?
+  isActive       Boolean  @default(true)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@index([companyId])
+  @@index([accessProfileId])
+}
+
+model AppStockModuleSettingsRecord {
+  companyId                          Int   @id
+  inventorySummaryEditProfileIds     Int[]
+  inventorySummaryDeleteProfileIds   Int[]
+  closedInventoryReopenProfileIds    Int[]
+  closedInventoryDeleteProfileIds    Int[]
+  createdAt                          DateTime @default(now())
+  updatedAt                          DateTime @updatedAt
+}
