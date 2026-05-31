@@ -331,3 +331,93 @@ model AppStockModuleSettingsRecord {
   createdAt                          DateTime @default(now())
   updatedAt                          DateTime @updatedAt
 }
+
+model AppProductRecord {
+  id                  String   @id
+  companyId           Int
+  companyProductId    String
+  name                String
+  controlUnit         String
+  family              String
+  subfamily           String
+  sectors             String[]
+  alcoholPercentage   String
+  densitySampleVolume String
+  densitySampleWeight String
+  isActive            Boolean  @default(true)
+  technicalSheetId    Int?
+  packages            Json
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  @@index([companyId])
+  @@index([technicalSheetId])
+}
+
+model AppServiceItemRecord {
+  id               String   @id
+  companyId        Int
+  kind             String
+  companyProductId String
+  manufacturerCode String
+  name             String
+  sizeValue        String
+  sizeUnit         String
+  emptyWeight      String
+  controlUnit      String
+  family           String
+  subfamily        String
+  sectors          String[]
+  imageDataUrl     String
+  isActive         Boolean  @default(true)
+  packages         Json
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@index([companyId])
+}
+
+model AppTechnicalSheetRecord {
+  id                    Int      @id
+  companyId             Int
+  kind                  String
+  productId             String
+  companyProductId      String
+  name                  String
+  family                String
+  subfamily             String
+  sectors               String[]
+  outputQuantity        String
+  outputUnit            String
+  densitySampleVolume   String
+  densitySampleWeight   String
+  targetPh              String
+  targetBrix            String
+  portionSize           String
+  colorTagOne           String
+  colorTagTwo           String
+  desiredCmvPercentage  String
+  dilutionRatePercentage String
+  imageDataUrl          String
+  finalSalePrice        String
+  flavorSweet           String
+  flavorSour            String
+  flavorBitter          String
+  flavorSalty           String
+  flavorUmami           String
+  storytelling          String
+  preparationMode       String
+  shelfLifeRoom         String
+  shelfLifeRefrigerated String
+  shelfLifeFrozen       String
+  productionCenters     Json
+  ingredients           Json
+  garnishIngredients    Json
+  serviceItems          Json
+  isActive              Boolean  @default(true)
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  @@index([companyId])
+  @@index([productId])
+}

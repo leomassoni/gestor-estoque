@@ -15,7 +15,11 @@ const companiesStorageKey = 'gestor-estoque:companies'
 const usersStorageKey = 'gestor-estoque:users'
 const accessProfilesStorageKey = 'gestor-estoque:access-profiles'
 const stockModuleSettingsStorageKey = 'gestor-estoque:stock-module-settings'
+const productsStorageKey = 'gestor-estoque:products'
+const serviceItemsStorageKey = 'gestor-estoque:service-items'
+const technicalSheetsStorageKey = 'gestor-estoque:technical-sheets'
 let hasSeededAppAdminRecords = false
+let hasSeededAppCatalogRecords = false
 
 app.use(cors())
 app.use(express.json({ limit: '5mb' }))
@@ -165,6 +169,9 @@ app.delete('/api/companies/:id', async (request, response) => {
 
     await transaction.appAccessProfileRecord.deleteMany({ where: { companyId } })
     await transaction.appStockModuleSettingsRecord.deleteMany({ where: { companyId } })
+    await transaction.appProductRecord.deleteMany({ where: { companyId } })
+    await transaction.appServiceItemRecord.deleteMany({ where: { companyId } })
+    await transaction.appTechnicalSheetRecord.deleteMany({ where: { companyId } })
     await transaction.appCompanyRecord.deleteMany({ where: { id: companyId } })
   })
 
@@ -311,6 +318,162 @@ app.put('/api/stock-module-settings/:companyId', async (request, response) => {
     update: stockModuleSettings,
   })
   response.json({ stockModuleSettings: saved })
+})
+
+app.get('/api/products', async (request, response) => {
+  await ensureAppCatalogRecordsSeeded()
+  const companyId = parseIntegerParam(request.query.companyId)
+  const products = await prisma.appProductRecord.findMany({
+    where: companyId === null ? undefined : { companyId },
+    orderBy: [{ name: 'asc' }, { id: 'asc' }],
+  })
+  response.json({ products })
+})
+
+app.post('/api/products', async (request, response) => {
+  const product = normalizeProductPayload(request.body)
+  if (!product) {
+    response.status(400).json({ error: 'Payload de produto invalido.' })
+    return
+  }
+
+  const saved = await prisma.appProductRecord.upsert({
+    where: { id: product.id },
+    create: product,
+    update: product,
+  })
+  response.json({ product: saved })
+})
+
+app.put('/api/products/:id', async (request, response) => {
+  const productId = String(request.params.id ?? '').trim()
+  const product = normalizeProductPayload({ ...request.body, id: productId })
+  if (!productId || !product) {
+    response.status(400).json({ error: 'Payload de produto invalido.' })
+    return
+  }
+
+  const saved = await prisma.appProductRecord.upsert({
+    where: { id: productId },
+    create: product,
+    update: product,
+  })
+  response.json({ product: saved })
+})
+
+app.delete('/api/products/:id', async (request, response) => {
+  const productId = String(request.params.id ?? '').trim()
+  if (!productId) {
+    response.status(400).json({ error: 'Produto invalido.' })
+    return
+  }
+
+  await prisma.appProductRecord.deleteMany({ where: { id: productId } })
+  response.json({ ok: true })
+})
+
+app.get('/api/service-items', async (request, response) => {
+  await ensureAppCatalogRecordsSeeded()
+  const companyId = parseIntegerParam(request.query.companyId)
+  const serviceItems = await prisma.appServiceItemRecord.findMany({
+    where: companyId === null ? undefined : { companyId },
+    orderBy: [{ name: 'asc' }, { id: 'asc' }],
+  })
+  response.json({ serviceItems })
+})
+
+app.post('/api/service-items', async (request, response) => {
+  const serviceItem = normalizeServiceItemPayload(request.body)
+  if (!serviceItem) {
+    response.status(400).json({ error: 'Payload de item invalido.' })
+    return
+  }
+
+  const saved = await prisma.appServiceItemRecord.upsert({
+    where: { id: serviceItem.id },
+    create: serviceItem,
+    update: serviceItem,
+  })
+  response.json({ serviceItem: saved })
+})
+
+app.put('/api/service-items/:id', async (request, response) => {
+  const serviceItemId = String(request.params.id ?? '').trim()
+  const serviceItem = normalizeServiceItemPayload({ ...request.body, id: serviceItemId })
+  if (!serviceItemId || !serviceItem) {
+    response.status(400).json({ error: 'Payload de item invalido.' })
+    return
+  }
+
+  const saved = await prisma.appServiceItemRecord.upsert({
+    where: { id: serviceItemId },
+    create: serviceItem,
+    update: serviceItem,
+  })
+  response.json({ serviceItem: saved })
+})
+
+app.delete('/api/service-items/:id', async (request, response) => {
+  const serviceItemId = String(request.params.id ?? '').trim()
+  if (!serviceItemId) {
+    response.status(400).json({ error: 'Item invalido.' })
+    return
+  }
+
+  await prisma.appServiceItemRecord.deleteMany({ where: { id: serviceItemId } })
+  response.json({ ok: true })
+})
+
+app.get('/api/technical-sheets', async (request, response) => {
+  await ensureAppCatalogRecordsSeeded()
+  const companyId = parseIntegerParam(request.query.companyId)
+  const technicalSheets = await prisma.appTechnicalSheetRecord.findMany({
+    where: companyId === null ? undefined : { companyId },
+    orderBy: [{ name: 'asc' }, { id: 'asc' }],
+  })
+  response.json({ technicalSheets })
+})
+
+app.post('/api/technical-sheets', async (request, response) => {
+  const technicalSheet = normalizeTechnicalSheetPayload(request.body)
+  if (!technicalSheet) {
+    response.status(400).json({ error: 'Payload de ficha tecnica invalido.' })
+    return
+  }
+
+  const saved = await prisma.appTechnicalSheetRecord.upsert({
+    where: { id: technicalSheet.id },
+    create: technicalSheet,
+    update: technicalSheet,
+  })
+  response.json({ technicalSheet: saved })
+})
+
+app.put('/api/technical-sheets/:id', async (request, response) => {
+  const technicalSheetId = parseIntegerParam(request.params.id)
+  const technicalSheet = normalizeTechnicalSheetPayload({ ...request.body, id: technicalSheetId })
+  if (technicalSheetId === null || !technicalSheet) {
+    response.status(400).json({ error: 'Payload de ficha tecnica invalido.' })
+    return
+  }
+
+  const saved = await prisma.appTechnicalSheetRecord.upsert({
+    where: { id: technicalSheetId },
+    create: technicalSheet,
+    update: technicalSheet,
+  })
+  response.json({ technicalSheet: saved })
+})
+
+app.delete('/api/technical-sheets/:id', async (request, response) => {
+  const technicalSheetId = parseIntegerParam(request.params.id)
+  if (technicalSheetId === null) {
+    response.status(400).json({ error: 'Ficha tecnica invalida.' })
+    return
+  }
+
+  await prisma.appTechnicalSheetRecord.deleteMany({ where: { id: technicalSheetId } })
+  response.json({ ok: true })
 })
 
 if (fs.existsSync(clientDistPath)) {
@@ -510,6 +673,184 @@ function normalizeStockModuleSettingsPayload(value) {
   }
 }
 
+function normalizeProductPayload(value) {
+  if (!value || typeof value !== 'object') {
+    return null
+  }
+
+  const product = value
+  if (
+    typeof product.id !== 'string' ||
+    typeof product.companyId !== 'number' ||
+    typeof product.companyProductId !== 'string' ||
+    typeof product.name !== 'string' ||
+    typeof product.controlUnit !== 'string' ||
+    typeof product.family !== 'string' ||
+    typeof product.subfamily !== 'string' ||
+    !Array.isArray(product.sectors) ||
+    typeof product.alcoholPercentage !== 'string' ||
+    typeof product.densitySampleVolume !== 'string' ||
+    typeof product.densitySampleWeight !== 'string' ||
+    typeof product.isActive !== 'boolean' ||
+    !Array.isArray(product.packages)
+  ) {
+    return null
+  }
+
+  return {
+    id: product.id,
+    companyId: product.companyId,
+    companyProductId: product.companyProductId,
+    name: product.name,
+    controlUnit: product.controlUnit,
+    family: product.family,
+    subfamily: product.subfamily,
+    sectors: product.sectors.filter((item) => typeof item === 'string'),
+    alcoholPercentage: product.alcoholPercentage,
+    densitySampleVolume: product.densitySampleVolume,
+    densitySampleWeight: product.densitySampleWeight,
+    isActive: product.isActive,
+    technicalSheetId: typeof product.technicalSheetId === 'number' ? product.technicalSheetId : null,
+    packages: product.packages,
+  }
+}
+
+function normalizeServiceItemPayload(value) {
+  if (!value || typeof value !== 'object') {
+    return null
+  }
+
+  const serviceItem = value
+  if (
+    typeof serviceItem.id !== 'string' ||
+    typeof serviceItem.companyId !== 'number' ||
+    typeof serviceItem.kind !== 'string' ||
+    typeof serviceItem.companyProductId !== 'string' ||
+    typeof serviceItem.manufacturerCode !== 'string' ||
+    typeof serviceItem.name !== 'string' ||
+    typeof serviceItem.sizeValue !== 'string' ||
+    typeof serviceItem.sizeUnit !== 'string' ||
+    typeof serviceItem.emptyWeight !== 'string' ||
+    typeof serviceItem.controlUnit !== 'string' ||
+    typeof serviceItem.family !== 'string' ||
+    typeof serviceItem.subfamily !== 'string' ||
+    !Array.isArray(serviceItem.sectors) ||
+    typeof serviceItem.imageDataUrl !== 'string' ||
+    typeof serviceItem.isActive !== 'boolean' ||
+    !Array.isArray(serviceItem.packages)
+  ) {
+    return null
+  }
+
+  return {
+    id: serviceItem.id,
+    companyId: serviceItem.companyId,
+    kind: serviceItem.kind,
+    companyProductId: serviceItem.companyProductId,
+    manufacturerCode: serviceItem.manufacturerCode,
+    name: serviceItem.name,
+    sizeValue: serviceItem.sizeValue,
+    sizeUnit: serviceItem.sizeUnit,
+    emptyWeight: serviceItem.emptyWeight,
+    controlUnit: serviceItem.controlUnit,
+    family: serviceItem.family,
+    subfamily: serviceItem.subfamily,
+    sectors: serviceItem.sectors.filter((item) => typeof item === 'string'),
+    imageDataUrl: serviceItem.imageDataUrl,
+    isActive: serviceItem.isActive,
+    packages: serviceItem.packages,
+  }
+}
+
+function normalizeTechnicalSheetPayload(value) {
+  if (!value || typeof value !== 'object') {
+    return null
+  }
+
+  const sheet = value
+  if (
+    typeof sheet.id !== 'number' ||
+    typeof sheet.companyId !== 'number' ||
+    typeof sheet.kind !== 'string' ||
+    typeof sheet.productId !== 'string' ||
+    typeof sheet.companyProductId !== 'string' ||
+    typeof sheet.name !== 'string' ||
+    typeof sheet.family !== 'string' ||
+    typeof sheet.subfamily !== 'string' ||
+    !Array.isArray(sheet.sectors) ||
+    typeof sheet.outputQuantity !== 'string' ||
+    typeof sheet.outputUnit !== 'string' ||
+    typeof sheet.densitySampleVolume !== 'string' ||
+    typeof sheet.densitySampleWeight !== 'string' ||
+    typeof sheet.targetPh !== 'string' ||
+    typeof sheet.targetBrix !== 'string' ||
+    typeof sheet.portionSize !== 'string' ||
+    typeof sheet.colorTagOne !== 'string' ||
+    typeof sheet.colorTagTwo !== 'string' ||
+    typeof sheet.desiredCmvPercentage !== 'string' ||
+    typeof sheet.dilutionRatePercentage !== 'string' ||
+    typeof sheet.imageDataUrl !== 'string' ||
+    typeof sheet.finalSalePrice !== 'string' ||
+    typeof sheet.flavorSweet !== 'string' ||
+    typeof sheet.flavorSour !== 'string' ||
+    typeof sheet.flavorBitter !== 'string' ||
+    typeof sheet.flavorSalty !== 'string' ||
+    typeof sheet.flavorUmami !== 'string' ||
+    typeof sheet.storytelling !== 'string' ||
+    typeof sheet.preparationMode !== 'string' ||
+    typeof sheet.shelfLifeRoom !== 'string' ||
+    typeof sheet.shelfLifeRefrigerated !== 'string' ||
+    typeof sheet.shelfLifeFrozen !== 'string' ||
+    !Array.isArray(sheet.productionCenters) ||
+    !Array.isArray(sheet.ingredients) ||
+    !Array.isArray(sheet.garnishIngredients) ||
+    !Array.isArray(sheet.serviceItems) ||
+    typeof sheet.isActive !== 'boolean'
+  ) {
+    return null
+  }
+
+  return {
+    id: sheet.id,
+    companyId: sheet.companyId,
+    kind: sheet.kind,
+    productId: sheet.productId,
+    companyProductId: sheet.companyProductId,
+    name: sheet.name,
+    family: sheet.family,
+    subfamily: sheet.subfamily,
+    sectors: sheet.sectors.filter((item) => typeof item === 'string'),
+    outputQuantity: sheet.outputQuantity,
+    outputUnit: sheet.outputUnit,
+    densitySampleVolume: sheet.densitySampleVolume,
+    densitySampleWeight: sheet.densitySampleWeight,
+    targetPh: sheet.targetPh,
+    targetBrix: sheet.targetBrix,
+    portionSize: sheet.portionSize,
+    colorTagOne: sheet.colorTagOne,
+    colorTagTwo: sheet.colorTagTwo,
+    desiredCmvPercentage: sheet.desiredCmvPercentage,
+    dilutionRatePercentage: sheet.dilutionRatePercentage,
+    imageDataUrl: sheet.imageDataUrl,
+    finalSalePrice: sheet.finalSalePrice,
+    flavorSweet: sheet.flavorSweet,
+    flavorSour: sheet.flavorSour,
+    flavorBitter: sheet.flavorBitter,
+    flavorSalty: sheet.flavorSalty,
+    flavorUmami: sheet.flavorUmami,
+    storytelling: sheet.storytelling,
+    preparationMode: sheet.preparationMode,
+    shelfLifeRoom: sheet.shelfLifeRoom,
+    shelfLifeRefrigerated: sheet.shelfLifeRefrigerated,
+    shelfLifeFrozen: sheet.shelfLifeFrozen,
+    productionCenters: sheet.productionCenters,
+    ingredients: sheet.ingredients,
+    garnishIngredients: sheet.garnishIngredients,
+    serviceItems: sheet.serviceItems,
+    isActive: sheet.isActive,
+  }
+}
+
 function normalizeIntegerArray(value) {
   return Array.isArray(value)
     ? Array.from(new Set(value.map((item) => parseIntegerParam(item)).filter((item) => item !== null)))
@@ -600,6 +941,65 @@ async function ensureAppAdminRecordsSeeded() {
   })
 
   hasSeededAppAdminRecords = true
+}
+
+async function ensureAppCatalogRecordsSeeded() {
+  if (hasSeededAppCatalogRecords) {
+    return
+  }
+
+  const [productsCount, serviceItemsCount, technicalSheetsCount] = await Promise.all([
+    prisma.appProductRecord.count(),
+    prisma.appServiceItemRecord.count(),
+    prisma.appTechnicalSheetRecord.count(),
+  ])
+
+  if (productsCount > 0 || serviceItemsCount > 0 || technicalSheetsCount > 0) {
+    hasSeededAppCatalogRecords = true
+    return
+  }
+
+  const snapshot = await prisma.appStateSnapshot.findUnique({
+    where: { key: appStateSnapshotKey },
+  })
+  const payload = snapshot?.payload
+  const entries = payload && typeof payload === 'object' && !Array.isArray(payload) ? payload.entries : null
+  if (!entries || typeof entries !== 'object' || Array.isArray(entries)) {
+    hasSeededAppCatalogRecords = true
+    return
+  }
+
+  const products = parseSeedArray(entries[productsStorageKey], normalizeProductPayload)
+  const serviceItems = parseSeedArray(entries[serviceItemsStorageKey], normalizeServiceItemPayload)
+  const technicalSheets = parseSeedArray(entries[technicalSheetsStorageKey], normalizeTechnicalSheetPayload)
+
+  await prisma.$transaction(async (transaction) => {
+    for (const product of products) {
+      await transaction.appProductRecord.upsert({
+        where: { id: product.id },
+        create: product,
+        update: product,
+      })
+    }
+
+    for (const serviceItem of serviceItems) {
+      await transaction.appServiceItemRecord.upsert({
+        where: { id: serviceItem.id },
+        create: serviceItem,
+        update: serviceItem,
+      })
+    }
+
+    for (const technicalSheet of technicalSheets) {
+      await transaction.appTechnicalSheetRecord.upsert({
+        where: { id: technicalSheet.id },
+        create: technicalSheet,
+        update: technicalSheet,
+      })
+    }
+  })
+
+  hasSeededAppCatalogRecords = true
 }
 
 function parseSeedArray(rawValue, normalizer) {

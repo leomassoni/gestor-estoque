@@ -2557,9 +2557,6 @@ const stockReportColumnOrderStorageKey = 'gestor-estoque:stock-report-column-ord
 const stockReportModelsStorageKey = 'gestor-estoque:stock-report-models'
 const syncedAppStorageKeys = [
   technicalSheetSettingsStorageKey,
-  productsStorageKey,
-  serviceItemsStorageKey,
-  technicalSheetsStorageKey,
   stockCentersStorageKey,
   requisitionsStorageKey,
   requisitionNotificationsStorageKey,
@@ -3942,6 +3939,106 @@ export default function App() {
     setStockModuleSettings(nextStockModuleSettings)
   }
 
+  async function refreshAppCatalogRecordsFromApi() {
+    const [productsResponse, serviceItemsResponse, technicalSheetsResponse] = await Promise.all([
+      fetch('/api/products'),
+      fetch('/api/service-items'),
+      fetch('/api/technical-sheets'),
+    ])
+
+    if (!productsResponse.ok || !serviceItemsResponse.ok || !technicalSheetsResponse.ok) {
+      throw new Error('Falha ao carregar produtos, itens ou fichas tecnicas pelo backend.')
+    }
+
+    const [productsData, serviceItemsData, technicalSheetsData] = await Promise.all([
+      productsResponse.json(),
+      serviceItemsResponse.json(),
+      technicalSheetsResponse.json(),
+    ])
+
+    const nextProducts = Array.isArray(productsData?.products)
+      ? (productsData.products as unknown[])
+          .map(normalizeProductRecord)
+          .filter((item): item is ProductRecord => item !== null)
+      : []
+    const nextServiceItems = Array.isArray(serviceItemsData?.serviceItems)
+      ? (serviceItemsData.serviceItems as unknown[])
+          .map(normalizeServiceItemRecord)
+          .filter((item): item is ServiceItemRecord => item !== null)
+      : []
+    const nextTechnicalSheets = Array.isArray(technicalSheetsData?.technicalSheets)
+      ? (technicalSheetsData.technicalSheets as unknown[])
+          .map(normalizeTechnicalSheetRecord)
+          .filter((item): item is TechnicalSheetRecord => item !== null)
+      : []
+
+    setProducts(nextProducts)
+    setServiceItems(nextServiceItems)
+    setTechnicalSheets(nextTechnicalSheets)
+  }
+
+  async function upsertProductRecordOnApi(product: ProductRecord, previousId?: string | null) {
+    const targetId = previousId ?? product.id
+    const response = await fetch(previousId ? `/api/products/${encodeURIComponent(targetId)}` : '/api/products', {
+      method: previousId ? 'PUT' : 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(product),
+    })
+    if (!response.ok) {
+      throw new Error('Nao foi possivel salvar o produto no servidor.')
+    }
+
+    if (previousId && previousId !== product.id) {
+      const deleteResponse = await fetch(`/api/products/${encodeURIComponent(previousId)}`, {
+        method: 'DELETE',
+      })
+      if (!deleteResponse.ok) {
+        throw new Error('O produto foi salvo, mas nao foi possivel limpar o ID anterior no servidor.')
+      }
+    }
+  }
+
+  async function upsertServiceItemRecordOnApi(item: ServiceItemRecord, previousId?: string | null) {
+    const targetId = previousId ?? item.id
+    const response = await fetch(previousId ? `/api/service-items/${encodeURIComponent(targetId)}` : '/api/service-items', {
+      method: previousId ? 'PUT' : 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(item),
+    })
+    if (!response.ok) {
+      throw new Error('Nao foi possivel salvar o item no servidor.')
+    }
+
+    if (previousId && previousId !== item.id) {
+      const deleteResponse = await fetch(`/api/service-items/${encodeURIComponent(previousId)}`, {
+        method: 'DELETE',
+      })
+      if (!deleteResponse.ok) {
+        throw new Error('O item foi salvo, mas nao foi possivel limpar o ID anterior no servidor.')
+      }
+    }
+  }
+
+  async function upsertTechnicalSheetRecordOnApi(sheet: TechnicalSheetRecord) {
+    const response = await fetch(`/api/technical-sheets/${sheet.id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(sheet),
+    })
+    if (!response.ok) {
+      throw new Error('Nao foi possivel salvar a ficha tecnica no servidor.')
+    }
+  }
+
+  async function persistChangedTechnicalSheetsOnApi(previousSheets: TechnicalSheetRecord[], nextSheets: TechnicalSheetRecord[]) {
+    const previousById = new Map(previousSheets.map((sheet) => [sheet.id, JSON.stringify(sheet)] as const))
+    const changedSheets = nextSheets.filter((sheet) => previousById.get(sheet.id) !== JSON.stringify(sheet))
+    if (changedSheets.length === 0) {
+      return
+    }
+    await Promise.all(changedSheets.map((sheet) => upsertTechnicalSheetRecordOnApi(sheet)))
+  }
+
   function getRemoteAppStatePayloadSignature(payload: RemoteAppStatePayload | null) {
     return payload ? JSON.stringify(payload) : ''
   }
@@ -4079,6 +4176,36 @@ export default function App() {
         console.error(error)
         if (!isCancelled) {
           logRemoteAppStateMessage('Falha ao carregar empresas, usuarios e perfis pelo backend. O cache local continuara como fallback.')
+        }
+      }
+    }
+
+    void load()
+    const intervalId = window.setInterval(() => {
+      void load()
+    }, 5000)
+    const handleFocus = () => {
+      void load()
+    }
+    window.addEventListener('focus', handleFocus)
+
+    return () => {
+      isCancelled = true
+      window.clearInterval(intervalId)
+      window.removeEventListener('focus', handleFocus)
+    }
+  }, [])
+
+  useEffect(() => {
+    let isCancelled = false
+
+    const load = async () => {
+      try {
+        await refreshAppCatalogRecordsFromApi()
+      } catch (error) {
+        console.error(error)
+        if (!isCancelled) {
+          logRemoteAppStateMessage('Falha ao carregar produtos, itens e fichas tecnicas pelo backend. O cache local continuara como fallback.')
         }
       }
     }
@@ -10480,7 +10607,7 @@ export default function App() {
     reader.readAsDataURL(file)
   }
 
-  function saveServiceItem() {
+  async function saveServiceItem() {
     const normalizedName = normalizeRegistrationText(serviceItemForm.name.trim())
     const normalizedFamily = normalizeRegistrationText(serviceItemForm.family.trim())
     const normalizedSubfamily = normalizeRegistrationText(serviceItemForm.subfamily.trim())
@@ -10530,11 +10657,24 @@ export default function App() {
       packages: serviceItemPackages.map((entry) => ({ ...entry, barcode: '', grossWeightGrams: '', packagingWeightGrams: '' })),
     }
 
+    try {
+      await upsertServiceItemRecordOnApi(itemToSave, editingServiceItemId)
+    } catch (error) {
+      console.error(error)
+      setSaveFeedback({
+        status: 'error',
+        title: 'Falha ao salvar item',
+        message: error instanceof Error ? error.message : 'Erro ao salvar item no servidor.',
+      })
+      return
+    }
+
     setServiceItems((current) =>
       editingServiceItemId
         ? current.map((entry) => (entry.id === editingServiceItemId ? itemToSave : entry))
         : [itemToSave, ...current],
     )
+    await refreshAppCatalogRecordsFromApi()
     if (restoreTechnicalSheetDraftWithCreatedServiceItem(itemToSave.id, itemToSave.name)) {
       setIsTechnicalSheetServiceItemModalOpen(false)
       setSaveFeedback({
@@ -17663,6 +17803,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
     }
     setProducts((current) => current.filter((product) => product.companyId !== companyId))
     setServiceItems((current) => current.filter((item) => item.companyId !== companyId))
+    setTechnicalSheets((current) => current.filter((sheet) => sheet.companyId !== companyId))
     setStockCenters((current) => current.filter((center) => center.companyId !== companyId))
     setInventoryCounts((current) => current.filter((record) => record.companyId !== companyId))
     setInventoryStorageLocations((current) => current.filter((location) => location.companyId !== companyId))
@@ -17727,7 +17868,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
     setProductForm((current) => ({ ...current, [field]: value }))
   }
 
-  function saveProduct() {
+  async function saveProduct() {
     const previousProduct = editingProductId ? products.find((product) => product.id === editingProductId) ?? null : null
     const normalizedName = normalizeRegistrationText(productForm.name.trim())
     const normalizedFamily = normalizeRegistrationText(productForm.family.trim())
@@ -17782,45 +17923,56 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
       packages,
     }
 
-    setProducts((current) => {
-      if (editingProductId) {
-        return current.map((product) => (product.id === editingProductId ? { ...product, ...productToSave } : product))
-      }
+    const nextProducts = editingProductId
+      ? products.map((product) => (product.id === editingProductId ? { ...product, ...productToSave } : product))
+      : [productToSave, ...products]
 
-      return [productToSave, ...current]
-    })
-
+    let nextTechnicalSheets = technicalSheets
     if (previousProduct) {
-      setTechnicalSheets((current) => {
-        const syncedSheets = syncTechnicalSheetIngredientReferences(
-          current,
-          previousProduct.id,
-          productToSave.id,
-          productToSave.name,
-        )
+      const syncedSheets = syncTechnicalSheetIngredientReferences(
+        technicalSheets,
+        previousProduct.id,
+        productToSave.id,
+        productToSave.name,
+      )
 
-        if (typeof previousProduct.technicalSheetId !== 'number') {
-          return syncedSheets
-        }
-
-        return syncedSheets.map((sheet) =>
-          sheet.id === previousProduct.technicalSheetId
-            ? {
-                ...sheet,
-                productId: productToSave.id,
-                companyProductId: productToSave.companyProductId,
-                name: productToSave.name,
-                family: productToSave.family,
-                subfamily: productToSave.subfamily,
-                sectors: productToSave.sectors,
-                outputUnit: productToSave.controlUnit,
-                densitySampleVolume: productToSave.densitySampleVolume,
-                densitySampleWeight: productToSave.densitySampleWeight,
-              }
-            : sheet,
-        )
-      })
+      nextTechnicalSheets =
+        typeof previousProduct.technicalSheetId !== 'number'
+          ? syncedSheets
+          : syncedSheets.map((sheet) =>
+              sheet.id === previousProduct.technicalSheetId
+                ? {
+                    ...sheet,
+                    productId: productToSave.id,
+                    companyProductId: productToSave.companyProductId,
+                    name: productToSave.name,
+                    family: productToSave.family,
+                    subfamily: productToSave.subfamily,
+                    sectors: productToSave.sectors,
+                    outputUnit: productToSave.controlUnit,
+                    densitySampleVolume: productToSave.densitySampleVolume,
+                    densitySampleWeight: productToSave.densitySampleWeight,
+                  }
+                : sheet,
+            )
     }
+
+    try {
+      await upsertProductRecordOnApi(productToSave, editingProductId)
+      await persistChangedTechnicalSheetsOnApi(technicalSheets, nextTechnicalSheets)
+    } catch (error) {
+      console.error(error)
+      setSaveFeedback({
+        status: 'error',
+        title: 'Falha ao salvar produto',
+        message: error instanceof Error ? error.message : 'Erro ao salvar produto no servidor.',
+      })
+      return
+    }
+
+    setProducts(nextProducts)
+    setTechnicalSheets(nextTechnicalSheets)
+    await refreshAppCatalogRecordsFromApi()
 
     if (restoreTechnicalSheetDraftWithCreatedIngredient(productToSave.id, productToSave.name)) {
       setIsTechnicalSheetProductModalOpen(false)
@@ -18429,7 +18581,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
     setEditingTechnicalSheetServiceItemId(serviceItemId)
   }
 
-  function saveTechnicalSheet() {
+  async function saveTechnicalSheet() {
     const previousTechnicalSheet =
       editingTechnicalSheetId ? technicalSheets.find((sheet) => sheet.id === editingTechnicalSheetId) ?? null : null
     const normalizedName = normalizeRegistrationText(technicalSheetForm.name.trim())
@@ -18650,53 +18802,75 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
       isActive: true,
     }
 
-    setTechnicalSheets((current) => {
-      const baseSheets = editingTechnicalSheetId
-        ? current.map((item) => (item.id === editingTechnicalSheetId ? technicalSheetToSave : item))
-        : [technicalSheetToSave, ...current]
+    const baseSheets = editingTechnicalSheetId
+      ? technicalSheets.map((item) => (item.id === editingTechnicalSheetId ? technicalSheetToSave : item))
+      : [technicalSheetToSave, ...technicalSheets]
 
-      if (!previousTechnicalSheet) {
-        return baseSheets
-      }
+    const nextTechnicalSheets = previousTechnicalSheet
+      ? syncTechnicalSheetIngredientReferences(
+          baseSheets,
+          previousTechnicalSheet.productId,
+          technicalSheetToSave.productId,
+          technicalSheetToSave.name,
+        )
+      : baseSheets
 
-      return syncTechnicalSheetIngredientReferences(
-        baseSheets,
-        previousTechnicalSheet.productId,
-        technicalSheetToSave.productId,
-        technicalSheetToSave.name,
-      )
-    })
+    const linkedExisting = products.find((product) => product.technicalSheetId === technicalSheetId)
+    const technicalProduct: ProductRecord = {
+      companyId: currentCompanyId ?? 0,
+      id: generatedProductId,
+      companyProductId: normalizedCompanyProductId,
+      name: normalizedName,
+      controlUnit: technicalSheetForm.outputUnit,
+      family: normalizedFamily,
+      subfamily: normalizedSubfamily,
+      sectors: normalizedSectors,
+      alcoholPercentage:
+        technicalSheetForm.kind === 'PREPARO'
+          ? formatDecimal(calculateTechnicalSheetAlcoholPercentage(technicalSheetToSave, nextTechnicalSheets, products))
+          : '',
+      densitySampleVolume: isCommercialTechnicalSheetKind(technicalSheetForm.kind) ? '' : technicalSheetForm.densitySampleVolume.trim(),
+      densitySampleWeight: isCommercialTechnicalSheetKind(technicalSheetForm.kind) ? '' : technicalSheetForm.densitySampleWeight.trim(),
+      isActive: true,
+      packages: linkedExisting?.packages ?? [],
+      technicalSheetId: technicalSheetId,
+    }
 
-    setProducts((current) => {
-      const linkedExisting = current.find((product) => product.technicalSheetId === technicalSheetId)
-      const technicalProduct: ProductRecord = {
-        companyId: currentCompanyId ?? 0,
-        id: generatedProductId,
-        companyProductId: normalizedCompanyProductId,
-        name: normalizedName,
-        controlUnit: technicalSheetForm.outputUnit,
-        family: normalizedFamily,
-        subfamily: normalizedSubfamily,
-        sectors: normalizedSectors,
-        alcoholPercentage:
-          technicalSheetForm.kind === 'PREPARO'
-            ? formatDecimal(calculateTechnicalSheetAlcoholPercentage(technicalSheetToSave, technicalSheets, products))
-            : '',
-        densitySampleVolume: isCommercialTechnicalSheetKind(technicalSheetForm.kind) ? '' : technicalSheetForm.densitySampleVolume.trim(),
-        densitySampleWeight: isCommercialTechnicalSheetKind(technicalSheetForm.kind) ? '' : technicalSheetForm.densitySampleWeight.trim(),
-        isActive: true,
-        packages: [],
-        technicalSheetId: technicalSheetId,
-      }
-
-      if (linkedExisting) {
-        return current.map((product) =>
+    const nextProducts = linkedExisting
+      ? products.map((product) =>
           product.technicalSheetId === technicalSheetId ? { ...linkedExisting, ...technicalProduct } : product,
         )
-      }
+      : [technicalProduct, ...products]
 
-      return [technicalProduct, ...current]
-    })
+    try {
+      await upsertTechnicalSheetRecordOnApi(technicalSheetToSave)
+      await persistChangedTechnicalSheetsOnApi(technicalSheets, nextTechnicalSheets)
+      await upsertProductRecordOnApi(technicalProduct, linkedExisting?.id ?? null)
+      if (
+        previousTechnicalSheet &&
+        previousTechnicalSheet.productId !== technicalProduct.id &&
+        linkedExisting?.id !== previousTechnicalSheet.productId
+      ) {
+        const deleteResponse = await fetch(`/api/products/${encodeURIComponent(previousTechnicalSheet.productId)}`, {
+          method: 'DELETE',
+        })
+        if (!deleteResponse.ok) {
+          throw new Error('A ficha tecnica foi salva, mas nao foi possivel limpar o produto vinculado anterior.')
+        }
+      }
+    } catch (error) {
+      console.error(error)
+      setSaveFeedback({
+        status: 'error',
+        title: 'Falha ao salvar ficha tecnica',
+        message: error instanceof Error ? error.message : 'Erro ao salvar ficha tecnica no servidor.',
+      })
+      return
+    }
+
+    setTechnicalSheets(nextTechnicalSheets)
+    setProducts(nextProducts)
+    await refreshAppCatalogRecordsFromApi()
     setStockCenters((current) =>
       current.map((center) => {
         const remainingProducedIds = center.producedTechnicalSheetIds.filter((sheetId) => sheetId !== technicalSheetId)
@@ -19962,89 +20136,164 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
     setPackageActionState(null)
   }
 
-  function runProductAction() {
+  async function runProductAction() {
     if (!productActionState) {
       return
     }
 
-    if (productActionState.action === 'disable') {
-      setProducts((current) =>
-        current.map((product) =>
-          product.id === productActionState.productId ? { ...product, isActive: false } : product,
-        ),
-      )
+    const targetProduct = products.find((product) => product.id === productActionState.productId) ?? null
+    if (!targetProduct) {
+      setProductActionState(null)
+      return
     }
 
-    if (productActionState.action === 'enable') {
-      setProducts((current) =>
-        current.map((product) =>
-          product.id === productActionState.productId ? { ...product, isActive: true } : product,
-        ),
-      )
-    }
-
-    if (productActionState.action === 'delete') {
-      setProducts((current) => current.filter((product) => product.id !== productActionState.productId))
+    try {
+      if (productActionState.action === 'delete') {
+        const response = await fetch(`/api/products/${encodeURIComponent(productActionState.productId)}`, { method: 'DELETE' })
+        if (!response.ok) {
+          throw new Error('Nao foi possivel excluir o produto no servidor.')
+        }
+      } else {
+        const response = await fetch(`/api/products/${encodeURIComponent(productActionState.productId)}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            ...targetProduct,
+            isActive: productActionState.action === 'enable',
+          }),
+        })
+        if (!response.ok) {
+          throw new Error('Nao foi possivel atualizar o produto no servidor.')
+        }
+      }
+      await refreshAppCatalogRecordsFromApi()
+    } catch (error) {
+      console.error(error)
+      setSaveFeedback({
+        status: 'error',
+        title: 'Falha ao atualizar produto',
+        message: error instanceof Error ? error.message : 'Erro ao atualizar produto no servidor.',
+      })
+      return
     }
 
     setProductActionState(null)
   }
 
-  function runServiceItemAction() {
+  async function runServiceItemAction() {
     if (!serviceItemActionState) {
       return
     }
 
-    if (serviceItemActionState.action === 'disable') {
-      setServiceItems((current) =>
-        current.map((item) =>
-          item.id === serviceItemActionState.itemId ? { ...item, isActive: false } : item,
-        ),
-      )
+    const targetItem = serviceItems.find((item) => item.id === serviceItemActionState.itemId) ?? null
+    if (!targetItem) {
+      setServiceItemActionState(null)
+      return
     }
 
-    if (serviceItemActionState.action === 'enable') {
-      setServiceItems((current) =>
-        current.map((item) =>
-          item.id === serviceItemActionState.itemId ? { ...item, isActive: true } : item,
-        ),
-      )
-    }
-
-    if (serviceItemActionState.action === 'delete') {
-      setServiceItems((current) => current.filter((item) => item.id !== serviceItemActionState.itemId))
+    try {
+      if (serviceItemActionState.action === 'delete') {
+        const response = await fetch(`/api/service-items/${encodeURIComponent(serviceItemActionState.itemId)}`, {
+          method: 'DELETE',
+        })
+        if (!response.ok) {
+          throw new Error('Nao foi possivel excluir o item no servidor.')
+        }
+      } else {
+        const response = await fetch(`/api/service-items/${encodeURIComponent(serviceItemActionState.itemId)}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            ...targetItem,
+            isActive: serviceItemActionState.action === 'enable',
+          }),
+        })
+        if (!response.ok) {
+          throw new Error('Nao foi possivel atualizar o item no servidor.')
+        }
+      }
+      await refreshAppCatalogRecordsFromApi()
+    } catch (error) {
+      console.error(error)
+      setSaveFeedback({
+        status: 'error',
+        title: 'Falha ao atualizar item',
+        message: error instanceof Error ? error.message : 'Erro ao atualizar item no servidor.',
+      })
+      return
     }
 
     setServiceItemActionState(null)
   }
 
-  function runTechnicalSheetAction() {
+  async function runTechnicalSheetAction() {
     if (!technicalSheetActionState) {
       return
     }
 
-    if (technicalSheetActionState.action === 'delete') {
-      setTechnicalSheets((current) => current.filter((sheet) => sheet.id !== technicalSheetActionState.technicalSheetId))
-      setProducts((current) =>
-        current.filter((product) => product.technicalSheetId !== technicalSheetActionState.technicalSheetId),
-      )
+    const targetSheet =
+      technicalSheets.find((sheet) => sheet.id === technicalSheetActionState.technicalSheetId) ?? null
+    if (!targetSheet) {
       setTechnicalSheetActionState(null)
       return
     }
 
-    const nextIsActive = technicalSheetActionState.action === 'enable'
-    setTechnicalSheets((current) =>
-      current.map((sheet) =>
-        sheet.id === technicalSheetActionState.technicalSheetId ? { ...sheet, isActive: nextIsActive } : sheet,
-      ),
-    )
-    setProducts((current) =>
-      current.map((product) =>
-        product.technicalSheetId === technicalSheetActionState.technicalSheetId
-          ? { ...product, isActive: nextIsActive }
-          : product,
-      ),
-    )
+    const linkedProduct = products.find((product) => product.technicalSheetId === technicalSheetActionState.technicalSheetId) ?? null
+
+    try {
+      if (technicalSheetActionState.action === 'delete') {
+        const deleteSheetResponse = await fetch(`/api/technical-sheets/${technicalSheetActionState.technicalSheetId}`, {
+          method: 'DELETE',
+        })
+        if (!deleteSheetResponse.ok) {
+          throw new Error('Nao foi possivel excluir a ficha tecnica no servidor.')
+        }
+        if (linkedProduct) {
+          const deleteProductResponse = await fetch(`/api/products/${encodeURIComponent(linkedProduct.id)}`, {
+            method: 'DELETE',
+          })
+          if (!deleteProductResponse.ok) {
+            throw new Error('A ficha tecnica foi excluida, mas o produto vinculado nao foi removido do servidor.')
+          }
+        }
+      } else {
+        const nextIsActive = technicalSheetActionState.action === 'enable'
+        const updateSheetResponse = await fetch(`/api/technical-sheets/${technicalSheetActionState.technicalSheetId}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            ...targetSheet,
+            isActive: nextIsActive,
+          }),
+        })
+        if (!updateSheetResponse.ok) {
+          throw new Error('Nao foi possivel atualizar a ficha tecnica no servidor.')
+        }
+        if (linkedProduct) {
+          const updateProductResponse = await fetch(`/api/products/${encodeURIComponent(linkedProduct.id)}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              ...linkedProduct,
+              isActive: nextIsActive,
+            }),
+          })
+          if (!updateProductResponse.ok) {
+            throw new Error('A ficha tecnica foi atualizada, mas o produto vinculado nao foi sincronizado.')
+          }
+        }
+      }
+      await refreshAppCatalogRecordsFromApi()
+    } catch (error) {
+      console.error(error)
+      setSaveFeedback({
+        status: 'error',
+        title: 'Falha ao atualizar ficha tecnica',
+        message: error instanceof Error ? error.message : 'Erro ao atualizar ficha tecnica no servidor.',
+      })
+      return
+    }
+
     setTechnicalSheetActionState(null)
   }
 
