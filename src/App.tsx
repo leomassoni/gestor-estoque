@@ -876,6 +876,7 @@ type ServiceItemActionState = {
 type TechnicalSheetDraftState = {
   form: TechnicalSheetFormState
   draftProductId: string
+  outputQuantityMode: 'auto' | 'manual'
   sectorInput: string
   productionCenterInput: string
   ingredients: TechnicalSheetIngredient[]
@@ -2727,6 +2728,20 @@ function getTechnicalSheetYieldDifferenceQuantity(suggestedYield: number, totalY
   return suggestedYield > totalYield ? suggestedYield - totalYield : 0
 }
 
+function calculateTechnicalSheetSuggestedYieldFromDraft(
+  kind: TechnicalSheetKind,
+  ingredients: TechnicalSheetIngredient[],
+  garnishIngredients: TechnicalSheetIngredient[],
+) {
+  const relevantIngredients = kind === 'EXECUCAO' ? ingredients : [...ingredients, ...garnishIngredients]
+  return relevantIngredients.reduce((sum, ingredient) => {
+    if (!ingredient.isActive) {
+      return sum
+    }
+    return sum + (parseDecimal(ingredient.yieldQuantity) ?? 0)
+  }, 0)
+}
+
 function buildProductDiscardSnapshot(state: {
   form: ProductFormState
   sectorInput: string
@@ -3059,6 +3074,7 @@ export default function App() {
   const [technicalSheetColumnSort, setTechnicalSheetColumnSort] =
     useState<ColumnSort<TechnicalSheetColumnKey> | null>(null)
   const [technicalSheetForm, setTechnicalSheetForm] = useState<TechnicalSheetFormState>(emptyTechnicalSheetForm())
+  const [technicalSheetOutputQuantityMode, setTechnicalSheetOutputQuantityMode] = useState<'auto' | 'manual'>('auto')
   const [technicalSheetSectorInput, setTechnicalSheetSectorInput] = useState('')
   const [technicalSheetProductionCenterInput, setTechnicalSheetProductionCenterInput] = useState('')
   const [technicalSheetIngredients, setTechnicalSheetIngredients] = useState<TechnicalSheetIngredient[]>([
@@ -8943,6 +8959,25 @@ export default function App() {
     technicalSheetGarnishIngredientMetrics,
     technicalSheetIngredientMetrics,
   ])
+  useEffect(() => {
+    if (technicalSheetForm.kind !== 'PREPARO' || technicalSheetOutputQuantityMode !== 'auto') {
+      return
+    }
+
+    const nextValue = formatDecimal(technicalSheetTotals.suggestedYield)
+    if (technicalSheetForm.outputQuantity === nextValue) {
+      return
+    }
+
+    setTechnicalSheetForm((current) =>
+      current.kind === 'PREPARO' ? { ...current, outputQuantity: nextValue } : current,
+    )
+  }, [
+    technicalSheetForm.kind,
+    technicalSheetForm.outputQuantity,
+    technicalSheetOutputQuantityMode,
+    technicalSheetTotals.suggestedYield,
+  ])
 
   const visibleProducts = useMemo(
     () =>
@@ -10764,6 +10799,7 @@ export default function App() {
       {
         form: technicalSheetForm,
         draftProductId: draftTechnicalSheetProductId,
+        outputQuantityMode: technicalSheetOutputQuantityMode,
         sectorInput: technicalSheetSectorInput,
         productionCenterInput: technicalSheetProductionCenterInput,
         ingredients: technicalSheetIngredients,
@@ -10811,6 +10847,7 @@ export default function App() {
       {
         form: technicalSheetForm,
         draftProductId: draftTechnicalSheetProductId,
+        outputQuantityMode: technicalSheetOutputQuantityMode,
         sectorInput: technicalSheetSectorInput,
         productionCenterInput: technicalSheetProductionCenterInput,
         ingredients: technicalSheetIngredients,
@@ -10856,6 +10893,7 @@ export default function App() {
       {
         form: technicalSheetForm,
         draftProductId: draftTechnicalSheetProductId,
+        outputQuantityMode: technicalSheetOutputQuantityMode,
         sectorInput: technicalSheetSectorInput,
         productionCenterInput: technicalSheetProductionCenterInput,
         ingredients: technicalSheetIngredients,
@@ -11003,6 +11041,7 @@ export default function App() {
     setTechnicalSheetScreenMode('form')
     setEditingTechnicalSheetId(draft.editingId)
     setDraftTechnicalSheetProductId(draft.draftProductId)
+    setTechnicalSheetOutputQuantityMode(draft.outputQuantityMode)
     setTechnicalSheetForm(draft.form)
     setTechnicalSheetSectorInput(draft.sectorInput)
     setTechnicalSheetProductionCenterInput(draft.productionCenterInput)
@@ -11110,6 +11149,7 @@ export default function App() {
     setActiveSection('FichasTecnicas')
     setTechnicalSheetScreenMode('form')
     setDraftTechnicalSheetProductId(buildTechnicalSheetProductId('', 'PREPARO'))
+    setTechnicalSheetOutputQuantityMode('auto')
     setEditingTechnicalSheetId(null)
     setTechnicalSheetForm(nextForm)
     setTechnicalSheetIngredients([nextIngredient])
@@ -11164,6 +11204,7 @@ export default function App() {
       {
         form: technicalSheetForm,
         draftProductId: draftTechnicalSheetProductId,
+        outputQuantityMode: technicalSheetOutputQuantityMode,
         sectorInput: technicalSheetSectorInput,
         productionCenterInput: technicalSheetProductionCenterInput,
         ingredients: technicalSheetIngredients,
@@ -11184,6 +11225,7 @@ export default function App() {
     setActiveSection('FichasTecnicas')
     setTechnicalSheetScreenMode('form')
     setDraftTechnicalSheetProductId(buildTechnicalSheetProductId('', 'PREPARO'))
+    setTechnicalSheetOutputQuantityMode('auto')
     setEditingTechnicalSheetId(null)
     setTechnicalSheetForm(nextForm)
     setTechnicalSheetSectorInput('')
@@ -18168,6 +18210,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
     setPendingNestedTechnicalSheetKind(null)
     setPendingNestedTechnicalSheetPurpose(null)
     setDraftTechnicalSheetProductId(buildTechnicalSheetProductId('', kind))
+    setTechnicalSheetOutputQuantityMode(kind === 'PREPARO' ? 'auto' : 'manual')
     setEditingTechnicalSheetId(null)
     setTechnicalSheetForm(nextForm)
     setTechnicalSheetSectorInput('')
@@ -18277,8 +18320,19 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
     setEditingTechnicalSheetServiceItemId(technicalSheet.kind === 'EXECUCAO' ? nextServiceItem.id : null)
     const linkedTechnicalSheetProduct =
       products.find((product) => product.technicalSheetId === technicalSheetId && product.companyId === currentCompanyId) ?? null
+    const savedSuggestedYield = calculateTechnicalSheetSuggestedYieldFromDraft(
+      technicalSheet.kind,
+      savedIngredients,
+      savedGarnishIngredients,
+    )
+    const savedOutputQuantity = parseDecimal(technicalSheet.outputQuantity) ?? 0
     setTechnicalSheetPackages(linkedTechnicalSheetProduct?.packages ?? [])
     setPackageEditorContext('technicalSheet')
+    setTechnicalSheetOutputQuantityMode(
+      technicalSheet.kind === 'PREPARO' && (savedOutputQuantity <= 0 || Math.abs(savedOutputQuantity - savedSuggestedYield) < 0.000001)
+        ? 'auto'
+        : 'manual',
+    )
     setTechnicalSheetDiscardBaseline(
       buildTechnicalSheetDiscardSnapshot({
         form: nextForm,
@@ -18394,6 +18448,13 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
         yieldDifferenceByproductTechnicalSheetId:
           destination === 'BYPRODUCT' ? current.yieldDifferenceByproductTechnicalSheetId : null,
       }))
+      return
+    }
+
+    if (field === 'outputQuantity') {
+      const nextValue = String(value)
+      setTechnicalSheetOutputQuantityMode(nextValue.trim() === '' ? 'auto' : 'manual')
+      setTechnicalSheetForm((current) => ({ ...current, outputQuantity: nextValue }))
       return
     }
 
