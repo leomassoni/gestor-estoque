@@ -259,6 +259,7 @@ type TechnicalSheetConfigurationFieldKey =
   | 'family'
   | 'subfamily'
   | 'ingredients'
+  | 'outputQuantity'
   | 'outputUnit'
   | 'portionSize'
   | 'colorTagOne'
@@ -1567,6 +1568,7 @@ const technicalSheetConfigurationFieldDefinitions: Array<{
   { key: 'name', label: 'Nome do item montado', kinds: ['PREPARO', 'EXECUCAO', 'VENDA'], block: 'Base' },
   { key: 'family', label: 'Familia', kinds: ['PREPARO', 'EXECUCAO', 'VENDA'], block: 'Base' },
   { key: 'subfamily', label: 'Subfamilia', kinds: ['PREPARO', 'EXECUCAO', 'VENDA'], block: 'Base' },
+  { key: 'outputQuantity', label: 'Rendimento final', kinds: ['PREPARO'], block: 'Base' },
   { key: 'outputUnit', label: 'Unidade final', kinds: ['PREPARO', 'VENDA'], block: 'Base' },
   { key: 'portionSize', label: 'Porcao base', kinds: ['PREPARO'], block: 'Base' },
   { key: 'colorTagOne', label: 'Cor 1', kinds: ['PREPARO'], block: 'Base' },
@@ -20979,9 +20981,9 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
           />
         </label>
       ) : null}
-      {(mode === 'nested' || isTechnicalSheetFieldVisible('PREPARO', 'serviceItems')) ? (
+      {isTechnicalSheetFieldVisible('PREPARO', 'outputQuantity') ? (
         <label className="field">
-          <span>Rendimento final</span>
+          <span>Rendimento final{isTechnicalSheetFieldRequired('PREPARO', 'outputQuantity') ? ' *' : ''}</span>
           <input
             value={
               technicalSheetOutputQuantityMode === 'auto'
@@ -22208,13 +22210,13 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                   placeholder="Opcional"
                 />
               </label>
-              <label className="field field-checkbox">
-                <span>Nao contar estoque</span>
+              <label className="field field-checkbox-inline">
                 <input
                   type="checkbox"
                   checked={productForm.ignoreStock}
                   onChange={(event) => updateProductForm('ignoreStock', event.target.checked)}
                 />
+                <span>Nao contar estoque</span>
               </label>
 	              </form>
 	            </section>
@@ -23273,9 +23275,12 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                         </select>
 	                      </label>
 	                    ) : null}
-	                    {!isCommercialTechnicalSheetKind(technicalSheetForm.kind) ? (
+	                    {!isCommercialTechnicalSheetKind(technicalSheetForm.kind) && (technicalSheetForm.kind !== 'PREPARO' || isTechnicalSheetFieldVisible('PREPARO', 'outputQuantity')) ? (
 	                      <label className="field">
-	                        <span>Rendimento final</span>
+	                        <span>
+                            Rendimento final
+                            {technicalSheetForm.kind === 'PREPARO' && isTechnicalSheetFieldRequired('PREPARO', 'outputQuantity') ? ' *' : ''}
+                          </span>
 	                        <input
 	                          value={technicalSheetForm.outputQuantity}
 	                          onChange={(event) => updateTechnicalSheetForm('outputQuantity', event.target.value)}

@@ -743,6 +743,27 @@ h3 {
   margin-top: 10px;
 }
 
+.field-checkbox-inline {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  align-self: end;
+  min-height: 48px;
+}
+
+.field-checkbox-inline input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  flex: 0 0 auto;
+}
+
+.field-checkbox-inline span {
+  margin: 0;
+  font-size: 0.96rem;
+  line-height: 1.2;
+}
+
 .access-menu-list {
   display: grid;
   gap: 12px;
