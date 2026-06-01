@@ -2498,7 +2498,7 @@ const emptyTechnicalSheetForm = (): TechnicalSheetFormState => ({
   family: '',
   subfamily: '',
   sectors: [],
-  outputQuantity: '0',
+  outputQuantity: '',
   outputUnit: 'GRAM',
   densitySampleVolume: '',
   densitySampleWeight: '',
@@ -8977,26 +8977,6 @@ export default function App() {
     technicalSheetGarnishIngredientMetrics,
     technicalSheetIngredientMetrics,
   ])
-  useEffect(() => {
-    if (technicalSheetForm.kind !== 'PREPARO' || technicalSheetOutputQuantityMode !== 'auto') {
-      return
-    }
-
-    const nextValue = formatDecimal(technicalSheetTotals.suggestedYield)
-    if (technicalSheetForm.outputQuantity === nextValue) {
-      return
-    }
-
-    setTechnicalSheetForm((current) =>
-      current.kind === 'PREPARO' ? { ...current, outputQuantity: nextValue } : current,
-    )
-  }, [
-    technicalSheetForm.kind,
-    technicalSheetForm.outputQuantity,
-    technicalSheetOutputQuantityMode,
-    technicalSheetTotals.suggestedYield,
-  ])
-
   const visibleProducts = useMemo(
     () =>
       sortRecordsByColumn(
@@ -18139,6 +18119,27 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
   }
 
   function updateProductForm<K extends keyof ProductFormState>(field: K, value: ProductFormState[K]) {
+    if (field === 'controlUnit') {
+      const nextControlUnit = value as ControlUnit
+      setProductForm((current) => ({
+        ...current,
+        controlUnit: nextControlUnit,
+        densitySampleVolume: nextControlUnit === 'UNIT' ? '' : current.densitySampleVolume,
+        densitySampleWeight: nextControlUnit === 'UNIT' ? '' : current.densitySampleWeight,
+      }))
+      if (nextControlUnit === 'UNIT') {
+        setPackages((current) =>
+          current.map((item) => ({
+            ...item,
+            packageUnit: 'UNIT',
+            grossWeightGrams: '',
+            packagingWeightGrams: '',
+          })),
+        )
+      }
+      return
+    }
+
     if (field === 'companyProductId' || field === 'name' || field === 'family' || field === 'subfamily') {
       setProductForm((current) => ({
         ...current,
@@ -20410,11 +20411,15 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
         context === 'technicalSheet'
           ? technicalSheetForm.outputUnit === 'MILLILITER'
             ? 'MILLILITER'
+            : technicalSheetForm.outputUnit === 'UNIT'
+            ? 'UNIT'
             : 'GRAM'
           : context === 'serviceItem'
           ? 'UNIT'
           : productForm.controlUnit === 'MILLILITER'
           ? 'MILLILITER'
+          : productForm.controlUnit === 'UNIT'
+          ? 'UNIT'
           : 'GRAM',
     } satisfies PackageForm
     setDraftPackage(nextDraftPackage)
@@ -21015,14 +21020,14 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
         <label className="field">
           <span>Rendimento final{isTechnicalSheetFieldRequired('PREPARO', 'outputQuantity') ? ' *' : ''}</span>
           <input
-            value={
-              technicalSheetOutputQuantityMode === 'auto'
-                ? formatDecimal(technicalSheetTotals.suggestedYield)
-                : technicalSheetForm.outputQuantity
-            }
+            value={technicalSheetForm.outputQuantity}
             onChange={(event) => updateTechnicalSheetForm('outputQuantity', event.target.value)}
             placeholder={formatDecimal(technicalSheetTotals.suggestedYield)}
           />
+          <p className="helper-text">
+            Se deixar em branco, o sistema usa automaticamente {formatDecimal(technicalSheetTotals.suggestedYield)}{' '}
+            {formatControlUnitShort(technicalSheetForm.outputUnit)}.
+          </p>
         </label>
       ) : null}
       {isTechnicalSheetFieldVisible('PREPARO', 'outputUnit') ? (
@@ -22203,6 +22208,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                 >
                   <option value="MILLILITER">Mililitro</option>
                   <option value="GRAM">Grama</option>
+                  <option value="UNIT">Unidade</option>
                 </select>
               </label>
 
@@ -22367,14 +22373,18 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                         <span>Codigo de barras</span>
                         <strong>{item.barcode || 'Nao informado'}</strong>
                       </div>
-                      <div>
-                        <span>Peso bruto</span>
-                        <strong>{item.grossWeightGrams || '0'} g</strong>
-                      </div>
-                      <div>
-                        <span>Tara</span>
-                        <strong>{item.packagingWeightGrams || '0'} g</strong>
-                      </div>
+                      {productForm.controlUnit !== 'UNIT' ? (
+                        <>
+                          <div>
+                            <span>Peso bruto</span>
+                            <strong>{item.grossWeightGrams || '0'} g</strong>
+                          </div>
+                          <div>
+                            <span>Tara</span>
+                            <strong>{item.packagingWeightGrams || '0'} g</strong>
+                          </div>
+                        </>
+                      ) : null}
                       <div>
                         <span>Valor de compra</span>
                         <strong>R$ {item.purchasePrice || '0,00'}</strong>
@@ -27846,6 +27856,15 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                     placeholder="Ex.: 12,00"
                   />
                 </label>
+              ) : activePackageControlUnit === 'UNIT' ? (
+                <label className="field">
+                  <span>Valor de compra</span>
+                  <input
+                    value={draftPackage.purchasePrice}
+                    onChange={(event) => updateDraftPackage('purchasePrice', event.target.value)}
+                    placeholder="Ex.: 2,00"
+                  />
+                </label>
               ) : (
                 <>
                   <label className="field">
@@ -28044,6 +28063,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                 >
                   <option value="MILLILITER">MILILITRO</option>
                   <option value="GRAM">GRAMA</option>
+                  <option value="UNIT">UNIDADE</option>
                 </select>
               </label>
               <label className="field">
@@ -28188,14 +28208,18 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                             <span>Estoque inicial</span>
                             <strong>{item.openingQuantity || '0'}</strong>
                           </div>
-                          <div>
-                            <span>Peso bruto</span>
-                            <strong>{item.grossWeightGrams || '0'} g</strong>
-                          </div>
-                          <div>
-                            <span>Tara</span>
-                            <strong>{item.packagingWeightGrams || '0'} g</strong>
-                          </div>
+                          {productForm.controlUnit !== 'UNIT' ? (
+                            <>
+                              <div>
+                                <span>Peso bruto</span>
+                                <strong>{item.grossWeightGrams || '0'} g</strong>
+                              </div>
+                              <div>
+                                <span>Tara</span>
+                                <strong>{item.packagingWeightGrams || '0'} g</strong>
+                              </div>
+                            </>
+                          ) : null}
                         </div>
                       </article>
                     ))}
