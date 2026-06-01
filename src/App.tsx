@@ -374,6 +374,11 @@ type SaveFeedback = {
   message: string
 }
 
+type SaveProgressState = {
+  title: string
+  message: string
+}
+
 type StockCountableKind = 'PREPARO' | 'PRODUTO' | 'ITEM'
 
 type StockCenterMinimumStock = {
@@ -2830,6 +2835,7 @@ export default function App() {
   const [serviceItemActionState, setServiceItemActionState] = useState<ServiceItemActionState | null>(null)
   const [technicalSheetActionState, setTechnicalSheetActionState] = useState<TechnicalSheetActionState | null>(null)
   const [saveFeedback, setSaveFeedback] = useState<SaveFeedback | null>(null)
+  const [saveProgressState, setSaveProgressState] = useState<SaveProgressState | null>(null)
   const [isSavingProduct, setIsSavingProduct] = useState(false)
   const [isSavingServiceItem, setIsSavingServiceItem] = useState(false)
   const [isSavingTechnicalSheet, setIsSavingTechnicalSheet] = useState(false)
@@ -10778,6 +10784,10 @@ export default function App() {
     }
 
     setIsSavingServiceItem(true)
+    setSaveProgressState({
+      title: 'Registrando item',
+      message: 'Registrando, aguarde. Nao feche a tela nem clique novamente em salvar.',
+    })
     try {
       await upsertServiceItemRecordOnApi(itemToSave, editingServiceItemId)
     } catch (error) {
@@ -10790,6 +10800,7 @@ export default function App() {
       return
     } finally {
       setIsSavingServiceItem(false)
+      setSaveProgressState(null)
     }
 
     setServiceItems((current) =>
@@ -17326,6 +17337,10 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
           : editingStoredProfile?.isActive ?? true,
     }
 
+    setSaveProgressState({
+      title: 'Registrando perfil de acesso',
+      message: 'Registrando, aguarde. Nao feche a tela nem clique novamente em salvar.',
+    })
     try {
       const response = await fetch(
         editingAccessProfileId === null ? '/api/access-profiles' : `/api/access-profiles/${profileToSave.id}`,
@@ -17340,6 +17355,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
       }
     } catch (error) {
       console.error(error)
+      setSaveProgressState(null)
       setSaveFeedback({
         status: 'error',
         title: 'Falha ao salvar perfil de acesso',
@@ -17413,6 +17429,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
         }
       } catch (error) {
         console.error(error)
+        setSaveProgressState(null)
         setSaveFeedback({
           status: 'error',
           title: 'Falha ao salvar perfil de acesso',
@@ -17423,6 +17440,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
     }
 
     await refreshAppAdminRecordsFromApi()
+    setSaveProgressState(null)
 
     setAccessProfileForm(emptyAccessProfileForm())
     setEditingAccessProfileId(null)
@@ -17677,6 +17695,10 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
       isActive: editingUserId ? users.find((item) => item.id === editingUserId)?.isActive ?? true : true,
     }
 
+    setSaveProgressState({
+      title: 'Registrando usuario',
+      message: 'Registrando, aguarde. Nao feche a tela nem clique novamente em salvar.',
+    })
     try {
       const response = await fetch(editingUserId ? `/api/users/${userToSave.id}` : '/api/users', {
         method: editingUserId ? 'PUT' : 'POST',
@@ -17688,6 +17710,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
       }
     } catch (error) {
       console.error(error)
+      setSaveProgressState(null)
       setSaveFeedback({
         status: 'error',
         title: 'Falha ao salvar usuario',
@@ -17696,6 +17719,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
       return
     }
     await refreshAppAdminRecordsFromApi()
+    setSaveProgressState(null)
     setUserForm(emptyUserForm())
     setUserCompanyInput('')
     setUserSectorInput('')
@@ -18215,6 +18239,10 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
     }
 
     setIsSavingProduct(true)
+    setSaveProgressState({
+      title: 'Registrando produto',
+      message: 'Registrando, aguarde. Nao feche a tela nem clique novamente em salvar.',
+    })
     try {
       await upsertProductRecordOnApi(productToSave, editingProductId)
       await persistChangedTechnicalSheetsOnApi(technicalSheets, nextTechnicalSheets)
@@ -18228,6 +18256,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
       return
     } finally {
       setIsSavingProduct(false)
+      setSaveProgressState(null)
     }
 
     setProducts(nextProducts)
@@ -19180,6 +19209,10 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
       : [technicalProduct, ...products]
 
     setIsSavingTechnicalSheet(true)
+    setSaveProgressState({
+      title: 'Registrando ficha tecnica',
+      message: 'Registrando, aguarde. Nao feche a tela nem clique novamente em salvar.',
+    })
     try {
       await upsertTechnicalSheetRecordOnApi(technicalSheetToSave)
       await persistChangedTechnicalSheetsOnApi(technicalSheets, nextTechnicalSheets)
@@ -19206,6 +19239,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
       return
     } finally {
       setIsSavingTechnicalSheet(false)
+      setSaveProgressState(null)
     }
 
     setTechnicalSheets(nextTechnicalSheets)
@@ -29815,6 +29849,27 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                 Confirmar exclusao
               </button>
             </div>
+          </section>
+        </div>
+      ) : null}
+
+      {saveProgressState ? (
+        <div className="modal-backdrop modal-backdrop-front" role="presentation">
+          <section
+            className="modal-card modal-card-compact"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="save-progress-title"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="section-heading">
+              <div>
+                <p className="kicker">Aguarde</p>
+                <h2 id="save-progress-title">{saveProgressState.title}</h2>
+              </div>
+            </div>
+
+            <p className="confirm-copy">{saveProgressState.message}</p>
           </section>
         </div>
       ) : null}
