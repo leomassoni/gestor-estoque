@@ -18779,6 +18779,30 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
     setEditingTechnicalSheetIngredientId(null)
   }
 
+  function confirmTechnicalSheetIngredientEntry(ingredientId: number) {
+    const currentIngredient = technicalSheetIngredients.find((ingredient) => ingredient.id === ingredientId)
+    if (!currentIngredient) {
+      return
+    }
+
+    if (currentIngredient.productId.trim() === '' && currentIngredient.productLabel.trim() !== '') {
+      openNewProductFormFromTechnicalSheet(ingredientId, currentIngredient.productLabel)
+      return
+    }
+
+    if (!isTechnicalSheetIngredientComplete(currentIngredient)) {
+      return
+    }
+
+    const isLastRow = technicalSheetIngredients[technicalSheetIngredients.length - 1]?.id === ingredientId
+    if (isLastRow) {
+      addTechnicalSheetIngredient()
+      return
+    }
+
+    setEditingTechnicalSheetIngredientId(null)
+  }
+
   function openTechnicalSheetIngredientProductModal(ingredientId: number) {
     const currentIngredient = technicalSheetIngredients.find((ingredient) => ingredient.id === ingredientId) ?? null
     if (!currentIngredient || currentIngredient.productId.trim() !== '' || currentIngredient.productLabel.trim() === '') {
@@ -18825,6 +18849,30 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
     setEditingTechnicalSheetGarnishIngredientId(null)
   }
 
+  function confirmTechnicalSheetGarnishIngredientEntry(ingredientId: number) {
+    const currentIngredient = technicalSheetGarnishIngredients.find((ingredient) => ingredient.id === ingredientId)
+    if (!currentIngredient) {
+      return
+    }
+
+    if (currentIngredient.productId.trim() === '' && currentIngredient.productLabel.trim() !== '') {
+      openNewProductFormFromTechnicalSheetGarnish(ingredientId, currentIngredient.productLabel)
+      return
+    }
+
+    if (!isTechnicalSheetIngredientComplete(currentIngredient)) {
+      return
+    }
+
+    const isLastRow = technicalSheetGarnishIngredients[technicalSheetGarnishIngredients.length - 1]?.id === ingredientId
+    if (isLastRow) {
+      addTechnicalSheetGarnishIngredient()
+      return
+    }
+
+    setEditingTechnicalSheetGarnishIngredientId(null)
+  }
+
   function openTechnicalSheetGarnishIngredientProductModal(ingredientId: number) {
     const currentIngredient = technicalSheetGarnishIngredients.find((ingredient) => ingredient.id === ingredientId) ?? null
     if (!currentIngredient || currentIngredient.productId.trim() !== '' || currentIngredient.productLabel.trim() === '') {
@@ -18854,6 +18902,30 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
       currentItem.itemId.trim() === '' &&
       currentItem.itemLabel.trim() !== ''
     ) {
+      openNewServiceItemFormFromTechnicalSheet(serviceItemId, currentItem.itemLabel)
+      return
+    }
+
+    if (!isTechnicalSheetServiceItemComplete(currentItem)) {
+      return
+    }
+
+    const isLastRow = technicalSheetServiceItems[technicalSheetServiceItems.length - 1]?.id === serviceItemId
+    if (isLastRow) {
+      addTechnicalSheetServiceItem()
+      return
+    }
+
+    setEditingTechnicalSheetServiceItemId(null)
+  }
+
+  function confirmTechnicalSheetServiceItemEntry(serviceItemId: number) {
+    const currentItem = technicalSheetServiceItems.find((item) => item.id === serviceItemId)
+    if (!currentItem) {
+      return
+    }
+
+    if (currentItem.itemId.trim() === '' && currentItem.itemLabel.trim() !== '') {
       openNewServiceItemFormFromTechnicalSheet(serviceItemId, currentItem.itemLabel)
       return
     }
@@ -21240,6 +21312,20 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                   })()}
                 </strong>
               </div>
+              <div className="ingredient-entry-actions">
+                <button
+                  type="button"
+                  className="primary-button"
+                  onClick={() => confirmTechnicalSheetIngredientEntry(technicalSheetEditingIngredient.id)}
+                  disabled={
+                    technicalSheetEditingIngredient.productLabel.trim() === '' &&
+                    technicalSheetEditingIngredient.quantity.trim() === '' &&
+                    technicalSheetEditingIngredient.yieldQuantity.trim() === ''
+                  }
+                >
+                  Confirmar
+                </button>
+              </div>
             </div>
           </div>
         ) : null}
@@ -21370,6 +21456,19 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                 <div className="field hint-card">
                   <span>Unidade</span>
                   <strong>UN</strong>
+                </div>
+                <div className="ingredient-entry-actions">
+                  <button
+                    type="button"
+                    className="primary-button"
+                    onClick={() => confirmTechnicalSheetServiceItemEntry(technicalSheetEditingServiceItem.id)}
+                    disabled={
+                      technicalSheetEditingServiceItem.itemLabel.trim() === '' &&
+                      technicalSheetEditingServiceItem.quantity.trim() === ''
+                    }
+                  >
+                    Confirmar
+                  </button>
                 </div>
               </div>
             </div>
@@ -23459,6 +23558,20 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                         })()}
                       </strong>
                     </div>
+                    <div className="ingredient-entry-actions">
+                      <button
+                        type="button"
+                        className="primary-button"
+                        onClick={() => confirmTechnicalSheetIngredientEntry(technicalSheetEditingIngredient.id)}
+                        disabled={
+                          technicalSheetEditingIngredient.productLabel.trim() === '' &&
+                          technicalSheetEditingIngredient.quantity.trim() === '' &&
+                          technicalSheetEditingIngredient.yieldQuantity.trim() === ''
+                        }
+                      >
+                        Confirmar
+                      </button>
+                    </div>
                   </div>
                 </div>
               ) : null}
@@ -23640,6 +23753,20 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                             })()}
                           </strong>
                         </div>
+                        <div className="ingredient-entry-actions">
+                          <button
+                            type="button"
+                            className="primary-button"
+                            onClick={() => confirmTechnicalSheetGarnishIngredientEntry(technicalSheetEditingGarnishIngredient.id)}
+                            disabled={
+                              technicalSheetEditingGarnishIngredient.productLabel.trim() === '' &&
+                              technicalSheetEditingGarnishIngredient.quantity.trim() === '' &&
+                              technicalSheetEditingGarnishIngredient.yieldQuantity.trim() === ''
+                            }
+                          >
+                            Confirmar
+                          </button>
+                        </div>
                       </div>
                     </div>
                   ) : null}
@@ -23780,6 +23907,19 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                     <div className="field hint-card">
                       <span>Unidade</span>
                       <strong>UN</strong>
+                    </div>
+                    <div className="ingredient-entry-actions">
+                      <button
+                        type="button"
+                        className="primary-button"
+                        onClick={() => confirmTechnicalSheetServiceItemEntry(technicalSheetEditingServiceItem.id)}
+                        disabled={
+                          technicalSheetEditingServiceItem.itemLabel.trim() === '' &&
+                          technicalSheetEditingServiceItem.quantity.trim() === ''
+                        }
+                      >
+                        Confirmar
+                      </button>
                     </div>
                   </div>
                 </div>

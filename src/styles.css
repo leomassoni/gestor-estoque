@@ -320,7 +320,7 @@ select {
   display: flex;
   flex-wrap: wrap;
   gap: 10px;
-  margin: 0 0 18px;
+  margin: 12px 0 18px;
 }
 
 .panel-tab {
@@ -354,11 +354,14 @@ select {
 .selector-row {
   display: flex;
   gap: 12px;
+  flex-wrap: wrap;
+  min-width: 0;
 }
 
 .selector-main {
   display: grid;
   gap: 6px;
+  min-width: 0;
   padding: 18px 20px;
   border: 1px solid rgba(35, 78, 146, 0.14);
   border-radius: 18px;
@@ -381,6 +384,15 @@ select {
 
 .company-card-static {
   cursor: default;
+}
+
+.selector-main strong,
+.selector-main span,
+.company-card-static strong,
+.company-card-static span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .company-card-static:hover,
@@ -881,6 +893,15 @@ h3 {
 
 .inventory-open-items-row .checkbox-row {
   margin-top: 0;
+  gap: 8px;
+  font-size: 0.92rem;
+}
+
+.inventory-open-items-row .checkbox-row input[type='radio'] {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  flex: 0 0 auto;
 }
 
 .manual-supply-line {
@@ -1353,6 +1374,18 @@ h3 {
   overflow-x: hidden;
 }
 
+.receituario-content .product-table {
+  min-width: 0;
+  table-layout: fixed;
+}
+
+.receituario-content .product-table th,
+.receituario-content .product-table td {
+  white-space: normal;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
 .receituario-content > .inner-panel,
 .receituario-content > section,
 .receituario-content > div,
@@ -1378,6 +1411,7 @@ h3 {
   display: grid;
   gap: 12px;
   align-content: start;
+  min-width: 0;
 }
 
 .receituario-hero-media {
@@ -1531,7 +1565,7 @@ h3 {
 }
 
 .receituario-flavor-grid {
-  grid-template-columns: repeat(5, minmax(0, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
 .receituario-metric-card {
@@ -1553,6 +1587,8 @@ h3 {
 .receituario-metric-card strong {
   font-size: 1rem;
   color: #14213d;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .receituario-colors {
@@ -1622,6 +1658,13 @@ h3 {
   display: flex;
   align-items: center;
   gap: 12px;
+  min-width: 0;
+}
+
+.receituario-service-item-cell strong {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .receituario-service-item-image {
@@ -2006,6 +2049,16 @@ h3 {
   min-width: 0;
 }
 
+.ingredient-entry-actions {
+  display: flex;
+  align-items: flex-end;
+  justify-content: flex-end;
+}
+
+.ingredient-entry-actions .primary-button {
+  min-width: 120px;
+}
+
 .ingredient-row-inactive {
   opacity: 0.78;
 }
@@ -2386,6 +2439,25 @@ h3 {
 .modal-card-full {
   width: min(1240px, 100%);
   max-height: calc(100vh - 24px);
+  overflow-x: hidden;
+}
+
+.modal-card-full .form-grid,
+.modal-card-full .field,
+.modal-card-full .field > *,
+.modal-card-full .ingredient-row,
+.modal-card-full .ingredient-entry-form,
+.modal-card-full .ingredient-summary-line,
+.modal-card-full .ingredient-metrics,
+.modal-card-full .technical-sheet-image-field,
+.modal-card-full .technical-sheet-image-preview,
+.modal-card-full .inline-select-action,
+.modal-card-full .package-stack,
+.modal-card-full .package-card,
+.modal-card-full .package-summary {
+  min-width: 0;
+  max-width: 100%;
+  box-sizing: border-box;
 }
 
 .modal-actions {
@@ -2669,6 +2741,10 @@ h3 {
     border-radius: 18px;
   }
 
+  .company-card-static {
+    width: 100%;
+  }
+
   .settings-field-row,
   .catalog-access-row,
   .manual-supply-line {
@@ -2773,6 +2849,19 @@ h3 {
     grid-template-columns: 1fr;
   }
 
+  .ingredient-row {
+    grid-template-columns: 1fr;
+  }
+
+  .ingredient-entry-actions {
+    justify-content: stretch;
+  }
+
+  .ingredient-entry-actions .primary-button {
+    width: 100%;
+    min-width: 0;
+  }
+
   .ingredient-summary-line {
     gap: 12px;
   }
@@ -2815,6 +2904,22 @@ h3 {
   .company-field-city,
   .company-field-state {
     grid-column: auto;
+  }
+
+  .receituario-hero {
+    grid-template-columns: 1fr;
+  }
+
+  .receituario-hero-media {
+    justify-content: center;
+  }
+
+  .receituario-hero-image-frame {
+    width: min(100%, 320px);
+  }
+
+  .receituario-flavor-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 
@@ -2894,6 +2999,15 @@ h3 {
     font-size: 0.76rem;
   }
 
+  .inventory-open-items-row .checkbox-row {
+    font-size: 0.88rem;
+  }
+
+  .inventory-open-items-row .checkbox-row input[type='radio'] {
+    width: 14px;
+    height: 14px;
+  }
+
   .mobile-topbar {
     padding: 12px 14px;
     border-radius: 16px;
@@ -2906,6 +3020,22 @@ h3 {
   .list-row,
   .selector-main {
     box-shadow: 0 12px 28px rgba(20, 33, 61, 0.08);
+  }
+
+  .receituario-content {
+    gap: 16px;
+  }
+
+  .receituario-hero-copy .receituario-summary-grid,
+  .receituario-hero-copy .receituario-summary-grid-metrics,
+  .receituario-hero-copy .receituario-controls-grid-execucao,
+  .receituario-flavor-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .receituario-hero-copy .field span,
+  .receituario-hero-copy .receituario-metric-card span {
+    min-height: 0;
   }
 }
 
