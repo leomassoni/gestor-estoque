@@ -4079,7 +4079,8 @@ export default function App() {
       body: JSON.stringify(product),
     })
     if (!response.ok) {
-      throw new Error('Nao foi possivel salvar o produto no servidor.')
+      const errorPayload = (await response.json().catch(() => null)) as { error?: string } | null
+      throw new Error(errorPayload?.error || 'Nao foi possivel salvar o produto no servidor.')
     }
 
     if (previousId && previousId !== product.id) {
@@ -4100,7 +4101,8 @@ export default function App() {
       body: JSON.stringify(item),
     })
     if (!response.ok) {
-      throw new Error('Nao foi possivel salvar o item no servidor.')
+      const errorPayload = (await response.json().catch(() => null)) as { error?: string } | null
+      throw new Error(errorPayload?.error || 'Nao foi possivel salvar o item no servidor.')
     }
 
     if (previousId && previousId !== item.id) {
@@ -4120,7 +4122,8 @@ export default function App() {
       body: JSON.stringify(sheet),
     })
     if (!response.ok) {
-      throw new Error('Nao foi possivel salvar a ficha tecnica no servidor.')
+      const errorPayload = (await response.json().catch(() => null)) as { error?: string } | null
+      throw new Error(errorPayload?.error || 'Nao foi possivel salvar a ficha tecnica no servidor.')
     }
   }
 
@@ -9203,6 +9206,30 @@ export default function App() {
       ) as Record<TechnicalSheetColumnKey, string[]>,
     [currentCompanyId, technicalSheets],
   )
+  useEffect(() => {
+    setTechnicalSheetColumnFilters((current) => {
+      let hasChanges = false
+      const nextFilters = Object.fromEntries(
+        Object.entries(current).map(([rawKey, selectedValues]) => {
+          if (!selectedValues || selectedValues.length === 0) {
+            return [rawKey, selectedValues]
+          }
+
+          const key = rawKey as TechnicalSheetColumnKey
+          const availableValues = new Set(distinctTechnicalSheetColumnValues[key] ?? [])
+          const nextSelectedValues = selectedValues.filter((value) => availableValues.has(value))
+
+          if (nextSelectedValues.length !== selectedValues.length) {
+            hasChanges = true
+          }
+
+          return [rawKey, nextSelectedValues.length > 0 ? nextSelectedValues : undefined]
+        }),
+      ) as Partial<Record<TechnicalSheetColumnKey, string[]>>
+
+      return hasChanges ? nextFilters : current
+    })
+  }, [distinctTechnicalSheetColumnValues])
   const hiddenTechnicalSheetColumns = useMemo(
     () => technicalSheetColumnOptions.filter(([key]) => !technicalSheetColumnVisibility[key]),
     [technicalSheetColumnVisibility],
@@ -10794,6 +10821,7 @@ export default function App() {
       await upsertServiceItemRecordOnApi(itemToSave, editingServiceItemId)
     } catch (error) {
       console.error(error)
+      setSaveProgressState(null)
       setSaveFeedback({
         status: 'error',
         title: 'Falha ao salvar item',
@@ -18250,6 +18278,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
       await persistChangedTechnicalSheetsOnApi(technicalSheets, nextTechnicalSheets)
     } catch (error) {
       console.error(error)
+      setSaveProgressState(null)
       setSaveFeedback({
         status: 'error',
         title: 'Falha ao salvar produto',
@@ -19233,6 +19262,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
       }
     } catch (error) {
       console.error(error)
+      setSaveProgressState(null)
       setSaveFeedback({
         status: 'error',
         title: 'Falha ao salvar ficha tecnica',
@@ -29882,6 +29912,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
       {saveFeedback ? (
         <div
           className={
+            saveProgressState !== null ||
             inventoryCountHistoryModalState !== null ||
             closedInventorySummaryModalState !== null ||
             inventoryReviewModalState !== null
