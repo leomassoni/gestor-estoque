@@ -2039,6 +2039,44 @@ function normalizeTechnicalSheetPayload(value) {
     return null
   }
 
+  const normalizedIngredients = sheet.ingredients.filter(
+    (ingredient) =>
+      Boolean(ingredient) &&
+      typeof ingredient === 'object' &&
+      typeof ingredient.id === 'number' &&
+      typeof ingredient.productId === 'string' &&
+      typeof ingredient.productLabel === 'string' &&
+      typeof ingredient.quantity === 'string' &&
+      typeof ingredient.yieldQuantity === 'string',
+  )
+  const normalizedGarnishIngredients = Array.isArray(sheet.garnishIngredients)
+    ? sheet.garnishIngredients.filter(
+        (ingredient) =>
+          Boolean(ingredient) &&
+          typeof ingredient === 'object' &&
+          typeof ingredient.id === 'number' &&
+          typeof ingredient.productId === 'string' &&
+          typeof ingredient.productLabel === 'string' &&
+          typeof ingredient.quantity === 'string' &&
+          typeof ingredient.yieldQuantity === 'string',
+      )
+    : []
+  const yieldDifferenceReferenceIngredients =
+    sheet.kind === 'EXECUCAO' ? normalizedIngredients : [...normalizedIngredients, ...normalizedGarnishIngredients]
+  const totalInputQuantity = yieldDifferenceReferenceIngredients.reduce((sum, ingredient) => {
+    if (ingredient.isActive === false) {
+      return sum
+    }
+    return sum + (Number.parseFloat(ingredient.quantity) || 0)
+  }, 0)
+  const declaredOutputQuantity = Number.parseFloat(sheet.outputQuantity) || 0
+  const normalizedYieldDifferenceDestination =
+    sheet.yieldDifferenceDestination === 'WASTE' || sheet.yieldDifferenceDestination === 'BYPRODUCT'
+      ? sheet.yieldDifferenceDestination
+      : sheet.kind === 'PREPARO' && declaredOutputQuantity > 0 && totalInputQuantity > declaredOutputQuantity
+        ? 'WASTE'
+        : ''
+
   return {
     id: sheet.id,
     companyId: sheet.companyId,
@@ -2053,7 +2091,7 @@ function normalizeTechnicalSheetPayload(value) {
     outputUnit: sheet.outputUnit,
     densitySampleVolume: sheet.densitySampleVolume,
     densitySampleWeight: sheet.densitySampleWeight,
-    yieldDifferenceDestination: sheet.yieldDifferenceDestination,
+    yieldDifferenceDestination: normalizedYieldDifferenceDestination,
     yieldDifferenceByproductName: sheet.yieldDifferenceByproductName,
     yieldDifferenceByproductTechnicalSheetId:
       typeof sheet.yieldDifferenceByproductTechnicalSheetId === 'number' ? sheet.yieldDifferenceByproductTechnicalSheetId : null,

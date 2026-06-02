@@ -913,6 +913,7 @@ type TechnicalSheetIngredientMetrics = {
 
 type TechnicalSheetTotals = {
   totalRecipeCost: number
+  totalInputQuantity: number
   suggestedYield: number
   totalYield: number
   yieldDifferenceQuantity: number
@@ -2814,8 +2815,8 @@ function syncStockCentersForTechnicalSheetChange(
   })
 }
 
-function getTechnicalSheetYieldDifferenceQuantity(suggestedYield: number, totalYield: number) {
-  return suggestedYield > totalYield ? suggestedYield - totalYield : 0
+function getTechnicalSheetYieldDifferenceQuantity(referenceQuantity: number, totalYield: number) {
+  return referenceQuantity > totalYield ? referenceQuantity - totalYield : 0
 }
 
 function calculateTechnicalSheetSuggestedYieldFromDraft(
@@ -9752,6 +9753,7 @@ export default function App() {
     const yieldMetrics =
       technicalSheetForm.kind === 'EXECUCAO' ? technicalSheetIngredientMetrics : allIngredientMetrics
     const totalRecipeCost = allIngredientMetrics.reduce((sum, item) => sum + item.recipeCost, 0)
+    const totalInputQuantity = yieldMetrics.reduce((sum, item) => sum + item.inputQuantity, 0)
     const totalMixtureVolume = yieldMetrics.reduce((sum, item) => sum + item.yieldQuantity, 0)
     const vendaComboYield = yieldMetrics.reduce(
       (sum, item) => sum + (item.yieldQuantity > 0 ? item.yieldQuantity : item.inputQuantity),
@@ -9779,7 +9781,7 @@ export default function App() {
           : suggestedYield
         : suggestedYield
     const yieldDifferenceQuantity =
-      technicalSheetForm.kind === 'PREPARO' ? getTechnicalSheetYieldDifferenceQuantity(suggestedYield, totalYield) : 0
+      technicalSheetForm.kind === 'PREPARO' ? getTechnicalSheetYieldDifferenceQuantity(totalInputQuantity, totalYield) : 0
     const finalYieldScaleFactor =
       technicalSheetForm.kind === 'PREPARO' && totalMixtureVolume > 0 ? totalYield / totalMixtureVolume : 1
     const totalPureAlcoholVolume = yieldMetrics.reduce(
@@ -9791,7 +9793,7 @@ export default function App() {
       technicalSheetForm.kind === 'PREPARO' &&
       yieldDifferenceQuantity > 0 &&
       technicalSheetForm.yieldDifferenceDestination === 'BYPRODUCT'
-        ? suggestedYield
+        ? totalInputQuantity
         : totalYield
     const costReferencePortionsYield = portionSize > 0 ? costReferenceYield / portionSize : 0
     const costPerPortion = costReferencePortionsYield > 0 ? totalRecipeCost / costReferencePortionsYield : 0
@@ -9815,6 +9817,7 @@ export default function App() {
 
     return {
       totalRecipeCost,
+      totalInputQuantity,
       suggestedYield,
       totalYield,
       yieldDifferenceQuantity,
@@ -9832,6 +9835,8 @@ export default function App() {
     technicalSheetForm.dilutionRatePercentage,
     technicalSheetForm.finalSalePrice,
     technicalSheetForm.kind,
+    technicalSheetForm.outputQuantity,
+    technicalSheetForm.outputUnit,
     technicalSheetForm.portionSize,
     technicalSheetForm.yieldDifferenceDestination,
     technicalSheetGarnishIngredientMetrics,
@@ -12593,7 +12598,7 @@ export default function App() {
 
   function openSubproductTechnicalSheetFromCurrentPreparo() {
     const differenceQuantity = getTechnicalSheetYieldDifferenceQuantity(
-      technicalSheetTotals.suggestedYield,
+      technicalSheetTotals.totalInputQuantity,
       technicalSheetTotals.totalYield,
     )
     if (technicalSheetForm.kind !== 'PREPARO' || differenceQuantity <= 0) {
@@ -38283,10 +38288,69 @@ function normalizeTechnicalSheetRecord(value: unknown): TechnicalSheetRecord | n
     return null
   }
 
+  const normalizedKind = item.kind === 'VENDA' || item.kind === 'EXECUCAO' ? item.kind : 'PREPARO'
+  const normalizedIngredients = item.ingredients
+    .filter((ingredient): ingredient is TechnicalSheetIngredient => {
+      return (
+        Boolean(ingredient) &&
+        typeof ingredient === 'object' &&
+        typeof ingredient.id === 'number' &&
+        typeof ingredient.productId === 'string' &&
+        typeof ingredient.productLabel === 'string' &&
+        typeof ingredient.quantity === 'string' &&
+        typeof ingredient.yieldQuantity === 'string'
+      )
+    })
+    .map((ingredient) => ({
+      id: ingredient.id,
+      productId: ingredient.productId,
+      productLabel: ingredient.productLabel,
+      quantity: ingredient.quantity,
+      yieldQuantity: ingredient.yieldQuantity,
+      isActive: ingredient.isActive ?? true,
+    }))
+  const normalizedGarnishIngredients = Array.isArray(item.garnishIngredients)
+    ? item.garnishIngredients
+        .filter((ingredient): ingredient is TechnicalSheetIngredient => {
+          return (
+            Boolean(ingredient) &&
+            typeof ingredient === 'object' &&
+            typeof ingredient.id === 'number' &&
+            typeof ingredient.productId === 'string' &&
+            typeof ingredient.productLabel === 'string' &&
+            typeof ingredient.quantity === 'string' &&
+            typeof ingredient.yieldQuantity === 'string'
+          )
+        })
+        .map((ingredient) => ({
+          id: ingredient.id,
+          productId: ingredient.productId,
+          productLabel: ingredient.productLabel,
+          quantity: ingredient.quantity,
+          yieldQuantity: ingredient.yieldQuantity,
+          isActive: ingredient.isActive ?? true,
+        }))
+    : []
+  const yieldDifferenceReferenceIngredients =
+    normalizedKind === 'EXECUCAO' ? normalizedIngredients : [...normalizedIngredients, ...normalizedGarnishIngredients]
+  const totalInputQuantity = yieldDifferenceReferenceIngredients.reduce((sum, ingredient) => {
+    if (!ingredient.isActive) {
+      return sum
+    }
+    return sum + (parseDecimal(ingredient.quantity) ?? 0)
+  }, 0)
+  const declaredOutputQuantity = parseDecimal(item.outputQuantity) ?? 0
+  const normalizedYieldDifferenceDestination =
+    item.yieldDifferenceDestination === 'WASTE' || item.yieldDifferenceDestination === 'BYPRODUCT'
+      ? item.yieldDifferenceDestination
+      : normalizedKind === 'PREPARO' && declaredOutputQuantity > 0 && totalInputQuantity > declaredOutputQuantity
+        ? 'WASTE'
+        : ''
+
   return {
     id: item.id,
     companyId: item.companyId,
-    kind: item.kind === 'VENDA' || item.kind === 'EXECUCAO' ? item.kind : 'PREPARO',
+    kind: normalizedKind,
     productId: normalizeRegistrationText(item.productId),
     companyProductId: normalizeRegistrationText(item.companyProductId),
     name: normalizeRegistrationText(item.name),
@@ -38300,10 +38364,7 @@ function normalizeTechnicalSheetRecord(value: unknown): TechnicalSheetRecord | n
     outputUnit: normalizedTechnicalSheetOutputUnit,
     densitySampleVolume: typeof item.densitySampleVolume === 'string' ? item.densitySampleVolume : '',
     densitySampleWeight: typeof item.densitySampleWeight === 'string' ? item.densitySampleWeight : '',
-    yieldDifferenceDestination:
-      item.yieldDifferenceDestination === 'WASTE' || item.yieldDifferenceDestination === 'BYPRODUCT'
-        ? item.yieldDifferenceDestination
-        : '',
+    yieldDifferenceDestination: normalizedYieldDifferenceDestination,
     yieldDifferenceByproductName: typeof item.yieldDifferenceByproductName === 'string' ? item.yieldDifferenceByproductName : '',
     yieldDifferenceByproductTechnicalSheetId:
       typeof item.yieldDifferenceByproductTechnicalSheetId === 'number' ? item.yieldDifferenceByproductTechnicalSheetId : null,
@@ -38340,48 +38401,8 @@ function normalizeTechnicalSheetRecord(value: unknown): TechnicalSheetRecord | n
             minimumQuantity: assignment.minimumQuantity.trim(),
           }))
       : [],
-    ingredients: item.ingredients
-      .filter((ingredient): ingredient is TechnicalSheetIngredient => {
-        return (
-          Boolean(ingredient) &&
-          typeof ingredient === 'object' &&
-          typeof ingredient.id === 'number' &&
-          typeof ingredient.productId === 'string' &&
-          typeof ingredient.productLabel === 'string' &&
-          typeof ingredient.quantity === 'string' &&
-          typeof ingredient.yieldQuantity === 'string'
-        )
-      })
-      .map((ingredient) => ({
-        id: ingredient.id,
-        productId: ingredient.productId,
-        productLabel: ingredient.productLabel,
-        quantity: ingredient.quantity,
-        yieldQuantity: ingredient.yieldQuantity,
-        isActive: ingredient.isActive ?? true,
-      })),
-    garnishIngredients: Array.isArray(item.garnishIngredients)
-      ? item.garnishIngredients
-          .filter((ingredient): ingredient is TechnicalSheetIngredient => {
-            return (
-              Boolean(ingredient) &&
-              typeof ingredient === 'object' &&
-              typeof ingredient.id === 'number' &&
-              typeof ingredient.productId === 'string' &&
-              typeof ingredient.productLabel === 'string' &&
-              typeof ingredient.quantity === 'string' &&
-              typeof ingredient.yieldQuantity === 'string'
-            )
-          })
-          .map((ingredient) => ({
-            id: ingredient.id,
-            productId: ingredient.productId,
-            productLabel: ingredient.productLabel,
-            quantity: ingredient.quantity,
-            yieldQuantity: ingredient.yieldQuantity,
-            isActive: ingredient.isActive ?? true,
-          }))
-      : [],
+    ingredients: normalizedIngredients,
+    garnishIngredients: normalizedGarnishIngredients,
     serviceItems: Array.isArray(item.serviceItems)
       ? item.serviceItems
           .filter((serviceItem): serviceItem is TechnicalSheetServiceItem => {
