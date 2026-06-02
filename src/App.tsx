@@ -3394,6 +3394,16 @@ export default function App() {
   )
   const currentUserSectorScope = session?.kind === 'appUser' ? session.user.sectors : []
   const shouldFilterByUserSectors = session?.kind === 'appUser' && currentUserSectorScope.length > 0
+  const allowedUserSectorScope = useMemo(
+    () =>
+      shouldFilterByUserSectors
+        ? Array.from(new Set(currentUserSectorScope.map((sector) => normalizeRegistrationText(sector)).filter(Boolean))).sort(
+            (a, b) => a.localeCompare(b, 'pt-BR'),
+          )
+        : [],
+    [currentUserSectorScope, shouldFilterByUserSectors],
+  )
+  const singleAllowedUserSector = allowedUserSectorScope.length === 1 ? allowedUserSectorScope[0] : null
   const currentAppUser = session?.kind === 'appUser' ? session.user : null
   const currentAppUserCompanyIds = useMemo(
     () =>
@@ -3413,6 +3423,19 @@ export default function App() {
     currentCompanyId === null ? null : companies.find((item) => item.id === currentCompanyId) ?? null
   const userBelongsToCompany = (user: AppUserRecord, companyId: number | null) =>
     companyId !== null && (user.companyIds.includes(companyId) || user.companyId === companyId)
+  const constrainSectorsToCurrentUserScope = (sectors: string[]) => {
+    const normalizedSectors = sectors.map((sector) => normalizeRegistrationText(sector)).filter(Boolean)
+    if (!shouldFilterByUserSectors) {
+      return Array.from(new Set(normalizedSectors))
+    }
+
+    const filtered = normalizedSectors.filter((sector) => allowedUserSectorScope.includes(sector))
+    if (filtered.length > 0) {
+      return Array.from(new Set(filtered))
+    }
+
+    return singleAllowedUserSector ? [singleAllowedUserSector] : []
+  }
   const companyUsers = useMemo(
     () =>
       users
@@ -8830,18 +8853,21 @@ export default function App() {
             .flatMap((user) => user.sectors),
         ]
           .map((sector) => normalizeRegistrationText(sector))
-          .filter((sector) => !shouldFilterByUserSectors || currentUserSectorScope.includes(sector))),
+          .filter((sector) => !shouldFilterByUserSectors || allowedUserSectorScope.includes(sector))),
       )
         .sort(),
-    [currentCompanyId, currentUserSectorScope, products, serviceItems, shouldFilterByUserSectors, technicalSheets, users],
+    [allowedUserSectorScope, currentCompanyId, products, serviceItems, shouldFilterByUserSectors, technicalSheets, users],
   )
   const stockCenterSectorSuggestions = useMemo(
     () =>
       normalizeSuggestionSet([
         ...dynamicSectorSuggestions,
-        ...stockCenters.filter((center) => center.companyId === currentCompanyId).map((center) => center.sector),
+        ...stockCenters
+          .filter((center) => center.companyId === currentCompanyId)
+          .map((center) => center.sector)
+          .filter((sector) => !shouldFilterByUserSectors || allowedUserSectorScope.includes(normalizeRegistrationText(sector))),
       ]),
-    [currentCompanyId, dynamicSectorSuggestions, stockCenters],
+    [allowedUserSectorScope, currentCompanyId, dynamicSectorSuggestions, shouldFilterByUserSectors, stockCenters],
   )
   const userSectorSuggestions = useMemo(() => {
     const selectedCompanyId = currentCompanyId
@@ -8851,7 +8877,7 @@ export default function App() {
           users
             .flatMap((item) => item.sectors)
             .map((sector) => normalizeRegistrationText(sector))
-            .filter((sector) => !shouldFilterByUserSectors || currentUserSectorScope.includes(sector)),
+            .filter((sector) => !shouldFilterByUserSectors || allowedUserSectorScope.includes(sector)),
         ),
       )
         .sort()
@@ -8864,10 +8890,10 @@ export default function App() {
         ...users.filter((item) => item.companyId === selectedCompanyId).flatMap((item) => item.sectors),
       ]
         .map((sector) => normalizeRegistrationText(sector))
-        .filter((sector) => !shouldFilterByUserSectors || currentUserSectorScope.includes(sector))),
+        .filter((sector) => !shouldFilterByUserSectors || allowedUserSectorScope.includes(sector))),
     )
       .sort()
-  }, [currentCompanyId, currentUserSectorScope, products, serviceItems, shouldFilterByUserSectors, users])
+  }, [allowedUserSectorScope, currentCompanyId, products, serviceItems, shouldFilterByUserSectors, users])
   const technicalSheetProductOptions = useMemo(
     () =>
       products
@@ -8915,10 +8941,11 @@ export default function App() {
           ...dynamicSectorSuggestions,
           ...technicalSheets
             .filter((sheet) => sheet.companyId === currentCompanyId)
-            .flatMap((sheet) => sheet.sectors),
+            .flatMap((sheet) => sheet.sectors)
+            .filter((sector) => !shouldFilterByUserSectors || allowedUserSectorScope.includes(normalizeRegistrationText(sector))),
         ]),
       ).sort((a, b) => a.localeCompare(b, 'pt-BR')),
-    [currentCompanyId, dynamicSectorSuggestions, technicalSheets],
+    [allowedUserSectorScope, currentCompanyId, dynamicSectorSuggestions, shouldFilterByUserSectors, technicalSheets],
   )
   const technicalSheetFamilySuggestions = useMemo(
     () =>
@@ -10593,6 +10620,64 @@ export default function App() {
   }, [currentCompanyTechnicalSheetSettings])
 
   useEffect(() => {
+    if (!shouldFilterByUserSectors) {
+      return
+    }
+
+    setProductForm((current) => {
+      const nextSectors = constrainSectorsToCurrentUserScope(current.sectors)
+      return nextSectors.join('|') === current.sectors.join('|') ? current : { ...current, sectors: nextSectors }
+    })
+  }, [allowedUserSectorScope, shouldFilterByUserSectors, singleAllowedUserSector])
+
+  useEffect(() => {
+    if (!shouldFilterByUserSectors) {
+      return
+    }
+
+    setServiceItemForm((current) => {
+      const nextSectors = constrainSectorsToCurrentUserScope(current.sectors)
+      return nextSectors.join('|') === current.sectors.join('|') ? current : { ...current, sectors: nextSectors }
+    })
+  }, [allowedUserSectorScope, shouldFilterByUserSectors, singleAllowedUserSector])
+
+  useEffect(() => {
+    if (!shouldFilterByUserSectors) {
+      return
+    }
+
+    setTechnicalSheetForm((current) => {
+      const nextSectors = constrainSectorsToCurrentUserScope(current.sectors)
+      return nextSectors.join('|') === current.sectors.join('|') ? current : { ...current, sectors: nextSectors }
+    })
+  }, [allowedUserSectorScope, shouldFilterByUserSectors, singleAllowedUserSector])
+
+  useEffect(() => {
+    if (!shouldFilterByUserSectors) {
+      return
+    }
+
+    setUserForm((current) => {
+      const nextSectors = constrainSectorsToCurrentUserScope(current.sectors)
+      return nextSectors.join('|') === current.sectors.join('|') ? current : { ...current, sectors: nextSectors }
+    })
+  }, [allowedUserSectorScope, shouldFilterByUserSectors, singleAllowedUserSector])
+
+  useEffect(() => {
+    if (!shouldFilterByUserSectors) {
+      return
+    }
+
+    setStockCenterForm((current) => {
+      const normalizedSector = normalizeRegistrationText(current.sector)
+      const nextSector = normalizedSector && allowedUserSectorScope.includes(normalizedSector)
+        ? normalizedSector
+        : singleAllowedUserSector ?? ''
+      return nextSector === current.sector ? current : { ...current, sector: nextSector }
+    })
+  }, [allowedUserSectorScope, shouldFilterByUserSectors, singleAllowedUserSector])
+
+  useEffect(() => {
     if (session?.kind !== 'appUser') {
       return
     }
@@ -10778,7 +10863,10 @@ export default function App() {
   }, [activeSection, allowedSections])
 
   function openNewProductForm() {
-    const nextProductForm = emptyProductForm()
+    const nextProductForm = {
+      ...emptyProductForm(),
+      sectors: singleAllowedUserSector ? [singleAllowedUserSector] : [],
+    }
     setActiveSection('Produtos')
     setEditingProductId(null)
     setDraftProductId(buildProductId(''))
@@ -10799,13 +10887,15 @@ export default function App() {
   }
 
   function openNewServiceItemForm(kind: ServiceItemKind = 'UTENSILIO_ELETRONICO') {
+    const nextServiceItemForm = {
+      ...emptyServiceItemForm(),
+      kind,
+      sectors: singleAllowedUserSector ? [singleAllowedUserSector] : [],
+    }
     setActiveSection('Itens')
     setItemScreenMode('form')
     setEditingServiceItemId(null)
-    setServiceItemForm({
-      ...emptyServiceItemForm(),
-      kind,
-    })
+    setServiceItemForm(nextServiceItemForm)
     setServiceItemSectorInput('')
     setServiceItemPackages([])
     setShowInactiveServiceItemPackages(false)
@@ -10860,7 +10950,7 @@ export default function App() {
     if (field === 'sectors') {
       setServiceItemForm((current) => ({
         ...current,
-        sectors: (value as string[]).map((item) => normalizeRegistrationText(item)).filter(Boolean),
+        sectors: constrainSectorsToCurrentUserScope((value as string[]).map((item) => normalizeRegistrationText(item)).filter(Boolean)),
       }))
       return
     }
@@ -10892,9 +10982,9 @@ export default function App() {
     const normalizedName = normalizeRegistrationText(serviceItemForm.name.trim())
     const normalizedFamily = normalizeRegistrationText(serviceItemForm.family.trim())
     const normalizedSubfamily = normalizeRegistrationText(serviceItemForm.subfamily.trim())
-    const normalizedSectors = serviceItemForm.sectors
-      .map((sector) => normalizeRegistrationText(sector.trim()))
-      .filter(Boolean)
+    const normalizedSectors = constrainSectorsToCurrentUserScope(
+      serviceItemForm.sectors.map((sector) => normalizeRegistrationText(sector.trim())).filter(Boolean),
+    )
     const errors: string[] = []
 
     if (!normalizedName) {
@@ -12098,7 +12188,7 @@ export default function App() {
     if (field === 'sectors') {
       setUserForm((current) => ({
         ...current,
-        sectors: (value as string[]).map((item) => normalizeRegistrationText(item)).filter(Boolean),
+        sectors: constrainSectorsToCurrentUserScope((value as string[]).map((item) => normalizeRegistrationText(item)).filter(Boolean)),
       }))
       return
     }
@@ -12204,14 +12294,21 @@ export default function App() {
   }
 
   function updateStockCenterFormField<K extends keyof StockCenterFormState>(field: K, value: StockCenterFormState[K]) {
+    const normalizedValue =
+      field === 'sector' && typeof value === 'string'
+        ? ((shouldFilterByUserSectors
+            ? constrainSectorsToCurrentUserScope([value])[0] ?? ''
+            : normalizeRegistrationText(value)) as StockCenterFormState[K])
+        : value
+
     setStockCenterForm((current) => ({
       ...current,
-      [field]: value,
+      [field]: normalizedValue,
       userIds:
         field === 'sector'
           ? current.userIds.filter((userId) => {
               const user = users.find((candidate) => candidate.id === userId && userBelongsToCompany(candidate, currentCompanyId))
-              return typeof value === 'string' && value ? user?.sectors.includes(value) === true : false
+              return typeof normalizedValue === 'string' && normalizedValue ? user?.sectors.includes(normalizedValue) === true : false
             })
           : current.userIds,
     }))
@@ -13188,9 +13285,14 @@ export default function App() {
       return
     }
 
+    const normalizedStockCenterSector =
+      shouldFilterByUserSectors
+        ? constrainSectorsToCurrentUserScope([stockCenterForm.sector])[0] ?? ''
+        : normalizeRegistrationText(stockCenterForm.sector)
+
     const validUserIds = Array.from(new Set(stockCenterForm.userIds)).filter((userId) => {
       const user = users.find((candidate) => candidate.id === userId && userBelongsToCompany(candidate, currentCompanyId))
-      return user?.isActive === true && user.sectors.includes(stockCenterForm.sector)
+      return user?.isActive === true && user.sectors.includes(normalizedStockCenterSector)
     })
 
     if (validUserIds.length === 0) {
@@ -13228,7 +13330,7 @@ export default function App() {
       id: editingStockCenterId ?? Date.now(),
       companyId: currentCompanyId,
       name: normalizeRegistrationText(stockCenterForm.name),
-      sector: normalizeRegistrationText(stockCenterForm.sector),
+      sector: normalizedStockCenterSector,
       code: normalizedCode,
       userIds: validUserIds,
       responsibleUserIds,
@@ -17811,9 +17913,9 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
       userForm.accessProfileId === ''
         ? null
         : assignableAccessProfiles.find((profile) => String(profile.id) === userForm.accessProfileId) ?? null
-    const normalizedSectors = userForm.sectors
-      .map((sector) => normalizeRegistrationText(sector.trim()))
-      .filter(Boolean)
+    const normalizedSectors = constrainSectorsToCurrentUserScope(
+      userForm.sectors.map((sector) => normalizeRegistrationText(sector.trim())).filter(Boolean),
+    )
     const errors: string[] = []
 
     if (!fullName) {
@@ -18469,7 +18571,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
     if (field === 'sectors') {
       setProductForm((current) => ({
         ...current,
-        sectors: (value as string[]).map((item) => normalizeRegistrationText(item)).filter(Boolean),
+        sectors: constrainSectorsToCurrentUserScope((value as string[]).map((item) => normalizeRegistrationText(item)).filter(Boolean)),
       }))
       return
     }
@@ -18486,9 +18588,9 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
     const normalizedName = normalizeRegistrationText(productForm.name.trim())
     const normalizedFamily = normalizeRegistrationText(productForm.family.trim())
     const normalizedSubfamily = normalizeRegistrationText(productForm.subfamily.trim())
-    const normalizedSectors = productForm.sectors
-      .map((sector) => normalizeRegistrationText(sector.trim()))
-      .filter(Boolean)
+    const normalizedSectors = constrainSectorsToCurrentUserScope(
+      productForm.sectors.map((sector) => normalizeRegistrationText(sector.trim())).filter(Boolean),
+    )
 
     const errors: string[] = []
 
@@ -18635,6 +18737,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
       kind,
       outputUnit: getDefaultTechnicalSheetOutputUnit(kind),
       portionSize: isCommercialTechnicalSheetKind(kind) ? '1' : '1000',
+      sectors: singleAllowedUserSector ? [singleAllowedUserSector] : [],
     }
     setActiveSection('FichasTecnicas')
     setTechnicalSheetScreenMode('form')
@@ -18866,7 +18969,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
     if (field === 'sectors') {
       setTechnicalSheetForm((current) => ({
         ...current,
-        sectors: (value as string[]).map((item) => normalizeRegistrationText(item)).filter(Boolean),
+        sectors: constrainSectorsToCurrentUserScope((value as string[]).map((item) => normalizeRegistrationText(item)).filter(Boolean)),
       }))
       return
     }
@@ -19341,9 +19444,9 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
     const normalizedFamily = normalizeRegistrationText(technicalSheetForm.family.trim())
     const normalizedSubfamily = normalizeRegistrationText(technicalSheetForm.subfamily.trim())
     const normalizedCompanyProductId = normalizeRegistrationText(technicalSheetForm.companyProductId.trim())
-    const normalizedSectors = technicalSheetForm.sectors
-      .map((sector) => normalizeRegistrationText(sector.trim()))
-      .filter(Boolean)
+    const normalizedSectors = constrainSectorsToCurrentUserScope(
+      technicalSheetForm.sectors.map((sector) => normalizeRegistrationText(sector.trim())).filter(Boolean),
+    )
     const normalizedIngredients = technicalSheetIngredients
       .map((ingredient) => ({
         ...ingredient,
