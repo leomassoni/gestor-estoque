@@ -2877,6 +2877,17 @@ export default function App() {
   const remoteAppStatePollingIntervalRef = useRef<number | null>(null)
   const lastRemoteAppStateUpdatedAtRef = useRef<string | null>(null)
   const lastRemoteAppStatePayloadSignatureRef = useRef('')
+  const syncedRequisitionRecordMapRef = useRef<Map<number, string>>(new Map())
+  const syncedRequisitionNotificationMapRef = useRef<Map<number, string>>(new Map())
+  const syncedManualProductionRequestMapRef = useRef<Map<number, string>>(new Map())
+  const syncedProductionDraftMapRef = useRef<Map<number, string>>(new Map())
+  const syncedInventoryRecordMapRef = useRef<Map<number, string>>(new Map())
+  const syncedInventoryActiveRecordLinkMapRef = useRef<Map<string, string>>(new Map())
+  const syncedInventoryCountSessionMapRef = useRef<Map<number, string>>(new Map())
+  const syncedInventoryActiveSessionLinkMapRef = useRef<Map<string, string>>(new Map())
+  const syncedInventoryCountMapRef = useRef<Map<number, string>>(new Map())
+  const syncedPendingInventoryMovementMapRef = useRef<Map<number, string>>(new Map())
+  const syncedInventoryStorageLocationMapRef = useRef<Map<string, string>>(new Map())
   const [isRemoteAppStateReady, setIsRemoteAppStateReady] = useState(false)
   const [isImportingRemoteSnapshot, setIsImportingRemoteSnapshot] = useState(false)
 
@@ -4144,6 +4155,331 @@ export default function App() {
     setStockCenters(nextStockCenters)
   }
 
+  async function refreshAppRequisitionRecordsFromApi() {
+    const [requisitionsResponse, notificationsResponse] = await Promise.all([
+      fetch('/api/requisitions'),
+      fetch('/api/requisition-notifications'),
+    ])
+    if (!requisitionsResponse.ok || !notificationsResponse.ok) {
+      throw new Error('Falha ao carregar requisicoes e notificacoes pelo backend.')
+    }
+
+    const [requisitionsData, notificationsData] = await Promise.all([
+      requisitionsResponse.json(),
+      notificationsResponse.json(),
+    ])
+
+    const nextRequisitions = Array.isArray(requisitionsData?.requisitions)
+      ? (requisitionsData.requisitions as unknown[])
+          .map(normalizeRequisitionRecord)
+          .filter((item): item is RequisitionRecord => item !== null)
+      : []
+    const nextNotifications = Array.isArray(notificationsData?.notifications)
+      ? (notificationsData.notifications as unknown[])
+          .map(normalizeRequisitionNotificationRecord)
+          .filter((item): item is RequisitionNotificationRecord => item !== null)
+      : []
+
+    const localRequisitions = loadRequisitionsState()
+    const localNotifications = loadRequisitionNotificationsState()
+    const missingRequisitions = nextRequisitions.length === 0 && localRequisitions.length > 0
+    const missingNotifications = nextNotifications.length === 0 && localNotifications.length > 0
+
+    if (missingRequisitions || missingNotifications) {
+      await Promise.all([
+        ...(missingRequisitions ? localRequisitions.map((requisition) => upsertRequisitionRecordOnApi(requisition)) : []),
+        ...(missingNotifications ? localNotifications.map((notification) => upsertRequisitionNotificationRecordOnApi(notification)) : []),
+      ])
+
+      if (missingRequisitions) {
+        setRequisitions(localRequisitions)
+        syncedRequisitionRecordMapRef.current = new Map(localRequisitions.map((record) => [record.id, JSON.stringify(record)]))
+      } else {
+        setRequisitions(nextRequisitions)
+        syncedRequisitionRecordMapRef.current = new Map(nextRequisitions.map((record) => [record.id, JSON.stringify(record)]))
+      }
+
+      if (missingNotifications) {
+        setRequisitionNotifications(localNotifications)
+        syncedRequisitionNotificationMapRef.current = new Map(localNotifications.map((record) => [record.id, JSON.stringify(record)]))
+      } else {
+        setRequisitionNotifications(nextNotifications)
+        syncedRequisitionNotificationMapRef.current = new Map(nextNotifications.map((record) => [record.id, JSON.stringify(record)]))
+      }
+
+      logRemoteAppStateMessage('As requisicoes deste navegador foram usadas para restaurar dados ausentes no servidor.')
+      return
+    }
+
+    setRequisitions(nextRequisitions)
+    setRequisitionNotifications(nextNotifications)
+    syncedRequisitionRecordMapRef.current = new Map(nextRequisitions.map((record) => [record.id, JSON.stringify(record)]))
+    syncedRequisitionNotificationMapRef.current = new Map(nextNotifications.map((record) => [record.id, JSON.stringify(record)]))
+  }
+
+  async function refreshAppProductionRecordsFromApi() {
+    const [manualRequestsResponse, draftsResponse] = await Promise.all([
+      fetch('/api/manual-production-requests'),
+      fetch('/api/production-drafts'),
+    ])
+    if (!manualRequestsResponse.ok || !draftsResponse.ok) {
+      throw new Error('Falha ao carregar producoes pelo backend.')
+    }
+
+    const [manualRequestsData, draftsData] = await Promise.all([
+      manualRequestsResponse.json(),
+      draftsResponse.json(),
+    ])
+
+    const nextManualRequests = Array.isArray(manualRequestsData?.manualProductionRequests)
+      ? (manualRequestsData.manualProductionRequests as unknown[])
+          .map(normalizeManualProductionRequestRecord)
+          .filter((item): item is ManualProductionRequestRecord => item !== null)
+      : []
+    const nextProductionDrafts = Array.isArray(draftsData?.productionDrafts)
+      ? (draftsData.productionDrafts as unknown[])
+          .map(normalizeProductionDraftState)
+          .filter((item): item is ProductionDraftState => item !== null)
+      : []
+
+    const localManualRequests = loadManualProductionRequestsState()
+    const localDrafts = loadProductionInProgressDraftsState()
+    const missingManualRequests = nextManualRequests.length === 0 && localManualRequests.length > 0
+    const missingDrafts = nextProductionDrafts.length === 0 && localDrafts.length > 0
+
+    if (missingManualRequests || missingDrafts) {
+      await Promise.all([
+        ...(missingManualRequests ? localManualRequests.map((request) => upsertManualProductionRequestOnApi(request)) : []),
+        ...(missingDrafts ? localDrafts.map((draft) => upsertProductionDraftOnApi(draft)) : []),
+      ])
+
+      if (missingManualRequests) {
+        setManualProductionRequests(localManualRequests)
+        syncedManualProductionRequestMapRef.current = new Map(
+          localManualRequests.map((record) => [record.id, JSON.stringify(record)]),
+        )
+      } else {
+        setManualProductionRequests(nextManualRequests)
+        syncedManualProductionRequestMapRef.current = new Map(
+          nextManualRequests.map((record) => [record.id, JSON.stringify(record)]),
+        )
+      }
+
+      if (missingDrafts) {
+        setProductionInProgressDrafts(localDrafts)
+        syncedProductionDraftMapRef.current = new Map(
+          localDrafts
+            .filter((record) => record.draftId !== null)
+            .map((record) => [record.draftId as number, JSON.stringify(record)]),
+        )
+      } else {
+        setProductionInProgressDrafts(nextProductionDrafts)
+        syncedProductionDraftMapRef.current = new Map(
+          nextProductionDrafts
+            .filter((record) => record.draftId !== null)
+            .map((record) => [record.draftId as number, JSON.stringify(record)]),
+        )
+      }
+
+      logRemoteAppStateMessage('As producoes deste navegador foram usadas para restaurar dados ausentes no servidor.')
+      return
+    }
+
+    setManualProductionRequests(nextManualRequests)
+    setProductionInProgressDrafts(nextProductionDrafts)
+    syncedManualProductionRequestMapRef.current = new Map(
+      nextManualRequests.map((record) => [record.id, JSON.stringify(record)]),
+    )
+    syncedProductionDraftMapRef.current = new Map(
+      nextProductionDrafts
+        .filter((record) => record.draftId !== null)
+        .map((record) => [record.draftId as number, JSON.stringify(record)]),
+    )
+  }
+
+  async function refreshAppInventoryRecordsFromApi() {
+    const [
+      locationsResponse,
+      activeRecordLinksResponse,
+      inventoriesResponse,
+      sessionsResponse,
+      activeSessionLinksResponse,
+      countsResponse,
+      pendingMovementsResponse,
+    ] =
+      await Promise.all([
+        fetch('/api/inventory-storage-locations'),
+        fetch('/api/inventory-active-record-links'),
+        fetch('/api/inventories'),
+        fetch('/api/inventory-count-sessions'),
+        fetch('/api/inventory-active-session-links'),
+        fetch('/api/inventory-counts'),
+        fetch('/api/pending-inventory-movements'),
+      ])
+
+    if (
+      !locationsResponse.ok ||
+      !activeRecordLinksResponse.ok ||
+      !inventoriesResponse.ok ||
+      !sessionsResponse.ok ||
+      !activeSessionLinksResponse.ok ||
+      !countsResponse.ok ||
+      !pendingMovementsResponse.ok
+    ) {
+      throw new Error('Falha ao carregar inventarios pelo backend.')
+    }
+
+    const [locationsData, activeRecordLinksData, inventoriesData, sessionsData, activeSessionLinksData, countsData, pendingMovementsData] = await Promise.all([
+      locationsResponse.json(),
+      activeRecordLinksResponse.json(),
+      inventoriesResponse.json(),
+      sessionsResponse.json(),
+      activeSessionLinksResponse.json(),
+      countsResponse.json(),
+      pendingMovementsResponse.json(),
+    ])
+
+    const nextLocations = Array.isArray(locationsData?.inventoryStorageLocations)
+      ? (locationsData.inventoryStorageLocations as unknown[])
+          .map(normalizeInventoryStorageLocationRecord)
+          .filter((item): item is InventoryStorageLocationRecord => item !== null)
+      : []
+    const nextInventories = Array.isArray(inventoriesData?.inventoryRecords)
+      ? (inventoriesData.inventoryRecords as unknown[])
+          .map(normalizeInventoryRecord)
+          .filter((item): item is InventoryRecord => item !== null)
+      : []
+    const nextActiveRecordLinks = Array.isArray(activeRecordLinksData?.inventoryActiveRecordLinks)
+      ? (activeRecordLinksData.inventoryActiveRecordLinks as unknown[])
+          .map(normalizeInventoryActiveRecordLinkRecord)
+          .filter((item): item is InventoryActiveRecordLinkRecord => item !== null)
+      : []
+    const nextSessions = Array.isArray(sessionsData?.inventoryCountSessions)
+      ? (sessionsData.inventoryCountSessions as unknown[])
+          .map(normalizeInventoryCountSessionRecord)
+          .filter((item): item is InventoryCountSessionRecord => item !== null)
+      : []
+    const nextActiveSessionLinks = Array.isArray(activeSessionLinksData?.inventoryActiveSessionLinks)
+      ? (activeSessionLinksData.inventoryActiveSessionLinks as unknown[])
+          .map(normalizeInventoryActiveSessionLinkRecord)
+          .filter((item): item is InventoryActiveSessionLinkRecord => item !== null)
+      : []
+    const nextCounts = Array.isArray(countsData?.inventoryCounts)
+      ? (countsData.inventoryCounts as unknown[])
+          .map(normalizeInventoryCountRecord)
+          .filter((item): item is InventoryCountRecord => item !== null)
+      : []
+    const nextPendingMovements = Array.isArray(pendingMovementsData?.pendingInventoryMovements)
+      ? (pendingMovementsData.pendingInventoryMovements as unknown[])
+          .map(normalizePendingInventoryMovementRecord)
+          .filter((item): item is PendingInventoryMovementRecord => item !== null)
+      : []
+
+    const localLocations = loadInventoryStorageLocationsState()
+    const localInventories = loadInventoryRecordsState()
+    const localActiveRecordLinks = loadInventoryActiveRecordLinksState()
+    const localSessions = loadInventoryCountSessionsState()
+    const localActiveSessionLinks = loadInventoryActiveSessionLinksState()
+    const localCounts = loadInventoryCountsState()
+    const localPendingMovements = loadPendingInventoryMovementsState()
+
+    const missingLocations = nextLocations.length === 0 && localLocations.length > 0
+    const missingInventories = nextInventories.length === 0 && localInventories.length > 0
+    const missingActiveRecordLinks = nextActiveRecordLinks.length === 0 && localActiveRecordLinks.length > 0
+    const missingSessions = nextSessions.length === 0 && localSessions.length > 0
+    const missingActiveSessionLinks = nextActiveSessionLinks.length === 0 && localActiveSessionLinks.length > 0
+    const missingCounts = nextCounts.length === 0 && localCounts.length > 0
+    const missingPendingMovements = nextPendingMovements.length === 0 && localPendingMovements.length > 0
+
+    if (
+      missingLocations ||
+      missingInventories ||
+      missingActiveRecordLinks ||
+      missingSessions ||
+      missingActiveSessionLinks ||
+      missingCounts ||
+      missingPendingMovements
+    ) {
+      await Promise.all([
+        ...(missingLocations ? localLocations.map((record) => upsertInventoryStorageLocationOnApi(record, null)) : []),
+        ...(missingInventories ? localInventories.map((record) => upsertInventoryRecordOnApi(record)) : []),
+        ...(missingActiveRecordLinks ? localActiveRecordLinks.map((record) => upsertInventoryActiveRecordLinkOnApi(record)) : []),
+        ...(missingSessions ? localSessions.map((record) => upsertInventoryCountSessionOnApi(record)) : []),
+        ...(missingActiveSessionLinks ? localActiveSessionLinks.map((record) => upsertInventoryActiveSessionLinkOnApi(record)) : []),
+        ...(missingCounts ? localCounts.map((record) => upsertInventoryCountOnApi(record)) : []),
+        ...(missingPendingMovements ? localPendingMovements.map((record) => upsertPendingInventoryMovementOnApi(record)) : []),
+      ])
+
+      setInventoryStorageLocations(missingLocations ? localLocations : nextLocations)
+      setInventoryRecords(missingInventories ? localInventories : nextInventories)
+      setInventoryActiveRecordLinks(missingActiveRecordLinks ? localActiveRecordLinks : nextActiveRecordLinks)
+      setInventoryCountSessions(missingSessions ? localSessions : nextSessions)
+      setInventoryActiveSessionLinks(missingActiveSessionLinks ? localActiveSessionLinks : nextActiveSessionLinks)
+      setInventoryCounts(missingCounts ? localCounts : nextCounts)
+      setPendingInventoryMovements(missingPendingMovements ? localPendingMovements : nextPendingMovements)
+
+      syncedInventoryStorageLocationMapRef.current = new Map(
+        (missingLocations ? localLocations : nextLocations).map((record) => [
+          `${record.companyId}:${record.name}`,
+          JSON.stringify(record),
+        ]),
+      )
+      syncedInventoryRecordMapRef.current = new Map(
+        (missingInventories ? localInventories : nextInventories).map((record) => [record.id, JSON.stringify(record)]),
+      )
+      syncedInventoryActiveRecordLinkMapRef.current = new Map(
+        (missingActiveRecordLinks ? localActiveRecordLinks : nextActiveRecordLinks).map((record) => [
+          `${record.companyId}:${record.userKey}`,
+          JSON.stringify(record),
+        ]),
+      )
+      syncedInventoryCountSessionMapRef.current = new Map(
+        (missingSessions ? localSessions : nextSessions).map((record) => [record.id, JSON.stringify(record)]),
+      )
+      syncedInventoryActiveSessionLinkMapRef.current = new Map(
+        (missingActiveSessionLinks ? localActiveSessionLinks : nextActiveSessionLinks).map((record) => [
+          `${record.companyId}:${record.userKey}`,
+          JSON.stringify(record),
+        ]),
+      )
+      syncedInventoryCountMapRef.current = new Map(
+        (missingCounts ? localCounts : nextCounts).map((record) => [record.id, JSON.stringify(record)]),
+      )
+      syncedPendingInventoryMovementMapRef.current = new Map(
+        (missingPendingMovements ? localPendingMovements : nextPendingMovements).map((record) => [
+          record.id,
+          JSON.stringify(record),
+        ]),
+      )
+
+      logRemoteAppStateMessage('Os registros de inventario deste navegador foram usados para restaurar dados ausentes no servidor.')
+      return
+    }
+
+    setInventoryStorageLocations(nextLocations)
+    setInventoryRecords(nextInventories)
+    setInventoryActiveRecordLinks(nextActiveRecordLinks)
+    setInventoryCountSessions(nextSessions)
+    setInventoryActiveSessionLinks(nextActiveSessionLinks)
+    setInventoryCounts(nextCounts)
+    setPendingInventoryMovements(nextPendingMovements)
+    syncedInventoryStorageLocationMapRef.current = new Map(
+      nextLocations.map((record) => [`${record.companyId}:${record.name}`, JSON.stringify(record)]),
+    )
+    syncedInventoryRecordMapRef.current = new Map(nextInventories.map((record) => [record.id, JSON.stringify(record)]))
+    syncedInventoryActiveRecordLinkMapRef.current = new Map(
+      nextActiveRecordLinks.map((record) => [`${record.companyId}:${record.userKey}`, JSON.stringify(record)]),
+    )
+    syncedInventoryCountSessionMapRef.current = new Map(nextSessions.map((record) => [record.id, JSON.stringify(record)]))
+    syncedInventoryActiveSessionLinkMapRef.current = new Map(
+      nextActiveSessionLinks.map((record) => [`${record.companyId}:${record.userKey}`, JSON.stringify(record)]),
+    )
+    syncedInventoryCountMapRef.current = new Map(nextCounts.map((record) => [record.id, JSON.stringify(record)]))
+    syncedPendingInventoryMovementMapRef.current = new Map(
+      nextPendingMovements.map((record) => [record.id, JSON.stringify(record)]),
+    )
+  }
+
   async function refreshAppCatalogRecordsFromApi() {
     const [productsResponse, serviceItemsResponse, technicalSheetsResponse] = await Promise.all([
       fetch('/api/products'),
@@ -4291,6 +4627,251 @@ export default function App() {
     await Promise.all(changedCenters.map((center) => upsertStockCenterRecordOnApi(center)))
   }
 
+  async function upsertRequisitionRecordOnApi(requisition: RequisitionRecord) {
+    const response = await fetch(`/api/requisitions/${requisition.id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(requisition),
+    })
+    if (!response.ok) {
+      const errorPayload = (await response.json().catch(() => null)) as { error?: string } | null
+      throw new Error(errorPayload?.error || 'Nao foi possivel salvar a requisicao no servidor.')
+    }
+  }
+
+  async function deleteRequisitionRecordOnApi(requisitionId: number) {
+    const response = await fetch(`/api/requisitions/${requisitionId}`, {
+      method: 'DELETE',
+    })
+    if (!response.ok) {
+      const errorPayload = (await response.json().catch(() => null)) as { error?: string } | null
+      throw new Error(errorPayload?.error || 'Nao foi possivel excluir a requisicao no servidor.')
+    }
+  }
+
+  async function upsertRequisitionNotificationRecordOnApi(notification: RequisitionNotificationRecord) {
+    const response = await fetch(`/api/requisition-notifications/${notification.id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(notification),
+    })
+    if (!response.ok) {
+      const errorPayload = (await response.json().catch(() => null)) as { error?: string } | null
+      throw new Error(errorPayload?.error || 'Nao foi possivel salvar a notificacao no servidor.')
+    }
+  }
+
+  async function deleteRequisitionNotificationRecordOnApi(notificationId: number) {
+    const response = await fetch(`/api/requisition-notifications/${notificationId}`, {
+      method: 'DELETE',
+    })
+    if (!response.ok) {
+      const errorPayload = (await response.json().catch(() => null)) as { error?: string } | null
+      throw new Error(errorPayload?.error || 'Nao foi possivel excluir a notificacao no servidor.')
+    }
+  }
+
+  async function upsertManualProductionRequestOnApi(requestRecord: ManualProductionRequestRecord) {
+    const response = await fetch(`/api/manual-production-requests/${requestRecord.id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(requestRecord),
+    })
+    if (!response.ok) {
+      const errorPayload = (await response.json().catch(() => null)) as { error?: string } | null
+      throw new Error(errorPayload?.error || 'Nao foi possivel salvar a solicitacao de producao no servidor.')
+    }
+  }
+
+  async function deleteManualProductionRequestOnApi(requestId: number) {
+    const response = await fetch(`/api/manual-production-requests/${requestId}`, {
+      method: 'DELETE',
+    })
+    if (!response.ok) {
+      const errorPayload = (await response.json().catch(() => null)) as { error?: string } | null
+      throw new Error(errorPayload?.error || 'Nao foi possivel excluir a solicitacao de producao no servidor.')
+    }
+  }
+
+  async function upsertProductionDraftOnApi(draft: ProductionDraftState) {
+    if (draft.draftId === null) {
+      return
+    }
+
+    const response = await fetch(`/api/production-drafts/${draft.draftId}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(draft),
+    })
+    if (!response.ok) {
+      const errorPayload = (await response.json().catch(() => null)) as { error?: string } | null
+      throw new Error(errorPayload?.error || 'Nao foi possivel salvar o rascunho de producao no servidor.')
+    }
+  }
+
+  async function deleteProductionDraftOnApi(draftId: number) {
+    const response = await fetch(`/api/production-drafts/${draftId}`, {
+      method: 'DELETE',
+    })
+    if (!response.ok) {
+      const errorPayload = (await response.json().catch(() => null)) as { error?: string } | null
+      throw new Error(errorPayload?.error || 'Nao foi possivel excluir o rascunho de producao no servidor.')
+    }
+  }
+
+  async function upsertInventoryStorageLocationOnApi(
+    location: InventoryStorageLocationRecord,
+    previousName?: string | null,
+  ) {
+    const method = previousName ? 'PUT' : 'POST'
+    const url = previousName
+      ? `/api/inventory-storage-locations/${location.companyId}/${encodeURIComponent(previousName)}`
+      : '/api/inventory-storage-locations'
+    const response = await fetch(url, {
+      method,
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(location),
+    })
+    if (!response.ok) {
+      const errorPayload = (await response.json().catch(() => null)) as { error?: string } | null
+      throw new Error(errorPayload?.error || 'Nao foi possivel salvar o local de armazenamento no servidor.')
+    }
+  }
+
+  async function deleteInventoryStorageLocationOnApi(companyId: number, name: string) {
+    const response = await fetch(`/api/inventory-storage-locations/${companyId}/${encodeURIComponent(name)}`, {
+      method: 'DELETE',
+    })
+    if (!response.ok) {
+      const errorPayload = (await response.json().catch(() => null)) as { error?: string } | null
+      throw new Error(errorPayload?.error || 'Nao foi possivel excluir o local de armazenamento no servidor.')
+    }
+  }
+
+  async function upsertInventoryRecordOnApi(inventory: InventoryRecord) {
+    const response = await fetch(`/api/inventories/${inventory.id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(inventory),
+    })
+    if (!response.ok) {
+      const errorPayload = (await response.json().catch(() => null)) as { error?: string } | null
+      throw new Error(errorPayload?.error || 'Nao foi possivel salvar o inventario no servidor.')
+    }
+  }
+
+  async function deleteInventoryRecordOnApi(inventoryId: number) {
+    const response = await fetch(`/api/inventories/${inventoryId}`, { method: 'DELETE' })
+    if (!response.ok) {
+      const errorPayload = (await response.json().catch(() => null)) as { error?: string } | null
+      throw new Error(errorPayload?.error || 'Nao foi possivel excluir o inventario no servidor.')
+    }
+  }
+
+  async function upsertInventoryActiveRecordLinkOnApi(link: InventoryActiveRecordLinkRecord) {
+    const response = await fetch(`/api/inventory-active-record-links/${link.companyId}/${encodeURIComponent(link.userKey)}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(link),
+    })
+    if (!response.ok) {
+      const errorPayload = (await response.json().catch(() => null)) as { error?: string } | null
+      throw new Error(errorPayload?.error || 'Nao foi possivel salvar o vinculo ativo de inventario no servidor.')
+    }
+  }
+
+  async function deleteInventoryActiveRecordLinkOnApi(companyId: number, userKey: string) {
+    const response = await fetch(`/api/inventory-active-record-links/${companyId}/${encodeURIComponent(userKey)}`, {
+      method: 'DELETE',
+    })
+    if (!response.ok) {
+      const errorPayload = (await response.json().catch(() => null)) as { error?: string } | null
+      throw new Error(errorPayload?.error || 'Nao foi possivel excluir o vinculo ativo de inventario no servidor.')
+    }
+  }
+
+  async function upsertInventoryCountSessionOnApi(session: InventoryCountSessionRecord) {
+    const response = await fetch(`/api/inventory-count-sessions/${session.id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(session),
+    })
+    if (!response.ok) {
+      const errorPayload = (await response.json().catch(() => null)) as { error?: string } | null
+      throw new Error(errorPayload?.error || 'Nao foi possivel salvar a sessao de contagem no servidor.')
+    }
+  }
+
+  async function deleteInventoryCountSessionOnApi(sessionId: number) {
+    const response = await fetch(`/api/inventory-count-sessions/${sessionId}`, { method: 'DELETE' })
+    if (!response.ok) {
+      const errorPayload = (await response.json().catch(() => null)) as { error?: string } | null
+      throw new Error(errorPayload?.error || 'Nao foi possivel excluir a sessao de contagem no servidor.')
+    }
+  }
+
+  async function upsertInventoryActiveSessionLinkOnApi(link: InventoryActiveSessionLinkRecord) {
+    const response = await fetch(`/api/inventory-active-session-links/${link.companyId}/${encodeURIComponent(link.userKey)}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(link),
+    })
+    if (!response.ok) {
+      const errorPayload = (await response.json().catch(() => null)) as { error?: string } | null
+      throw new Error(errorPayload?.error || 'Nao foi possivel salvar o vinculo ativo de sessao no servidor.')
+    }
+  }
+
+  async function deleteInventoryActiveSessionLinkOnApi(companyId: number, userKey: string) {
+    const response = await fetch(`/api/inventory-active-session-links/${companyId}/${encodeURIComponent(userKey)}`, {
+      method: 'DELETE',
+    })
+    if (!response.ok) {
+      const errorPayload = (await response.json().catch(() => null)) as { error?: string } | null
+      throw new Error(errorPayload?.error || 'Nao foi possivel excluir o vinculo ativo de sessao no servidor.')
+    }
+  }
+
+  async function upsertInventoryCountOnApi(count: InventoryCountRecord) {
+    const response = await fetch(`/api/inventory-counts/${count.id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(count),
+    })
+    if (!response.ok) {
+      const errorPayload = (await response.json().catch(() => null)) as { error?: string } | null
+      throw new Error(errorPayload?.error || 'Nao foi possivel salvar a contagem no servidor.')
+    }
+  }
+
+  async function deleteInventoryCountOnApi(countId: number) {
+    const response = await fetch(`/api/inventory-counts/${countId}`, { method: 'DELETE' })
+    if (!response.ok) {
+      const errorPayload = (await response.json().catch(() => null)) as { error?: string } | null
+      throw new Error(errorPayload?.error || 'Nao foi possivel excluir a contagem no servidor.')
+    }
+  }
+
+  async function upsertPendingInventoryMovementOnApi(movement: PendingInventoryMovementRecord) {
+    const response = await fetch(`/api/pending-inventory-movements/${movement.id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(movement),
+    })
+    if (!response.ok) {
+      const errorPayload = (await response.json().catch(() => null)) as { error?: string } | null
+      throw new Error(errorPayload?.error || 'Nao foi possivel salvar a movimentacao pendente no servidor.')
+    }
+  }
+
+  async function deletePendingInventoryMovementOnApi(movementId: number) {
+    const response = await fetch(`/api/pending-inventory-movements/${movementId}`, { method: 'DELETE' })
+    if (!response.ok) {
+      const errorPayload = (await response.json().catch(() => null)) as { error?: string } | null
+      throw new Error(errorPayload?.error || 'Nao foi possivel excluir a movimentacao pendente no servidor.')
+    }
+  }
+
   function getRemoteAppStatePayloadSignature(payload: RemoteAppStatePayload | null) {
     return payload ? JSON.stringify(payload) : ''
   }
@@ -4415,6 +4996,96 @@ export default function App() {
 
     return () => {
       isCancelled = true
+    }
+  }, [])
+
+  useEffect(() => {
+    let isCancelled = false
+
+    const load = async () => {
+      try {
+        await refreshAppRequisitionRecordsFromApi()
+      } catch (error) {
+        console.error(error)
+        if (!isCancelled) {
+          logRemoteAppStateMessage('Falha ao carregar requisicoes pelo backend. O cache local continuara como fallback.')
+        }
+      }
+    }
+
+    void load()
+    const intervalId = window.setInterval(() => {
+      void load()
+    }, 5000)
+    const handleFocus = () => {
+      void load()
+    }
+    window.addEventListener('focus', handleFocus)
+
+    return () => {
+      isCancelled = true
+      window.clearInterval(intervalId)
+      window.removeEventListener('focus', handleFocus)
+    }
+  }, [])
+
+  useEffect(() => {
+    let isCancelled = false
+
+    const load = async () => {
+      try {
+        await refreshAppInventoryRecordsFromApi()
+      } catch (error) {
+        console.error(error)
+        if (!isCancelled) {
+          logRemoteAppStateMessage('Falha ao carregar inventarios pelo backend. O cache local continuara como fallback.')
+        }
+      }
+    }
+
+    void load()
+    const intervalId = window.setInterval(() => {
+      void load()
+    }, 5000)
+    const handleFocus = () => {
+      void load()
+    }
+    window.addEventListener('focus', handleFocus)
+
+    return () => {
+      isCancelled = true
+      window.clearInterval(intervalId)
+      window.removeEventListener('focus', handleFocus)
+    }
+  }, [])
+
+  useEffect(() => {
+    let isCancelled = false
+
+    const load = async () => {
+      try {
+        await refreshAppProductionRecordsFromApi()
+      } catch (error) {
+        console.error(error)
+        if (!isCancelled) {
+          logRemoteAppStateMessage('Falha ao carregar producoes pelo backend. O cache local continuara como fallback.')
+        }
+      }
+    }
+
+    void load()
+    const intervalId = window.setInterval(() => {
+      void load()
+    }, 5000)
+    const handleFocus = () => {
+      void load()
+    }
+    window.addEventListener('focus', handleFocus)
+
+    return () => {
+      isCancelled = true
+      window.clearInterval(intervalId)
+      window.removeEventListener('focus', handleFocus)
     }
   }, [])
 
@@ -10003,36 +10674,435 @@ export default function App() {
   }, [requisitionNotifications])
 
   useEffect(() => {
+    if (!isRemoteAppStateReady) {
+      return
+    }
+
+    const currentById = new Map(requisitions.map((record) => [record.id, JSON.stringify(record)] as const))
+    const previousById = syncedRequisitionRecordMapRef.current
+    const changedRecords = requisitions.filter((record) => previousById.get(record.id) !== currentById.get(record.id))
+    const removedIds = Array.from(previousById.keys()).filter((id) => !currentById.has(id))
+
+    if (changedRecords.length === 0 && removedIds.length === 0) {
+      return
+    }
+
+    let isCancelled = false
+    ;(async () => {
+      try {
+        await Promise.all([
+          ...changedRecords.map((record) => upsertRequisitionRecordOnApi(record)),
+          ...removedIds.map((id) => deleteRequisitionRecordOnApi(id)),
+        ])
+        if (!isCancelled) {
+          syncedRequisitionRecordMapRef.current = currentById
+        }
+      } catch (error) {
+        console.error(error)
+        if (!isCancelled) {
+          logRemoteAppStateMessage('Falha ao sincronizar requisicoes por entidade com o servidor.')
+        }
+      }
+    })()
+
+    return () => {
+      isCancelled = true
+    }
+  }, [isRemoteAppStateReady, requisitions])
+
+  useEffect(() => {
+    if (!isRemoteAppStateReady) {
+      return
+    }
+
+    const currentById = new Map(requisitionNotifications.map((record) => [record.id, JSON.stringify(record)] as const))
+    const previousById = syncedRequisitionNotificationMapRef.current
+    const changedRecords = requisitionNotifications.filter(
+      (record) => previousById.get(record.id) !== currentById.get(record.id),
+    )
+    const removedIds = Array.from(previousById.keys()).filter((id) => !currentById.has(id))
+
+    if (changedRecords.length === 0 && removedIds.length === 0) {
+      return
+    }
+
+    let isCancelled = false
+    ;(async () => {
+      try {
+        await Promise.all([
+          ...changedRecords.map((record) => upsertRequisitionNotificationRecordOnApi(record)),
+          ...removedIds.map((id) => deleteRequisitionNotificationRecordOnApi(id)),
+        ])
+        if (!isCancelled) {
+          syncedRequisitionNotificationMapRef.current = currentById
+        }
+      } catch (error) {
+        console.error(error)
+        if (!isCancelled) {
+          logRemoteAppStateMessage('Falha ao sincronizar notificacoes de requisicao por entidade com o servidor.')
+        }
+      }
+    })()
+
+    return () => {
+      isCancelled = true
+    }
+  }, [isRemoteAppStateReady, requisitionNotifications])
+
+  useEffect(() => {
     saveManualProductionRequestsState(manualProductionRequests)
   }, [manualProductionRequests])
+
+  useEffect(() => {
+    if (!isRemoteAppStateReady) {
+      return
+    }
+
+    const currentById = new Map(manualProductionRequests.map((record) => [record.id, JSON.stringify(record)] as const))
+    const previousById = syncedManualProductionRequestMapRef.current
+    const changedRecords = manualProductionRequests.filter(
+      (record) => previousById.get(record.id) !== currentById.get(record.id),
+    )
+    const removedIds = Array.from(previousById.keys()).filter((id) => !currentById.has(id))
+
+    if (changedRecords.length === 0 && removedIds.length === 0) {
+      return
+    }
+
+    let isCancelled = false
+    ;(async () => {
+      try {
+        await Promise.all([
+          ...changedRecords.map((record) => upsertManualProductionRequestOnApi(record)),
+          ...removedIds.map((id) => deleteManualProductionRequestOnApi(id)),
+        ])
+        if (!isCancelled) {
+          syncedManualProductionRequestMapRef.current = currentById
+        }
+      } catch (error) {
+        console.error(error)
+        if (!isCancelled) {
+          logRemoteAppStateMessage('Falha ao sincronizar solicitacoes de producao por entidade com o servidor.')
+        }
+      }
+    })()
+
+    return () => {
+      isCancelled = true
+    }
+  }, [isRemoteAppStateReady, manualProductionRequests])
 
   useEffect(() => {
     saveProductionInProgressDraftsState(productionInProgressDrafts)
   }, [productionInProgressDrafts])
 
   useEffect(() => {
+    if (!isRemoteAppStateReady) {
+      return
+    }
+
+    const syncedDrafts = productionInProgressDrafts.filter((record) => record.draftId !== null)
+    const currentById = new Map(syncedDrafts.map((record) => [record.draftId as number, JSON.stringify(record)] as const))
+    const previousById = syncedProductionDraftMapRef.current
+    const changedRecords = syncedDrafts.filter(
+      (record) => previousById.get(record.draftId as number) !== currentById.get(record.draftId as number),
+    )
+    const removedIds = Array.from(previousById.keys()).filter((id) => !currentById.has(id))
+
+    if (changedRecords.length === 0 && removedIds.length === 0) {
+      return
+    }
+
+    let isCancelled = false
+    ;(async () => {
+      try {
+        await Promise.all([
+          ...changedRecords.map((record) => upsertProductionDraftOnApi(record)),
+          ...removedIds.map((id) => deleteProductionDraftOnApi(id)),
+        ])
+        if (!isCancelled) {
+          syncedProductionDraftMapRef.current = currentById
+        }
+      } catch (error) {
+        console.error(error)
+        if (!isCancelled) {
+          logRemoteAppStateMessage('Falha ao sincronizar rascunhos de producao por entidade com o servidor.')
+        }
+      }
+    })()
+
+    return () => {
+      isCancelled = true
+    }
+  }, [isRemoteAppStateReady, productionInProgressDrafts])
+
+  useEffect(() => {
     saveInventoryRecordsState(inventoryRecords)
   }, [inventoryRecords])
+
+  useEffect(() => {
+    if (!isRemoteAppStateReady) {
+      return
+    }
+
+    const currentById = new Map(inventoryRecords.map((record) => [record.id, JSON.stringify(record)] as const))
+    const previousById = syncedInventoryRecordMapRef.current
+    const changedRecords = inventoryRecords.filter((record) => previousById.get(record.id) !== currentById.get(record.id))
+    const removedIds = Array.from(previousById.keys()).filter((id) => !currentById.has(id))
+
+    if (changedRecords.length === 0 && removedIds.length === 0) {
+      return
+    }
+
+    let isCancelled = false
+    ;(async () => {
+      try {
+        await Promise.all([
+          ...changedRecords.map((record) => upsertInventoryRecordOnApi(record)),
+          ...removedIds.map((id) => deleteInventoryRecordOnApi(id)),
+        ])
+        if (!isCancelled) {
+          syncedInventoryRecordMapRef.current = currentById
+        }
+      } catch (error) {
+        console.error(error)
+        if (!isCancelled) {
+          logRemoteAppStateMessage('Falha ao sincronizar inventarios por entidade com o servidor.')
+        }
+      }
+    })()
+
+    return () => {
+      isCancelled = true
+    }
+  }, [inventoryRecords, isRemoteAppStateReady])
 
   useEffect(() => {
     saveInventoryActiveRecordLinksState(inventoryActiveRecordLinks)
   }, [inventoryActiveRecordLinks])
 
   useEffect(() => {
+    if (!isRemoteAppStateReady) {
+      return
+    }
+
+    const currentById = new Map<string, string>(
+      inventoryActiveRecordLinks.map((record) => [`${record.companyId}:${record.userKey}`, JSON.stringify(record)] as const),
+    )
+    const previousById = syncedInventoryActiveRecordLinkMapRef.current
+    const changedRecords = inventoryActiveRecordLinks.filter(
+      (record) =>
+        previousById.get(`${record.companyId}:${record.userKey}`) !== currentById.get(`${record.companyId}:${record.userKey}`),
+    )
+    const removedKeys = Array.from(previousById.keys()).filter((id) => !currentById.has(id))
+
+    if (changedRecords.length === 0 && removedKeys.length === 0) {
+      return
+    }
+
+    let isCancelled = false
+    ;(async () => {
+      try {
+        await Promise.all([
+          ...changedRecords.map((record) => upsertInventoryActiveRecordLinkOnApi(record)),
+          ...removedKeys.map((key) => {
+            const [companyIdRaw, ...userKeyParts] = key.split(':')
+            return deleteInventoryActiveRecordLinkOnApi(Number(companyIdRaw), userKeyParts.join(':'))
+          }),
+        ])
+        if (!isCancelled) {
+          syncedInventoryActiveRecordLinkMapRef.current = currentById
+        }
+      } catch (error) {
+        console.error(error)
+        if (!isCancelled) {
+          logRemoteAppStateMessage('Falha ao sincronizar vinculos ativos de inventario com o servidor.')
+        }
+      }
+    })()
+
+    return () => {
+      isCancelled = true
+    }
+  }, [inventoryActiveRecordLinks, isRemoteAppStateReady])
+
+  useEffect(() => {
     saveInventoryCountSessionsState(inventoryCountSessions)
   }, [inventoryCountSessions])
+
+  useEffect(() => {
+    if (!isRemoteAppStateReady) {
+      return
+    }
+
+    const currentById = new Map(inventoryCountSessions.map((record) => [record.id, JSON.stringify(record)] as const))
+    const previousById = syncedInventoryCountSessionMapRef.current
+    const changedRecords = inventoryCountSessions.filter(
+      (record) => previousById.get(record.id) !== currentById.get(record.id),
+    )
+    const removedIds = Array.from(previousById.keys()).filter((id) => !currentById.has(id))
+
+    if (changedRecords.length === 0 && removedIds.length === 0) {
+      return
+    }
+
+    let isCancelled = false
+    ;(async () => {
+      try {
+        await Promise.all([
+          ...changedRecords.map((record) => upsertInventoryCountSessionOnApi(record)),
+          ...removedIds.map((id) => deleteInventoryCountSessionOnApi(id)),
+        ])
+        if (!isCancelled) {
+          syncedInventoryCountSessionMapRef.current = currentById
+        }
+      } catch (error) {
+        console.error(error)
+        if (!isCancelled) {
+          logRemoteAppStateMessage('Falha ao sincronizar sessoes de contagem por entidade com o servidor.')
+        }
+      }
+    })()
+
+    return () => {
+      isCancelled = true
+    }
+  }, [inventoryCountSessions, isRemoteAppStateReady])
 
   useEffect(() => {
     saveInventoryActiveSessionLinksState(inventoryActiveSessionLinks)
   }, [inventoryActiveSessionLinks])
 
   useEffect(() => {
+    if (!isRemoteAppStateReady) {
+      return
+    }
+
+    const currentById = new Map<string, string>(
+      inventoryActiveSessionLinks.map((record) => [`${record.companyId}:${record.userKey}`, JSON.stringify(record)] as const),
+    )
+    const previousById = syncedInventoryActiveSessionLinkMapRef.current
+    const changedRecords = inventoryActiveSessionLinks.filter(
+      (record) =>
+        previousById.get(`${record.companyId}:${record.userKey}`) !== currentById.get(`${record.companyId}:${record.userKey}`),
+    )
+    const removedKeys = Array.from(previousById.keys()).filter((id) => !currentById.has(id))
+
+    if (changedRecords.length === 0 && removedKeys.length === 0) {
+      return
+    }
+
+    let isCancelled = false
+    ;(async () => {
+      try {
+        await Promise.all([
+          ...changedRecords.map((record) => upsertInventoryActiveSessionLinkOnApi(record)),
+          ...removedKeys.map((key) => {
+            const [companyIdRaw, ...userKeyParts] = key.split(':')
+            return deleteInventoryActiveSessionLinkOnApi(Number(companyIdRaw), userKeyParts.join(':'))
+          }),
+        ])
+        if (!isCancelled) {
+          syncedInventoryActiveSessionLinkMapRef.current = currentById
+        }
+      } catch (error) {
+        console.error(error)
+        if (!isCancelled) {
+          logRemoteAppStateMessage('Falha ao sincronizar vinculos ativos de sessao com o servidor.')
+        }
+      }
+    })()
+
+    return () => {
+      isCancelled = true
+    }
+  }, [inventoryActiveSessionLinks, isRemoteAppStateReady])
+
+  useEffect(() => {
     saveInventoryCountsState(inventoryCounts)
   }, [inventoryCounts])
 
   useEffect(() => {
+    if (!isRemoteAppStateReady) {
+      return
+    }
+
+    const currentById = new Map(inventoryCounts.map((record) => [record.id, JSON.stringify(record)] as const))
+    const previousById = syncedInventoryCountMapRef.current
+    const changedRecords = inventoryCounts.filter((record) => previousById.get(record.id) !== currentById.get(record.id))
+    const removedIds = Array.from(previousById.keys()).filter((id) => !currentById.has(id))
+
+    if (changedRecords.length === 0 && removedIds.length === 0) {
+      return
+    }
+
+    let isCancelled = false
+    ;(async () => {
+      try {
+        await Promise.all([
+          ...changedRecords.map((record) => upsertInventoryCountOnApi(record)),
+          ...removedIds.map((id) => deleteInventoryCountOnApi(id)),
+        ])
+        if (!isCancelled) {
+          syncedInventoryCountMapRef.current = currentById
+        }
+      } catch (error) {
+        console.error(error)
+        if (!isCancelled) {
+          logRemoteAppStateMessage('Falha ao sincronizar contagens por entidade com o servidor.')
+        }
+      }
+    })()
+
+    return () => {
+      isCancelled = true
+    }
+  }, [inventoryCounts, isRemoteAppStateReady])
+
+  useEffect(() => {
     savePendingInventoryMovementsState(pendingInventoryMovements)
   }, [pendingInventoryMovements])
+
+  useEffect(() => {
+    if (!isRemoteAppStateReady) {
+      return
+    }
+
+    const currentById = new Map(
+      pendingInventoryMovements.map((record) => [record.id, JSON.stringify(record)] as const),
+    )
+    const previousById = syncedPendingInventoryMovementMapRef.current
+    const changedRecords = pendingInventoryMovements.filter(
+      (record) => previousById.get(record.id) !== currentById.get(record.id),
+    )
+    const removedIds = Array.from(previousById.keys()).filter((id) => !currentById.has(id))
+
+    if (changedRecords.length === 0 && removedIds.length === 0) {
+      return
+    }
+
+    let isCancelled = false
+    ;(async () => {
+      try {
+        await Promise.all([
+          ...changedRecords.map((record) => upsertPendingInventoryMovementOnApi(record)),
+          ...removedIds.map((id) => deletePendingInventoryMovementOnApi(id)),
+        ])
+        if (!isCancelled) {
+          syncedPendingInventoryMovementMapRef.current = currentById
+        }
+      } catch (error) {
+        console.error(error)
+        if (!isCancelled) {
+          logRemoteAppStateMessage('Falha ao sincronizar movimentacoes pendentes por entidade com o servidor.')
+        }
+      }
+    })()
+
+    return () => {
+      isCancelled = true
+    }
+  }, [isRemoteAppStateReady, pendingInventoryMovements])
 
   useEffect(() => {
     saveStockModuleSettingsState(stockModuleSettings)
@@ -10181,6 +11251,50 @@ export default function App() {
   useEffect(() => {
     saveInventoryStorageLocationsState(inventoryStorageLocations)
   }, [inventoryStorageLocations])
+
+  useEffect(() => {
+    if (!isRemoteAppStateReady) {
+      return
+    }
+
+    const currentById = new Map<string, string>(
+      inventoryStorageLocations.map((record) => [`${record.companyId}:${record.name}`, JSON.stringify(record)] as const),
+    )
+    const previousById = syncedInventoryStorageLocationMapRef.current
+    const changedRecords = inventoryStorageLocations.filter(
+      (record) => previousById.get(`${record.companyId}:${record.name}`) !== currentById.get(`${record.companyId}:${record.name}`),
+    )
+    const removedKeys = Array.from(previousById.keys()).filter((key) => !currentById.has(key))
+
+    if (changedRecords.length === 0 && removedKeys.length === 0) {
+      return
+    }
+
+    let isCancelled = false
+    ;(async () => {
+      try {
+        await Promise.all([
+          ...changedRecords.map((record) => upsertInventoryStorageLocationOnApi(record, null)),
+          ...removedKeys.map((key) => {
+            const [companyIdRaw, ...nameParts] = key.split(':')
+            return deleteInventoryStorageLocationOnApi(Number(companyIdRaw), nameParts.join(':'))
+          }),
+        ])
+        if (!isCancelled) {
+          syncedInventoryStorageLocationMapRef.current = currentById
+        }
+      } catch (error) {
+        console.error(error)
+        if (!isCancelled) {
+          logRemoteAppStateMessage('Falha ao sincronizar locais de armazenamento por entidade com o servidor.')
+        }
+      }
+    })()
+
+    return () => {
+      isCancelled = true
+    }
+  }, [inventoryStorageLocations, isRemoteAppStateReady])
 
   useEffect(() => {
     if (currentCompanyId === null) {

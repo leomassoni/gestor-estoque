@@ -1,6 +1,6 @@
 # Decisoes do Projeto
 
-Ultima atualizacao: 2026-05-26
+Ultima atualizacao: 2026-06-02
 
 ## Objetivo deste arquivo
 
@@ -111,6 +111,40 @@ Registrar o que foi decidido, o que foi adiado e o que foi descartado, com foco 
 - Decisao: primeiro estruturar relatorios prontos do modulo `Estoque`; depois evoluir para um construtor customizado pelo usuario final.
 - Motivo: entregar valor rapido com relatorios mais pedidos e, so depois, abrir flexibilidade analitica maior.
 - Status: adiado.
+
+### A arquitetura-alvo do sistema e gravacao transacional por entidade
+
+- Decisao: o sistema deve sair gradualmente do `snapshot global` como persistencia principal e migrar para gravacao/consulta por entidade no backend.
+- Motivo:
+  - reduzir risco de sobrescrita entre usuarios
+  - melhorar consistencia em ambiente multiusuario
+  - reduzir dependencia de `localStorage`
+  - preparar relatorios e consultas mais eficientes
+- Status: em andamento.
+
+### Banco e arquivos devem seguir responsabilidades separadas
+
+- Decisao: o banco relacional deve guardar dados transacionais e cadastrais; imagens e arquivos devem migrar para object storage.
+- Motivo:
+  - evitar crescimento rapido do banco
+  - reduzir custo
+  - melhorar estrategia de backup e restauracao
+- Direcao escolhida para estudo/execucao:
+  - `Render DB -> Neon`
+  - `imagens -> Cloudflare R2`
+- Status: planejado.
+
+### Otimizacao de consultas e saudavel e nao deve ser tratada como opcional
+
+- Decisao: listas, historicos e relatorios devem evoluir para filtros, paginacao e selecao de colunas no servidor, em vez de cargas massivas desnecessarias.
+- Motivo:
+  - preservar desempenho
+  - reduzir consumo de memoria e banda
+  - baixar pressao sobre banco e custo operacional
+- Regra de seguranca:
+  - aplicar isso primeiro em listagens e relatorios
+  - nao mudar cegamente fluxos que ainda dependem de carga total local sem antes migrar a logica correspondente
+- Status: planejado.
 
 ## Coisas que deram errado e viraram regra
 

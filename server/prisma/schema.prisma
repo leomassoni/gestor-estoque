@@ -350,6 +350,242 @@ model AppStockCenterRecord {
   @@index([companyId])
 }
 
+model AppRequisitionRecord {
+  id                  Int      @id
+  companyId           Int
+  requisitionGroupId  Int
+  stockCenterId       Int
+  stockCenterName     String
+  supplyCenterId      Int?
+  supplyCenterName    String
+  sector              String
+  countedAt           String
+  status              String
+  editScope           String
+  lines               Json
+  createdAt           String
+  createdByUserId     Int?
+  createdByUserName   String
+  approvedAt          String
+  approvedByUserId    Int?
+  approvedByUserName  String
+  sentAt              String
+  sentByUserId        Int?
+  sentByUserName      String
+  preparedAt          String
+  preparedByUserId    Int?
+  preparedByUserName  String
+  receivedAt          String
+  receivedByUserId    Int?
+  receivedByUserName  String
+  lastUpdatedAt       String
+  lastUpdatedByUserId Int?
+  lastUpdatedByUserName String
+  createdAtRecord     DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  @@index([companyId])
+  @@index([stockCenterId])
+  @@index([status])
+}
+
+model AppRequisitionNotificationRecord {
+  id             Int      @id
+  companyId      Int
+  userId         Int
+  requisitionId  Int
+  message        String
+  createdAt      String
+  isRead         Boolean  @default(false)
+  createdAtRecord DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@index([companyId])
+  @@index([userId])
+  @@index([requisitionId])
+}
+
+model AppManualProductionRequestRecord {
+  id              Int      @id
+  companyId       Int
+  centerId        Int
+  sheetId         Int
+  desiredYield    String
+  createdAt       String
+  createdByUserId Int?
+  createdByUserName String
+  rootRequestId   Int
+  parentRequestId Int?
+  isDependencyRequest Boolean @default(false)
+  createdAtRecord DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([companyId])
+  @@index([centerId])
+  @@index([sheetId])
+  @@index([rootRequestId])
+}
+
+model AppProductionDraftRecord {
+  draftId                    Int?     @unique
+  companyId                  Int
+  centerId                   Int
+  sheetId                    Int
+  startedAt                  String
+  startedByUserId            Int?
+  startedByUserName          String
+  desiredYield               String
+  finalYield                 String
+  confirmedPh                String
+  confirmedBrix              String
+  ingredientOverrides        Json
+  manualOverrideIngredientIds Int[]
+  consumptionSessionId       Int?
+  manualRequestIds           Int[]
+  createdAtRecord            DateTime @default(now())
+  updatedAt                  DateTime @updatedAt
+  id                         Int      @id @default(autoincrement())
+
+  @@index([companyId])
+  @@index([centerId])
+  @@index([sheetId])
+}
+
+model AppInventoryStorageLocationRecord {
+  companyId Int
+  name      String
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@id([companyId, name])
+  @@index([companyId])
+}
+
+model AppInventoryRecord {
+  id                          Int      @id
+  companyId                   Int
+  stockCenterId               Int
+  countedAt                   String
+  isClosed                    Boolean  @default(false)
+  startedAt                   String
+  startedByUserId             Int?
+  startedByUserName           String
+  closedAt                    String
+  closedByUserId              Int?
+  closedByUserName            String
+  discardedOpenSessionCount   Int      @default(0)
+  appliedPendingMovementCount Int      @default(0)
+  createdAtRecord             DateTime @default(now())
+  updatedAt                   DateTime @updatedAt
+
+  @@index([companyId])
+  @@index([stockCenterId])
+}
+
+model AppInventoryActiveRecordLinkRecord {
+  companyId Int
+  userKey   String
+  inventoryId Int?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@id([companyId, userKey])
+  @@index([companyId])
+}
+
+model AppInventoryCountSessionRecord {
+  id              Int      @id
+  inventoryId     Int?
+  companyId       Int
+  stockCenterId   Int
+  countedAt       String
+  isClosed        Boolean  @default(false)
+  startedAt       String
+  startedByUserId Int?
+  startedByUserName String
+  closedAt        String
+  closedByUserId  Int?
+  closedByUserName String
+  createdAtRecord DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([companyId])
+  @@index([inventoryId])
+  @@index([stockCenterId])
+}
+
+model AppInventoryActiveSessionLinkRecord {
+  companyId Int
+  userKey   String
+  sessionId Int?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@id([companyId, userKey])
+  @@index([companyId])
+}
+
+model AppInventoryCountRecord {
+  id                        Int      @id
+  inventoryId               Int?
+  sessionId                 Int
+  companyId                 Int
+  stockCenterId             Int
+  countedAt                 String
+  storageLocation           String
+  technicalSheetId          Int?
+  productId                 String
+  serviceItemId             String
+  packageId                 Int?
+  technicalSheetName        String
+  technicalSheetKind        String
+  recipientItemId           String
+  recipientLabel            String
+  closedItemsQuantity       String
+  hasOpenItems              Boolean  @default(false)
+  openItemsGrossWeight      String
+  openItemsContainerQuantity String
+  openItemsNetQuantity      String
+  totalCountedQuantity      String
+  totalCountedUnit          String
+  productionExpectedYield   String
+  productionFinalYield      String
+  productionYieldDifference String
+  productionTargetPh        String
+  productionConfirmedPh     String
+  productionTargetBrix      String
+  productionConfirmedBrix   String
+  createdByUserId           Int?
+  createdByUserName         String
+  createdAtRecord           DateTime @default(now())
+  updatedAt                 DateTime @updatedAt
+
+  @@index([companyId])
+  @@index([inventoryId])
+  @@index([sessionId])
+  @@index([stockCenterId])
+}
+
+model AppPendingInventoryMovementRecord {
+  id              Int      @id
+  companyId       Int
+  stockCenterId   Int
+  inventoryId     Int
+  createdAt       String
+  createdByUserId Int?
+  createdByUserName String
+  description     String
+  session         Json
+  records         Json
+  createdAtRecord DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([companyId])
+  @@index([stockCenterId])
+  @@index([inventoryId])
+}
+
 model AppProductRecord {
   id                  String   @id
   companyId           Int

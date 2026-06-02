@@ -1,6 +1,6 @@
 # Worklog
 
-Ultima atualizacao: 2026-05-26
+Ultima atualizacao: 2026-06-02
 
 ## Objetivo deste arquivo
 
@@ -73,3 +73,40 @@ Registrar um historico resumido do que foi feito, do que falhou e do que ficou p
   - code splitting com `dynamic import()`
   - modularizacao maior de [`src/App.tsx`](/home/leomassoni/Documentos/Igarapé/Projetos/TCC-SP/gestor-estoque/src/App.tsx)
   - avaliacao de `manualChunks` no build
+
+## 2026-06-02
+
+### Confirmado / implementado
+
+- A migracao hibrida para persistencia por entidade avancou ate:
+  - `Empresas`
+  - `Usuarios`
+  - `Perfis de acesso`
+  - `Permissoes de estoque por perfil`
+  - `Centros de estoque`
+  - `Produtos`
+  - `Itens`
+  - `Fichas tecnicas`
+- `Centros de estoque` passaram a ter persistencia propria no backend e sincronizacao bidirecional com `Fichas tecnicas` de `PREPARO`.
+
+### Onde a migracao parou
+
+- Os modulos operacionais de estoque ainda nao foram migrados para leitura/gravação transacional por entidade.
+- O sistema ainda depende do `snapshot` global para:
+  - `Requisicoes`
+  - `Suprimentos`
+  - `Recebimentos`
+  - `Producoes`
+  - `Inventarios`
+  - `Movimentacoes`
+  - estados auxiliares e rascunhos operacionais
+
+### Pendencias registradas
+
+- Montar um plano de migracao `Render DB -> Neon` e `imagens -> Cloudflare R2` sem quebrar o ambiente online.
+- Medir o que mais consome storage hoje no ambiente publicado.
+- Tirar imagens do banco/snapshot e guardar apenas URL.
+- Revisar consultas pesadas para listagens e relatorios com:
+  - paginacao
+  - filtros no servidor
+  - selecao de colunas necessarias

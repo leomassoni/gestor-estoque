@@ -19,9 +19,23 @@ const stockCentersStorageKey = 'gestor-estoque:stock-centers'
 const productsStorageKey = 'gestor-estoque:products'
 const serviceItemsStorageKey = 'gestor-estoque:service-items'
 const technicalSheetsStorageKey = 'gestor-estoque:technical-sheets'
+const requisitionsStorageKey = 'gestor-estoque:requisitions'
+const requisitionNotificationsStorageKey = 'gestor-estoque:requisition-notifications'
+const manualProductionRequestsStorageKey = 'gestor-estoque:manual-production-requests'
+const productionInProgressDraftsStorageKey = 'gestor-estoque:production-in-progress-drafts'
+const inventoryRecordsStorageKey = 'gestor-estoque:inventory-records'
+const inventoryCountSessionsStorageKey = 'gestor-estoque:inventory-count-sessions'
+const inventoryCountsStorageKey = 'gestor-estoque:inventory-counts'
+const pendingInventoryMovementsStorageKey = 'gestor-estoque:pending-inventory-movements'
+const inventoryStorageLocationsStorageKey = 'gestor-estoque:inventory-storage-locations'
+const inventoryActiveRecordsStorageKey = 'gestor-estoque:inventory-active-records'
+const inventoryActiveSessionsStorageKey = 'gestor-estoque:inventory-active-sessions'
 let hasSeededAppAdminRecords = false
 let hasSeededAppStockCenterRecords = false
 let hasSeededAppCatalogRecords = false
+let hasSeededAppRequisitionRecords = false
+let hasSeededAppProductionRecords = false
+let hasSeededAppInventoryRecords = false
 
 app.use(cors())
 app.use(express.json({ limit: '5mb' }))
@@ -172,6 +186,17 @@ app.delete('/api/companies/:id', async (request, response) => {
     await transaction.appAccessProfileRecord.deleteMany({ where: { companyId } })
     await transaction.appStockModuleSettingsRecord.deleteMany({ where: { companyId } })
     await transaction.appStockCenterRecord.deleteMany({ where: { companyId } })
+    await transaction.appRequisitionNotificationRecord.deleteMany({ where: { companyId } })
+    await transaction.appRequisitionRecord.deleteMany({ where: { companyId } })
+    await transaction.appProductionDraftRecord.deleteMany({ where: { companyId } })
+    await transaction.appManualProductionRequestRecord.deleteMany({ where: { companyId } })
+    await transaction.appPendingInventoryMovementRecord.deleteMany({ where: { companyId } })
+    await transaction.appInventoryActiveSessionLinkRecord.deleteMany({ where: { companyId } })
+    await transaction.appInventoryActiveRecordLinkRecord.deleteMany({ where: { companyId } })
+    await transaction.appInventoryCountRecord.deleteMany({ where: { companyId } })
+    await transaction.appInventoryCountSessionRecord.deleteMany({ where: { companyId } })
+    await transaction.appInventoryRecord.deleteMany({ where: { companyId } })
+    await transaction.appInventoryStorageLocationRecord.deleteMany({ where: { companyId } })
     await transaction.appProductRecord.deleteMany({ where: { companyId } })
     await transaction.appServiceItemRecord.deleteMany({ where: { companyId } })
     await transaction.appTechnicalSheetRecord.deleteMany({ where: { companyId } })
@@ -372,6 +397,510 @@ app.delete('/api/stock-centers/:id', async (request, response) => {
   }
 
   await prisma.appStockCenterRecord.deleteMany({ where: { id: stockCenterId } })
+  response.json({ ok: true })
+})
+
+app.get('/api/requisitions', async (request, response) => {
+  await ensureAppRequisitionRecordsSeeded()
+  const companyId = parseIntegerParam(request.query.companyId)
+  const requisitions = await prisma.appRequisitionRecord.findMany({
+    where: companyId === null ? undefined : { companyId },
+    orderBy: [{ createdAtRecord: 'desc' }, { id: 'desc' }],
+  })
+  response.json({ requisitions })
+})
+
+app.post('/api/requisitions', async (request, response) => {
+  const requisition = normalizeRequisitionPayload(request.body)
+  if (!requisition) {
+    response.status(400).json({ error: 'Payload de requisicao invalido.' })
+    return
+  }
+
+  const saved = await prisma.appRequisitionRecord.upsert({
+    where: { id: requisition.id },
+    create: requisition,
+    update: requisition,
+  })
+  response.json({ requisition: saved })
+})
+
+app.put('/api/requisitions/:id', async (request, response) => {
+  const requisitionId = parseIntegerParam(request.params.id)
+  const requisition = normalizeRequisitionPayload({ ...request.body, id: requisitionId })
+  if (requisitionId === null || !requisition) {
+    response.status(400).json({ error: 'Payload de requisicao invalido.' })
+    return
+  }
+
+  const saved = await prisma.appRequisitionRecord.upsert({
+    where: { id: requisitionId },
+    create: requisition,
+    update: requisition,
+  })
+  response.json({ requisition: saved })
+})
+
+app.delete('/api/requisitions/:id', async (request, response) => {
+  const requisitionId = parseIntegerParam(request.params.id)
+  if (requisitionId === null) {
+    response.status(400).json({ error: 'Requisicao invalida.' })
+    return
+  }
+
+  await prisma.$transaction([
+    prisma.appRequisitionNotificationRecord.deleteMany({ where: { requisitionId } }),
+    prisma.appRequisitionRecord.deleteMany({ where: { id: requisitionId } }),
+  ])
+  response.json({ ok: true })
+})
+
+app.get('/api/requisition-notifications', async (request, response) => {
+  await ensureAppRequisitionRecordsSeeded()
+  const companyId = parseIntegerParam(request.query.companyId)
+  const notifications = await prisma.appRequisitionNotificationRecord.findMany({
+    where: companyId === null ? undefined : { companyId },
+    orderBy: [{ createdAtRecord: 'desc' }, { id: 'desc' }],
+  })
+  response.json({ notifications })
+})
+
+app.post('/api/requisition-notifications', async (request, response) => {
+  const notification = normalizeRequisitionNotificationPayload(request.body)
+  if (!notification) {
+    response.status(400).json({ error: 'Payload de notificacao invalido.' })
+    return
+  }
+
+  const saved = await prisma.appRequisitionNotificationRecord.upsert({
+    where: { id: notification.id },
+    create: notification,
+    update: notification,
+  })
+  response.json({ notification: saved })
+})
+
+app.put('/api/requisition-notifications/:id', async (request, response) => {
+  const notificationId = parseIntegerParam(request.params.id)
+  const notification = normalizeRequisitionNotificationPayload({ ...request.body, id: notificationId })
+  if (notificationId === null || !notification) {
+    response.status(400).json({ error: 'Payload de notificacao invalido.' })
+    return
+  }
+
+  const saved = await prisma.appRequisitionNotificationRecord.upsert({
+    where: { id: notificationId },
+    create: notification,
+    update: notification,
+  })
+  response.json({ notification: saved })
+})
+
+app.delete('/api/requisition-notifications/:id', async (request, response) => {
+  const notificationId = parseIntegerParam(request.params.id)
+  if (notificationId === null) {
+    response.status(400).json({ error: 'Notificacao invalida.' })
+    return
+  }
+
+  await prisma.appRequisitionNotificationRecord.deleteMany({ where: { id: notificationId } })
+  response.json({ ok: true })
+})
+
+app.get('/api/manual-production-requests', async (request, response) => {
+  await ensureAppProductionRecordsSeeded()
+  const companyId = parseIntegerParam(request.query.companyId)
+  const requests = await prisma.appManualProductionRequestRecord.findMany({
+    where: companyId === null ? undefined : { companyId },
+    orderBy: [{ createdAtRecord: 'desc' }, { id: 'desc' }],
+  })
+  response.json({ manualProductionRequests: requests })
+})
+
+app.post('/api/manual-production-requests', async (request, response) => {
+  const productionRequest = normalizeManualProductionRequestPayload(request.body)
+  if (!productionRequest) {
+    response.status(400).json({ error: 'Payload de solicitacao de producao invalido.' })
+    return
+  }
+
+  const saved = await prisma.appManualProductionRequestRecord.upsert({
+    where: { id: productionRequest.id },
+    create: productionRequest,
+    update: productionRequest,
+  })
+  response.json({ manualProductionRequest: saved })
+})
+
+app.put('/api/manual-production-requests/:id', async (request, response) => {
+  const requestId = parseIntegerParam(request.params.id)
+  const productionRequest = normalizeManualProductionRequestPayload({ ...request.body, id: requestId })
+  if (requestId === null || !productionRequest) {
+    response.status(400).json({ error: 'Payload de solicitacao de producao invalido.' })
+    return
+  }
+
+  const saved = await prisma.appManualProductionRequestRecord.upsert({
+    where: { id: requestId },
+    create: productionRequest,
+    update: productionRequest,
+  })
+  response.json({ manualProductionRequest: saved })
+})
+
+app.delete('/api/manual-production-requests/:id', async (request, response) => {
+  const requestId = parseIntegerParam(request.params.id)
+  if (requestId === null) {
+    response.status(400).json({ error: 'Solicitacao de producao invalida.' })
+    return
+  }
+
+  await prisma.appManualProductionRequestRecord.deleteMany({ where: { id: requestId } })
+  response.json({ ok: true })
+})
+
+app.get('/api/production-drafts', async (request, response) => {
+  await ensureAppProductionRecordsSeeded()
+  const companyId = parseIntegerParam(request.query.companyId)
+  const drafts = await prisma.appProductionDraftRecord.findMany({
+    where: companyId === null ? undefined : { companyId },
+    orderBy: [{ updatedAt: 'desc' }, { id: 'desc' }],
+  })
+  response.json({ productionDrafts: drafts })
+})
+
+app.post('/api/production-drafts', async (request, response) => {
+  const draft = normalizeProductionDraftPayload(request.body)
+  if (!draft) {
+    response.status(400).json({ error: 'Payload de rascunho de producao invalido.' })
+    return
+  }
+
+  const saved = await prisma.appProductionDraftRecord.upsert({
+    where: { draftId: draft.draftId },
+    create: draft,
+    update: draft,
+  })
+  response.json({ productionDraft: saved })
+})
+
+app.put('/api/production-drafts/:draftId', async (request, response) => {
+  const draftId = parseIntegerParam(request.params.draftId)
+  const draft = normalizeProductionDraftPayload({ ...request.body, draftId })
+  if (draftId === null || !draft) {
+    response.status(400).json({ error: 'Payload de rascunho de producao invalido.' })
+    return
+  }
+
+  const saved = await prisma.appProductionDraftRecord.upsert({
+    where: { draftId },
+    create: draft,
+    update: draft,
+  })
+  response.json({ productionDraft: saved })
+})
+
+app.delete('/api/production-drafts/:draftId', async (request, response) => {
+  const draftId = parseIntegerParam(request.params.draftId)
+  if (draftId === null) {
+    response.status(400).json({ error: 'Rascunho de producao invalido.' })
+    return
+  }
+
+  await prisma.appProductionDraftRecord.deleteMany({ where: { draftId } })
+  response.json({ ok: true })
+})
+
+app.get('/api/inventory-storage-locations', async (request, response) => {
+  await ensureAppInventoryRecordsSeeded()
+  const companyId = parseIntegerParam(request.query.companyId)
+  const locations = await prisma.appInventoryStorageLocationRecord.findMany({
+    where: companyId === null ? undefined : { companyId },
+    orderBy: [{ name: 'asc' }],
+  })
+  response.json({ inventoryStorageLocations: locations })
+})
+
+app.post('/api/inventory-storage-locations', async (request, response) => {
+  const location = normalizeInventoryStorageLocationPayload(request.body)
+  if (!location) {
+    response.status(400).json({ error: 'Payload de local de armazenamento invalido.' })
+    return
+  }
+
+  const saved = await prisma.appInventoryStorageLocationRecord.upsert({
+    where: { companyId_name: { companyId: location.companyId, name: location.name } },
+    create: location,
+    update: location,
+  })
+  response.json({ inventoryStorageLocation: saved })
+})
+
+app.put('/api/inventory-storage-locations/:companyId/:name', async (request, response) => {
+  const companyId = parseIntegerParam(request.params.companyId)
+  const previousName = normalizeRegistrationText(String(request.params.name ?? ''))
+  const location = normalizeInventoryStorageLocationPayload({ ...request.body, companyId })
+  if (companyId === null || !previousName || !location) {
+    response.status(400).json({ error: 'Payload de local de armazenamento invalido.' })
+    return
+  }
+
+  if (previousName === location.name) {
+    const saved = await prisma.appInventoryStorageLocationRecord.upsert({
+      where: { companyId_name: { companyId, name: location.name } },
+      create: location,
+      update: location,
+    })
+    response.json({ inventoryStorageLocation: saved })
+    return
+  }
+
+  await prisma.$transaction([
+    prisma.appInventoryStorageLocationRecord.deleteMany({ where: { companyId, name: previousName } }),
+    prisma.appInventoryStorageLocationRecord.upsert({
+      where: { companyId_name: { companyId, name: location.name } },
+      create: location,
+      update: location,
+    }),
+  ])
+  response.json({ inventoryStorageLocation: location })
+})
+
+app.delete('/api/inventory-storage-locations/:companyId/:name', async (request, response) => {
+  const companyId = parseIntegerParam(request.params.companyId)
+  const name = normalizeRegistrationText(String(request.params.name ?? ''))
+  if (companyId === null || !name) {
+    response.status(400).json({ error: 'Local de armazenamento invalido.' })
+    return
+  }
+
+  await prisma.appInventoryStorageLocationRecord.deleteMany({ where: { companyId, name } })
+  response.json({ ok: true })
+})
+
+app.get('/api/inventories', async (request, response) => {
+  await ensureAppInventoryRecordsSeeded()
+  const companyId = parseIntegerParam(request.query.companyId)
+  const inventories = await prisma.appInventoryRecord.findMany({
+    where: companyId === null ? undefined : { companyId },
+    orderBy: [{ startedAt: 'desc' }, { id: 'desc' }],
+  })
+  response.json({ inventoryRecords: inventories })
+})
+
+app.get('/api/inventory-active-record-links', async (request, response) => {
+  await ensureAppInventoryRecordsSeeded()
+  const companyId = parseIntegerParam(request.query.companyId)
+  const links = await prisma.appInventoryActiveRecordLinkRecord.findMany({
+    where: companyId === null ? undefined : { companyId },
+    orderBy: [{ companyId: 'asc' }, { userKey: 'asc' }],
+  })
+  response.json({ inventoryActiveRecordLinks: links })
+})
+
+app.put('/api/inventory-active-record-links/:companyId/:userKey', async (request, response) => {
+  const companyId = parseIntegerParam(request.params.companyId)
+  const userKey = String(request.params.userKey ?? '')
+  const link = normalizeInventoryActiveRecordLinkPayload({ ...request.body, companyId, userKey })
+  if (companyId === null || !userKey || !link) {
+    response.status(400).json({ error: 'Payload de vinculo ativo de inventario invalido.' })
+    return
+  }
+
+  const saved = await prisma.appInventoryActiveRecordLinkRecord.upsert({
+    where: { companyId_userKey: { companyId, userKey } },
+    create: link,
+    update: link,
+  })
+  response.json({ inventoryActiveRecordLink: saved })
+})
+
+app.delete('/api/inventory-active-record-links/:companyId/:userKey', async (request, response) => {
+  const companyId = parseIntegerParam(request.params.companyId)
+  const userKey = String(request.params.userKey ?? '')
+  if (companyId === null || !userKey) {
+    response.status(400).json({ error: 'Vinculo ativo de inventario invalido.' })
+    return
+  }
+
+  await prisma.appInventoryActiveRecordLinkRecord.deleteMany({ where: { companyId, userKey } })
+  response.json({ ok: true })
+})
+
+app.put('/api/inventories/:id', async (request, response) => {
+  const inventoryId = parseIntegerParam(request.params.id)
+  const inventory = normalizeInventoryPayload({ ...request.body, id: inventoryId })
+  if (inventoryId === null || !inventory) {
+    response.status(400).json({ error: 'Payload de inventario invalido.' })
+    return
+  }
+
+  const saved = await prisma.appInventoryRecord.upsert({
+    where: { id: inventoryId },
+    create: inventory,
+    update: inventory,
+  })
+  response.json({ inventoryRecord: saved })
+})
+
+app.delete('/api/inventories/:id', async (request, response) => {
+  const inventoryId = parseIntegerParam(request.params.id)
+  if (inventoryId === null) {
+    response.status(400).json({ error: 'Inventario invalido.' })
+    return
+  }
+
+  await prisma.appInventoryRecord.deleteMany({ where: { id: inventoryId } })
+  response.json({ ok: true })
+})
+
+app.get('/api/inventory-count-sessions', async (request, response) => {
+  await ensureAppInventoryRecordsSeeded()
+  const companyId = parseIntegerParam(request.query.companyId)
+  const sessions = await prisma.appInventoryCountSessionRecord.findMany({
+    where: companyId === null ? undefined : { companyId },
+    orderBy: [{ startedAt: 'desc' }, { id: 'desc' }],
+  })
+  response.json({ inventoryCountSessions: sessions })
+})
+
+app.get('/api/inventory-active-session-links', async (request, response) => {
+  await ensureAppInventoryRecordsSeeded()
+  const companyId = parseIntegerParam(request.query.companyId)
+  const links = await prisma.appInventoryActiveSessionLinkRecord.findMany({
+    where: companyId === null ? undefined : { companyId },
+    orderBy: [{ companyId: 'asc' }, { userKey: 'asc' }],
+  })
+  response.json({ inventoryActiveSessionLinks: links })
+})
+
+app.put('/api/inventory-active-session-links/:companyId/:userKey', async (request, response) => {
+  const companyId = parseIntegerParam(request.params.companyId)
+  const userKey = String(request.params.userKey ?? '')
+  const link = normalizeInventoryActiveSessionLinkPayload({ ...request.body, companyId, userKey })
+  if (companyId === null || !userKey || !link) {
+    response.status(400).json({ error: 'Payload de vinculo ativo de sessao invalido.' })
+    return
+  }
+
+  const saved = await prisma.appInventoryActiveSessionLinkRecord.upsert({
+    where: { companyId_userKey: { companyId, userKey } },
+    create: link,
+    update: link,
+  })
+  response.json({ inventoryActiveSessionLink: saved })
+})
+
+app.delete('/api/inventory-active-session-links/:companyId/:userKey', async (request, response) => {
+  const companyId = parseIntegerParam(request.params.companyId)
+  const userKey = String(request.params.userKey ?? '')
+  if (companyId === null || !userKey) {
+    response.status(400).json({ error: 'Vinculo ativo de sessao invalido.' })
+    return
+  }
+
+  await prisma.appInventoryActiveSessionLinkRecord.deleteMany({ where: { companyId, userKey } })
+  response.json({ ok: true })
+})
+
+app.put('/api/inventory-count-sessions/:id', async (request, response) => {
+  const sessionId = parseIntegerParam(request.params.id)
+  const session = normalizeInventoryCountSessionPayload({ ...request.body, id: sessionId })
+  if (sessionId === null || !session) {
+    response.status(400).json({ error: 'Payload de sessao de contagem invalido.' })
+    return
+  }
+
+  const saved = await prisma.appInventoryCountSessionRecord.upsert({
+    where: { id: sessionId },
+    create: session,
+    update: session,
+  })
+  response.json({ inventoryCountSession: saved })
+})
+
+app.delete('/api/inventory-count-sessions/:id', async (request, response) => {
+  const sessionId = parseIntegerParam(request.params.id)
+  if (sessionId === null) {
+    response.status(400).json({ error: 'Sessao de contagem invalida.' })
+    return
+  }
+
+  await prisma.appInventoryCountSessionRecord.deleteMany({ where: { id: sessionId } })
+  response.json({ ok: true })
+})
+
+app.get('/api/inventory-counts', async (request, response) => {
+  await ensureAppInventoryRecordsSeeded()
+  const companyId = parseIntegerParam(request.query.companyId)
+  const counts = await prisma.appInventoryCountRecord.findMany({
+    where: companyId === null ? undefined : { companyId },
+    orderBy: [{ countedAt: 'desc' }, { id: 'desc' }],
+  })
+  response.json({ inventoryCounts: counts })
+})
+
+app.put('/api/inventory-counts/:id', async (request, response) => {
+  const countId = parseIntegerParam(request.params.id)
+  const count = normalizeInventoryCountPayload({ ...request.body, id: countId })
+  if (countId === null || !count) {
+    response.status(400).json({ error: 'Payload de contagem invalido.' })
+    return
+  }
+
+  const saved = await prisma.appInventoryCountRecord.upsert({
+    where: { id: countId },
+    create: count,
+    update: count,
+  })
+  response.json({ inventoryCount: saved })
+})
+
+app.delete('/api/inventory-counts/:id', async (request, response) => {
+  const countId = parseIntegerParam(request.params.id)
+  if (countId === null) {
+    response.status(400).json({ error: 'Contagem invalida.' })
+    return
+  }
+
+  await prisma.appInventoryCountRecord.deleteMany({ where: { id: countId } })
+  response.json({ ok: true })
+})
+
+app.get('/api/pending-inventory-movements', async (request, response) => {
+  await ensureAppInventoryRecordsSeeded()
+  const companyId = parseIntegerParam(request.query.companyId)
+  const pendingMovements = await prisma.appPendingInventoryMovementRecord.findMany({
+    where: companyId === null ? undefined : { companyId },
+    orderBy: [{ createdAtRecord: 'desc' }, { id: 'desc' }],
+  })
+  response.json({ pendingInventoryMovements: pendingMovements })
+})
+
+app.put('/api/pending-inventory-movements/:id', async (request, response) => {
+  const movementId = parseIntegerParam(request.params.id)
+  const movement = normalizePendingInventoryMovementPayload({ ...request.body, id: movementId })
+  if (movementId === null || !movement) {
+    response.status(400).json({ error: 'Payload de movimentacao pendente invalido.' })
+    return
+  }
+
+  const saved = await prisma.appPendingInventoryMovementRecord.upsert({
+    where: { id: movementId },
+    create: movement,
+    update: movement,
+  })
+  response.json({ pendingInventoryMovement: saved })
+})
+
+app.delete('/api/pending-inventory-movements/:id', async (request, response) => {
+  const movementId = parseIntegerParam(request.params.id)
+  if (movementId === null) {
+    response.status(400).json({ error: 'Movimentacao pendente invalida.' })
+    return
+  }
+
+  await prisma.appPendingInventoryMovementRecord.deleteMany({ where: { id: movementId } })
   response.json({ ok: true })
 })
 
@@ -613,6 +1142,16 @@ function parseIntegerParam(value) {
   const resolved = Array.isArray(value) ? value[0] : value
   const parsed = Number.parseInt(String(resolved ?? ''), 10)
   return Number.isFinite(parsed) ? parsed : null
+}
+
+function normalizeRegistrationText(value) {
+  return String(value ?? '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^A-Za-z0-9 ./_-]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trimStart()
+    .toUpperCase()
 }
 
 function normalizeRegistrationNameKey(value) {
@@ -879,6 +1418,483 @@ function normalizeStockCenterPayload(value) {
     producedTechnicalSheetIds,
     minimumStocks,
     isActive: record.isActive,
+  }
+}
+
+function normalizeRequisitionPayload(value) {
+  if (!value || typeof value !== 'object') {
+    return null
+  }
+
+  const record = value
+  const id = parseIntegerParam(record.id)
+  const companyId = parseIntegerParam(record.companyId)
+  const requisitionGroupId = parseIntegerParam(record.requisitionGroupId)
+  const stockCenterId = parseIntegerParam(record.stockCenterId)
+  const supplyCenterId = record.supplyCenterId === null ? null : parseIntegerParam(record.supplyCenterId)
+  const createdByUserId = record.createdByUserId === null ? null : parseIntegerParam(record.createdByUserId)
+  const approvedByUserId = record.approvedByUserId === null ? null : parseIntegerParam(record.approvedByUserId)
+  const sentByUserId = record.sentByUserId === null ? null : parseIntegerParam(record.sentByUserId)
+  const preparedByUserId = record.preparedByUserId === null ? null : parseIntegerParam(record.preparedByUserId)
+  const receivedByUserId = record.receivedByUserId === null ? null : parseIntegerParam(record.receivedByUserId)
+  const lastUpdatedByUserId = record.lastUpdatedByUserId === null ? null : parseIntegerParam(record.lastUpdatedByUserId)
+
+  if (
+    id === null ||
+    companyId === null ||
+    stockCenterId === null ||
+    typeof record.stockCenterName !== 'string' ||
+    typeof record.supplyCenterName !== 'string' ||
+    typeof record.sector !== 'string' ||
+    typeof record.countedAt !== 'string' ||
+    typeof record.status !== 'string' ||
+    typeof record.editScope !== 'string' ||
+    !Array.isArray(record.lines) ||
+    typeof record.createdAt !== 'string' ||
+    typeof record.createdByUserName !== 'string' ||
+    typeof record.approvedAt !== 'string' ||
+    typeof record.approvedByUserName !== 'string' ||
+    typeof record.sentAt !== 'string' ||
+    typeof record.sentByUserName !== 'string' ||
+    typeof record.preparedAt !== 'string' ||
+    typeof record.preparedByUserName !== 'string' ||
+    typeof record.receivedAt !== 'string' ||
+    typeof record.receivedByUserName !== 'string' ||
+    typeof record.lastUpdatedAt !== 'string' ||
+    typeof record.lastUpdatedByUserName !== 'string'
+  ) {
+    return null
+  }
+
+  return {
+    id,
+    companyId,
+    requisitionGroupId: requisitionGroupId ?? id,
+    stockCenterId,
+    stockCenterName: record.stockCenterName,
+    supplyCenterId,
+    supplyCenterName: record.supplyCenterName,
+    sector: record.sector,
+    countedAt: record.countedAt,
+    status: record.status,
+    editScope: record.editScope,
+    lines: record.lines,
+    createdAt: record.createdAt,
+    createdByUserId,
+    createdByUserName: record.createdByUserName,
+    approvedAt: record.approvedAt,
+    approvedByUserId,
+    approvedByUserName: record.approvedByUserName,
+    sentAt: record.sentAt,
+    sentByUserId,
+    sentByUserName: record.sentByUserName,
+    preparedAt: record.preparedAt,
+    preparedByUserId,
+    preparedByUserName: record.preparedByUserName,
+    receivedAt: record.receivedAt,
+    receivedByUserId,
+    receivedByUserName: record.receivedByUserName,
+    lastUpdatedAt: record.lastUpdatedAt,
+    lastUpdatedByUserId,
+    lastUpdatedByUserName: record.lastUpdatedByUserName,
+  }
+}
+
+function normalizeRequisitionNotificationPayload(value) {
+  if (!value || typeof value !== 'object') {
+    return null
+  }
+
+  const record = value
+  const id = parseIntegerParam(record.id)
+  const companyId = parseIntegerParam(record.companyId)
+  const userId = parseIntegerParam(record.userId)
+  const requisitionId = parseIntegerParam(record.requisitionId)
+
+  if (
+    id === null ||
+    companyId === null ||
+    userId === null ||
+    requisitionId === null ||
+    typeof record.message !== 'string' ||
+    typeof record.createdAt !== 'string' ||
+    typeof record.isRead !== 'boolean'
+  ) {
+    return null
+  }
+
+  return {
+    id,
+    companyId,
+    userId,
+    requisitionId,
+    message: record.message,
+    createdAt: record.createdAt,
+    isRead: record.isRead,
+  }
+}
+
+function normalizeManualProductionRequestPayload(value) {
+  if (!value || typeof value !== 'object') {
+    return null
+  }
+
+  const record = value
+  const id = parseIntegerParam(record.id)
+  const companyId = parseIntegerParam(record.companyId)
+  const centerId = parseIntegerParam(record.centerId)
+  const sheetId = parseIntegerParam(record.sheetId)
+  const createdByUserId = record.createdByUserId === null ? null : parseIntegerParam(record.createdByUserId)
+  const rootRequestId = parseIntegerParam(record.rootRequestId)
+  const parentRequestId = record.parentRequestId === null ? null : parseIntegerParam(record.parentRequestId)
+
+  if (
+    id === null ||
+    companyId === null ||
+    centerId === null ||
+    sheetId === null ||
+    typeof record.desiredYield !== 'string' ||
+    typeof record.createdAt !== 'string' ||
+    typeof record.createdByUserName !== 'string' ||
+    rootRequestId === null ||
+    typeof record.isDependencyRequest !== 'boolean'
+  ) {
+    return null
+  }
+
+  return {
+    id,
+    companyId,
+    centerId,
+    sheetId,
+    desiredYield: record.desiredYield,
+    createdAt: record.createdAt,
+    createdByUserId,
+    createdByUserName: record.createdByUserName,
+    rootRequestId,
+    parentRequestId,
+    isDependencyRequest: record.isDependencyRequest,
+  }
+}
+
+function normalizeProductionDraftPayload(value) {
+  if (!value || typeof value !== 'object') {
+    return null
+  }
+
+  const record = value
+  const draftId = parseIntegerParam(record.draftId)
+  const companyId = parseIntegerParam(record.companyId)
+  const centerId = parseIntegerParam(record.centerId)
+  const sheetId = parseIntegerParam(record.sheetId)
+  const startedByUserId = record.startedByUserId === null ? null : parseIntegerParam(record.startedByUserId)
+  const consumptionSessionId = record.consumptionSessionId === null ? null : parseIntegerParam(record.consumptionSessionId)
+
+  if (
+    draftId === null ||
+    companyId === null ||
+    centerId === null ||
+    sheetId === null ||
+    typeof record.startedAt !== 'string' ||
+    typeof record.startedByUserName !== 'string' ||
+    typeof record.desiredYield !== 'string' ||
+    typeof record.finalYield !== 'string' ||
+    typeof record.confirmedPh !== 'string' ||
+    typeof record.confirmedBrix !== 'string' ||
+    !record.ingredientOverrides ||
+    typeof record.ingredientOverrides !== 'object' ||
+    Array.isArray(record.ingredientOverrides) ||
+    !Array.isArray(record.manualOverrideIngredientIds)
+  ) {
+    return null
+  }
+
+  const ingredientOverrides = Object.fromEntries(
+    Object.entries(record.ingredientOverrides).filter(
+      ([key, itemValue]) => typeof key === 'string' && typeof itemValue === 'string',
+    ),
+  )
+  const manualOverrideIngredientIds = record.manualOverrideIngredientIds.filter((item) => typeof item === 'number')
+  const manualRequestIds = Array.isArray(record.manualRequestIds)
+    ? record.manualRequestIds.filter((item) => typeof item === 'number')
+    : []
+
+  return {
+    draftId,
+    companyId,
+    centerId,
+    sheetId,
+    startedAt: record.startedAt,
+    startedByUserId,
+    startedByUserName: record.startedByUserName,
+    desiredYield: record.desiredYield,
+    finalYield: record.finalYield,
+    confirmedPh: record.confirmedPh,
+    confirmedBrix: record.confirmedBrix,
+    ingredientOverrides,
+    manualOverrideIngredientIds,
+    consumptionSessionId,
+    manualRequestIds,
+  }
+}
+
+function normalizeInventoryStorageLocationPayload(value) {
+  if (!value || typeof value !== 'object') {
+    return null
+  }
+
+  const record = value
+  const companyId = parseIntegerParam(record.companyId)
+  if (companyId === null || typeof record.name !== 'string') {
+    return null
+  }
+
+  return {
+    companyId,
+    name: normalizeRegistrationText(record.name),
+    isActive: record.isActive !== false,
+  }
+}
+
+function normalizeInventoryPayload(value) {
+  if (!value || typeof value !== 'object') {
+    return null
+  }
+
+  const record = value
+  const id = parseIntegerParam(record.id)
+  const companyId = parseIntegerParam(record.companyId)
+  const stockCenterId = parseIntegerParam(record.stockCenterId)
+
+  if (
+    id === null ||
+    companyId === null ||
+    stockCenterId === null ||
+    typeof record.countedAt !== 'string' ||
+    typeof record.isClosed !== 'boolean' ||
+    typeof record.startedAt !== 'string' ||
+    typeof record.startedByUserName !== 'string'
+  ) {
+    return null
+  }
+
+  return {
+    id,
+    companyId,
+    stockCenterId,
+    countedAt: record.countedAt,
+    isClosed: record.isClosed,
+    startedAt: record.startedAt,
+    startedByUserId: record.startedByUserId === null ? null : parseIntegerParam(record.startedByUserId),
+    startedByUserName: normalizeRegistrationText(record.startedByUserName),
+    closedAt: typeof record.closedAt === 'string' ? record.closedAt : '',
+    closedByUserId: record.closedByUserId === null ? null : parseIntegerParam(record.closedByUserId),
+    closedByUserName: typeof record.closedByUserName === 'string' ? normalizeRegistrationText(record.closedByUserName) : '',
+    discardedOpenSessionCount:
+      typeof record.discardedOpenSessionCount === 'number' && record.discardedOpenSessionCount > 0
+        ? record.discardedOpenSessionCount
+        : 0,
+    appliedPendingMovementCount:
+      typeof record.appliedPendingMovementCount === 'number' && record.appliedPendingMovementCount > 0
+        ? record.appliedPendingMovementCount
+        : 0,
+  }
+}
+
+function normalizeInventoryActiveRecordLinkPayload(value) {
+  if (!value || typeof value !== 'object') {
+    return null
+  }
+
+  const record = value
+  const companyId = parseIntegerParam(record.companyId)
+  if (companyId === null || typeof record.userKey !== 'string') {
+    return null
+  }
+
+  return {
+    companyId,
+    userKey: record.userKey,
+    inventoryId: record.inventoryId === null ? null : parseIntegerParam(record.inventoryId),
+  }
+}
+
+function normalizeInventoryCountSessionPayload(value) {
+  if (!value || typeof value !== 'object') {
+    return null
+  }
+
+  const record = value
+  const id = parseIntegerParam(record.id)
+  const companyId = parseIntegerParam(record.companyId)
+  const stockCenterId = parseIntegerParam(record.stockCenterId)
+
+  if (
+    id === null ||
+    companyId === null ||
+    stockCenterId === null ||
+    typeof record.countedAt !== 'string' ||
+    typeof record.isClosed !== 'boolean' ||
+    typeof record.startedByUserName !== 'string'
+  ) {
+    return null
+  }
+
+  return {
+    id,
+    inventoryId: record.inventoryId === null ? null : parseIntegerParam(record.inventoryId),
+    companyId,
+    stockCenterId,
+    countedAt: record.countedAt,
+    isClosed: record.isClosed,
+    startedAt:
+      typeof record.startedAt === 'string' && record.startedAt.trim() !== ''
+        ? record.startedAt
+        : typeof record.closedAt === 'string' && record.closedAt.trim() !== ''
+          ? record.closedAt
+          : `${record.countedAt}T00:00:00.000Z`,
+    startedByUserId: record.startedByUserId === null ? null : parseIntegerParam(record.startedByUserId),
+    startedByUserName: normalizeRegistrationText(record.startedByUserName),
+    closedAt: typeof record.closedAt === 'string' ? record.closedAt : '',
+    closedByUserId: record.closedByUserId === null ? null : parseIntegerParam(record.closedByUserId),
+    closedByUserName: typeof record.closedByUserName === 'string' ? normalizeRegistrationText(record.closedByUserName) : '',
+  }
+}
+
+function normalizeInventoryActiveSessionLinkPayload(value) {
+  if (!value || typeof value !== 'object') {
+    return null
+  }
+
+  const record = value
+  const companyId = parseIntegerParam(record.companyId)
+  if (companyId === null || typeof record.userKey !== 'string') {
+    return null
+  }
+
+  return {
+    companyId,
+    userKey: record.userKey,
+    sessionId: record.sessionId === null ? null : parseIntegerParam(record.sessionId),
+  }
+}
+
+function normalizeInventoryCountPayload(value) {
+  if (!value || typeof value !== 'object') {
+    return null
+  }
+
+  const record = value
+  const id = parseIntegerParam(record.id)
+  const sessionId = parseIntegerParam(record.sessionId)
+  const companyId = parseIntegerParam(record.companyId)
+  const stockCenterId = parseIntegerParam(record.stockCenterId)
+  const technicalSheetId = record.technicalSheetId === null ? null : parseIntegerParam(record.technicalSheetId)
+  const packageId = record.packageId === null ? null : parseIntegerParam(record.packageId)
+
+  if (
+    id === null ||
+    sessionId === null ||
+    companyId === null ||
+    stockCenterId === null ||
+    typeof record.countedAt !== 'string' ||
+    typeof record.storageLocation !== 'string' ||
+    typeof record.technicalSheetName !== 'string' ||
+    !['PREPARO', 'VENDA', 'PRODUTO', 'ITEM'].includes(record.technicalSheetKind) ||
+    typeof record.recipientItemId !== 'string' ||
+    typeof record.recipientLabel !== 'string' ||
+    typeof record.closedItemsQuantity !== 'string' ||
+    typeof record.hasOpenItems !== 'boolean' ||
+    typeof record.openItemsGrossWeight !== 'string' ||
+    typeof record.openItemsContainerQuantity !== 'string' ||
+    typeof record.openItemsNetQuantity !== 'string' ||
+    typeof record.totalCountedQuantity !== 'string' ||
+    !['MILLILITER', 'GRAM', 'UNIT'].includes(record.totalCountedUnit) ||
+    typeof record.createdByUserName !== 'string'
+  ) {
+    return null
+  }
+
+  return {
+    id,
+    inventoryId: record.inventoryId === null ? null : parseIntegerParam(record.inventoryId),
+    sessionId,
+    companyId,
+    stockCenterId,
+    countedAt: record.countedAt,
+    storageLocation: normalizeRegistrationText(record.storageLocation),
+    technicalSheetId,
+    productId: typeof record.productId === 'string' ? normalizeRegistrationText(record.productId) : '',
+    serviceItemId: typeof record.serviceItemId === 'string' ? normalizeRegistrationText(record.serviceItemId) : '',
+    packageId,
+    technicalSheetName: normalizeRegistrationText(record.technicalSheetName),
+    technicalSheetKind: record.technicalSheetKind,
+    recipientItemId: normalizeRegistrationText(record.recipientItemId),
+    recipientLabel: normalizeRegistrationText(record.recipientLabel),
+    closedItemsQuantity: record.closedItemsQuantity.trim(),
+    hasOpenItems: record.hasOpenItems,
+    openItemsGrossWeight: record.openItemsGrossWeight.trim(),
+    openItemsContainerQuantity: record.openItemsContainerQuantity.trim(),
+    openItemsNetQuantity: record.openItemsNetQuantity.trim(),
+    totalCountedQuantity: record.totalCountedQuantity.trim(),
+    totalCountedUnit: record.totalCountedUnit,
+    productionExpectedYield: typeof record.productionExpectedYield === 'string' ? record.productionExpectedYield.trim() : '',
+    productionFinalYield: typeof record.productionFinalYield === 'string' ? record.productionFinalYield.trim() : '',
+    productionYieldDifference: typeof record.productionYieldDifference === 'string' ? record.productionYieldDifference.trim() : '',
+    productionTargetPh: typeof record.productionTargetPh === 'string' ? normalizeRegistrationText(record.productionTargetPh) : '',
+    productionConfirmedPh: typeof record.productionConfirmedPh === 'string' ? normalizeRegistrationText(record.productionConfirmedPh) : '',
+    productionTargetBrix: typeof record.productionTargetBrix === 'string' ? normalizeRegistrationText(record.productionTargetBrix) : '',
+    productionConfirmedBrix: typeof record.productionConfirmedBrix === 'string' ? normalizeRegistrationText(record.productionConfirmedBrix) : '',
+    createdByUserId: record.createdByUserId === null ? null : parseIntegerParam(record.createdByUserId),
+    createdByUserName: normalizeRegistrationText(record.createdByUserName),
+  }
+}
+
+function normalizePendingInventoryMovementPayload(value) {
+  if (!value || typeof value !== 'object') {
+    return null
+  }
+
+  const record = value
+  const id = parseIntegerParam(record.id)
+  const companyId = parseIntegerParam(record.companyId)
+  const stockCenterId = parseIntegerParam(record.stockCenterId)
+  const inventoryId = parseIntegerParam(record.inventoryId)
+
+  if (
+    id === null ||
+    companyId === null ||
+    stockCenterId === null ||
+    inventoryId === null ||
+    typeof record.createdAt !== 'string' ||
+    typeof record.description !== 'string'
+  ) {
+    return null
+  }
+
+  const session = normalizeInventoryCountSessionPayload(record.session)
+  const records = Array.isArray(record.records)
+    ? record.records.map(normalizeInventoryCountPayload).filter((item) => item !== null)
+    : []
+
+  if (!session || records.length === 0) {
+    return null
+  }
+
+  return {
+    id,
+    companyId,
+    stockCenterId,
+    inventoryId,
+    createdAt: record.createdAt,
+    createdByUserId: record.createdByUserId === null ? null : parseIntegerParam(record.createdByUserId),
+    createdByUserName:
+      typeof record.createdByUserName === 'string' && record.createdByUserName.trim()
+        ? record.createdByUserName
+        : 'Administrador do sistema',
+    description: record.description,
+    session,
+    records,
   }
 }
 
@@ -1253,6 +2269,208 @@ async function ensureAppStockCenterRecordsSeeded() {
   })
 
   hasSeededAppStockCenterRecords = true
+}
+
+async function ensureAppRequisitionRecordsSeeded() {
+  if (hasSeededAppRequisitionRecords) {
+    return
+  }
+
+  const [requisitionsCount, notificationsCount] = await Promise.all([
+    prisma.appRequisitionRecord.count(),
+    prisma.appRequisitionNotificationRecord.count(),
+  ])
+  if (requisitionsCount > 0 || notificationsCount > 0) {
+    hasSeededAppRequisitionRecords = true
+    return
+  }
+
+  const snapshot = await prisma.appStateSnapshot.findUnique({
+    where: { key: appStateSnapshotKey },
+  })
+  const payload = snapshot?.payload
+  const entries = payload && typeof payload === 'object' && !Array.isArray(payload) ? payload.entries : null
+  if (!entries || typeof entries !== 'object' || Array.isArray(entries)) {
+    hasSeededAppRequisitionRecords = true
+    return
+  }
+
+  const requisitions = parseSeedArray(entries[requisitionsStorageKey], normalizeRequisitionPayload)
+  const notifications = parseSeedArray(entries[requisitionNotificationsStorageKey], normalizeRequisitionNotificationPayload)
+
+  await prisma.$transaction(async (transaction) => {
+    for (const requisition of requisitions) {
+      await transaction.appRequisitionRecord.upsert({
+        where: { id: requisition.id },
+        create: requisition,
+        update: requisition,
+      })
+    }
+
+    for (const notification of notifications) {
+      await transaction.appRequisitionNotificationRecord.upsert({
+        where: { id: notification.id },
+        create: notification,
+        update: notification,
+      })
+    }
+  })
+
+  hasSeededAppRequisitionRecords = true
+}
+
+async function ensureAppProductionRecordsSeeded() {
+  if (hasSeededAppProductionRecords) {
+    return
+  }
+
+  const [manualRequestsCount, draftsCount] = await Promise.all([
+    prisma.appManualProductionRequestRecord.count(),
+    prisma.appProductionDraftRecord.count(),
+  ])
+  if (manualRequestsCount > 0 || draftsCount > 0) {
+    hasSeededAppProductionRecords = true
+    return
+  }
+
+  const snapshot = await prisma.appStateSnapshot.findUnique({
+    where: { key: appStateSnapshotKey },
+  })
+  const payload = snapshot?.payload
+  const entries = payload && typeof payload === 'object' && !Array.isArray(payload) ? payload.entries : null
+  if (!entries || typeof entries !== 'object' || Array.isArray(entries)) {
+    hasSeededAppProductionRecords = true
+    return
+  }
+
+  const manualRequests = parseSeedArray(entries[manualProductionRequestsStorageKey], normalizeManualProductionRequestPayload)
+  const drafts = parseSeedArray(entries[productionInProgressDraftsStorageKey], normalizeProductionDraftPayload)
+
+  await prisma.$transaction(async (transaction) => {
+    for (const productionRequest of manualRequests) {
+      await transaction.appManualProductionRequestRecord.upsert({
+        where: { id: productionRequest.id },
+        create: productionRequest,
+        update: productionRequest,
+      })
+    }
+
+    for (const draft of drafts) {
+      await transaction.appProductionDraftRecord.upsert({
+        where: { draftId: draft.draftId },
+        create: draft,
+        update: draft,
+      })
+    }
+  })
+
+  hasSeededAppProductionRecords = true
+}
+
+async function ensureAppInventoryRecordsSeeded() {
+  if (hasSeededAppInventoryRecords) {
+    return
+  }
+
+  const [locationsCount, activeRecordLinksCount, inventoriesCount, sessionsCount, activeSessionLinksCount, countsCount, pendingMovementsCount] = await Promise.all([
+    prisma.appInventoryStorageLocationRecord.count(),
+    prisma.appInventoryActiveRecordLinkRecord.count(),
+    prisma.appInventoryRecord.count(),
+    prisma.appInventoryCountSessionRecord.count(),
+    prisma.appInventoryActiveSessionLinkRecord.count(),
+    prisma.appInventoryCountRecord.count(),
+    prisma.appPendingInventoryMovementRecord.count(),
+  ])
+  if (
+    locationsCount > 0 ||
+    activeRecordLinksCount > 0 ||
+    inventoriesCount > 0 ||
+    sessionsCount > 0 ||
+    activeSessionLinksCount > 0 ||
+    countsCount > 0 ||
+    pendingMovementsCount > 0
+  ) {
+    hasSeededAppInventoryRecords = true
+    return
+  }
+
+  const snapshot = await prisma.appStateSnapshot.findUnique({
+    where: { key: appStateSnapshotKey },
+  })
+  const payload = snapshot?.payload
+  const entries = payload && typeof payload === 'object' && !Array.isArray(payload) ? payload.entries : null
+  if (!entries || typeof entries !== 'object' || Array.isArray(entries)) {
+    hasSeededAppInventoryRecords = true
+    return
+  }
+
+  const locations = parseSeedArray(entries[inventoryStorageLocationsStorageKey], normalizeInventoryStorageLocationPayload)
+  const activeRecordLinks = parseSeedArray(entries[inventoryActiveRecordsStorageKey], normalizeInventoryActiveRecordLinkPayload)
+  const inventories = parseSeedArray(entries[inventoryRecordsStorageKey], normalizeInventoryPayload)
+  const sessions = parseSeedArray(entries[inventoryCountSessionsStorageKey], normalizeInventoryCountSessionPayload)
+  const activeSessionLinks = parseSeedArray(entries[inventoryActiveSessionsStorageKey], normalizeInventoryActiveSessionLinkPayload)
+  const counts = parseSeedArray(entries[inventoryCountsStorageKey], normalizeInventoryCountPayload)
+  const pendingMovements = parseSeedArray(entries[pendingInventoryMovementsStorageKey], normalizePendingInventoryMovementPayload)
+
+  await prisma.$transaction(async (transaction) => {
+    for (const location of locations) {
+      await transaction.appInventoryStorageLocationRecord.upsert({
+        where: { companyId_name: { companyId: location.companyId, name: location.name } },
+        create: location,
+        update: location,
+      })
+    }
+
+    for (const inventory of inventories) {
+      await transaction.appInventoryRecord.upsert({
+        where: { id: inventory.id },
+        create: inventory,
+        update: inventory,
+      })
+    }
+
+    for (const link of activeRecordLinks) {
+      await transaction.appInventoryActiveRecordLinkRecord.upsert({
+        where: { companyId_userKey: { companyId: link.companyId, userKey: link.userKey } },
+        create: link,
+        update: link,
+      })
+    }
+
+    for (const session of sessions) {
+      await transaction.appInventoryCountSessionRecord.upsert({
+        where: { id: session.id },
+        create: session,
+        update: session,
+      })
+    }
+
+    for (const link of activeSessionLinks) {
+      await transaction.appInventoryActiveSessionLinkRecord.upsert({
+        where: { companyId_userKey: { companyId: link.companyId, userKey: link.userKey } },
+        create: link,
+        update: link,
+      })
+    }
+
+    for (const count of counts) {
+      await transaction.appInventoryCountRecord.upsert({
+        where: { id: count.id },
+        create: count,
+        update: count,
+      })
+    }
+
+    for (const movement of pendingMovements) {
+      await transaction.appPendingInventoryMovementRecord.upsert({
+        where: { id: movement.id },
+        create: movement,
+        update: movement,
+      })
+    }
+  })
+
+  hasSeededAppInventoryRecords = true
 }
 
 function parseSeedArray(rawValue, normalizer) {

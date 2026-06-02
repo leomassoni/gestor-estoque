@@ -1,6 +1,6 @@
 # Status do Sistema
 
-Ultima atualizacao: 2026-05-26
+Ultima atualizacao: 2026-06-02
 
 ## Objetivo deste arquivo
 
@@ -12,6 +12,44 @@ Registrar em que pe o sistema esta hoje, por area, para consulta rapida antes de
 - O backend local existe em `server/`, mas o acompanhamento recente de produto aconteceu principalmente no frontend.
 - Nao ha historico Git util neste diretorio no momento; este arquivo passa a ser a referencia manual de progresso.
 - O projeto agora possui repositorio proprio no GitHub, `render.yaml` para deploy no Render e base Prisma preparada para PostgreSQL.
+- O sistema esta em modo hibrido:
+  - parte dos modulos ja grava e le por entidade no backend/Prisma;
+  - parte ainda depende do snapshot global salvo em `/api/state`.
+
+## Migracao por entidade
+
+### Ja migrado
+
+- `Empresas`
+- `Usuarios`
+- `Perfis de acesso`
+- `Permissoes de estoque por perfil`
+- `Centros de estoque`
+- `Produtos`
+- `Itens`
+- `Fichas tecnicas`
+
+### Ainda dependente do snapshot global
+
+- `Inventarios`
+- `Contagens`
+- `Movimentacoes`
+- `Requisicoes`
+- `Suprimentos`
+- `Recebimentos`
+- `Producoes`
+- `Notificacoes operacionais`
+- estados de apoio de fluxo e rascunhos operacionais
+
+### Ponto em que a migracao parou
+
+- A fundacao de leitura/gravação transacional por entidade foi levada ate `Cadastros`, `Usuarios`, `Empresa` e `Centros de estoque`.
+- O proximo bloco natural de migracao e o operacional de `Estoque`, com prioridade sugerida:
+  - `Requisicoes`
+  - `Suprimentos`
+  - `Recebimentos`
+  - `Producoes`
+  - `Inventarios` e `Movimentacoes`
 
 ## Cadastro de fichas tecnicas
 
@@ -99,6 +137,8 @@ Registrar em que pe o sistema esta hoje, por area, para consulta rapida antes de
 
 - [`src/App.tsx`](/home/leomassoni/Documentos/Igarapé/Projetos/TCC-SP/gestor-estoque/src/App.tsx) esta muito grande, o que aumenta risco de regressao.
 - O projeto ainda depende fortemente de estado local e renderizacao centralizada.
+- O snapshot global ainda duplica parte dos dados que ja existem em tabelas por entidade.
+- Imagens em `base64` ainda tendem a pressionar storage se continuarem dentro do banco/snapshot.
 - Nao existe ainda um historico estruturado de releases, tarefas e regressos anteriores fora destes arquivos em `docs/`.
 - O bundle web esta grande; o build gera aviso de chunk acima de 500 kB.
 - O deploy no Render foi concluido com sucesso, mas os logs confirmam que o frontend continua com bundle principal muito grande.
@@ -123,4 +163,11 @@ Registrar em que pe o sistema esta hoje, por area, para consulta rapida antes de
 - Criar o submenu `Relatorios` dentro de `Estoque`, com relatorios operacionais, gerenciais e analiticos.
 - Definir estrategia futura de integracao com dados de venda externos.
 - Desenhar um construtor de relatorios customizados com filtros, colunas, agrupamentos e exportacao.
+- Montar e executar um plano de migracao `Render DB -> Neon` e `imagens -> Cloudflare R2`, sem quebrar o ambiente online.
+- Tirar imagens do banco/snapshot e guardar apenas URL do objeto.
+- Revisar relatorios e listas grandes para paginacao, filtros no servidor e queries mais enxutas.
+- Medir o que mais consome storage hoje:
+  - snapshot global
+  - imagens
+  - duplicacao entre snapshot e tabelas por entidade
 - Manter este arquivo atualizado sempre que uma decisao mudar o estado real do sistema.
