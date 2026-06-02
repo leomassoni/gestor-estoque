@@ -15,10 +15,12 @@ const companiesStorageKey = 'gestor-estoque:companies'
 const usersStorageKey = 'gestor-estoque:users'
 const accessProfilesStorageKey = 'gestor-estoque:access-profiles'
 const stockModuleSettingsStorageKey = 'gestor-estoque:stock-module-settings'
+const stockCentersStorageKey = 'gestor-estoque:stock-centers'
 const productsStorageKey = 'gestor-estoque:products'
 const serviceItemsStorageKey = 'gestor-estoque:service-items'
 const technicalSheetsStorageKey = 'gestor-estoque:technical-sheets'
 let hasSeededAppAdminRecords = false
+let hasSeededAppStockCenterRecords = false
 let hasSeededAppCatalogRecords = false
 
 app.use(cors())
@@ -169,6 +171,7 @@ app.delete('/api/companies/:id', async (request, response) => {
 
     await transaction.appAccessProfileRecord.deleteMany({ where: { companyId } })
     await transaction.appStockModuleSettingsRecord.deleteMany({ where: { companyId } })
+    await transaction.appStockCenterRecord.deleteMany({ where: { companyId } })
     await transaction.appProductRecord.deleteMany({ where: { companyId } })
     await transaction.appServiceItemRecord.deleteMany({ where: { companyId } })
     await transaction.appTechnicalSheetRecord.deleteMany({ where: { companyId } })
@@ -318,6 +321,58 @@ app.put('/api/stock-module-settings/:companyId', async (request, response) => {
     update: stockModuleSettings,
   })
   response.json({ stockModuleSettings: saved })
+})
+
+app.get('/api/stock-centers', async (request, response) => {
+  await ensureAppStockCenterRecordsSeeded()
+  const companyId = parseIntegerParam(request.query.companyId)
+  const stockCenters = await prisma.appStockCenterRecord.findMany({
+    where: companyId === null ? undefined : { companyId },
+    orderBy: [{ name: 'asc' }, { id: 'asc' }],
+  })
+  response.json({ stockCenters })
+})
+
+app.post('/api/stock-centers', async (request, response) => {
+  const stockCenter = normalizeStockCenterPayload(request.body)
+  if (!stockCenter) {
+    response.status(400).json({ error: 'Payload de centro de estoque invalido.' })
+    return
+  }
+
+  const saved = await prisma.appStockCenterRecord.upsert({
+    where: { id: stockCenter.id },
+    create: stockCenter,
+    update: stockCenter,
+  })
+  response.json({ stockCenter: saved })
+})
+
+app.put('/api/stock-centers/:id', async (request, response) => {
+  const stockCenterId = parseIntegerParam(request.params.id)
+  const stockCenter = normalizeStockCenterPayload({ ...request.body, id: stockCenterId })
+  if (stockCenterId === null || !stockCenter) {
+    response.status(400).json({ error: 'Payload de centro de estoque invalido.' })
+    return
+  }
+
+  const saved = await prisma.appStockCenterRecord.upsert({
+    where: { id: stockCenterId },
+    create: stockCenter,
+    update: stockCenter,
+  })
+  response.json({ stockCenter: saved })
+})
+
+app.delete('/api/stock-centers/:id', async (request, response) => {
+  const stockCenterId = parseIntegerParam(request.params.id)
+  if (stockCenterId === null) {
+    response.status(400).json({ error: 'Centro de estoque invalido.' })
+    return
+  }
+
+  await prisma.appStockCenterRecord.deleteMany({ where: { id: stockCenterId } })
+  response.json({ ok: true })
 })
 
 app.get('/api/products', async (request, response) => {
@@ -769,6 +824,64 @@ function normalizeStockModuleSettingsPayload(value) {
   }
 }
 
+function normalizeStockCenterPayload(value) {
+  if (!value || typeof value !== 'object') {
+    return null
+  }
+
+  const record = value
+  const id = parseIntegerParam(record.id)
+  const companyId = parseIntegerParam(record.companyId)
+  const userIds = Array.isArray(record.userIds)
+    ? Array.from(new Set(record.userIds.map((item) => parseIntegerParam(item)).filter((item) => item !== null)))
+    : []
+  const responsibleUserIds = Array.isArray(record.responsibleUserIds)
+    ? Array.from(new Set(record.responsibleUserIds.map((item) => parseIntegerParam(item)).filter((item) => item !== null)))
+    : []
+  const producedTechnicalSheetIds = Array.isArray(record.producedTechnicalSheetIds)
+    ? Array.from(new Set(record.producedTechnicalSheetIds.map((item) => parseIntegerParam(item)).filter((item) => item !== null)))
+    : []
+  const minimumStocks = Array.isArray(record.minimumStocks)
+    ? record.minimumStocks
+        .filter((item) => item && typeof item === 'object')
+        .map((item) => ({
+          kind: item.kind === 'PRODUTO' || item.kind === 'ITEM' || item.kind === 'PREPARO' ? item.kind : 'PREPARO',
+          technicalSheetId: parseIntegerParam(item.technicalSheetId),
+          productId: typeof item.productId === 'string' ? item.productId : '',
+          serviceItemId: typeof item.serviceItemId === 'string' ? item.serviceItemId : '',
+          packageId: parseIntegerParam(item.packageId),
+          minimumQuantity: typeof item.minimumQuantity === 'string' ? item.minimumQuantity.trim() : '',
+        }))
+        .filter((item) => item.minimumQuantity !== '')
+    : []
+
+  if (
+    id === null ||
+    companyId === null ||
+    typeof record.name !== 'string' ||
+    typeof record.code !== 'string' ||
+    typeof record.sector !== 'string' ||
+    typeof record.isProducer !== 'boolean' ||
+    typeof record.isActive !== 'boolean'
+  ) {
+    return null
+  }
+
+  return {
+    id,
+    companyId,
+    name: record.name,
+    code: record.code,
+    sector: record.sector,
+    userIds,
+    responsibleUserIds,
+    isProducer: record.isProducer,
+    producedTechnicalSheetIds,
+    minimumStocks,
+    isActive: record.isActive,
+  }
+}
+
 function normalizeProductPayload(value) {
   if (!value || typeof value !== 'object') {
     return null
@@ -1104,6 +1217,42 @@ async function ensureAppCatalogRecordsSeeded() {
   })
 
   hasSeededAppCatalogRecords = true
+}
+
+async function ensureAppStockCenterRecordsSeeded() {
+  if (hasSeededAppStockCenterRecords) {
+    return
+  }
+
+  const stockCentersCount = await prisma.appStockCenterRecord.count()
+  if (stockCentersCount > 0) {
+    hasSeededAppStockCenterRecords = true
+    return
+  }
+
+  const snapshot = await prisma.appStateSnapshot.findUnique({
+    where: { key: appStateSnapshotKey },
+  })
+  const payload = snapshot?.payload
+  const entries = payload && typeof payload === 'object' && !Array.isArray(payload) ? payload.entries : null
+  if (!entries || typeof entries !== 'object' || Array.isArray(entries)) {
+    hasSeededAppStockCenterRecords = true
+    return
+  }
+
+  const stockCenters = parseSeedArray(entries[stockCentersStorageKey], normalizeStockCenterPayload)
+
+  await prisma.$transaction(async (transaction) => {
+    for (const stockCenter of stockCenters) {
+      await transaction.appStockCenterRecord.upsert({
+        where: { id: stockCenter.id },
+        create: stockCenter,
+        update: stockCenter,
+      })
+    }
+  })
+
+  hasSeededAppStockCenterRecords = true
 }
 
 function parseSeedArray(rawValue, normalizer) {

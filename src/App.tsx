@@ -2734,6 +2734,86 @@ function isTechnicalSheetStockTracked(sheet: TechnicalSheetRecord, products: Pro
   return linkedProduct ? isProductStockTracked(linkedProduct) : true
 }
 
+function syncTechnicalSheetsForStockCenterChange(
+  currentSheets: TechnicalSheetRecord[],
+  centerToSave: StockCenterRecord,
+): TechnicalSheetRecord[] {
+  return currentSheets.map((sheet) => {
+    if (sheet.kind !== 'PREPARO') {
+      return sheet
+    }
+
+    const remainingProductionCenters = (sheet.productionCenters ?? []).filter(
+      (assignment) => assignment.stockCenterId !== centerToSave.id,
+    )
+    const prepMinimumQuantity =
+      centerToSave.minimumStocks.find(
+        (item) => item.kind === 'PREPARO' && item.technicalSheetId === sheet.id,
+      )?.minimumQuantity ?? ''
+
+    if (!centerToSave.isProducer || !centerToSave.producedTechnicalSheetIds.includes(sheet.id)) {
+      return {
+        ...sheet,
+        productionCenters: remainingProductionCenters,
+      }
+    }
+
+    return {
+      ...sheet,
+      productionCenters: [
+        ...remainingProductionCenters,
+        {
+          stockCenterId: centerToSave.id,
+          minimumQuantity: prepMinimumQuantity,
+        },
+      ],
+    }
+  })
+}
+
+function syncStockCentersForTechnicalSheetChange(
+  currentCenters: StockCenterRecord[],
+  technicalSheetToSave: TechnicalSheetRecord,
+): StockCenterRecord[] {
+  return currentCenters.map((center) => {
+    const remainingProducedIds = center.producedTechnicalSheetIds.filter((sheetId) => sheetId !== technicalSheetToSave.id)
+    const remainingMinimumStocks = center.minimumStocks.filter(
+      (item) => !(item.kind === 'PREPARO' && item.technicalSheetId === technicalSheetToSave.id),
+    )
+    const productionAssignment =
+      technicalSheetToSave.kind === 'PREPARO'
+        ? technicalSheetToSave.productionCenters.find((item) => item.stockCenterId === center.id) ?? null
+        : null
+
+    if (!productionAssignment) {
+      return {
+        ...center,
+        producedTechnicalSheetIds: remainingProducedIds,
+        minimumStocks: remainingMinimumStocks,
+      }
+    }
+
+    return {
+      ...center,
+      isProducer: true,
+      producedTechnicalSheetIds: Array.from(new Set([...remainingProducedIds, technicalSheetToSave.id])),
+      minimumStocks: productionAssignment.minimumQuantity
+        ? [
+            ...remainingMinimumStocks,
+            {
+              kind: 'PREPARO',
+              technicalSheetId: technicalSheetToSave.id,
+              productId: '',
+              serviceItemId: '',
+              packageId: null,
+              minimumQuantity: productionAssignment.minimumQuantity,
+            },
+          ]
+        : remainingMinimumStocks,
+    }
+  })
+}
+
 function getTechnicalSheetYieldDifferenceQuantity(suggestedYield: number, totalYield: number) {
   return suggestedYield > totalYield ? suggestedYield - totalYield : 0
 }
@@ -4013,6 +4093,34 @@ export default function App() {
     setStockModuleSettings(nextStockModuleSettings)
   }
 
+  async function refreshAppStockCenterRecordsFromApi() {
+    const response = await fetch('/api/stock-centers')
+    if (!response.ok) {
+      throw new Error('Falha ao carregar centros de estoque pelo backend.')
+    }
+
+    const data = await response.json()
+    const nextStockCenters = Array.isArray(data?.stockCenters)
+      ? (data.stockCenters as unknown[])
+          .map(normalizeStockCenterRecord)
+          .filter((item): item is StockCenterRecord => item !== null)
+      : []
+
+    const localStockCenters = loadStockCentersState()
+    const missingStockCenters = nextStockCenters.length === 0 && localStockCenters.length > 0
+
+    if (missingStockCenters) {
+      await Promise.all(localStockCenters.map((stockCenter) => upsertStockCenterRecordOnApi(stockCenter)))
+      setStockCenters(localStockCenters)
+      logRemoteAppStateMessage(
+        'Os centros de estoque deste navegador foram usados para restaurar dados ausentes no servidor.',
+      )
+      return
+    }
+
+    setStockCenters(nextStockCenters)
+  }
+
   async function refreshAppCatalogRecordsFromApi() {
     const [productsResponse, serviceItemsResponse, technicalSheetsResponse] = await Promise.all([
       fetch('/api/products'),
@@ -4139,6 +4247,27 @@ export default function App() {
     await Promise.all(changedSheets.map((sheet) => upsertTechnicalSheetRecordOnApi(sheet)))
   }
 
+  async function upsertStockCenterRecordOnApi(stockCenter: StockCenterRecord) {
+    const response = await fetch(`/api/stock-centers/${stockCenter.id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(stockCenter),
+    })
+    if (!response.ok) {
+      const errorPayload = (await response.json().catch(() => null)) as { error?: string } | null
+      throw new Error(errorPayload?.error || 'Nao foi possivel salvar o centro de estoque no servidor.')
+    }
+  }
+
+  async function persistChangedStockCentersOnApi(previousCenters: StockCenterRecord[], nextCenters: StockCenterRecord[]) {
+    const previousById = new Map(previousCenters.map((center) => [center.id, JSON.stringify(center)] as const))
+    const changedCenters = nextCenters.filter((center) => previousById.get(center.id) !== JSON.stringify(center))
+    if (changedCenters.length === 0) {
+      return
+    }
+    await Promise.all(changedCenters.map((center) => upsertStockCenterRecordOnApi(center)))
+  }
+
   function getRemoteAppStatePayloadSignature(payload: RemoteAppStatePayload | null) {
     return payload ? JSON.stringify(payload) : ''
   }
@@ -4263,6 +4392,36 @@ export default function App() {
 
     return () => {
       isCancelled = true
+    }
+  }, [])
+
+  useEffect(() => {
+    let isCancelled = false
+
+    const load = async () => {
+      try {
+        await refreshAppStockCenterRecordsFromApi()
+      } catch (error) {
+        console.error(error)
+        if (!isCancelled) {
+          logRemoteAppStateMessage('Falha ao carregar centros de estoque pelo backend. O cache local continuara como fallback.')
+        }
+      }
+    }
+
+    void load()
+    const intervalId = window.setInterval(() => {
+      void load()
+    }, 5000)
+    const handleFocus = () => {
+      void load()
+    }
+    window.addEventListener('focus', handleFocus)
+
+    return () => {
+      isCancelled = true
+      window.clearInterval(intervalId)
+      window.removeEventListener('focus', handleFocus)
     }
   }, [])
 
@@ -13006,7 +13165,7 @@ export default function App() {
     setIsStockCenterModalOpen(true)
   }
 
-  function saveStockCenter() {
+  async function saveStockCenter() {
     if (currentCompanyId === null) {
       return
     }
@@ -13087,45 +13246,33 @@ export default function App() {
         })),
       isActive: editingStockCenterId === null ? true : stockCenters.find((center) => center.id === editingStockCenterId)?.isActive ?? true,
     }
-
-    setStockCenters((current) =>
+    const nextStockCenters =
       editingStockCenterId === null
-        ? [...current, centerToSave]
-        : current.map((center) => (center.id === editingStockCenterId ? centerToSave : center)),
-    )
-    setTechnicalSheets((current) =>
-      current.map((sheet) => {
-        if (sheet.kind !== 'PREPARO') {
-          return sheet
-        }
+        ? [...stockCenters, centerToSave]
+        : stockCenters.map((center) => (center.id === editingStockCenterId ? centerToSave : center))
+    const nextTechnicalSheets = syncTechnicalSheetsForStockCenterChange(technicalSheets, centerToSave)
 
-        const remainingProductionCenters = (sheet.productionCenters ?? []).filter(
-          (assignment) => assignment.stockCenterId !== centerToSave.id,
-        )
-        const prepMinimumQuantity =
-          centerToSave.minimumStocks.find(
-            (item) => item.kind === 'PREPARO' && item.technicalSheetId === sheet.id,
-          )?.minimumQuantity ?? ''
+    try {
+      await upsertStockCenterRecordOnApi(centerToSave)
+      await persistChangedTechnicalSheetsOnApi(technicalSheets, nextTechnicalSheets)
+    } catch (error) {
+      console.error(error)
+      setSaveFeedback({
+        status: 'error',
+        title: 'Falha ao salvar centro de estoque',
+        message: error instanceof Error ? error.message : 'Erro ao salvar o centro de estoque no servidor.',
+      })
+      return
+    }
 
-        if (!centerToSave.isProducer || !centerToSave.producedTechnicalSheetIds.includes(sheet.id)) {
-          return {
-            ...sheet,
-            productionCenters: remainingProductionCenters,
-          }
-        }
+    setStockCenters(nextStockCenters)
+    setTechnicalSheets(nextTechnicalSheets)
 
-        return {
-          ...sheet,
-          productionCenters: [
-            ...remainingProductionCenters,
-            {
-              stockCenterId: centerToSave.id,
-              minimumQuantity: prepMinimumQuantity,
-            },
-          ],
-        }
-      }),
-    )
+    await Promise.all([
+      refreshAppStockCenterRecordsFromApi(),
+      refreshAppCatalogRecordsFromApi(),
+    ])
+
     if (editingStockCenterId === null) {
       setStockCenterForm(emptyStockCenterForm())
       setStockCenterUserInput('')
@@ -15334,7 +15481,34 @@ export default function App() {
     }
 
     const resolveDependencyProducerCenter = (sheetId: number, preferredCenterId: number) => {
-      const producerAssignments = stockCenters.filter(
+      const dependencySheet =
+        technicalSheets.find(
+          (sheet) =>
+            sheet.companyId === currentCompanyId &&
+            sheet.kind === 'PREPARO' &&
+            sheet.id === sheetId,
+        ) ?? null
+
+      const assignedProducerCenters =
+        dependencySheet?.productionCenters
+          ?.map((assignment) =>
+            stockCenters.find(
+              (center) =>
+                center.companyId === currentCompanyId &&
+                center.isActive &&
+                center.id === Number(assignment.stockCenterId),
+            ) ?? null,
+          )
+          .filter((center): center is StockCenterRecord => Boolean(center)) ?? []
+
+      if (assignedProducerCenters.length > 0) {
+        return (
+          assignedProducerCenters.find((center) => center.id === preferredCenterId) ??
+          (assignedProducerCenters.length === 1 ? assignedProducerCenters[0] : null)
+        )
+      }
+
+      const legacyProducerAssignments = stockCenters.filter(
         (center) =>
           center.companyId === currentCompanyId &&
           center.isActive &&
@@ -15343,8 +15517,8 @@ export default function App() {
       )
 
       return (
-        producerAssignments.find((center) => center.id === preferredCenterId) ??
-        (producerAssignments.length === 1 ? producerAssignments[0] : null)
+        legacyProducerAssignments.find((center) => center.id === preferredCenterId) ??
+        (legacyProducerAssignments.length === 1 ? legacyProducerAssignments[0] : null)
       )
     }
 
@@ -19455,6 +19629,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
           product.technicalSheetId === technicalSheetId ? { ...linkedExisting, ...technicalProduct } : product,
         )
       : [technicalProduct, ...products]
+    const nextStockCenters = syncStockCentersForTechnicalSheetChange(stockCenters, technicalSheetToSave)
 
     setIsSavingTechnicalSheet(true)
     setSaveProgressState({
@@ -19465,6 +19640,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
       await upsertTechnicalSheetRecordOnApi(technicalSheetToSave)
       await persistChangedTechnicalSheetsOnApi(technicalSheets, nextTechnicalSheets)
       await upsertProductRecordOnApi(technicalProduct, linkedExisting?.id ?? null)
+      await persistChangedStockCentersOnApi(stockCenters, nextStockCenters)
       if (
         previousTechnicalSheet &&
         previousTechnicalSheet.productId !== technicalProduct.id &&
@@ -19493,46 +19669,11 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
 
     setTechnicalSheets(nextTechnicalSheets)
     setProducts(nextProducts)
-    await refreshAppCatalogRecordsFromApi()
-    setStockCenters((current) =>
-      current.map((center) => {
-        const remainingProducedIds = center.producedTechnicalSheetIds.filter((sheetId) => sheetId !== technicalSheetId)
-        const remainingMinimumStocks = center.minimumStocks.filter(
-          (item) => !(item.kind === 'PREPARO' && item.technicalSheetId === technicalSheetId),
-        )
-        const productionAssignment =
-          technicalSheetToSave.kind === 'PREPARO'
-            ? technicalSheetToSave.productionCenters.find((item) => item.stockCenterId === center.id) ?? null
-            : null
-
-        if (!productionAssignment) {
-          return {
-            ...center,
-            producedTechnicalSheetIds: remainingProducedIds,
-            minimumStocks: remainingMinimumStocks,
-          }
-        }
-
-        return {
-          ...center,
-          isProducer: true,
-          producedTechnicalSheetIds: Array.from(new Set([...remainingProducedIds, technicalSheetId])),
-          minimumStocks: productionAssignment.minimumQuantity
-            ? [
-                ...remainingMinimumStocks,
-                {
-                  kind: 'PREPARO',
-                  technicalSheetId,
-                  productId: '',
-                  serviceItemId: '',
-                  packageId: null,
-                  minimumQuantity: productionAssignment.minimumQuantity,
-                },
-              ]
-            : remainingMinimumStocks,
-        }
-      }),
-    )
+    setStockCenters(nextStockCenters)
+    await Promise.all([
+      refreshAppCatalogRecordsFromApi(),
+      refreshAppStockCenterRecordsFromApi(),
+    ])
 
     if (pendingNestedTechnicalSheetKind === technicalSheetForm.kind) {
       if (pendingNestedTechnicalSheetPurpose === 'subproduct') {
