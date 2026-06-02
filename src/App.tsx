@@ -17945,8 +17945,19 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
     const neighborhood = normalizeRegistrationText(companyForm.neighborhood.trim())
     const city = normalizeRegistrationText(companyForm.city.trim())
     const state = normalizeRegistrationText(companyForm.state.trim()).slice(0, 2)
+    const canSystemAdminSaveWithTradeNameOnly = isSystemAdmin
+    const requiresFullCompanyRegistration = !canSystemAdminSaveWithTradeNameOnly
 
-    if (!tradeName || !legalName || !cep || !street || !number || !neighborhood || !city || !state) {
+    if (!tradeName) {
+      setSaveFeedback({
+        status: 'error',
+        title: 'Falha ao salvar empresa',
+        message: 'Erro: nome fantasia e obrigatorio.',
+      })
+      return
+    }
+
+    if (requiresFullCompanyRegistration && (!legalName || !cep || !street || !number || !neighborhood || !city || !state)) {
       setSaveFeedback({
         status: 'error',
         title: 'Falha ao salvar empresa',
@@ -18049,6 +18060,136 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
       })
     }
   }
+
+  const renderCompanyModal = () =>
+    isCompanyModalOpen ? (
+      <div className="modal-backdrop" role="presentation" onClick={() => setIsCompanyModalOpen(false)}>
+        <section
+          className="modal-card modal-card-compact"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="company-modal-title"
+          onClick={(event) => event.stopPropagation()}
+        >
+          <div className="section-heading">
+            <div>
+              <p className="kicker">{editingCompanyId ? 'Atualizar empresa' : 'Nova empresa'}</p>
+              <h2 id="company-modal-title">{editingCompanyId ? 'Atualizar dados da empresa' : 'Cadastro de empresa'}</h2>
+            </div>
+            <button
+              type="button"
+              className="ghost-button"
+              onClick={() => {
+                setIsCompanyModalOpen(false)
+                setEditingCompanyId(null)
+              }}
+            >
+              Fechar
+            </button>
+          </div>
+
+          <form className="form-grid company-form-grid" onSubmit={(event) => submitCompany(event, 'modal')}>
+            <label className="field company-field-wide">
+              <span>Nome fantasia</span>
+              <input
+                value={companyForm.tradeName}
+                onChange={(event) => updateCompanyForm('tradeName', event.target.value)}
+              />
+            </label>
+            <label className="field company-field-wide">
+              <span>Razao social</span>
+              <input
+                value={companyForm.legalName}
+                onChange={(event) => updateCompanyForm('legalName', event.target.value)}
+              />
+            </label>
+            <label className="field company-field-cnpj">
+              <span>CNPJ</span>
+              <input
+                value={companyForm.cnpj}
+                onChange={(event) => updateCompanyForm('cnpj', event.target.value)}
+                placeholder="00.000.000/0000-00"
+              />
+            </label>
+            <label className="field company-field-cep">
+              <span>CEP</span>
+              <input
+                value={companyForm.cep}
+                onChange={(event) => updateCompanyForm('cep', event.target.value)}
+                onBlur={() => lookupCompanyAddress(companyForm.cep)}
+                placeholder="00000-000"
+              />
+            </label>
+            <label className="field company-field-street">
+              <span>Logradouro</span>
+              <input
+                value={companyForm.street}
+                onChange={(event) => updateCompanyForm('street', event.target.value)}
+              />
+            </label>
+            <label className="field company-field-number">
+              <span>Numero</span>
+              <input
+                value={companyForm.number}
+                onChange={(event) => updateCompanyForm('number', event.target.value)}
+              />
+            </label>
+            <label className="field company-field-complement">
+              <span>Complemento</span>
+              <input
+                value={companyForm.complement}
+                onChange={(event) => updateCompanyForm('complement', event.target.value)}
+              />
+            </label>
+            <label className="field company-field-neighborhood">
+              <span>Bairro</span>
+              <input
+                value={companyForm.neighborhood}
+                onChange={(event) => updateCompanyForm('neighborhood', event.target.value)}
+              />
+            </label>
+            <label className="field company-field-city">
+              <span>Cidade</span>
+              <input
+                value={companyForm.city}
+                onChange={(event) => updateCompanyForm('city', event.target.value)}
+              />
+            </label>
+            <label className="field company-field-state">
+              <span>Estado</span>
+              <input
+                value={companyForm.state}
+                onChange={(event) => updateCompanyForm('state', event.target.value)}
+              />
+            </label>
+            {companyCepFeedback ? (
+              <p className="compact-feedback field-span-all company-feedback">{companyCepFeedback}</p>
+            ) : null}
+            {isFetchingCompanyCep ? (
+              <p className="compact-feedback field-span-all company-feedback">Buscando endereco pelo CEP...</p>
+            ) : null}
+            {saveFeedback?.status === 'error' ? (
+              <p className="compact-feedback feedback error field-span-all">{saveFeedback.message}</p>
+            ) : null}
+            <div className="modal-actions field-span-all">
+              <button
+                type="button"
+                className="ghost-button"
+                onClick={() => {
+                  setIsCompanyModalOpen(false)
+                  setEditingCompanyId(null)
+                }}
+              >
+                Cancelar
+              </button>
+              <button type="submit" className="primary-button">
+                {editingCompanyId ? 'Salvar alteracoes' : 'Salvar empresa'}
+              </button>
+            </div>
+          </form>
+        </section>
+      </div>
+    ) : null
 
   async function deleteCompany(companyId: number) {
     if (!canManageCompanies) {
@@ -20941,7 +21082,13 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
             {isFetchingCompanyCep ? (
               <p className="compact-feedback field-span-all company-feedback">Buscando endereco pelo CEP...</p>
             ) : null}
+            {saveFeedback?.status === 'error' ? (
+              <p className="compact-feedback feedback error field-span-all">{saveFeedback.message}</p>
+            ) : null}
             <div className="form-actions field-span-all">
+              <button type="button" className="ghost-button" onClick={logout}>
+                Voltar ao login
+              </button>
               <button type="submit" className="primary-button">
                 Salvar
               </button>
@@ -20975,7 +21122,6 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                     {company.city}/{company.state}
                   </span>
                   <span>Status: {company.status}</span>
-                  <span>{company.cnpj || 'CNPJ nao informado'}</span>
                 </button>
                 {isSystemAdmin ? (
                   <div className="selector-row">
@@ -21021,6 +21167,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
             </div>
           ) : null}
         </section>
+        {renderCompanyModal()}
       </main>
     )
   }
@@ -21944,7 +22091,6 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
               <p className="hero-copy">{currentCompany.legalName}</p>
               <div className="hero-details">
                 <span>{session?.user.fullName || session?.user.username || 'Usuario logado'}</span>
-                <span>{currentCompany.cnpj || 'CNPJ nao informado'}</span>
                 <span>{currentCompany.status}</span>
               </div>
             </div>
@@ -27182,7 +27328,6 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                 <div className="selector-main company-card-static">
                   <strong>{company.tradeName}</strong>
                   <span>{company.legalName}</span>
-                  <span>{company.cnpj || 'CNPJ nao informado'}</span>
                   <span>
                     {company.city}/{company.state}
                   </span>
@@ -29416,131 +29561,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
         />
       ) : null}
 
-      {isCompanyModalOpen ? (
-        <div className="modal-backdrop" role="presentation" onClick={() => setIsCompanyModalOpen(false)}>
-          <section
-            className="modal-card modal-card-compact"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="company-modal-title"
-            onClick={(event) => event.stopPropagation()}
-          >
-            <div className="section-heading">
-              <div>
-                <p className="kicker">{editingCompanyId ? 'Atualizar empresa' : 'Nova empresa'}</p>
-                <h2 id="company-modal-title">{editingCompanyId ? 'Atualizar dados da empresa' : 'Cadastro de empresa'}</h2>
-              </div>
-              <button
-                type="button"
-                className="ghost-button"
-                onClick={() => {
-                  setIsCompanyModalOpen(false)
-                  setEditingCompanyId(null)
-                }}
-              >
-                Fechar
-              </button>
-            </div>
-
-            <form className="form-grid company-form-grid" onSubmit={(event) => submitCompany(event, 'modal')}>
-              <label className="field company-field-wide">
-                <span>Nome fantasia</span>
-                <input
-                  value={companyForm.tradeName}
-                  onChange={(event) => updateCompanyForm('tradeName', event.target.value)}
-                />
-              </label>
-              <label className="field company-field-wide">
-                <span>Razao social</span>
-                <input
-                  value={companyForm.legalName}
-                  onChange={(event) => updateCompanyForm('legalName', event.target.value)}
-                />
-              </label>
-              <label className="field company-field-cnpj">
-                <span>CNPJ</span>
-                <input
-                  value={companyForm.cnpj}
-                  onChange={(event) => updateCompanyForm('cnpj', event.target.value)}
-                  placeholder="00.000.000/0000-00"
-                />
-              </label>
-              <label className="field company-field-cep">
-                <span>CEP</span>
-                <input
-                  value={companyForm.cep}
-                  onChange={(event) => updateCompanyForm('cep', event.target.value)}
-                  onBlur={() => lookupCompanyAddress(companyForm.cep)}
-                  placeholder="00000-000"
-                />
-              </label>
-              <label className="field company-field-street">
-                <span>Logradouro</span>
-                <input
-                  value={companyForm.street}
-                  onChange={(event) => updateCompanyForm('street', event.target.value)}
-                />
-              </label>
-              <label className="field company-field-number">
-                <span>Numero</span>
-                <input
-                  value={companyForm.number}
-                  onChange={(event) => updateCompanyForm('number', event.target.value)}
-                />
-              </label>
-              <label className="field company-field-complement">
-                <span>Complemento</span>
-                <input
-                  value={companyForm.complement}
-                  onChange={(event) => updateCompanyForm('complement', event.target.value)}
-                />
-              </label>
-              <label className="field company-field-neighborhood">
-                <span>Bairro</span>
-                <input
-                  value={companyForm.neighborhood}
-                  onChange={(event) => updateCompanyForm('neighborhood', event.target.value)}
-                />
-              </label>
-              <label className="field company-field-city">
-                <span>Cidade</span>
-                <input
-                  value={companyForm.city}
-                  onChange={(event) => updateCompanyForm('city', event.target.value)}
-                />
-              </label>
-              <label className="field company-field-state">
-                <span>Estado</span>
-                <input
-                  value={companyForm.state}
-                  onChange={(event) => updateCompanyForm('state', event.target.value)}
-                />
-              </label>
-              {companyCepFeedback ? (
-                <p className="compact-feedback field-span-all company-feedback">{companyCepFeedback}</p>
-              ) : null}
-              {isFetchingCompanyCep ? (
-                <p className="compact-feedback field-span-all company-feedback">Buscando endereco pelo CEP...</p>
-              ) : null}
-              <div className="modal-actions field-span-all">
-                <button
-                  type="button"
-                  className="ghost-button"
-                  onClick={() => {
-                    setIsCompanyModalOpen(false)
-                    setEditingCompanyId(null)
-                  }}
-                >
-                  Cancelar
-                </button>
-                <button type="submit" className="primary-button">
-                  {editingCompanyId ? 'Salvar alteracoes' : 'Salvar empresa'}
-                </button>
-              </div>
-            </form>
-          </section>
-        </div>
-      ) : null}
+      {renderCompanyModal()}
 
       {isStockReportBuilderOpen ? (
         <div className="modal-backdrop" role="presentation" onClick={() => setIsStockReportBuilderOpen(false)}>
