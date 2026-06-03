@@ -3025,6 +3025,7 @@ export default function App() {
   const [closedInventorySummaryEditingRowKey, setClosedInventorySummaryEditingRowKey] = useState<string | null>(null)
   const [technicalSheetScreenMode, setTechnicalSheetScreenMode] = useState<ScreenMode>('list')
   const [technicalSheets, setTechnicalSheets] = useState<TechnicalSheetRecord[]>(() => loadTechnicalSheetsState())
+  const [technicalSheetImageCache, setTechnicalSheetImageCache] = useState<Record<number, string>>({})
   const [technicalSheetSearch, setTechnicalSheetSearch] = useState('')
   const [stockCenters, setStockCenters] = useState<StockCenterRecord[]>(() => loadStockCentersState())
   const [requisitions, setRequisitions] = useState<RequisitionRecord[]>(() => loadRequisitionsState())
@@ -10562,17 +10563,30 @@ export default function App() {
 
     return recipePanelSheetsByTab[recipePanelTab].find((sheet) => sheet.id === selectedId) ?? null
   }, [recipePanelSelectedId, recipePanelSheetsByTab, recipePanelTab])
+  const selectedRecipePanelSheetImageDataUrl =
+    selectedRecipePanelSheet && selectedRecipePanelSheet.kind === 'EXECUCAO'
+      ? technicalSheetImageCache[selectedRecipePanelSheet.id] ?? selectedRecipePanelSheet.imageDataUrl ?? ''
+      : selectedRecipePanelSheet?.imageDataUrl ?? ''
   useEffect(() => {
-    if (!selectedRecipePanelSheet || selectedRecipePanelSheet.kind !== 'EXECUCAO' || selectedRecipePanelSheet.imageDataUrl) {
+    if (!selectedRecipePanelSheet || selectedRecipePanelSheet.kind !== 'EXECUCAO') {
+      return
+    }
+
+    if ((technicalSheetImageCache[selectedRecipePanelSheet.id] ?? selectedRecipePanelSheet.imageDataUrl ?? '').trim() !== '') {
       return
     }
 
     void fetchTechnicalSheetRecordFromApi(selectedRecipePanelSheet.id)
       .then((fullSheet) => {
-        setTechnicalSheets((current) => current.map((sheet) => (sheet.id === fullSheet.id ? fullSheet : sheet)))
+        if (fullSheet.imageDataUrl.trim() !== '') {
+          setTechnicalSheetImageCache((current) => ({
+            ...current,
+            [fullSheet.id]: fullSheet.imageDataUrl,
+          }))
+        }
       })
       .catch(() => {})
-  }, [selectedRecipePanelSheet])
+  }, [selectedRecipePanelSheet, technicalSheetImageCache])
   function buildRecipePanelDataForSheet(
     sheet: TechnicalSheetRecord,
     desiredYieldInput: number,
@@ -20516,7 +20530,12 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
     if (!technicalSheet) {
       return
     }
-    setTechnicalSheets((current) => current.map((item) => (item.id === technicalSheet.id ? technicalSheet : item)))
+    if (technicalSheet.imageDataUrl.trim() !== '') {
+      setTechnicalSheetImageCache((current) => ({
+        ...current,
+        [technicalSheet.id]: technicalSheet.imageDataUrl,
+      }))
+    }
 
     const nextForm = {
       kind: technicalSheet.kind ?? 'PREPARO',
@@ -26900,14 +26919,14 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                           <aside className="receituario-hero-media receituario-hero-media-execucao" aria-label="Apresentacao visual do produto">
                               <div
                                 className={
-                                  recipePanelData.sheet.imageDataUrl
+                                  selectedRecipePanelSheetImageDataUrl
                                     ? 'receituario-hero-image-frame'
                                     : 'receituario-hero-image-frame receituario-hero-image-frame-empty'
                                 }
                               >
-                                {recipePanelData.sheet.imageDataUrl ? (
+                                {selectedRecipePanelSheetImageDataUrl ? (
                                   <img
-                                    src={recipePanelData.sheet.imageDataUrl}
+                                    src={selectedRecipePanelSheetImageDataUrl}
                                     alt={`Foto de ${recipePanelData.sheet.name}`}
                                     className="receituario-hero-image"
                                   />
