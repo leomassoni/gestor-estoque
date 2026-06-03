@@ -741,11 +741,6 @@ type ManualProductionPreviewState = {
 type TechnicalSheetShareCascadePreviewState = {
   targetCompanyIds: number[]
   targetCompanyLabels: string[]
-  dependencyProducts: Array<{
-    id: string
-    name: string
-    targetCompanyLabels: string[]
-  }>
   dependencySheets: Array<{
     id: number
     name: string
@@ -3545,20 +3540,9 @@ export default function App() {
       .filter((ingredient) => ingredient.isActive && ingredient.productId.trim() !== '')
       .forEach((ingredient) => visitProduct(ingredient.productId))
 
-    const blockedProducts = Array.from(dependencyProductMap.values())
-      .map((product) => {
-        const missingCompanyIds = relevantTargetCompanyIds.filter(
-          (companyId) => !getCompanyLinkScopeIds(getProductOwnerCompanyId(product)).includes(companyId),
-        )
-        return missingCompanyIds.length > 0
-          ? {
-              id: product.id,
-              name: product.name,
-              targetCompanyIds: missingCompanyIds,
-            }
-          : null
-      })
-      .filter((item): item is { id: string; name: string; targetCompanyIds: number[] } => item !== null)
+    const blockedProducts = Array.from(dependencyProductMap.values()).some((product) =>
+      relevantTargetCompanyIds.some((companyId) => !getCompanyLinkScopeIds(getProductOwnerCompanyId(product)).includes(companyId)),
+    )
 
     const blockedSheets = Array.from(dependencySheetMap.values())
       .map((sheet) => {
@@ -3593,7 +3577,6 @@ export default function App() {
       .filter((item): item is { id: number; name: string; companyIdsToAdd: number[] } => item !== null)
 
     return {
-      dependencyProducts: Array.from(dependencyProductMap.values()),
       blockedProducts,
       blockedSheets,
       dependencySheetUpdates,
@@ -21099,12 +21082,11 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
       editingTechnicalSheetId,
     )
 
-    if (shareCascadeAnalysis.blockedProducts.length > 0 || shareCascadeAnalysis.blockedSheets.length > 0) {
+    if (shareCascadeAnalysis.blockedProducts || shareCascadeAnalysis.blockedSheets.length > 0) {
       const blockedParts = [
-        ...shareCascadeAnalysis.blockedProducts.map(
-          (product) =>
-            `${product.name} nao pode ser compartilhado com ${product.targetCompanyIds.map((companyId) => getCompanyTradeName(companyId)).join(', ')}`,
-        ),
+        ...(shareCascadeAnalysis.blockedProducts
+          ? ['existem produtos da composicao que nao estao visiveis para todas as empresas selecionadas']
+          : []),
         ...shareCascadeAnalysis.blockedSheets.map(
           (sheet) =>
             `${sheet.name} nao pode ser compartilhada com ${sheet.targetCompanyIds.map((companyId) => getCompanyTradeName(companyId)).join(', ')}`,
@@ -21122,13 +21104,6 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
       setTechnicalSheetShareCascadePreviewState({
         targetCompanyIds: technicalSheetSharedCompanyIds,
         targetCompanyLabels: technicalSheetSharedCompanyIds.map((companyId) => getCompanyTradeName(companyId)),
-        dependencyProducts: shareCascadeAnalysis.dependencyProducts.map((product) => ({
-          id: product.id,
-          name: product.name,
-          targetCompanyLabels: technicalSheetSharedCompanyIds
-            .filter((companyId) => getCompanyLinkScopeIds(getProductOwnerCompanyId(product)).includes(companyId))
-            .map((companyId) => getCompanyTradeName(companyId)),
-        })),
         dependencySheets: shareCascadeAnalysis.dependencySheetUpdates.map((sheet) => ({
           id: sheet.id,
           name: sheet.name,
@@ -31917,22 +31892,6 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
               {technicalSheetShareCascadePreviewState.targetCompanyLabels.join(', ')}, o sistema tambem precisa
               disponibilizar as dependencias tecnicas dela para manter a composicao utilizavel nessas empresas.
             </p>
-
-            <div className="confirmation-details">
-              <strong>Produtos dependentes ({technicalSheetShareCascadePreviewState.dependencyProducts.length})</strong>
-              {technicalSheetShareCascadePreviewState.dependencyProducts.length > 0 ? (
-                <ul className="sector-impact-list">
-                  {technicalSheetShareCascadePreviewState.dependencyProducts.map((product) => (
-                    <li key={`technical-sheet-share-product-${product.id}`}>
-                      {product.name}
-                      {product.targetCompanyLabels.length > 0 ? ` -> ${product.targetCompanyLabels.join(', ')}` : ''}
-                    </li>
-                  ))}
-                </ul>
-              ) : (
-                <p>Nenhum produto dependente adicional sera impactado.</p>
-              )}
-            </div>
 
             <div className="confirmation-details">
               <strong>Fichas tecnicas dependentes ({technicalSheetShareCascadePreviewState.dependencySheets.length})</strong>
