@@ -3669,14 +3669,28 @@ export default function App() {
       return [] as ProductionRequestRow[]
     }
 
+    const manualRequestSheetIds = new Set(
+      manualProductionRequests
+        .filter((request) => request.companyId === currentCompanyId && request.centerId === selectedProductionCenter.id)
+        .map((request) => request.sheetId),
+    )
+    const draftSheetIds = new Set(
+      productionInProgressDrafts
+        .filter((draft) => draft.centerId === selectedProductionCenter.id)
+        .map((draft) => draft.sheetId),
+    )
     const producedSheets = technicalSheets
-      .filter(
-        (sheet) =>
-          sheet.companyId === currentCompanyId &&
-          sheet.isActive &&
-          sheet.kind === 'PREPARO' &&
-          selectedProductionCenter.producedTechnicalSheetIds.includes(sheet.id),
-      )
+      .filter((sheet) => {
+        if (sheet.companyId !== currentCompanyId || !sheet.isActive || sheet.kind !== 'PREPARO') {
+          return false
+        }
+
+        return (
+          selectedProductionCenter.producedTechnicalSheetIds.includes(sheet.id) ||
+          manualRequestSheetIds.has(sheet.id) ||
+          draftSheetIds.has(sheet.id)
+        )
+      })
       .sort((a, b) => a.name.localeCompare(b.name, 'pt-BR'))
 
     const sheetById = new Map(producedSheets.map((sheet) => [sheet.id, sheet] as const))
