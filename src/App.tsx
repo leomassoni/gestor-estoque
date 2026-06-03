@@ -3445,7 +3445,7 @@ export default function App() {
   )
   const currentCompany =
     currentCompanyId === null ? null : companies.find((item) => item.id === currentCompanyId) ?? null
-  const getCompanyLinkScopeIds = (companyId: number | null) => {
+  function getCompanyLinkScopeIds(companyId: number | null) {
     if (companyId === null) {
       return [] as number[]
     }
@@ -3458,6 +3458,28 @@ export default function App() {
 
     return Array.from(new Set([companyId, ...directLinkedCompanyIds, ...reverseLinkedCompanyIds])).sort(
       (left, right) => left - right,
+    )
+  }
+  function getProductOwnerCompanyId(product: ProductRecord) {
+    return product.ownerCompanyId ?? product.companyId
+  }
+  function getTechnicalSheetOwnerCompanyId(sheet: TechnicalSheetRecord) {
+    return sheet.ownerCompanyId ?? sheet.companyId
+  }
+  function getTechnicalSheetSharedCompanyIds(sheet: TechnicalSheetRecord) {
+    return Array.from(
+      new Set([getTechnicalSheetOwnerCompanyId(sheet), ...(Array.isArray(sheet.sharedCompanyIds) ? sheet.sharedCompanyIds : [])]),
+    )
+  }
+  function isProductVisibleForCompany(product: ProductRecord, companyId: number | null) {
+    return companyId !== null && getCompanyLinkScopeIds(getProductOwnerCompanyId(product)).includes(companyId)
+  }
+  function isTechnicalSheetVisibleForCompany(sheet: TechnicalSheetRecord, companyId: number | null) {
+    return (
+      companyId !== null &&
+      (getTechnicalSheetOwnerCompanyId(sheet) === companyId ||
+        (getTechnicalSheetSharedCompanyIds(sheet).includes(companyId) &&
+          getCompanyLinkScopeIds(getTechnicalSheetOwnerCompanyId(sheet)).includes(companyId)))
     )
   }
   const companyLinkableOptions = useMemo(
@@ -3534,17 +3556,6 @@ export default function App() {
         .filter((value): value is string => Boolean(value)),
     [technicalSheetForm.sharedCompanyIds, technicalSheetOwnerCompanyId, technicalSheetShareableCompanies],
   )
-  const getProductOwnerCompanyId = (product: ProductRecord) => product.ownerCompanyId ?? product.companyId
-  const getTechnicalSheetOwnerCompanyId = (sheet: TechnicalSheetRecord) => sheet.ownerCompanyId ?? sheet.companyId
-  const getTechnicalSheetSharedCompanyIds = (sheet: TechnicalSheetRecord) =>
-    Array.from(new Set([getTechnicalSheetOwnerCompanyId(sheet), ...(Array.isArray(sheet.sharedCompanyIds) ? sheet.sharedCompanyIds : [])]))
-  const isProductVisibleForCompany = (product: ProductRecord, companyId: number | null) =>
-    companyId !== null && getCompanyLinkScopeIds(getProductOwnerCompanyId(product)).includes(companyId)
-  const isTechnicalSheetVisibleForCompany = (sheet: TechnicalSheetRecord, companyId: number | null) =>
-    companyId !== null &&
-    (getTechnicalSheetOwnerCompanyId(sheet) === companyId ||
-      (getTechnicalSheetSharedCompanyIds(sheet).includes(companyId) &&
-        getCompanyLinkScopeIds(getTechnicalSheetOwnerCompanyId(sheet)).includes(companyId)))
   const userBelongsToCompany = (user: AppUserRecord, companyId: number | null) =>
     companyId !== null && (user.companyIds.includes(companyId) || user.companyId === companyId)
   const constrainSectorsToCurrentUserScope = (sectors: string[]) => {
@@ -9434,7 +9445,7 @@ export default function App() {
   const visibleUsers = useMemo(
     () =>
       users.filter((item) => {
-        const companyVisible = isSystemAdmin ? true : userBelongsToCompany(item, currentCompanyId)
+        const companyVisible = userBelongsToCompany(item, currentCompanyId)
         if (!companyVisible) {
           return false
         }
@@ -9445,7 +9456,7 @@ export default function App() {
 
         return hasSectorOverlap(item.sectors, currentUserSectorScope)
       }),
-    [currentCompanyId, currentUserSectorScope, isSystemAdmin, shouldFilterByUserSectors, users],
+    [currentCompanyId, currentUserSectorScope, shouldFilterByUserSectors, users],
   )
   const selectableAccessProfilesByRole = useMemo(() => {
     return {
