@@ -3510,9 +3510,19 @@ export default function App() {
   function getTechnicalSheetOwnerCompanyId(sheet: TechnicalSheetRecord) {
     return sheet.ownerCompanyId ?? sheet.companyId
   }
+  function getTechnicalSheetExplicitSharedCompanyIds(sheet: TechnicalSheetRecord) {
+    const ownerCompanyId = getTechnicalSheetOwnerCompanyId(sheet)
+    return Array.from(
+      new Set(
+        (Array.isArray(sheet.sharedCompanyIds) ? sheet.sharedCompanyIds : []).filter(
+          (companyId): companyId is number => typeof companyId === 'number' && companyId > 0 && companyId !== ownerCompanyId,
+        ),
+      ),
+    )
+  }
   function getTechnicalSheetSharedCompanyIds(sheet: TechnicalSheetRecord) {
     return Array.from(
-      new Set([getTechnicalSheetOwnerCompanyId(sheet), ...(Array.isArray(sheet.sharedCompanyIds) ? sheet.sharedCompanyIds : [])]),
+      new Set([getTechnicalSheetOwnerCompanyId(sheet), ...getTechnicalSheetExplicitSharedCompanyIds(sheet)]),
     )
   }
   function isProductVisibleForCompany(product: ProductRecord, companyId: number | null) {
@@ -20415,7 +20425,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
     const nextForm = {
       ...emptyTechnicalSheetForm(),
       kind,
-      sharedCompanyIds: currentCompanyId === null ? [] : [currentCompanyId],
+      sharedCompanyIds: [],
       outputUnit: getDefaultTechnicalSheetOutputUnit(kind),
       portionSize: isCommercialTechnicalSheetKind(kind) ? '1' : '1000',
       sectors: singleAllowedUserSector ? [singleAllowedUserSector] : [],
@@ -20462,7 +20472,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
 
     const nextForm = {
       kind: technicalSheet.kind ?? 'PREPARO',
-      sharedCompanyIds: getTechnicalSheetSharedCompanyIds(technicalSheet),
+      sharedCompanyIds: getTechnicalSheetExplicitSharedCompanyIds(technicalSheet),
       companyProductId: technicalSheet.companyProductId,
       name: technicalSheet.name,
       family: technicalSheet.family,
@@ -21335,11 +21345,11 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
     const generatedProductId = previousTechnicalSheet?.productId ?? buildTechnicalSheetProductId(normalizedName, technicalSheetForm.kind)
     const technicalSheetOwnerCompanyId =
       previousTechnicalSheet?.ownerCompanyId ?? previousTechnicalSheet?.companyId ?? currentCompanyId ?? 0
-    const previousSharedCompanyIds = previousTechnicalSheet ? getTechnicalSheetSharedCompanyIds(previousTechnicalSheet) : []
+    const previousSharedCompanyIds = previousTechnicalSheet ? getTechnicalSheetExplicitSharedCompanyIds(previousTechnicalSheet) : []
     const technicalSheetSharedCompanyIds = Array.from(
       new Set(
-        [technicalSheetOwnerCompanyId, ...technicalSheetForm.sharedCompanyIds].filter(
-          (companyId) => typeof companyId === 'number' && companyId > 0,
+        technicalSheetForm.sharedCompanyIds.filter(
+          (companyId) => typeof companyId === 'number' && companyId > 0 && companyId !== technicalSheetOwnerCompanyId,
         ),
       ),
     )
@@ -39614,13 +39624,16 @@ function normalizeTechnicalSheetRecord(value: unknown): TechnicalSheetRecord | n
     sharedCompanyIds: Array.isArray(item.sharedCompanyIds)
       ? Array.from(
           new Set(
-            [
-              typeof item.ownerCompanyId === 'number' ? item.ownerCompanyId : item.companyId,
-              ...item.sharedCompanyIds.filter((companyId): companyId is number => typeof companyId === 'number'),
-            ],
+            item.sharedCompanyIds.filter(
+              (companyId): companyId is number =>
+                typeof companyId === 'number' &&
+                companyId > 0 &&
+                companyId !==
+                  (typeof item.ownerCompanyId === 'number' ? item.ownerCompanyId : item.companyId),
+            ),
           ),
         )
-      : [typeof item.ownerCompanyId === 'number' ? item.ownerCompanyId : item.companyId],
+      : [],
     kind: normalizedKind,
     productId: normalizeRegistrationText(item.productId),
     companyProductId: normalizeRegistrationText(item.companyProductId),
