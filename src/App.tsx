@@ -738,6 +738,21 @@ type ManualProductionPreviewState = {
   shortageLines: RequisitionLineRecord[]
 }
 
+type TechnicalSheetShareCascadePreviewState = {
+  targetCompanyIds: number[]
+  targetCompanyLabels: string[]
+  dependencyProducts: Array<{
+    id: string
+    name: string
+    targetCompanyLabels: string[]
+  }>
+  dependencySheets: Array<{
+    id: number
+    name: string
+    targetCompanyLabels: string[]
+  }>
+}
+
 type TechnicalSheetDiscardTarget = 'technicalSheetForm' | 'technicalSheetProductModal' | 'technicalSheetServiceItemModal' | 'packageModal'
 
 type ManualSupplyDraftLine = {
@@ -2944,6 +2959,8 @@ export default function App() {
   const [technicalSheetActionState, setTechnicalSheetActionState] = useState<TechnicalSheetActionState | null>(null)
   const [saveFeedback, setSaveFeedback] = useState<SaveFeedback | null>(null)
   const [saveProgressState, setSaveProgressState] = useState<SaveProgressState | null>(null)
+  const [technicalSheetShareCascadePreviewState, setTechnicalSheetShareCascadePreviewState] =
+    useState<TechnicalSheetShareCascadePreviewState | null>(null)
   const [isSavingProduct, setIsSavingProduct] = useState(false)
   const [isSavingServiceItem, setIsSavingServiceItem] = useState(false)
   const [isSavingTechnicalSheet, setIsSavingTechnicalSheet] = useState(false)
@@ -3481,6 +3498,106 @@ export default function App() {
         (getTechnicalSheetSharedCompanyIds(sheet).includes(companyId) &&
           getCompanyLinkScopeIds(getTechnicalSheetOwnerCompanyId(sheet)).includes(companyId)))
     )
+  }
+  function getCompanyTradeName(companyId: number) {
+    return companies.find((item) => item.id === companyId)?.tradeName ?? `EMPRESA ${companyId}`
+  }
+  function analyzeTechnicalSheetShareCascade(
+    targetCompanyIds: number[],
+    ingredients: TechnicalSheetIngredient[],
+    garnishIngredients: TechnicalSheetIngredient[],
+    rootTechnicalSheetId?: number | null,
+  ) {
+    const relevantTargetCompanyIds = Array.from(new Set(targetCompanyIds.filter((companyId) => companyId > 0)))
+    const dependencyProductMap = new Map<string, ProductRecord>()
+    const dependencySheetMap = new Map<number, TechnicalSheetRecord>()
+    const visitedProductIds = new Set<string>()
+    const visitedSheetIds = new Set<number>()
+
+    function visitProduct(productId: string) {
+      const normalizedProductId = productId.trim()
+      if (!normalizedProductId || visitedProductIds.has(normalizedProductId)) {
+        return
+      }
+      visitedProductIds.add(normalizedProductId)
+      const product = products.find((item) => item.id === normalizedProductId) ?? null
+      if (product) {
+        dependencyProductMap.set(product.id, product)
+      }
+      const dependencySheet = technicalSheets.find((sheet) => sheet.productId === normalizedProductId) ?? null
+      if (dependencySheet && dependencySheet.id !== rootTechnicalSheetId) {
+        visitTechnicalSheet(dependencySheet)
+      }
+    }
+
+    function visitTechnicalSheet(sheet: TechnicalSheetRecord) {
+      if (visitedSheetIds.has(sheet.id)) {
+        return
+      }
+      visitedSheetIds.add(sheet.id)
+      dependencySheetMap.set(sheet.id, sheet)
+      ;[...sheet.ingredients, ...sheet.garnishIngredients]
+        .filter((ingredient) => ingredient.isActive && ingredient.productId.trim() !== '')
+        .forEach((ingredient) => visitProduct(ingredient.productId))
+    }
+
+    ;[...ingredients, ...garnishIngredients]
+      .filter((ingredient) => ingredient.isActive && ingredient.productId.trim() !== '')
+      .forEach((ingredient) => visitProduct(ingredient.productId))
+
+    const blockedProducts = Array.from(dependencyProductMap.values())
+      .map((product) => {
+        const missingCompanyIds = relevantTargetCompanyIds.filter(
+          (companyId) => !getCompanyLinkScopeIds(getProductOwnerCompanyId(product)).includes(companyId),
+        )
+        return missingCompanyIds.length > 0
+          ? {
+              id: product.id,
+              name: product.name,
+              targetCompanyIds: missingCompanyIds,
+            }
+          : null
+      })
+      .filter((item): item is { id: string; name: string; targetCompanyIds: number[] } => item !== null)
+
+    const blockedSheets = Array.from(dependencySheetMap.values())
+      .map((sheet) => {
+        const missingCompanyIds = relevantTargetCompanyIds.filter(
+          (companyId) => !getCompanyLinkScopeIds(getTechnicalSheetOwnerCompanyId(sheet)).includes(companyId),
+        )
+        return missingCompanyIds.length > 0
+          ? {
+              id: sheet.id,
+              name: sheet.name,
+              targetCompanyIds: missingCompanyIds,
+            }
+          : null
+      })
+      .filter((item): item is { id: number; name: string; targetCompanyIds: number[] } => item !== null)
+
+    const dependencySheetUpdates = Array.from(dependencySheetMap.values())
+      .map((sheet) => {
+        const companyIdsToAdd = relevantTargetCompanyIds.filter(
+          (companyId) =>
+            getCompanyLinkScopeIds(getTechnicalSheetOwnerCompanyId(sheet)).includes(companyId) &&
+            !getTechnicalSheetSharedCompanyIds(sheet).includes(companyId),
+        )
+        return companyIdsToAdd.length > 0
+          ? {
+              id: sheet.id,
+              name: sheet.name,
+              companyIdsToAdd,
+            }
+          : null
+      })
+      .filter((item): item is { id: number; name: string; companyIdsToAdd: number[] } => item !== null)
+
+    return {
+      dependencyProducts: Array.from(dependencyProductMap.values()),
+      blockedProducts,
+      blockedSheets,
+      dependencySheetUpdates,
+    }
   }
   const companyLinkableOptions = useMemo(
     () =>
@@ -20755,7 +20872,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
     setEditingTechnicalSheetServiceItemId(serviceItemId)
   }
 
-  async function saveTechnicalSheet() {
+  async function saveTechnicalSheet(skipCascadeConfirmation = false) {
     if (isSavingTechnicalSheet) {
       return
     }
@@ -20966,20 +21083,66 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
       editingTechnicalSheetId ??
       (technicalSheets.length > 0 ? Math.max(...technicalSheets.map((item) => item.id)) + 1 : 1)
     const generatedProductId = previousTechnicalSheet?.productId ?? buildTechnicalSheetProductId(normalizedName, technicalSheetForm.kind)
+    const technicalSheetOwnerCompanyId =
+      previousTechnicalSheet?.ownerCompanyId ?? previousTechnicalSheet?.companyId ?? currentCompanyId ?? 0
+    const technicalSheetSharedCompanyIds = Array.from(
+      new Set(
+        [technicalSheetOwnerCompanyId, ...technicalSheetForm.sharedCompanyIds].filter(
+          (companyId) => typeof companyId === 'number' && companyId > 0,
+        ),
+      ),
+    )
+    const shareCascadeAnalysis = analyzeTechnicalSheetShareCascade(
+      technicalSheetSharedCompanyIds,
+      normalizedIngredients,
+      normalizedGarnishIngredients,
+      editingTechnicalSheetId,
+    )
+
+    if (shareCascadeAnalysis.blockedProducts.length > 0 || shareCascadeAnalysis.blockedSheets.length > 0) {
+      const blockedParts = [
+        ...shareCascadeAnalysis.blockedProducts.map(
+          (product) =>
+            `${product.name} nao pode ser compartilhado com ${product.targetCompanyIds.map((companyId) => getCompanyTradeName(companyId)).join(', ')}`,
+        ),
+        ...shareCascadeAnalysis.blockedSheets.map(
+          (sheet) =>
+            `${sheet.name} nao pode ser compartilhada com ${sheet.targetCompanyIds.map((companyId) => getCompanyTradeName(companyId)).join(', ')}`,
+        ),
+      ]
+      setSaveFeedback({
+        status: 'error',
+        title: 'Falha ao salvar ficha tecnica',
+        message: `Erro: existem dependencias da ficha que nao podem ser compartilhadas com as empresas selecionadas. ${blockedParts.join('; ')}.`,
+      })
+      return
+    }
+
+    if (!skipCascadeConfirmation && shareCascadeAnalysis.dependencySheetUpdates.length > 0) {
+      setTechnicalSheetShareCascadePreviewState({
+        targetCompanyIds: technicalSheetSharedCompanyIds,
+        targetCompanyLabels: technicalSheetSharedCompanyIds.map((companyId) => getCompanyTradeName(companyId)),
+        dependencyProducts: shareCascadeAnalysis.dependencyProducts.map((product) => ({
+          id: product.id,
+          name: product.name,
+          targetCompanyLabels: technicalSheetSharedCompanyIds
+            .filter((companyId) => getCompanyLinkScopeIds(getProductOwnerCompanyId(product)).includes(companyId))
+            .map((companyId) => getCompanyTradeName(companyId)),
+        })),
+        dependencySheets: shareCascadeAnalysis.dependencySheetUpdates.map((sheet) => ({
+          id: sheet.id,
+          name: sheet.name,
+          targetCompanyLabels: sheet.companyIdsToAdd.map((companyId) => getCompanyTradeName(companyId)),
+        })),
+      })
+      return
+    }
 
     const technicalSheetToSave: TechnicalSheetRecord = {
       id: technicalSheetId,
       companyId: previousTechnicalSheet?.companyId ?? currentCompanyId ?? 0,
-      ownerCompanyId:
-        previousTechnicalSheet?.ownerCompanyId ?? previousTechnicalSheet?.companyId ?? currentCompanyId ?? 0,
-      sharedCompanyIds: Array.from(
-        new Set(
-          [
-            previousTechnicalSheet?.ownerCompanyId ?? previousTechnicalSheet?.companyId ?? currentCompanyId ?? 0,
-            ...technicalSheetForm.sharedCompanyIds,
-          ].filter((companyId) => typeof companyId === 'number' && companyId > 0),
-        ),
-      ),
+      ownerCompanyId: technicalSheetOwnerCompanyId,
+      sharedCompanyIds: technicalSheetSharedCompanyIds,
       kind: technicalSheetForm.kind,
       productId: generatedProductId,
       companyProductId: normalizedCompanyProductId,
@@ -21032,14 +21195,29 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
       ? technicalSheets.map((item) => (item.id === editingTechnicalSheetId ? technicalSheetToSave : item))
       : [technicalSheetToSave, ...technicalSheets]
 
+    const cascadedBaseSheets =
+      shareCascadeAnalysis.dependencySheetUpdates.length > 0
+        ? baseSheets.map((sheet) => {
+            const dependencyUpdate = shareCascadeAnalysis.dependencySheetUpdates.find((item) => item.id === sheet.id)
+            return dependencyUpdate
+              ? {
+                  ...sheet,
+                  sharedCompanyIds: Array.from(
+                    new Set([...getTechnicalSheetSharedCompanyIds(sheet), ...dependencyUpdate.companyIdsToAdd]),
+                  ),
+                }
+              : sheet
+          })
+        : baseSheets
+
     const nextTechnicalSheets = previousTechnicalSheet
       ? syncTechnicalSheetIngredientReferences(
-          baseSheets,
+          cascadedBaseSheets,
           previousTechnicalSheet.productId,
           technicalSheetToSave.productId,
           technicalSheetToSave.name,
         )
-      : baseSheets
+      : cascadedBaseSheets
 
     const linkedExisting = products.find((product) => product.technicalSheetId === technicalSheetId)
     const technicalProduct: ProductRecord = {
@@ -21158,9 +21336,13 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
       status: 'success',
       title: editingTechnicalSheetId ? 'Ficha tecnica atualizada com sucesso' : 'Ficha tecnica salva com sucesso',
       message:
-        editingTechnicalSheetId
-          ? 'A ficha tecnica foi atualizada e o produto vinculado tambem foi atualizado.'
-          : 'A ficha tecnica foi cadastrada e o produto vinculado ja entrou na lista de produtos.',
+        shareCascadeAnalysis.dependencySheetUpdates.length > 0
+          ? `A ficha tecnica foi ${
+              editingTechnicalSheetId ? 'atualizada' : 'cadastrada'
+            } e ${shareCascadeAnalysis.dependencySheetUpdates.length} ficha(s) dependente(s) tambem foram compartilhadas automaticamente.`
+          : editingTechnicalSheetId
+            ? 'A ficha tecnica foi atualizada e o produto vinculado tambem foi atualizado.'
+            : 'A ficha tecnica foi cadastrada e o produto vinculado ja entrou na lista de produtos.',
     })
   }
 
@@ -26018,7 +26200,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                   na lista de produtos, deixando-o disponivel para novos pre-preparos.
                 </p>
                 <div className="save-product-actions">
-                  <button className="primary-button" type="button" onClick={saveTechnicalSheet} disabled={isSavingTechnicalSheet}>
+                  <button className="primary-button" type="button" onClick={() => void saveTechnicalSheet()} disabled={isSavingTechnicalSheet}>
                     {isSavingTechnicalSheet ? 'Registrando, aguarde...' : 'Salvar'}
                   </button>
                 </div>
@@ -29887,7 +30069,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
               <button className="ghost-button" type="button" onClick={() => requestTechnicalSheetDiscard('technicalSheetForm')} disabled={isSavingTechnicalSheet}>
                 Cancelar
               </button>
-              <button className="primary-button" type="button" onClick={saveTechnicalSheet} disabled={isSavingTechnicalSheet}>
+              <button className="primary-button" type="button" onClick={() => void saveTechnicalSheet()} disabled={isSavingTechnicalSheet}>
                 {isSavingTechnicalSheet ? 'Registrando, aguarde...' : 'Salvar ficha'}
               </button>
             </div>
@@ -31710,6 +31892,87 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
         </div>
       ) : null}
 
+      {technicalSheetShareCascadePreviewState ? (
+        <div
+          className="modal-backdrop modal-backdrop-front"
+          role="presentation"
+          onClick={() => setTechnicalSheetShareCascadePreviewState(null)}
+        >
+          <section
+            className="modal-card modal-card-full"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="technical-sheet-share-cascade-title"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="section-heading">
+              <div>
+                <p className="kicker">Compartilhamento de ficha</p>
+                <h2 id="technical-sheet-share-cascade-title">Confirmar compartilhamento das dependencias</h2>
+              </div>
+            </div>
+
+            <p className="confirm-copy">
+              Ao compartilhar esta ficha tecnica com{' '}
+              {technicalSheetShareCascadePreviewState.targetCompanyLabels.join(', ')}, o sistema tambem precisa
+              disponibilizar as dependencias tecnicas dela para manter a composicao utilizavel nessas empresas.
+            </p>
+
+            <div className="confirmation-details">
+              <strong>Produtos dependentes ({technicalSheetShareCascadePreviewState.dependencyProducts.length})</strong>
+              {technicalSheetShareCascadePreviewState.dependencyProducts.length > 0 ? (
+                <ul className="sector-impact-list">
+                  {technicalSheetShareCascadePreviewState.dependencyProducts.map((product) => (
+                    <li key={`technical-sheet-share-product-${product.id}`}>
+                      {product.name}
+                      {product.targetCompanyLabels.length > 0 ? ` -> ${product.targetCompanyLabels.join(', ')}` : ''}
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p>Nenhum produto dependente adicional sera impactado.</p>
+              )}
+            </div>
+
+            <div className="confirmation-details">
+              <strong>Fichas tecnicas dependentes ({technicalSheetShareCascadePreviewState.dependencySheets.length})</strong>
+              {technicalSheetShareCascadePreviewState.dependencySheets.length > 0 ? (
+                <ul className="sector-impact-list">
+                  {technicalSheetShareCascadePreviewState.dependencySheets.map((sheet) => (
+                    <li key={`technical-sheet-share-sheet-${sheet.id}`}>
+                      {sheet.name}
+                      {sheet.targetCompanyLabels.length > 0 ? ` -> ${sheet.targetCompanyLabels.join(', ')}` : ''}
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p>Nenhuma ficha tecnica filha precisa de compartilhamento adicional.</p>
+              )}
+            </div>
+
+            <div className="modal-actions">
+              <button
+                className="ghost-button"
+                type="button"
+                onClick={() => setTechnicalSheetShareCascadePreviewState(null)}
+              >
+                Cancelar
+              </button>
+              <button
+                className="primary-button"
+                type="button"
+                onClick={() => {
+                  setTechnicalSheetShareCascadePreviewState(null)
+                  void saveTechnicalSheet(true)
+                }}
+              >
+                Compartilhar dependencias e salvar
+              </button>
+            </div>
+          </section>
+        </div>
+      ) : null}
+
       {saveProgressState ? (
         <div className="modal-backdrop modal-backdrop-front" role="presentation">
           <section
@@ -31733,14 +31996,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
 
       {saveFeedback ? (
         <div
-          className={
-            saveProgressState !== null ||
-            inventoryCountHistoryModalState !== null ||
-            closedInventorySummaryModalState !== null ||
-            inventoryReviewModalState !== null
-              ? 'modal-backdrop modal-backdrop-front'
-              : 'modal-backdrop'
-          }
+          className="modal-backdrop modal-backdrop-front"
           role="presentation"
           onClick={closeSaveFeedback}
         >
