@@ -120,6 +120,44 @@ app.get('/api/companies', async (_request, response) => {
   response.json({ companies })
 })
 
+async function syncCompanyLinkedCompanyIds(transaction, companyId, linkedCompanyIds) {
+  const allCompanies = await transaction.appCompanyRecord.findMany({
+    select: { id: true, linkedCompanyIds: true },
+  })
+  const validCompanyIds = new Set(allCompanies.map((record) => record.id))
+  const nextLinkedCompanyIds = Array.from(
+    new Set(
+      linkedCompanyIds.filter((linkedCompanyId) => linkedCompanyId !== companyId && validCompanyIds.has(linkedCompanyId)),
+    ),
+  ).sort((left, right) => left - right)
+
+  await transaction.appCompanyRecord.update({
+    where: { id: companyId },
+    data: { linkedCompanyIds: nextLinkedCompanyIds },
+  })
+
+  for (const company of allCompanies) {
+    if (company.id === companyId) {
+      continue
+    }
+
+    const shouldLink = nextLinkedCompanyIds.includes(company.id)
+    const currentLinkedCompanyIds = Array.isArray(company.linkedCompanyIds) ? company.linkedCompanyIds : []
+    const nextCompanyLinkedIds = shouldLink
+      ? Array.from(new Set([...currentLinkedCompanyIds, companyId])).sort((left, right) => left - right)
+      : currentLinkedCompanyIds.filter((linkedCompanyId) => linkedCompanyId !== companyId)
+
+    if (JSON.stringify(nextCompanyLinkedIds) === JSON.stringify(currentLinkedCompanyIds)) {
+      continue
+    }
+
+    await transaction.appCompanyRecord.update({
+      where: { id: company.id },
+      data: { linkedCompanyIds: nextCompanyLinkedIds },
+    })
+  }
+}
+
 app.post('/api/companies', async (request, response) => {
   const company = normalizeCompanyPayload(request.body)
   if (!company) {
@@ -127,10 +165,14 @@ app.post('/api/companies', async (request, response) => {
     return
   }
 
-  const saved = await prisma.appCompanyRecord.upsert({
-    where: { id: company.id },
-    create: company,
-    update: company,
+  const saved = await prisma.$transaction(async (transaction) => {
+    await transaction.appCompanyRecord.upsert({
+      where: { id: company.id },
+      create: company,
+      update: company,
+    })
+    await syncCompanyLinkedCompanyIds(transaction, company.id, company.linkedCompanyIds)
+    return transaction.appCompanyRecord.findUnique({ where: { id: company.id } })
   })
   response.json({ company: saved })
 })
@@ -143,10 +185,14 @@ app.put('/api/companies/:id', async (request, response) => {
     return
   }
 
-  const saved = await prisma.appCompanyRecord.upsert({
-    where: { id: companyId },
-    create: company,
-    update: company,
+  const saved = await prisma.$transaction(async (transaction) => {
+    await transaction.appCompanyRecord.upsert({
+      where: { id: companyId },
+      create: company,
+      update: company,
+    })
+    await syncCompanyLinkedCompanyIds(transaction, companyId, company.linkedCompanyIds)
+    return transaction.appCompanyRecord.findUnique({ where: { id: companyId } })
   })
   response.json({ company: saved })
 })
@@ -165,6 +211,14 @@ app.delete('/api/companies/:id', async (request, response) => {
   })
 
   await prisma.$transaction(async (transaction) => {
+    const linkedCompanies = await transaction.appCompanyRecord.findMany({
+      where: { linkedCompanyIds: { has: companyId } },
+    })
+    const sharedTechnicalSheets = await transaction.appTechnicalSheetRecord.findMany({
+      where: { sharedCompanyIds: { has: companyId } },
+      select: { id: true, sharedCompanyIds: true },
+    })
+
     for (const user of linkedUsers) {
       const nextCompanyIds = user.companyIds.filter((id) => id !== companyId)
       const nextCompanyId = user.companyId === companyId ? nextCompanyIds[0] ?? null : user.companyId
@@ -182,6 +236,28 @@ app.delete('/api/companies/:id', async (request, response) => {
         },
       })
     }
+
+    await Promise.all(
+      linkedCompanies.map((company) =>
+        transaction.appCompanyRecord.update({
+          where: { id: company.id },
+          data: {
+            linkedCompanyIds: company.linkedCompanyIds.filter((linkedCompanyId) => linkedCompanyId !== companyId),
+          },
+        }),
+      ),
+    )
+
+    await Promise.all(
+      sharedTechnicalSheets.map((sheet) =>
+        transaction.appTechnicalSheetRecord.update({
+          where: { id: sheet.id },
+          data: {
+            sharedCompanyIds: sheet.sharedCompanyIds.filter((linkedCompanyId) => linkedCompanyId !== companyId),
+          },
+        }),
+      ),
+    )
 
     await transaction.appAccessProfileRecord.deleteMany({ where: { companyId } })
     await transaction.appStockModuleSettingsRecord.deleteMany({ where: { companyId } })
@@ -1228,6 +1304,15 @@ function normalizeCompanyPayload(value) {
   const company = value
   const id = parseIntegerParam(company.id)
   const status = company.status === 'INATIVA' ? 'INATIVA' : company.status === 'ATIVA' ? 'ATIVA' : null
+  const linkedCompanyIds = Array.isArray(company.linkedCompanyIds)
+    ? Array.from(
+        new Set(
+          company.linkedCompanyIds
+            .map((item) => parseIntegerParam(item))
+            .filter((item) => item !== null && item !== id),
+        ),
+      )
+    : []
   if (
     id === null ||
     typeof company.tradeName !== 'string' ||
@@ -1258,6 +1343,7 @@ function normalizeCompanyPayload(value) {
     city: company.city,
     state: company.state,
     status,
+    linkedCompanyIds,
   }
 }
 
@@ -1904,9 +1990,16 @@ function normalizeProductPayload(value) {
   }
 
   const product = value
+  const ownerCompanyId =
+    typeof product.ownerCompanyId === 'number'
+      ? product.ownerCompanyId
+      : typeof product.companyId === 'number'
+        ? product.companyId
+        : null
   if (
     typeof product.id !== 'string' ||
     typeof product.companyId !== 'number' ||
+    ownerCompanyId === null ||
     typeof product.companyProductId !== 'string' ||
     typeof product.name !== 'string' ||
     typeof product.controlUnit !== 'string' ||
@@ -1926,6 +2019,7 @@ function normalizeProductPayload(value) {
   return {
     id: product.id,
     companyId: product.companyId,
+    ownerCompanyId,
     companyProductId: product.companyProductId,
     name: product.name,
     controlUnit: product.controlUnit,
@@ -1995,9 +2089,25 @@ function normalizeTechnicalSheetPayload(value) {
   }
 
   const sheet = value
+  const ownerCompanyId =
+    typeof sheet.ownerCompanyId === 'number'
+      ? sheet.ownerCompanyId
+      : typeof sheet.companyId === 'number'
+        ? sheet.companyId
+        : null
+  const sharedCompanyIds = Array.isArray(sheet.sharedCompanyIds)
+    ? Array.from(
+        new Set(
+          sheet.sharedCompanyIds
+            .map((item) => parseIntegerParam(item))
+            .filter((item) => item !== null),
+        ),
+      )
+    : []
   if (
     typeof sheet.id !== 'number' ||
     typeof sheet.companyId !== 'number' ||
+    ownerCompanyId === null ||
     typeof sheet.kind !== 'string' ||
     typeof sheet.productId !== 'string' ||
     typeof sheet.companyProductId !== 'string' ||
@@ -2080,6 +2190,8 @@ function normalizeTechnicalSheetPayload(value) {
   return {
     id: sheet.id,
     companyId: sheet.companyId,
+    ownerCompanyId,
+    sharedCompanyIds: Array.from(new Set([ownerCompanyId, ...sharedCompanyIds])),
     kind: sheet.kind,
     productId: sheet.productId,
     companyProductId: sheet.companyProductId,

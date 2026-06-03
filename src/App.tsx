@@ -97,6 +97,7 @@ type CompanyRecord = {
   city: string
   state: string
   status: 'ATIVA' | 'INATIVA'
+  linkedCompanyIds: number[]
 }
 
 type PackageForm = {
@@ -114,6 +115,7 @@ type PackageForm = {
 
 type ProductRecord = {
   companyId: number
+  ownerCompanyId: number
   id: string
   companyProductId: string
   name: string
@@ -176,6 +178,8 @@ type TechnicalSheetProductionCenter = {
 type TechnicalSheetRecord = {
   id: number
   companyId: number
+  ownerCompanyId: number
+  sharedCompanyIds: number[]
   kind: TechnicalSheetKind
   productId: string
   companyProductId: string
@@ -218,6 +222,7 @@ type TechnicalSheetRecord = {
 
 type TechnicalSheetFormState = {
   kind: TechnicalSheetKind
+  sharedCompanyIds: number[]
   companyProductId: string
   name: string
   family: string
@@ -1152,6 +1157,7 @@ type CompanyFormState = {
   neighborhood: string
   city: string
   state: string
+  linkedCompanyIds: number[]
 }
 
 type UserFormState = {
@@ -2281,6 +2287,7 @@ const emptyInventoryForm = (): InventoryFormState => ({
 const initialProducts: ProductRecord[] = [
   {
     companyId: 1,
+    ownerCompanyId: 1,
     id: 'PRD-COCA-COLA',
     companyProductId: 'BEB-001',
     name: 'Coca-Cola',
@@ -2322,6 +2329,7 @@ const initialProducts: ProductRecord[] = [
   },
   {
     companyId: 1,
+    ownerCompanyId: 1,
     id: 'PRD-LICOR-43',
     companyProductId: 'BEB-014',
     name: 'Licor 43',
@@ -2481,6 +2489,7 @@ const emptyCompanyForm = (): CompanyFormState => ({
   neighborhood: '',
   city: '',
   state: '',
+  linkedCompanyIds: [],
 })
 
 const emptyUserForm = (): UserFormState => ({
@@ -2497,6 +2506,7 @@ const emptyUserForm = (): UserFormState => ({
 
 const emptyTechnicalSheetForm = (): TechnicalSheetFormState => ({
   kind: 'PREPARO',
+  sharedCompanyIds: [],
   companyProductId: '',
   name: '',
   family: '',
@@ -2731,7 +2741,7 @@ function isTechnicalSheetStockTracked(sheet: TechnicalSheetRecord, products: Pro
   if (!sheet.productId.trim()) {
     return true
   }
-  const linkedProduct = products.find((product) => product.id === sheet.productId && product.companyId === sheet.companyId) ?? null
+  const linkedProduct = products.find((product) => product.id === sheet.productId) ?? null
   return linkedProduct ? isProductStockTracked(linkedProduct) : true
 }
 
@@ -2904,6 +2914,7 @@ export default function App() {
   const [loginError, setLoginError] = useState('')
   const [isLoginPasswordVisible, setIsLoginPasswordVisible] = useState(false)
   const [companyForm, setCompanyForm] = useState<CompanyFormState>(emptyCompanyForm())
+  const [companyLinkedInput, setCompanyLinkedInput] = useState('')
   const [companyCepFeedback, setCompanyCepFeedback] = useState('')
   const [isFetchingCompanyCep, setIsFetchingCompanyCep] = useState(false)
   const [isCompanyModalOpen, setIsCompanyModalOpen] = useState(false)
@@ -3186,6 +3197,7 @@ export default function App() {
   const [technicalSheetForm, setTechnicalSheetForm] = useState<TechnicalSheetFormState>(emptyTechnicalSheetForm())
   const [technicalSheetOutputQuantityMode, setTechnicalSheetOutputQuantityMode] = useState<'auto' | 'manual'>('auto')
   const [technicalSheetSectorInput, setTechnicalSheetSectorInput] = useState('')
+  const [technicalSheetSharedCompanyInput, setTechnicalSheetSharedCompanyInput] = useState('')
   const [technicalSheetProductionCenterInput, setTechnicalSheetProductionCenterInput] = useState('')
   const [technicalSheetIngredients, setTechnicalSheetIngredients] = useState<TechnicalSheetIngredient[]>([
     emptyTechnicalSheetIngredient(),
@@ -3433,6 +3445,106 @@ export default function App() {
   )
   const currentCompany =
     currentCompanyId === null ? null : companies.find((item) => item.id === currentCompanyId) ?? null
+  const getCompanyLinkScopeIds = (companyId: number | null) => {
+    if (companyId === null) {
+      return [] as number[]
+    }
+
+    const directLinkedCompanyIds =
+      companies.find((item) => item.id === companyId)?.linkedCompanyIds.filter((linkedCompanyId) => linkedCompanyId !== companyId) ?? []
+    const reverseLinkedCompanyIds = companies
+      .filter((item) => item.id !== companyId && item.linkedCompanyIds.includes(companyId))
+      .map((item) => item.id)
+
+    return Array.from(new Set([companyId, ...directLinkedCompanyIds, ...reverseLinkedCompanyIds])).sort(
+      (left, right) => left - right,
+    )
+  }
+  const companyLinkableOptions = useMemo(
+    () =>
+      companies
+        .filter((company) => company.id !== editingCompanyId)
+        .sort((left, right) => left.tradeName.localeCompare(right.tradeName, 'pt-BR')),
+    [companies, editingCompanyId],
+  )
+  const companyLinkableLabels = useMemo(
+    () => companyLinkableOptions.map((company) => `${company.tradeName} (${company.city}/${company.state || 'UF'})`),
+    [companyLinkableOptions],
+  )
+  const companyLinkableIdByLabel = useMemo(
+    () =>
+      new Map(
+        companyLinkableOptions.map((company) => [
+          normalizeRegistrationText(`${company.tradeName} (${company.city}/${company.state || 'UF'})`),
+          company.id,
+        ] as const),
+      ),
+    [companyLinkableOptions],
+  )
+  const selectedCompanyLinkedLabels = useMemo(
+    () =>
+      companyForm.linkedCompanyIds
+        .map((companyId) => {
+          const company = companyLinkableOptions.find((item) => item.id === companyId) ?? null
+          return company ? `${company.tradeName} (${company.city}/${company.state || 'UF'})` : null
+        })
+        .filter((value): value is string => Boolean(value)),
+    [companyForm.linkedCompanyIds, companyLinkableOptions],
+  )
+  const technicalSheetOwnerCompanyId = useMemo(() => {
+    if (editingTechnicalSheetId === null) {
+      return currentCompanyId
+    }
+    const sheet = technicalSheets.find((item) => item.id === editingTechnicalSheetId) ?? null
+    return sheet ? getTechnicalSheetOwnerCompanyId(sheet) : currentCompanyId
+  }, [currentCompanyId, editingTechnicalSheetId, technicalSheets])
+  const technicalSheetShareableCompanies = useMemo(
+    () =>
+      companies
+        .filter(
+          (company) =>
+            company.id !== technicalSheetOwnerCompanyId && getCompanyLinkScopeIds(technicalSheetOwnerCompanyId).includes(company.id),
+        )
+        .sort((left, right) => left.tradeName.localeCompare(right.tradeName, 'pt-BR')),
+    [companies, technicalSheetOwnerCompanyId],
+  )
+  const technicalSheetShareableCompanyLabels = useMemo(
+    () =>
+      technicalSheetShareableCompanies.map((company) => `${company.tradeName} (${company.city}/${company.state || 'UF'})`),
+    [technicalSheetShareableCompanies],
+  )
+  const technicalSheetShareableCompanyIdByLabel = useMemo(
+    () =>
+      new Map(
+        technicalSheetShareableCompanies.map((company) => [
+          normalizeRegistrationText(`${company.tradeName} (${company.city}/${company.state || 'UF'})`),
+          company.id,
+        ] as const),
+      ),
+    [technicalSheetShareableCompanies],
+  )
+  const selectedTechnicalSheetSharedCompanyLabels = useMemo(
+    () =>
+      technicalSheetForm.sharedCompanyIds
+        .filter((companyId) => companyId !== technicalSheetOwnerCompanyId)
+        .map((companyId) => {
+          const company = technicalSheetShareableCompanies.find((item) => item.id === companyId) ?? null
+          return company ? `${company.tradeName} (${company.city}/${company.state || 'UF'})` : null
+        })
+        .filter((value): value is string => Boolean(value)),
+    [technicalSheetForm.sharedCompanyIds, technicalSheetOwnerCompanyId, technicalSheetShareableCompanies],
+  )
+  const getProductOwnerCompanyId = (product: ProductRecord) => product.ownerCompanyId ?? product.companyId
+  const getTechnicalSheetOwnerCompanyId = (sheet: TechnicalSheetRecord) => sheet.ownerCompanyId ?? sheet.companyId
+  const getTechnicalSheetSharedCompanyIds = (sheet: TechnicalSheetRecord) =>
+    Array.from(new Set([getTechnicalSheetOwnerCompanyId(sheet), ...(Array.isArray(sheet.sharedCompanyIds) ? sheet.sharedCompanyIds : [])]))
+  const isProductVisibleForCompany = (product: ProductRecord, companyId: number | null) =>
+    companyId !== null && getCompanyLinkScopeIds(getProductOwnerCompanyId(product)).includes(companyId)
+  const isTechnicalSheetVisibleForCompany = (sheet: TechnicalSheetRecord, companyId: number | null) =>
+    companyId !== null &&
+    (getTechnicalSheetOwnerCompanyId(sheet) === companyId ||
+      (getTechnicalSheetSharedCompanyIds(sheet).includes(companyId) &&
+        getCompanyLinkScopeIds(getTechnicalSheetOwnerCompanyId(sheet)).includes(companyId)))
   const userBelongsToCompany = (user: AppUserRecord, companyId: number | null) =>
     companyId !== null && (user.companyIds.includes(companyId) || user.companyId === companyId)
   const constrainSectorsToCurrentUserScope = (sectors: string[]) => {
@@ -3681,7 +3793,7 @@ export default function App() {
     )
     const producedSheets = technicalSheets
       .filter((sheet) => {
-        if (sheet.companyId !== currentCompanyId || !sheet.isActive || sheet.kind !== 'PREPARO') {
+        if (!isTechnicalSheetVisibleForCompany(sheet, currentCompanyId) || !sheet.isActive || sheet.kind !== 'PREPARO') {
           return false
         }
 
@@ -3927,18 +4039,18 @@ export default function App() {
         )
       })
       .sort((a, b) => a.priority - b.priority || a.sheetName.localeCompare(b.sheetName, 'pt-BR'))
-  }, [currentCompanyId, latestInventoryQuantityByCenterAndAggregation, manualProductionRequests, productionInProgressDraftByKey, productionSearch, requisitions, selectedProductionCenter, technicalSheets])
+  }, [currentCompanyId, isTechnicalSheetVisibleForCompany, latestInventoryQuantityByCenterAndAggregation, manualProductionRequests, productionInProgressDraftByKey, productionSearch, requisitions, selectedProductionCenter, technicalSheets])
   const selectedProductionSheet = useMemo(
     () =>
       productionDraftState
         ? technicalSheets.find(
             (sheet) =>
-              sheet.companyId === currentCompanyId &&
+              isTechnicalSheetVisibleForCompany(sheet, currentCompanyId) &&
               sheet.kind === 'PREPARO' &&
               sheet.id === productionDraftState.sheetId,
           ) ?? null
         : null,
-    [currentCompanyId, productionDraftState, technicalSheets],
+    [currentCompanyId, isTechnicalSheetVisibleForCompany, productionDraftState, technicalSheets],
   )
   const selectedProductionRequestRow = useMemo(
     () =>
@@ -4026,8 +4138,13 @@ export default function App() {
     [reportEligibleStockCenters],
   )
   const productById = useMemo(
-    () => new Map(products.filter((product) => product.companyId === currentCompanyId).map((product) => [product.id, product] as const)),
-    [currentCompanyId, products],
+    () =>
+      new Map(
+        products
+          .filter((product) => isProductVisibleForCompany(product, currentCompanyId))
+          .map((product) => [product.id, product] as const),
+      ),
+    [currentCompanyId, isProductVisibleForCompany, products],
   )
 
   function hydrateAppStateFromLocalStorageSnapshot() {
@@ -5317,7 +5434,7 @@ export default function App() {
     technicalSheets
       .filter(
         (sheet) =>
-          sheet.companyId === currentCompanyId &&
+          isTechnicalSheetVisibleForCompany(sheet, currentCompanyId) &&
           sheet.isActive &&
           sheet.kind === 'PREPARO' &&
           isTechnicalSheetStockTracked(sheet, products),
@@ -5335,7 +5452,7 @@ export default function App() {
       })
 
     products
-      .filter((product) => product.companyId === currentCompanyId && product.isActive && isProductStockTracked(product))
+      .filter((product) => isProductVisibleForCompany(product, currentCompanyId) && product.isActive && isProductStockTracked(product))
       .forEach((product) => {
         metadata.set(buildInventoryAggregationKey({ kind: 'PRODUTO', technicalSheetId: null, productId: product.id, serviceItemId: '' }), {
           main: product.name,
@@ -5373,13 +5490,13 @@ export default function App() {
       technicalSheets
         .filter(
           (sheet) =>
-            sheet.companyId === currentCompanyId &&
+            isTechnicalSheetVisibleForCompany(sheet, currentCompanyId) &&
             sheet.isActive &&
             sheet.kind === 'PREPARO' &&
             manualProductionCenter?.producedTechnicalSheetIds.includes(sheet.id),
         )
         .sort((a, b) => a.name.localeCompare(b.name, 'pt-BR')),
-    [currentCompanyId, manualProductionCenter, technicalSheets],
+    [currentCompanyId, isTechnicalSheetVisibleForCompany, manualProductionCenter, technicalSheets],
   )
   const manualSupplySourceCenter = useMemo(
     () => supplyResponsibleCenters.find((center) => String(center.id) === manualSupplySourceCenterId) ?? null,
@@ -5887,41 +6004,41 @@ export default function App() {
       technicalSheets
         .filter(
           (sheet) =>
-            sheet.companyId === currentCompanyId &&
+            isTechnicalSheetVisibleForCompany(sheet, currentCompanyId) &&
             sheet.isActive &&
             sheet.kind === 'PREPARO' &&
             isTechnicalSheetStockTracked(sheet, products) &&
             (sheet.productionCenters ?? []).length > 0,
         )
         .sort((a, b) => a.name.localeCompare(b.name, 'pt-BR')),
-    [currentCompanyId, products, technicalSheets],
+    [currentCompanyId, isTechnicalSheetVisibleForCompany, products, technicalSheets],
   )
   const stockCenterMinimumCountableSheets = useMemo(
     () =>
       technicalSheets
         .filter(
           (sheet) =>
-            sheet.companyId === currentCompanyId &&
+            isTechnicalSheetVisibleForCompany(sheet, currentCompanyId) &&
             sheet.isActive &&
             sheet.kind === 'PREPARO' &&
             isTechnicalSheetStockTracked(sheet, products),
         )
         .sort((a, b) => a.name.localeCompare(b.name, 'pt-BR')),
-    [currentCompanyId, products, technicalSheets],
+    [currentCompanyId, isTechnicalSheetVisibleForCompany, products, technicalSheets],
   )
   const inventoryCountableProducts = useMemo(
     () =>
       products
         .filter(
           (product) =>
-            product.companyId === currentCompanyId &&
+            isProductVisibleForCompany(product, currentCompanyId) &&
             product.isActive &&
             isProductStockTracked(product) &&
             typeof product.technicalSheetId !== 'number' &&
             product.controlUnit !== 'COMBO',
         )
         .sort((a, b) => a.name.localeCompare(b.name, 'pt-BR')),
-    [currentCompanyId, products],
+    [currentCompanyId, isProductVisibleForCompany, products],
   )
   const inventoryCountableServiceItems = useMemo(
     () =>
@@ -6667,12 +6784,12 @@ export default function App() {
       technicalSheets
         .filter(
           (sheet) =>
-            sheet.companyId === currentCompanyId &&
+            isTechnicalSheetVisibleForCompany(sheet, currentCompanyId) &&
             sheet.kind === 'PREPARO' &&
             sheet.isActive,
         )
         .sort((a, b) => a.name.localeCompare(b.name, 'pt-BR')),
-    [currentCompanyId, technicalSheets],
+    [currentCompanyId, isTechnicalSheetVisibleForCompany, technicalSheets],
   )
   const producerTechnicalSheetSuggestions = useMemo(
     () => producerTechnicalSheets.map((sheet) => `${sheet.name} (${sheet.productId})`),
@@ -6698,9 +6815,15 @@ export default function App() {
   const activeProducerStockCenters = useMemo(
     () =>
       stockCenters
-        .filter((center) => center.companyId === currentCompanyId && center.isActive)
+        .filter(
+          (center) =>
+            center.isActive &&
+            (center.companyId === currentCompanyId ||
+              (technicalSheetForm.kind === 'PREPARO' &&
+                technicalSheetForm.sharedCompanyIds.includes(center.companyId))),
+        )
         .sort((a, b) => a.name.localeCompare(b.name, 'pt-BR')),
-    [currentCompanyId, stockCenters],
+    [currentCompanyId, stockCenters, technicalSheetForm.kind, technicalSheetForm.sharedCompanyIds],
   )
   const producerCenterSuggestions = useMemo(
     () => activeProducerStockCenters.map((center) => `${center.name} (${center.code})`),
@@ -6961,7 +7084,7 @@ export default function App() {
     technicalSheets
       .filter(
         (sheet) =>
-          sheet.companyId === currentCompanyId &&
+          isTechnicalSheetVisibleForCompany(sheet, currentCompanyId) &&
           sheet.isActive &&
           sheet.kind === 'PREPARO' &&
           isTechnicalSheetStockTracked(sheet, products),
@@ -6979,7 +7102,7 @@ export default function App() {
       })
 
     products
-      .filter((product) => product.companyId === currentCompanyId && product.isActive && isProductStockTracked(product))
+      .filter((product) => isProductVisibleForCompany(product, currentCompanyId) && product.isActive && isProductStockTracked(product))
       .forEach((product) => {
         const aggregationKey = buildInventoryAggregationKey({
           kind: 'PRODUTO',
@@ -7003,7 +7126,7 @@ export default function App() {
       })
 
     return nextMap
-  }, [currentCompanyId, products, serviceItemUnitCostById, serviceItems, technicalSheets])
+  }, [currentCompanyId, isProductVisibleForCompany, isTechnicalSheetVisibleForCompany, products, serviceItemUnitCostById, serviceItems, technicalSheets])
   const inventorySnapshotByCenterId = useMemo(() => {
     return new Map(
       Array.from(inventoryCurrentBalances.snapshotsByCenter.entries()).filter(([centerId]) => reportStockCenterById.has(centerId)),
@@ -7287,7 +7410,7 @@ export default function App() {
         const producedSheets = technicalSheets
           .filter(
             (sheet) =>
-              sheet.companyId === currentCompanyId &&
+              isTechnicalSheetVisibleForCompany(sheet, currentCompanyId) &&
               sheet.isActive &&
               sheet.kind === 'PREPARO' &&
               center.producedTechnicalSheetIds.includes(sheet.id),
@@ -8784,12 +8907,12 @@ export default function App() {
   const stockDependencyReportRows = useMemo(() => {
     const sheetByProductId = new Map(
       technicalSheets
-        .filter((sheet) => sheet.companyId === currentCompanyId && sheet.isActive && sheet.kind === 'PREPARO')
+        .filter((sheet) => isTechnicalSheetVisibleForCompany(sheet, currentCompanyId) && sheet.isActive && sheet.kind === 'PREPARO')
         .map((sheet) => [sheet.productId, sheet] as const),
     )
 
     return technicalSheets
-      .filter((sheet) => sheet.companyId === currentCompanyId && sheet.isActive && sheet.kind === 'PREPARO')
+      .filter((sheet) => isTechnicalSheetVisibleForCompany(sheet, currentCompanyId) && sheet.isActive && sheet.kind === 'PREPARO')
       .flatMap((sheet) =>
         sheet.ingredients
           .filter((ingredient) => ingredient.isActive)
@@ -8867,7 +8990,7 @@ export default function App() {
           .filter((row) => row !== null) as StockReportRow[],
       )
       .sort((a, b) => a.main.localeCompare(b.main, 'pt-BR') || a.secondary.localeCompare(b.secondary, 'pt-BR'))
-  }, [currentCompanyId, reportEligibleStockCenters, stockUnitCostByAggregationKey, technicalSheets])
+  }, [currentCompanyId, isTechnicalSheetVisibleForCompany, reportEligibleStockCenters, stockUnitCostByAggregationKey, technicalSheets])
   const stockCoverageReportRows = useMemo(
     () =>
       reportEligibleStockCenters
@@ -8876,7 +8999,7 @@ export default function App() {
           technicalSheets
             .filter(
               (sheet) =>
-                sheet.companyId === currentCompanyId &&
+                isTechnicalSheetVisibleForCompany(sheet, currentCompanyId) &&
                 sheet.isActive &&
                 sheet.kind === 'PREPARO' &&
                 center.producedTechnicalSheetIds.includes(sheet.id),
@@ -9463,14 +9586,14 @@ export default function App() {
           products
             .filter(
               (product) =>
-                product.companyId === currentCompanyId &&
+                isProductVisibleForCompany(product, currentCompanyId) &&
                 !isCommercialTechnicalSheetProduct(product, technicalSheets) &&
                 (!shouldFilterByUserSectors || hasSectorOverlap(product.sectors, currentUserSectorScope)),
             )
             .map((product) => product.name),
         ),
       ).sort(),
-    [currentCompanyId, currentUserSectorScope, products, shouldFilterByUserSectors, technicalSheets],
+    [currentCompanyId, currentUserSectorScope, isProductVisibleForCompany, products, shouldFilterByUserSectors, technicalSheets],
   )
   const serviceItemSuggestions = useMemo(
     () =>
@@ -9494,11 +9617,11 @@ export default function App() {
         ...products
           .filter(
             (product) =>
-              product.companyId === currentCompanyId && !isCommercialTechnicalSheetProduct(product, technicalSheets),
+              isProductVisibleForCompany(product, currentCompanyId) && !isCommercialTechnicalSheetProduct(product, technicalSheets),
           )
           .map((product) => product.family),
       ]),
-    [currentCompanyId, products, technicalSheets],
+    [currentCompanyId, isProductVisibleForCompany, products, technicalSheets],
   )
   const dynamicServiceItemFamilySuggestions = useMemo(
     () =>
@@ -9515,11 +9638,11 @@ export default function App() {
         ...products
           .filter(
             (product) =>
-              product.companyId === currentCompanyId && !isCommercialTechnicalSheetProduct(product, technicalSheets),
+              isProductVisibleForCompany(product, currentCompanyId) && !isCommercialTechnicalSheetProduct(product, technicalSheets),
           )
           .map((product) => product.subfamily),
       ]),
-    [currentCompanyId, products, technicalSheets],
+    [currentCompanyId, isProductVisibleForCompany, products, technicalSheets],
   )
   const dynamicServiceItemSubfamilySuggestions = useMemo(
     () =>
@@ -9536,7 +9659,7 @@ export default function App() {
           ...products
             .filter(
               (product) =>
-                product.companyId === currentCompanyId && !isCommercialTechnicalSheetProduct(product, technicalSheets),
+                isProductVisibleForCompany(product, currentCompanyId) && !isCommercialTechnicalSheetProduct(product, technicalSheets),
             )
             .flatMap((product) => product.sectors),
           ...serviceItems
@@ -9550,7 +9673,7 @@ export default function App() {
           .filter((sector) => !shouldFilterByUserSectors || allowedUserSectorScope.includes(sector))),
       )
         .sort(),
-    [allowedUserSectorScope, currentCompanyId, products, serviceItems, shouldFilterByUserSectors, technicalSheets, users],
+    [allowedUserSectorScope, currentCompanyId, isProductVisibleForCompany, products, serviceItems, shouldFilterByUserSectors, technicalSheets, users],
   )
   const stockCenterSectorSuggestions = useMemo(
     () =>
@@ -9579,7 +9702,7 @@ export default function App() {
 
     return Array.from(
       new Set([
-        ...products.filter((product) => product.companyId === selectedCompanyId).flatMap((product) => product.sectors),
+        ...products.filter((product) => isProductVisibleForCompany(product, selectedCompanyId)).flatMap((product) => product.sectors),
         ...serviceItems.filter((item) => item.companyId === selectedCompanyId).flatMap((item) => item.sectors),
         ...users.filter((item) => item.companyId === selectedCompanyId).flatMap((item) => item.sectors),
       ]
@@ -9587,7 +9710,7 @@ export default function App() {
         .filter((sector) => !shouldFilterByUserSectors || allowedUserSectorScope.includes(sector))),
     )
       .sort()
-  }, [allowedUserSectorScope, currentCompanyId, products, serviceItems, shouldFilterByUserSectors, users])
+  }, [allowedUserSectorScope, currentCompanyId, isProductVisibleForCompany, products, serviceItems, shouldFilterByUserSectors, users])
   const technicalSheetProductOptions = useMemo(
     () =>
       products
@@ -9604,16 +9727,25 @@ export default function App() {
                 : true
 
             return (
-            product.companyId === currentCompanyId &&
-            product.isActive &&
-            !excludedTechnicalSheetProductIds.has(product.id) &&
-            allowedByVendaCombo &&
-            hasSectorOverlap(product.sectors, technicalSheetForm.sectors)
+              isProductVisibleForCompany(product, currentCompanyId) &&
+              product.isActive &&
+              !excludedTechnicalSheetProductIds.has(product.id) &&
+              allowedByVendaCombo &&
+              hasSectorOverlap(product.sectors, technicalSheetForm.sectors)
             )
           },
         )
         .sort((a, b) => a.name.localeCompare(b.name, 'pt-BR')),
-    [currentCompanyId, excludedTechnicalSheetProductIds, products, technicalSheetForm.kind, technicalSheetForm.outputUnit, technicalSheetForm.sectors, technicalSheets],
+    [
+      currentCompanyId,
+      excludedTechnicalSheetProductIds,
+      isProductVisibleForCompany,
+      products,
+      technicalSheetForm.kind,
+      technicalSheetForm.outputUnit,
+      technicalSheetForm.sectors,
+      technicalSheets,
+    ],
   )
   const technicalSheetServiceItemOptions = useMemo(
     () =>
@@ -9634,32 +9766,32 @@ export default function App() {
         new Set([
           ...dynamicSectorSuggestions,
           ...technicalSheets
-            .filter((sheet) => sheet.companyId === currentCompanyId)
+            .filter((sheet) => isTechnicalSheetVisibleForCompany(sheet, currentCompanyId))
             .flatMap((sheet) => sheet.sectors)
             .filter((sector) => !shouldFilterByUserSectors || allowedUserSectorScope.includes(normalizeRegistrationText(sector))),
         ]),
       ).sort((a, b) => a.localeCompare(b, 'pt-BR')),
-    [allowedUserSectorScope, currentCompanyId, dynamicSectorSuggestions, shouldFilterByUserSectors, technicalSheets],
+    [allowedUserSectorScope, currentCompanyId, dynamicSectorSuggestions, isTechnicalSheetVisibleForCompany, shouldFilterByUserSectors, technicalSheets],
   )
   const technicalSheetFamilySuggestions = useMemo(
     () =>
       normalizeSuggestionSet([
         ...dynamicFamilySuggestions,
         ...technicalSheets
-          .filter((sheet) => sheet.companyId === currentCompanyId)
+          .filter((sheet) => isTechnicalSheetVisibleForCompany(sheet, currentCompanyId))
           .map((sheet) => sheet.family),
       ]),
-    [currentCompanyId, dynamicFamilySuggestions, technicalSheets],
+    [currentCompanyId, dynamicFamilySuggestions, isTechnicalSheetVisibleForCompany, technicalSheets],
   )
   const technicalSheetSubfamilySuggestions = useMemo(
     () =>
       normalizeSuggestionSet([
         ...dynamicSubfamilySuggestions,
         ...technicalSheets
-          .filter((sheet) => sheet.companyId === currentCompanyId)
+          .filter((sheet) => isTechnicalSheetVisibleForCompany(sheet, currentCompanyId))
           .map((sheet) => sheet.subfamily),
       ]),
-    [currentCompanyId, dynamicSubfamilySuggestions, technicalSheets],
+    [currentCompanyId, dynamicSubfamilySuggestions, isTechnicalSheetVisibleForCompany, technicalSheets],
   )
   const replacementSectorSuggestions = useMemo(
     () =>
@@ -9693,9 +9825,9 @@ export default function App() {
   const technicalSheetIngredientMetrics = useMemo(() => {
     return technicalSheetIngredients.map((ingredient) => {
       const linkedTechnicalSheet =
-        technicalSheets.find((item) => item.productId === ingredient.productId && item.companyId === currentCompanyId) ?? null
+        technicalSheets.find((item) => item.productId === ingredient.productId && isTechnicalSheetVisibleForCompany(item, currentCompanyId)) ?? null
       const linkedProduct =
-        products.find((item) => item.id === ingredient.productId && item.companyId === currentCompanyId) ?? null
+        products.find((item) => item.id === ingredient.productId && isProductVisibleForCompany(item, currentCompanyId)) ?? null
       const costPerUnit = linkedProduct ? calculateProductUnitCost(linkedProduct, technicalSheets, products) : 0
       const inputQuantity = parseDecimal(ingredient.quantity) ?? 0
       const yieldQuantity = parseDecimal(ingredient.yieldQuantity) ?? 0
@@ -9724,13 +9856,13 @@ export default function App() {
             : '--',
       } satisfies TechnicalSheetIngredientMetrics
     })
-  }, [currentCompanyId, products, technicalSheetIngredients, technicalSheets])
+  }, [currentCompanyId, isProductVisibleForCompany, isTechnicalSheetVisibleForCompany, products, technicalSheetIngredients, technicalSheets])
   const technicalSheetGarnishIngredientMetrics = useMemo(() => {
     return technicalSheetGarnishIngredients.map((ingredient) => {
       const linkedTechnicalSheet =
-        technicalSheets.find((item) => item.productId === ingredient.productId && item.companyId === currentCompanyId) ?? null
+        technicalSheets.find((item) => item.productId === ingredient.productId && isTechnicalSheetVisibleForCompany(item, currentCompanyId)) ?? null
       const linkedProduct =
-        products.find((item) => item.id === ingredient.productId && item.companyId === currentCompanyId) ?? null
+        products.find((item) => item.id === ingredient.productId && isProductVisibleForCompany(item, currentCompanyId)) ?? null
       const costPerUnit = linkedProduct ? calculateProductUnitCost(linkedProduct, technicalSheets, products) : 0
       const inputQuantity = parseDecimal(ingredient.quantity) ?? 0
       const yieldQuantity = parseDecimal(ingredient.yieldQuantity) ?? 0
@@ -9759,7 +9891,7 @@ export default function App() {
             : '--',
       } satisfies TechnicalSheetIngredientMetrics
     })
-  }, [currentCompanyId, products, technicalSheetGarnishIngredients, technicalSheets])
+  }, [currentCompanyId, isProductVisibleForCompany, isTechnicalSheetVisibleForCompany, products, technicalSheetGarnishIngredients, technicalSheets])
   const technicalSheetMixtureUnitLabel = useMemo(() => {
     const units = [...technicalSheetIngredientMetrics, ...technicalSheetGarnishIngredientMetrics]
       .map((item) => item.productUnitLabel)
@@ -9868,7 +10000,7 @@ export default function App() {
     () =>
       sortRecordsByColumn(
         products.filter((product) => {
-          if (product.companyId !== currentCompanyId) {
+          if (!isProductVisibleForCompany(product, currentCompanyId)) {
             return false
           }
         if (shouldFilterByUserSectors && !hasSectorOverlap(product.sectors, currentUserSectorScope)) {
@@ -9907,6 +10039,7 @@ export default function App() {
       columnSort,
       currentCompanyId,
       currentUserSectorScope,
+      isProductVisibleForCompany,
       productSearch,
       products,
       shouldFilterByUserSectors,
@@ -9992,7 +10125,7 @@ export default function App() {
   const visibleTechnicalSheets = useMemo(
     () =>
       technicalSheets.filter((sheet) => {
-        if (sheet.companyId !== currentCompanyId) {
+        if (!isTechnicalSheetVisibleForCompany(sheet, currentCompanyId)) {
           return false
         }
         if (shouldFilterByUserSectors && !hasSectorOverlap(sheet.sectors, currentUserSectorScope)) {
@@ -10010,7 +10143,7 @@ export default function App() {
           sheet.companyProductId.toLowerCase().includes(search)
         )
       }),
-    [currentCompanyId, currentUserSectorScope, shouldFilterByUserSectors, technicalSheetSearch, technicalSheets],
+    [currentCompanyId, currentUserSectorScope, isTechnicalSheetVisibleForCompany, shouldFilterByUserSectors, technicalSheetSearch, technicalSheets],
   )
   const technicalSheetSuggestions = useMemo(
     () =>
@@ -10019,13 +10152,13 @@ export default function App() {
           technicalSheets
             .filter(
               (sheet) =>
-                sheet.companyId === currentCompanyId &&
+                isTechnicalSheetVisibleForCompany(sheet, currentCompanyId) &&
                 (!shouldFilterByUserSectors || hasSectorOverlap(sheet.sectors, currentUserSectorScope)),
             )
             .map((sheet) => sheet.name),
         ),
       ).sort((a, b) => a.localeCompare(b, 'pt-BR')),
-    [currentCompanyId, currentUserSectorScope, shouldFilterByUserSectors, technicalSheets],
+    [currentCompanyId, currentUserSectorScope, isTechnicalSheetVisibleForCompany, shouldFilterByUserSectors, technicalSheets],
   )
   const visibleTechnicalSheetsFiltered = useMemo(
     () =>
@@ -10056,14 +10189,14 @@ export default function App() {
               ? Array.from(
                   new Set(
                     technicalSheets
-                      .filter((sheet) => sheet.companyId === currentCompanyId)
+                      .filter((sheet) => isTechnicalSheetVisibleForCompany(sheet, currentCompanyId))
                       .flatMap((sheet) => sheet.sectors),
                   ),
                 )
               : Array.from(
                   new Set(
                     technicalSheets
-                      .filter((sheet) => sheet.companyId === currentCompanyId)
+                      .filter((sheet) => isTechnicalSheetVisibleForCompany(sheet, currentCompanyId))
                       .map((sheet) => getTechnicalSheetColumnValue(sheet, key, technicalSheets, products, stockCenters)),
                   ),
                 )
@@ -10105,7 +10238,7 @@ export default function App() {
     () => ({
       PREPARO: technicalSheets
         .filter((sheet) => {
-          if (sheet.companyId !== currentCompanyId || sheet.kind !== 'PREPARO' || !sheet.isActive) {
+          if (!isTechnicalSheetVisibleForCompany(sheet, currentCompanyId) || sheet.kind !== 'PREPARO' || !sheet.isActive) {
             return false
           }
 
@@ -10118,7 +10251,7 @@ export default function App() {
         .sort((a, b) => a.name.localeCompare(b.name, 'pt-BR')),
       EXECUCAO: technicalSheets
         .filter((sheet) => {
-          if (sheet.companyId !== currentCompanyId || sheet.kind !== 'EXECUCAO' || !sheet.isActive) {
+          if (!isTechnicalSheetVisibleForCompany(sheet, currentCompanyId) || sheet.kind !== 'EXECUCAO' || !sheet.isActive) {
             return false
           }
 
@@ -10130,7 +10263,7 @@ export default function App() {
         })
         .sort((a, b) => a.name.localeCompare(b.name, 'pt-BR')),
     }),
-    [currentCompanyId, currentUserSectorScope, shouldFilterByUserSectors, technicalSheets],
+    [currentCompanyId, currentUserSectorScope, isTechnicalSheetVisibleForCompany, shouldFilterByUserSectors, technicalSheets],
   )
   const filteredRecipePanelSheets = useMemo(() => {
     const search = recipePanelSearch[recipePanelTab].trim().toLowerCase()
@@ -10174,9 +10307,9 @@ export default function App() {
           const inputQuantity = parseDecimal(ingredient.quantity) ?? 0
           const yieldQuantity = parseDecimal(ingredient.yieldQuantity) ?? 0
           const linkedTechnicalSheet =
-            technicalSheets.find((entry) => entry.productId === ingredient.productId && entry.companyId === sheet.companyId) ?? null
+            technicalSheets.find((entry) => entry.productId === ingredient.productId) ?? null
           const linkedProduct =
-            products.find((entry) => entry.id === ingredient.productId && entry.companyId === sheet.companyId) ?? null
+            products.find((entry) => entry.id === ingredient.productId) ?? null
           const costPerUnit = linkedProduct ? calculateProductUnitCost(linkedProduct, technicalSheets, products) : 0
           const alcoholPercentage = linkedTechnicalSheet
             ? calculateTechnicalSheetAlcoholPercentage(linkedTechnicalSheet, technicalSheets, products)
@@ -10320,7 +10453,7 @@ export default function App() {
                     products
                       .filter(
                         (product) =>
-                          product.companyId === currentCompanyId &&
+                          isProductVisibleForCompany(product, currentCompanyId) &&
                           !isCommercialTechnicalSheetProduct(product, technicalSheets),
                       )
                       .flatMap((product) => product.sectors),
@@ -10331,7 +10464,7 @@ export default function App() {
                     products
                       .filter(
                         (product) =>
-                          product.companyId === currentCompanyId &&
+                          isProductVisibleForCompany(product, currentCompanyId) &&
                           !isCommercialTechnicalSheetProduct(product, technicalSheets),
                       )
                       .map((product) => getProductColumnValue(product, key)),
@@ -12673,6 +12806,7 @@ export default function App() {
     setEditingTechnicalSheetId(null)
     setTechnicalSheetForm(nextForm)
     setTechnicalSheetSectorInput('')
+    setTechnicalSheetSharedCompanyInput('')
     setTechnicalSheetProductionCenterInput('')
     setTechnicalSheetIngredients([nextIngredient])
     setEditingTechnicalSheetIngredientId(nextIngredient.id)
@@ -12865,7 +12999,7 @@ export default function App() {
 
     const matchingProducts = products.filter(
       (product) =>
-        (currentCompanyId === null || product.companyId === currentCompanyId) &&
+        isProductVisibleForCompany(product, currentCompanyId) &&
         product.sectors.includes(normalizedSector),
     )
     const impactedProducts = matchingProducts
@@ -12941,13 +13075,13 @@ export default function App() {
       kind === 'productFamily'
         ? products.filter(
             (product) =>
-              (currentCompanyId === null || product.companyId === currentCompanyId) &&
+              isProductVisibleForCompany(product, currentCompanyId) &&
               product.family === value,
           )
         : kind === 'productSubfamily'
         ? products.filter(
             (product) =>
-              (currentCompanyId === null || product.companyId === currentCompanyId) &&
+              isProductVisibleForCompany(product, currentCompanyId) &&
               product.subfamily === value,
           )
         : []
@@ -12956,13 +13090,13 @@ export default function App() {
       kind === 'productFamily'
         ? technicalSheets.filter(
             (sheet) =>
-              (currentCompanyId === null || sheet.companyId === currentCompanyId) &&
+              isTechnicalSheetVisibleForCompany(sheet, currentCompanyId) &&
               sheet.family === value,
           )
         : kind === 'productSubfamily'
         ? technicalSheets.filter(
             (sheet) =>
-              (currentCompanyId === null || sheet.companyId === currentCompanyId) &&
+              isTechnicalSheetVisibleForCompany(sheet, currentCompanyId) &&
               sheet.subfamily === value,
           )
         : []
@@ -16571,7 +16705,7 @@ export default function App() {
 
     const targetSheet =
       technicalSheets.find(
-        (sheet) => sheet.companyId === currentCompanyId && sheet.kind === 'PREPARO' && sheet.id === sheetId,
+        (sheet) => isTechnicalSheetVisibleForCompany(sheet, currentCompanyId) && sheet.kind === 'PREPARO' && sheet.id === sheetId,
       ) ?? null
     const desiredYield =
       typeof desiredYieldOverride === 'number' && desiredYieldOverride > 0
@@ -16616,7 +16750,7 @@ export default function App() {
     const targetSheet =
       technicalSheets.find(
         (sheet) =>
-          sheet.companyId === currentCompanyId &&
+          isTechnicalSheetVisibleForCompany(sheet, currentCompanyId) &&
           sheet.kind === 'PREPARO' &&
           String(sheet.id) === resolvedSheetId,
       ) ?? null
@@ -16632,7 +16766,7 @@ export default function App() {
     const targetSheet =
       technicalSheets.find(
         (sheet) =>
-          sheet.companyId === currentCompanyId &&
+          isTechnicalSheetVisibleForCompany(sheet, currentCompanyId) &&
           sheet.kind === 'PREPARO' &&
           String(sheet.id) === manualProductionSheetId,
       ) ?? null
@@ -16650,7 +16784,7 @@ export default function App() {
     const targetSheet =
       technicalSheets.find(
         (sheet) =>
-          sheet.companyId === currentCompanyId &&
+          isTechnicalSheetVisibleForCompany(sheet, currentCompanyId) &&
           sheet.kind === 'PREPARO' &&
           String(sheet.id) === manualProductionSheetId,
       ) ?? null
@@ -16673,7 +16807,7 @@ export default function App() {
     const nextSheet =
       technicalSheets.find(
         (sheet) =>
-          sheet.companyId === currentCompanyId &&
+          isTechnicalSheetVisibleForCompany(sheet, currentCompanyId) &&
           sheet.kind === 'PREPARO' &&
           String(sheet.id) === nextSheetId,
       ) ?? null
@@ -16699,7 +16833,7 @@ export default function App() {
       technicalSheets
         .filter(
           (sheet) =>
-            sheet.companyId === currentCompanyId &&
+            isTechnicalSheetVisibleForCompany(sheet, currentCompanyId) &&
             sheet.kind === 'PREPARO' &&
             sheet.isActive &&
             isTechnicalSheetStockTracked(sheet, products) &&
@@ -16709,7 +16843,7 @@ export default function App() {
     )
     const activeProductById = new Map(
       products
-        .filter((product) => product.companyId === currentCompanyId && product.isActive && isProductStockTracked(product))
+        .filter((product) => isProductVisibleForCompany(product, currentCompanyId) && product.isActive && isProductStockTracked(product))
         .map((product) => [product.id, product] as const),
     )
 
@@ -16727,7 +16861,7 @@ export default function App() {
       const dependencySheet =
         technicalSheets.find(
           (sheet) =>
-            sheet.companyId === currentCompanyId &&
+            isTechnicalSheetVisibleForCompany(sheet, currentCompanyId) &&
             sheet.kind === 'PREPARO' &&
             sheet.id === sheetId,
         ) ?? null
@@ -16737,7 +16871,7 @@ export default function App() {
           ?.map((assignment) =>
             stockCenters.find(
               (center) =>
-                center.companyId === currentCompanyId &&
+                (center.companyId === currentCompanyId || getTechnicalSheetSharedCompanyIds(dependencySheet).includes(center.companyId)) &&
                 center.isActive &&
                 center.id === Number(assignment.stockCenterId),
             ) ?? null,
@@ -16753,7 +16887,7 @@ export default function App() {
 
       const legacyProducerAssignments = stockCenters.filter(
         (center) =>
-          center.companyId === currentCompanyId &&
+          (dependencySheet ? getTechnicalSheetSharedCompanyIds(dependencySheet).includes(center.companyId) : center.companyId === currentCompanyId) &&
           center.isActive &&
           center.isProducer &&
           center.producedTechnicalSheetIds.includes(sheetId),
@@ -16911,7 +17045,7 @@ export default function App() {
     const targetSheet =
       technicalSheets.find(
         (sheet) =>
-          sheet.companyId === currentCompanyId &&
+          isTechnicalSheetVisibleForCompany(sheet, currentCompanyId) &&
           sheet.kind === 'PREPARO' &&
           sheet.id === Number(manualProductionSheetId),
       ) ?? null
@@ -17356,7 +17490,7 @@ export default function App() {
 
       const targetSheet =
         technicalSheets.find(
-          (sheet) => sheet.companyId === currentCompanyId && sheet.kind === 'PREPARO' && sheet.id === current.sheetId,
+          (sheet) => isTechnicalSheetVisibleForCompany(sheet, currentCompanyId) && sheet.kind === 'PREPARO' && sheet.id === current.sheetId,
         ) ?? null
       const desiredYield = parseDecimal(value) ?? 0
       const baseData =
@@ -19281,7 +19415,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
     }
   }
 
-  function updateCompanyForm<K extends keyof CompanyFormState>(field: K, value: CompanyFormState[K]) {
+  function updateCompanyForm<K extends Exclude<keyof CompanyFormState, 'linkedCompanyIds'>>(field: K, value: CompanyFormState[K]) {
     if (field === 'cnpj') {
       setCompanyForm((current) => ({ ...current, cnpj: formatCnpj(String(value)) }))
       return
@@ -19316,6 +19450,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
     }
     setEditingCompanyId(null)
     setCompanyForm(emptyCompanyForm())
+    setCompanyLinkedInput('')
     setCompanyCepFeedback('')
     setIsCompanyModalOpen(true)
   }
@@ -19340,7 +19475,9 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
       neighborhood: company.neighborhood,
       city: company.city,
       state: company.state,
+      linkedCompanyIds: company.linkedCompanyIds ?? [],
     })
+    setCompanyLinkedInput('')
     setIsCompanyModalOpen(true)
   }
 
@@ -19387,8 +19524,9 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
       return
     }
 
+    const nextCompanyId = editingCompanyId ?? (companies.length > 0 ? Math.max(...companies.map((company) => company.id)) + 1 : 1)
     const companyToSave: CompanyRecord = {
-      id: editingCompanyId ?? (companies.length > 0 ? Math.max(...companies.map((company) => company.id)) + 1 : 1),
+      id: nextCompanyId,
       tradeName,
       legalName,
       cnpj: companyForm.cnpj.trim(),
@@ -19402,6 +19540,11 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
       status: editingCompanyId
         ? companies.find((company) => company.id === editingCompanyId)?.status ?? 'ATIVA'
         : 'ATIVA',
+      linkedCompanyIds: Array.from(
+        new Set(
+          companyForm.linkedCompanyIds.filter((linkedCompanyId) => linkedCompanyId !== nextCompanyId),
+        ),
+      ),
     }
 
     try {
@@ -19428,6 +19571,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
     }
     setCurrentCompanyId(companyToSave.id)
     setCompanyForm(emptyCompanyForm())
+    setCompanyLinkedInput('')
     setCompanyCepFeedback('')
     setEditingCompanyId(null)
     setIsCompanyModalOpen(false)
@@ -19582,6 +19726,25 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                 onChange={(event) => updateCompanyForm('state', event.target.value)}
               />
             </label>
+            <div className="field field-span-all">
+              <span>Empresas vinculadas</span>
+              <MultiSelectChips
+                selectedValues={selectedCompanyLinkedLabels}
+                suggestions={companyLinkableLabels}
+                inputValue={companyLinkedInput}
+                onInputChange={setCompanyLinkedInput}
+                onChange={(labels) =>
+                  setCompanyForm((current) => ({
+                    ...current,
+                    linkedCompanyIds: labels
+                      .map((label) => companyLinkableIdByLabel.get(normalizeRegistrationText(label)) ?? null)
+                      .filter((companyId): companyId is number => typeof companyId === 'number'),
+                  }))
+                }
+                placeholder="Busque e selecione empresas para compartilhar catalogos"
+                allowCreate={false}
+              />
+            </div>
             {companyCepFeedback ? (
               <p className="compact-feedback field-span-all company-feedback">{companyCepFeedback}</p>
             ) : null}
@@ -19766,7 +19929,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
     const normalizedNameKey = buildNormalizedRegistrationNameKey(normalizedName)
     const duplicateProduct = products.find(
       (product) =>
-        product.companyId === (currentCompanyId ?? 0) &&
+        isProductVisibleForCompany(product, currentCompanyId) &&
         product.id !== editingProductId &&
         buildNormalizedRegistrationNameKey(product.name) === normalizedNameKey,
     )
@@ -19780,7 +19943,8 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
     }
 
     const productToSave: ProductRecord = {
-      companyId: currentCompanyId ?? 0,
+      companyId: previousProduct?.companyId ?? currentCompanyId ?? 0,
+      ownerCompanyId: previousProduct?.ownerCompanyId ?? previousProduct?.companyId ?? currentCompanyId ?? 0,
       id: previousProduct?.id ?? generatedProductId,
       companyProductId: normalizeRegistrationText(productForm.companyProductId.trim()),
       name: normalizedName,
@@ -19876,6 +20040,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
     const nextForm = {
       ...emptyTechnicalSheetForm(),
       kind,
+      sharedCompanyIds: currentCompanyId === null ? [] : [currentCompanyId],
       outputUnit: getDefaultTechnicalSheetOutputUnit(kind),
       portionSize: isCommercialTechnicalSheetKind(kind) ? '1' : '1000',
       sectors: singleAllowedUserSector ? [singleAllowedUserSector] : [],
@@ -19890,6 +20055,8 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
     setEditingTechnicalSheetId(null)
     setTechnicalSheetForm(nextForm)
     setTechnicalSheetSectorInput('')
+    setTechnicalSheetSharedCompanyInput('')
+    setTechnicalSheetSharedCompanyInput('')
     setTechnicalSheetIngredients([nextIngredient])
     setEditingTechnicalSheetIngredientId(nextIngredient.id)
     setTechnicalSheetGarnishIngredients([nextGarnishIngredient])
@@ -19920,6 +20087,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
 
     const nextForm = {
       kind: technicalSheet.kind ?? 'PREPARO',
+      sharedCompanyIds: getTechnicalSheetSharedCompanyIds(technicalSheet),
       companyProductId: technicalSheet.companyProductId,
       name: technicalSheet.name,
       family: technicalSheet.family,
@@ -19961,6 +20129,8 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
     setDraftTechnicalSheetProductId(technicalSheet.productId)
     setEditingTechnicalSheetId(technicalSheetId)
     setTechnicalSheetSectorInput('')
+    setTechnicalSheetSharedCompanyInput('')
+    setTechnicalSheetSharedCompanyInput('')
     setTechnicalSheetForm(nextForm)
     const savedIngredients =
       technicalSheet.ingredients.length > 0
@@ -19995,7 +20165,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
     setTechnicalSheetServiceItems([...savedServiceItems, nextServiceItem])
     setEditingTechnicalSheetServiceItemId(technicalSheet.kind === 'EXECUCAO' ? nextServiceItem.id : null)
     const linkedTechnicalSheetProduct =
-      products.find((product) => product.technicalSheetId === technicalSheetId && product.companyId === currentCompanyId) ?? null
+      products.find((product) => product.technicalSheetId === technicalSheetId && isProductVisibleForCompany(product, currentCompanyId)) ?? null
     const savedSuggestedYield = calculateTechnicalSheetSuggestedYieldFromDraft(
       technicalSheet.kind,
       savedIngredients,
@@ -20637,7 +20807,11 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
         ? technicalSheetForm.productionCenters
             .filter((item) =>
               activeProducerStockCenters.some((center) => center.id === item.stockCenterId) ||
-              stockCenters.some((center) => center.companyId === currentCompanyId && center.id === item.stockCenterId),
+              stockCenters.some(
+                (center) =>
+                  center.id === item.stockCenterId &&
+                  (center.companyId === currentCompanyId || technicalSheetForm.sharedCompanyIds.includes(center.companyId)),
+              ),
             )
             .map((item) => ({
               stockCenterId: item.stockCenterId,
@@ -20764,7 +20938,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
     const normalizedNameKey = buildNormalizedRegistrationNameKey(normalizedName)
     const duplicateTechnicalSheet = technicalSheets.find(
       (sheet) =>
-        sheet.companyId === (currentCompanyId ?? 0) &&
+        isTechnicalSheetVisibleForCompany(sheet, currentCompanyId) &&
         sheet.id !== editingTechnicalSheetId &&
         buildNormalizedRegistrationNameKey(sheet.name) === normalizedNameKey,
     )
@@ -20784,7 +20958,17 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
 
     const technicalSheetToSave: TechnicalSheetRecord = {
       id: technicalSheetId,
-      companyId: currentCompanyId ?? 0,
+      companyId: previousTechnicalSheet?.companyId ?? currentCompanyId ?? 0,
+      ownerCompanyId:
+        previousTechnicalSheet?.ownerCompanyId ?? previousTechnicalSheet?.companyId ?? currentCompanyId ?? 0,
+      sharedCompanyIds: Array.from(
+        new Set(
+          [
+            previousTechnicalSheet?.ownerCompanyId ?? previousTechnicalSheet?.companyId ?? currentCompanyId ?? 0,
+            ...technicalSheetForm.sharedCompanyIds,
+          ].filter((companyId) => typeof companyId === 'number' && companyId > 0),
+        ),
+      ),
       kind: technicalSheetForm.kind,
       productId: generatedProductId,
       companyProductId: normalizedCompanyProductId,
@@ -20848,7 +21032,13 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
 
     const linkedExisting = products.find((product) => product.technicalSheetId === technicalSheetId)
     const technicalProduct: ProductRecord = {
-      companyId: currentCompanyId ?? 0,
+      companyId: linkedExisting?.companyId ?? previousTechnicalSheet?.companyId ?? currentCompanyId ?? 0,
+      ownerCompanyId:
+        linkedExisting?.ownerCompanyId ??
+        previousTechnicalSheet?.ownerCompanyId ??
+        previousTechnicalSheet?.companyId ??
+        currentCompanyId ??
+        0,
       id: generatedProductId,
       companyProductId: normalizedCompanyProductId,
       name: normalizedName,
@@ -20946,6 +21136,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
     setEditingTechnicalSheetId(null)
     setTechnicalSheetForm(emptyTechnicalSheetForm())
     setTechnicalSheetSectorInput('')
+    setTechnicalSheetSharedCompanyInput('')
     setTechnicalSheetIngredients([emptyTechnicalSheetIngredient()])
     setTechnicalSheetGarnishIngredients([emptyTechnicalSheetIngredient()])
     setEditingTechnicalSheetGarnishIngredientId(null)
@@ -22560,6 +22751,34 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
     )
   }
 
+  const renderTechnicalSheetSharedCompanyField = () =>
+    technicalSheetShareableCompanies.length > 0 ? (
+      <div className="field field-span-all">
+        <span>Empresas vinculadas</span>
+        <MultiSelectChips
+          selectedValues={selectedTechnicalSheetSharedCompanyLabels}
+          suggestions={technicalSheetShareableCompanyLabels}
+          inputValue={technicalSheetSharedCompanyInput}
+          onInputChange={setTechnicalSheetSharedCompanyInput}
+          onChange={(labels) =>
+            setTechnicalSheetForm((current) => ({
+              ...current,
+              sharedCompanyIds: Array.from(
+                new Set([
+                  technicalSheetOwnerCompanyId ?? currentCompanyId ?? 0,
+                  ...labels
+                    .map((label) => technicalSheetShareableCompanyIdByLabel.get(normalizeRegistrationText(label)) ?? null)
+                    .filter((companyId): companyId is number => typeof companyId === 'number'),
+                ].filter((companyId) => companyId > 0)),
+              ),
+            }))
+          }
+          placeholder="Busque e selecione as empresas que podem usar esta ficha"
+          allowCreate={false}
+        />
+      </div>
+    ) : null
+
   const renderPreparoIdentityFields = (mode: 'main' | 'nested') => (
     <>
       {isTechnicalSheetFieldVisible('PREPARO', 'companyProductId') ? (
@@ -22587,6 +22806,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
           />
         </div>
       ) : null}
+      {renderTechnicalSheetSharedCompanyField()}
       {isTechnicalSheetFieldVisible('PREPARO', 'name') ? (
         <label className="field field-wide">
           <span>Nome do item montado{isTechnicalSheetFieldRequired('PREPARO', 'name') ? ' *' : ''}</span>
@@ -24907,6 +25127,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
 	                        />
 	                      </div>
 	                    ) : null}
+                      {renderTechnicalSheetSharedCompanyField()}
 	                    {isTechnicalSheetFieldVisible(technicalSheetForm.kind, 'name') ? (
 	                      <label className="field field-wide">
 	                        <span>Nome do item montado{isTechnicalSheetFieldRequired(technicalSheetForm.kind, 'name') ? ' *' : ''}</span>
@@ -30484,9 +30705,9 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                   <div className="selector-list company-management-list">
                     {manualProductionPreviewState.dependencyRequests.map((request) => {
                       const dependencySheet =
-                        technicalSheets.find((sheet) => sheet.id === request.sheetId && sheet.companyId === currentCompanyId) ?? null
+                        technicalSheets.find((sheet) => sheet.id === request.sheetId && isTechnicalSheetVisibleForCompany(sheet, currentCompanyId)) ?? null
                       const dependencyCenter =
-                        stockCenters.find((center) => center.id === request.centerId && center.companyId === currentCompanyId) ?? null
+                        stockCenters.find((center) => center.id === request.centerId) ?? null
                       return (
                         <article
                           key={`manual-production-dependency-${request.centerId}-${request.sheetId}`}
@@ -37327,6 +37548,8 @@ function recoverTechnicalSheetsFromProductsStorage() {
       return {
         id: product.technicalSheetId as number,
         companyId: product.companyId,
+        ownerCompanyId: product.ownerCompanyId ?? product.companyId,
+        sharedCompanyIds: [product.companyId],
         kind,
         productId: product.id,
         companyProductId: product.companyProductId,
@@ -37495,6 +37718,13 @@ function normalizeCompanyRecord(value: unknown): CompanyRecord | null {
     city: normalizeRegistrationText(company.city),
     state: normalizeRegistrationText(company.state).slice(0, 2),
     status: company.status,
+    linkedCompanyIds: Array.isArray(company.linkedCompanyIds)
+      ? Array.from(
+          new Set(
+            company.linkedCompanyIds.filter((item): item is number => typeof item === 'number' && item !== company.id),
+          ),
+        ).sort((left, right) => left - right)
+      : [],
   }
 }
 
@@ -38204,6 +38434,12 @@ function normalizeProductRecord(value: unknown): ProductRecord | null {
 
   return {
     companyId: typeof product.companyId === 'number' ? product.companyId : 1,
+    ownerCompanyId:
+      typeof product.ownerCompanyId === 'number'
+        ? product.ownerCompanyId
+        : typeof product.companyId === 'number'
+          ? product.companyId
+          : 1,
     id: normalizeRegistrationText(product.id),
     companyProductId: normalizeRegistrationText(product.companyProductId),
     name: normalizeRegistrationText(product.name),
@@ -38372,6 +38608,22 @@ function normalizeTechnicalSheetRecord(value: unknown): TechnicalSheetRecord | n
   return {
     id: item.id,
     companyId: item.companyId,
+    ownerCompanyId:
+      typeof item.ownerCompanyId === 'number'
+        ? item.ownerCompanyId
+        : typeof item.companyId === 'number'
+          ? item.companyId
+          : 1,
+    sharedCompanyIds: Array.isArray(item.sharedCompanyIds)
+      ? Array.from(
+          new Set(
+            [
+              typeof item.ownerCompanyId === 'number' ? item.ownerCompanyId : item.companyId,
+              ...item.sharedCompanyIds.filter((companyId): companyId is number => typeof companyId === 'number'),
+            ],
+          ),
+        )
+      : [typeof item.ownerCompanyId === 'number' ? item.ownerCompanyId : item.companyId],
     kind: normalizedKind,
     productId: normalizeRegistrationText(item.productId),
     companyProductId: normalizeRegistrationText(item.companyProductId),
@@ -38800,7 +39052,7 @@ function calculateTechnicalSheetCost(
     .reduce((sum, ingredient) => {
       const quantity = parseDecimal(ingredient.quantity) ?? 0
       const linkedTechnicalSheet =
-        technicalSheets.find((item) => item.productId === ingredient.productId && item.companyId === sheet.companyId) ?? null
+        technicalSheets.find((item) => item.productId === ingredient.productId) ?? null
 
       if (linkedTechnicalSheet) {
       const linkedCost: number = calculateTechnicalSheetCost(linkedTechnicalSheet, technicalSheets, products, nextVisited)
@@ -38976,13 +39228,13 @@ function inferTechnicalSheetMixtureControlUnit(
   const units = [...sheet.ingredients, ...sheet.garnishIngredients]
     .filter((ingredient) => ingredient.isActive && ingredient.productId.trim() !== '')
     .map((ingredient) => {
-      const linkedProduct = products.find((item) => item.id === ingredient.productId && item.companyId === sheet.companyId) ?? null
+      const linkedProduct = products.find((item) => item.id === ingredient.productId) ?? null
       if (linkedProduct) {
         return linkedProduct.controlUnit
       }
 
       const linkedTechnicalSheet =
-        technicalSheets.find((item) => item.productId === ingredient.productId && item.companyId === sheet.companyId) ?? null
+        technicalSheets.find((item) => item.productId === ingredient.productId) ?? null
       return linkedTechnicalSheet?.outputUnit ?? null
     })
     .filter((unit): unit is ControlUnit => unit === 'MILLILITER' || unit === 'GRAM')

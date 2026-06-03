@@ -283,6 +283,7 @@ model AppCompanyRecord {
   city         String
   state        String
   status       String
+  linkedCompanyIds Int[]
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 }
@@ -589,6 +590,7 @@ model AppPendingInventoryMovementRecord {
 model AppProductRecord {
   id                  String   @id
   companyId           Int
+  ownerCompanyId      Int
   companyProductId    String
   name                String
   controlUnit         String
@@ -606,6 +608,7 @@ model AppProductRecord {
   updatedAt           DateTime @updatedAt
 
   @@index([companyId])
+  @@index([ownerCompanyId])
   @@index([technicalSheetId])
 }
 
@@ -635,6 +638,8 @@ model AppServiceItemRecord {
 model AppTechnicalSheetRecord {
   id                    Int      @id
   companyId             Int
+  ownerCompanyId        Int
+  sharedCompanyIds      Int[]
   kind                  String
   productId             String
   companyProductId      String
@@ -677,5 +682,6 @@ model AppTechnicalSheetRecord {
   updatedAt             DateTime @updatedAt
 
   @@index([companyId])
+  @@index([ownerCompanyId])
   @@index([productId])
 }
