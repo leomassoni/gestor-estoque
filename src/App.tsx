@@ -38294,9 +38294,9 @@ function normalizeManualProductionRequestRecord(value: unknown): ManualProductio
 
   const record = value as Partial<ManualProductionRequestRecord>
   if (
-    typeof record.id !== 'number' ||
+    !isSafePersistedIntId(record.id) ||
     typeof record.companyId !== 'number' ||
-    typeof record.centerId !== 'number' ||
+    !isSafePersistedIntId(record.centerId) ||
     typeof record.sheetId !== 'number' ||
     typeof record.desiredYield !== 'string' ||
     typeof record.createdAt !== 'string' ||
@@ -38314,8 +38314,8 @@ function normalizeManualProductionRequestRecord(value: unknown): ManualProductio
     createdAt: record.createdAt,
     createdByUserId: typeof record.createdByUserId === 'number' ? record.createdByUserId : null,
     createdByUserName: record.createdByUserName,
-    rootRequestId: typeof record.rootRequestId === 'number' ? record.rootRequestId : record.id,
-    parentRequestId: typeof record.parentRequestId === 'number' ? record.parentRequestId : null,
+    rootRequestId: isSafePersistedIntId(record.rootRequestId) ? record.rootRequestId : record.id,
+    parentRequestId: isSafePersistedIntId(record.parentRequestId) ? record.parentRequestId : null,
     isDependencyRequest: record.isDependencyRequest === true,
   }
 }
@@ -38363,7 +38363,7 @@ function normalizeProductionDraftState(value: unknown): ProductionDraftState | n
 
   const draft = value as Partial<ProductionDraftState>
   if (
-    typeof draft.centerId !== 'number' ||
+    !isSafePersistedIntId(draft.centerId) ||
     typeof draft.sheetId !== 'number' ||
     typeof draft.startedAt !== 'string' ||
     typeof draft.startedByUserName !== 'string' ||
@@ -38386,7 +38386,7 @@ function normalizeProductionDraftState(value: unknown): ProductionDraftState | n
   ) as Record<number, string>
 
   return {
-    draftId: typeof draft.draftId === 'number' ? draft.draftId : null,
+    draftId: isSafePersistedIntId(draft.draftId) ? draft.draftId : null,
     centerId: draft.centerId,
     sheetId: draft.sheetId,
     startedAt: draft.startedAt,
@@ -38400,9 +38400,9 @@ function normalizeProductionDraftState(value: unknown): ProductionDraftState | n
     manualOverrideIngredientIds: draft.manualOverrideIngredientIds.filter(
       (item): item is number => typeof item === 'number',
     ),
-    consumptionSessionId: typeof draft.consumptionSessionId === 'number' ? draft.consumptionSessionId : null,
+    consumptionSessionId: isSafePersistedIntId(draft.consumptionSessionId) ? draft.consumptionSessionId : null,
     manualRequestIds: Array.isArray(draft.manualRequestIds)
-      ? draft.manualRequestIds.filter((item): item is number => typeof item === 'number')
+      ? draft.manualRequestIds.filter((item): item is number => isSafePersistedIntId(item))
       : [],
   }
 }
@@ -38877,7 +38877,7 @@ function normalizeStockCenterRecord(value: unknown): StockCenterRecord | null {
 
   const record = value as Partial<StockCenterRecord> & { responsibleUserId?: unknown }
   if (
-    typeof record.id !== 'number' ||
+    !isSafePersistedIntId(record.id) ||
     typeof record.companyId !== 'number' ||
     typeof record.name !== 'string' ||
     typeof record.code !== 'string' ||
@@ -38902,7 +38902,7 @@ function normalizeStockCenterRecord(value: unknown): StockCenterRecord | null {
         : [],
     isProducer: record.isProducer === true,
     producedTechnicalSheetIds: Array.isArray(record.producedTechnicalSheetIds)
-      ? record.producedTechnicalSheetIds.filter((item): item is number => typeof item === 'number')
+      ? record.producedTechnicalSheetIds.filter((item): item is number => isSafePersistedIntId(item))
       : [],
     minimumStocks: record.minimumStocks
       .filter(
@@ -38921,10 +38921,10 @@ function normalizeStockCenterRecord(value: unknown): StockCenterRecord | null {
           item.kind === 'PRODUTO' || item.kind === 'ITEM' || item.kind === 'PREPARO'
             ? item.kind
             : 'PREPARO',
-        technicalSheetId: typeof item.technicalSheetId === 'number' ? item.technicalSheetId : null,
+        technicalSheetId: isSafePersistedIntId(item.technicalSheetId) ? item.technicalSheetId : null,
         productId: typeof item.productId === 'string' ? normalizeRegistrationText(item.productId) : '',
         serviceItemId: typeof item.serviceItemId === 'string' ? normalizeRegistrationText(item.serviceItemId) : '',
-        packageId: typeof item.packageId === 'number' ? item.packageId : null,
+        packageId: isSafePersistedIntId(item.packageId) ? item.packageId : null,
         minimumQuantity: item.minimumQuantity.trim(),
       }))
       .filter((item) => item.minimumQuantity !== ''),
@@ -38939,9 +38939,9 @@ function normalizeRequisitionRecord(value: unknown): RequisitionRecord | null {
 
   const record = value as Partial<RequisitionRecord>
   if (
-    typeof record.id !== 'number' ||
+    !isSafePersistedIntId(record.id) ||
     typeof record.companyId !== 'number' ||
-    typeof record.stockCenterId !== 'number' ||
+    !isSafePersistedIntId(record.stockCenterId) ||
     typeof record.stockCenterName !== 'string' ||
     typeof record.sector !== 'string' ||
     typeof record.countedAt !== 'string' ||
@@ -38982,10 +38982,10 @@ function normalizeRequisitionRecord(value: unknown): RequisitionRecord | null {
     )
     .map((line) => ({
       ...line,
-      technicalSheetId: typeof line.technicalSheetId === 'number' ? line.technicalSheetId : null,
+      technicalSheetId: isSafePersistedIntId(line.technicalSheetId) ? line.technicalSheetId : null,
       productId: typeof line.productId === 'string' ? normalizeRegistrationText(line.productId) : '',
       serviceItemId: typeof line.serviceItemId === 'string' ? normalizeRegistrationText(line.serviceItemId) : '',
-      packageId: typeof line.packageId === 'number' ? line.packageId : null,
+      packageId: isSafePersistedIntId(line.packageId) ? line.packageId : null,
       itemName: normalizeRegistrationText(line.itemName),
       itemTypeLabel: normalizeRegistrationText(line.itemTypeLabel),
       family: normalizeRegistrationText(line.family),
@@ -38995,7 +38995,7 @@ function normalizeRequisitionRecord(value: unknown): RequisitionRecord | null {
       currentQuantity: line.currentQuantity.trim(),
       currentUnitLabel: normalizeRegistrationText(line.currentUnitLabel),
       minimumDefinitionLabel: normalizeRegistrationText(line.minimumDefinitionLabel),
-      destinationCenterId: typeof line.destinationCenterId === 'number' ? line.destinationCenterId : null,
+      destinationCenterId: isSafePersistedIntId(line.destinationCenterId) ? line.destinationCenterId : null,
       destinationCenterName: typeof line.destinationCenterName === 'string' ? normalizeRegistrationText(line.destinationCenterName) : '',
       destinationLabel: normalizeRegistrationText(line.destinationLabel),
       receiptStatus: (
@@ -39007,16 +39007,16 @@ function normalizeRequisitionRecord(value: unknown): RequisitionRecord | null {
       receiptResolvedByUserId: typeof line.receiptResolvedByUserId === 'number' ? line.receiptResolvedByUserId : null,
       receiptResolvedByUserName:
         typeof line.receiptResolvedByUserName === 'string' ? normalizeRegistrationText(line.receiptResolvedByUserName) : '',
-      receiptSessionId: typeof line.receiptSessionId === 'number' ? line.receiptSessionId : null,
+      receiptSessionId: isSafePersistedIntId(line.receiptSessionId) ? line.receiptSessionId : null,
     }))
 
   return {
     id: record.id,
     companyId: record.companyId,
-    requisitionGroupId: typeof record.requisitionGroupId === 'number' ? record.requisitionGroupId : record.id,
+    requisitionGroupId: isSafePersistedIntId(record.requisitionGroupId) ? record.requisitionGroupId : record.id,
     stockCenterId: record.stockCenterId,
     stockCenterName: normalizeRegistrationText(record.stockCenterName),
-    supplyCenterId: typeof record.supplyCenterId === 'number' ? record.supplyCenterId : null,
+    supplyCenterId: isSafePersistedIntId(record.supplyCenterId) ? record.supplyCenterId : null,
     supplyCenterName: typeof record.supplyCenterName === 'string' ? normalizeRegistrationText(record.supplyCenterName) : '',
     sector: normalizeRegistrationText(record.sector),
     countedAt: record.countedAt,
@@ -39052,10 +39052,10 @@ function normalizeRequisitionNotificationRecord(value: unknown): RequisitionNoti
 
   const record = value as Partial<RequisitionNotificationRecord>
   if (
-    typeof record.id !== 'number' ||
+    !isSafePersistedIntId(record.id) ||
     typeof record.companyId !== 'number' ||
     typeof record.userId !== 'number' ||
-    typeof record.requisitionId !== 'number' ||
+    !isSafePersistedIntId(record.requisitionId) ||
     typeof record.message !== 'string' ||
     typeof record.createdAt !== 'string' ||
     typeof record.isRead !== 'boolean'
@@ -39134,9 +39134,9 @@ function normalizeInventoryRecord(value: unknown): InventoryRecord | null {
 
   const record = value as Partial<InventoryRecord>
   if (
-    typeof record.id !== 'number' ||
+    !isSafePersistedIntId(record.id) ||
     typeof record.companyId !== 'number' ||
-    typeof record.stockCenterId !== 'number' ||
+    !isSafePersistedIntId(record.stockCenterId) ||
     typeof record.countedAt !== 'string' ||
     typeof record.isClosed !== 'boolean' ||
     typeof record.startedAt !== 'string' ||
@@ -39175,10 +39175,10 @@ function normalizePendingInventoryMovementRecord(value: unknown): PendingInvento
 
   const record = value as Partial<PendingInventoryMovementRecord>
   if (
-    typeof record.id !== 'number' ||
+    !isSafePersistedIntId(record.id) ||
     typeof record.companyId !== 'number' ||
-    typeof record.stockCenterId !== 'number' ||
-    typeof record.inventoryId !== 'number' ||
+    !isSafePersistedIntId(record.stockCenterId) ||
+    !isSafePersistedIntId(record.inventoryId) ||
     typeof record.createdAt !== 'string' ||
     typeof record.description !== 'string'
   ) {
@@ -39222,7 +39222,7 @@ function normalizeInventoryActiveRecordLinkRecord(value: unknown): InventoryActi
   if (
     typeof record.companyId !== 'number' ||
     typeof record.userKey !== 'string' ||
-    (record.inventoryId !== null && typeof record.inventoryId !== 'number')
+    (record.inventoryId !== null && !isSafePersistedIntId(record.inventoryId))
   ) {
     return null
   }
@@ -39241,9 +39241,9 @@ function normalizeInventoryCountSessionRecord(value: unknown): InventoryCountSes
 
   const record = value as Partial<InventoryCountSessionRecord>
   if (
-    typeof record.id !== 'number' ||
+    !isSafePersistedIntId(record.id) ||
     typeof record.companyId !== 'number' ||
-    typeof record.stockCenterId !== 'number' ||
+    !isSafePersistedIntId(record.stockCenterId) ||
     typeof record.countedAt !== 'string' ||
     typeof record.isClosed !== 'boolean' ||
     typeof record.startedByUserName !== 'string'
@@ -39253,7 +39253,7 @@ function normalizeInventoryCountSessionRecord(value: unknown): InventoryCountSes
 
   return {
     id: record.id,
-    inventoryId: typeof record.inventoryId === 'number' ? record.inventoryId : null,
+    inventoryId: isSafePersistedIntId(record.inventoryId) ? record.inventoryId : null,
     companyId: record.companyId,
     stockCenterId: record.stockCenterId,
     countedAt: record.countedAt,
@@ -39281,7 +39281,7 @@ function normalizeInventoryActiveSessionLinkRecord(value: unknown): InventoryAct
   if (
     typeof record.companyId !== 'number' ||
     typeof record.userKey !== 'string' ||
-    (record.sessionId !== null && typeof record.sessionId !== 'number')
+    (record.sessionId !== null && !isSafePersistedIntId(record.sessionId))
   ) {
     return null
   }
@@ -39300,13 +39300,13 @@ function normalizeInventoryCountRecord(value: unknown): InventoryCountRecord | n
 
   const record = value as Partial<InventoryCountRecord>
   if (
-    typeof record.id !== 'number' ||
-    typeof record.sessionId !== 'number' ||
+    !isSafePersistedIntId(record.id) ||
+    !isSafePersistedIntId(record.sessionId) ||
     typeof record.companyId !== 'number' ||
-    typeof record.stockCenterId !== 'number' ||
+    !isSafePersistedIntId(record.stockCenterId) ||
     typeof record.countedAt !== 'string' ||
     typeof record.storageLocation !== 'string' ||
-    (record.technicalSheetId !== null && typeof record.technicalSheetId !== 'number') ||
+    (record.technicalSheetId !== null && !isSafePersistedIntId(record.technicalSheetId)) ||
     typeof record.technicalSheetName !== 'string' ||
     (record.technicalSheetKind !== 'PREPARO' &&
       record.technicalSheetKind !== 'VENDA' &&
@@ -39328,16 +39328,16 @@ function normalizeInventoryCountRecord(value: unknown): InventoryCountRecord | n
 
   return {
     id: record.id,
-    inventoryId: typeof record.inventoryId === 'number' ? record.inventoryId : null,
+    inventoryId: isSafePersistedIntId(record.inventoryId) ? record.inventoryId : null,
     sessionId: record.sessionId,
     companyId: record.companyId,
     stockCenterId: record.stockCenterId,
     countedAt: record.countedAt,
     storageLocation: normalizeRegistrationText(record.storageLocation),
-    technicalSheetId: typeof record.technicalSheetId === 'number' ? record.technicalSheetId : null,
+    technicalSheetId: isSafePersistedIntId(record.technicalSheetId) ? record.technicalSheetId : null,
     productId: typeof record.productId === 'string' ? normalizeRegistrationText(record.productId) : '',
     serviceItemId: typeof record.serviceItemId === 'string' ? normalizeRegistrationText(record.serviceItemId) : '',
-    packageId: typeof record.packageId === 'number' ? record.packageId : null,
+    packageId: isSafePersistedIntId(record.packageId) ? record.packageId : null,
     technicalSheetName: normalizeRegistrationText(record.technicalSheetName),
     technicalSheetKind: record.technicalSheetKind,
     recipientItemId: normalizeRegistrationText(record.recipientItemId),
