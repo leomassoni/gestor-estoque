@@ -386,6 +386,9 @@ type SaveProgressState = {
   message: string
 }
 
+const operationalEntityPollingIntervalMs = 15000
+const catalogEntityPollingIntervalMs = 60000
+
 type StockCountableKind = 'PREPARO' | 'PRODUTO' | 'ITEM'
 
 type StockCenterMinimumStock = {
@@ -5375,7 +5378,7 @@ export default function App() {
     void load()
     const intervalId = window.setInterval(() => {
       void load()
-    }, 5000)
+    }, operationalEntityPollingIntervalMs)
     const handleFocus = () => {
       void load()
     }
@@ -5405,7 +5408,7 @@ export default function App() {
     void load()
     const intervalId = window.setInterval(() => {
       void load()
-    }, 5000)
+    }, operationalEntityPollingIntervalMs)
     const handleFocus = () => {
       void load()
     }
@@ -5435,7 +5438,7 @@ export default function App() {
     void load()
     const intervalId = window.setInterval(() => {
       void load()
-    }, 5000)
+    }, operationalEntityPollingIntervalMs)
     const handleFocus = () => {
       void load()
     }
@@ -5465,7 +5468,7 @@ export default function App() {
     void load()
     const intervalId = window.setInterval(() => {
       void load()
-    }, 5000)
+    }, catalogEntityPollingIntervalMs)
     const handleFocus = () => {
       void load()
     }
@@ -5495,7 +5498,7 @@ export default function App() {
     void load()
     const intervalId = window.setInterval(() => {
       void load()
-    }, 5000)
+    }, catalogEntityPollingIntervalMs)
     const handleFocus = () => {
       void load()
     }
@@ -5525,7 +5528,7 @@ export default function App() {
     void load()
     const intervalId = window.setInterval(() => {
       void load()
-    }, 5000)
+    }, catalogEntityPollingIntervalMs)
     const handleFocus = () => {
       void load()
     }
@@ -12100,7 +12103,6 @@ export default function App() {
       })
     }
 
-    remoteAppStatePollingIntervalRef.current = window.setInterval(poll, 5000)
     const handleVisibilityChange = () => {
       if (document.visibilityState === 'visible') {
         void poll()
