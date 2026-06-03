@@ -21661,26 +21661,6 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
           : 'A ficha tecnica foi salva, mas houve uma falha ao sincronizar os centros de estoque.'
     }
 
-    try {
-      await refreshAppCatalogRecordsFromApi()
-    } catch (error) {
-      console.error(error)
-      if (!postSaveWarning) {
-        postSaveWarning =
-          'A ficha tecnica foi salva, mas nao foi possivel atualizar os cadastros desta sessao automaticamente.'
-      }
-    }
-
-    try {
-      await refreshAppStockCenterRecordsFromApi()
-    } catch (error) {
-      console.error(error)
-      if (!postSaveWarning) {
-        postSaveWarning =
-          'A ficha tecnica foi salva, mas nao foi possivel atualizar os centros de estoque desta sessao automaticamente.'
-      }
-    }
-
     if (pendingNestedTechnicalSheetKind === technicalSheetForm.kind) {
       if (pendingNestedTechnicalSheetPurpose === 'subproduct') {
         restoreTopTechnicalSheetDraft()
