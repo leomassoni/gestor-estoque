@@ -4450,7 +4450,7 @@ export default function App() {
 
   async function refreshAppAdminRecordsFromApi() {
     const [companiesResponse, usersResponse, accessProfilesResponse, stockModuleSettingsResponse] = await Promise.all([
-      fetch('/api/companies'),
+      fetch('/api/companies', { cache: 'no-store' }),
       fetch('/api/users'),
       fetch('/api/access-profiles'),
       fetch('/api/stock-module-settings'),
@@ -4491,7 +4491,7 @@ export default function App() {
   }
 
   async function refreshAppStockCenterRecordsFromApi() {
-    const response = await fetch('/api/stock-centers')
+    const response = await fetch('/api/stock-centers', { cache: 'no-store' })
     if (!response.ok) {
       throw new Error('Falha ao carregar centros de estoque pelo backend.')
     }
@@ -4845,9 +4845,9 @@ export default function App() {
 
   async function refreshAppCatalogRecordsFromApi() {
     const [productsResponse, serviceItemsResponse, technicalSheetsResponse] = await Promise.all([
-      fetch('/api/products'),
-      fetch('/api/service-items'),
-      fetch('/api/technical-sheets'),
+      fetch('/api/products', { cache: 'no-store' }),
+      fetch('/api/service-items', { cache: 'no-store' }),
+      fetch('/api/technical-sheets', { cache: 'no-store' }),
     ])
 
     if (!productsResponse.ok || !serviceItemsResponse.ok || !technicalSheetsResponse.ok) {
@@ -4905,7 +4905,7 @@ export default function App() {
   }
 
   async function fetchTechnicalSheetRecordFromApi(technicalSheetId: number) {
-    const response = await fetch(`/api/technical-sheets/${technicalSheetId}`)
+    const response = await fetch(`/api/technical-sheets/${technicalSheetId}`, { cache: 'no-store' })
     if (!response.ok) {
       const errorPayload = (await response.json().catch(() => null)) as { error?: string } | null
       throw new Error(errorPayload?.error || 'Nao foi possivel carregar a ficha tecnica completa do servidor.')
