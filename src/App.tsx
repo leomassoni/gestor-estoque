@@ -14022,7 +14022,7 @@ export default function App() {
         ? null
         : inventoryCounts.find((record) => record.id === editingInventoryCountId && record.companyId === currentCompanyId) ?? null
     const nextRecord: InventoryCountRecord = {
-      id: existingRecord?.id ?? Date.now(),
+      id: existingRecord?.id ?? getNextPersistedIntId(inventoryCounts.map((record) => record.id)),
       inventoryId: activeInventoryRecord.id,
       sessionId: activeCountSession.id,
       companyId: currentCompanyId,
@@ -14142,7 +14142,7 @@ export default function App() {
 
     const now = new Date().toISOString()
     const nextInventory: InventoryRecord = {
-      id: Date.now(),
+      id: getNextPersistedIntId(inventoryRecords.map((record) => record.id)),
       companyId: currentCompanyId,
       stockCenterId: selectedCenter.id,
       countedAt: inventoryForm.countedAt,
@@ -14271,7 +14271,7 @@ export default function App() {
     }
 
     const nextSession: InventoryCountSessionRecord = {
-      id: Date.now(),
+      id: getNextPersistedIntId(inventoryCountSessions.map((record) => record.id)),
       inventoryId: selectedInventoryRecord.id,
       companyId: currentCompanyId,
       stockCenterId: selectedInventoryRecord.stockCenterId,
@@ -14445,7 +14445,12 @@ export default function App() {
       const queuedSessions: InventoryCountSessionRecord[] = []
       const queuedRecords: InventoryCountRecord[] = []
       relatedPendingMovements.forEach((movement, movementIndex) => {
-        const sessionId = Date.now() + movementIndex * 1000 + 1
+        const sessionId = getNextPersistedIntId([
+          ...inventoryCountSessions.map((record) => record.id),
+          ...inventoryCounts.map((record) => record.id),
+          ...queuedSessions.map((record) => record.id),
+          ...queuedRecords.map((record) => record.id),
+        ])
         const sessionTimestamp = new Date(now.getTime() + (movementIndex + 1) * 1000).toISOString()
         queuedSessions.push({
           ...movement.session,
@@ -14828,7 +14833,7 @@ export default function App() {
     const normalizedCode = normalizeRegistrationText(generatedStockCenterCode)
 
     const centerToSave: StockCenterRecord = {
-      id: editingStockCenterId ?? Date.now(),
+      id: editingStockCenterId ?? getNextPersistedIntId(stockCenters.map((center) => center.id)),
       companyId: currentCompanyId,
       name: normalizeRegistrationText(stockCenterForm.name),
       sector: normalizedStockCenterSector,
@@ -15037,10 +15042,14 @@ export default function App() {
     const requisitionReferenceDate = selectedRequisitionLatestInventoryDate || getTodayDateInputValue()
     const now = new Date().toISOString()
     if (editingRequisitionId === null) {
+      const nextRequisitionId = getNextPersistedIntId([
+        ...requisitions.map((record) => record.id),
+        ...requisitions.map((record) => record.requisitionGroupId),
+      ])
       const nextRequisition: RequisitionRecord = {
-        id: Date.now(),
+        id: nextRequisitionId,
         companyId: currentCompanyId,
-        requisitionGroupId: Date.now(),
+        requisitionGroupId: nextRequisitionId,
         stockCenterId: selectedRequisitionStockCenter.id,
         stockCenterName: selectedRequisitionStockCenter.name,
         supplyCenterId: null,
@@ -15199,11 +15208,12 @@ export default function App() {
     }
 
     const now = new Date().toISOString()
+    const nextNotificationId = getNextPersistedIntId(requisitionNotifications.map((notification) => notification.id))
     setRequisitionNotifications((current) => [
       ...recipientIds.map(
         (userId, index) =>
           ({
-            id: Date.now() + index,
+            id: nextNotificationId + index,
             companyId: currentCompanyId,
             userId,
             requisitionId: record.id,
@@ -15251,12 +15261,16 @@ export default function App() {
     })
 
     const now = new Date().toISOString()
+    const nextSplitRequisitionId = getNextPersistedIntId([
+      ...requisitions.map((item) => item.id),
+      ...requisitions.map((item) => item.requisitionGroupId),
+    ])
     const splitRequisitions = Array.from(linesByDestination.entries()).map(([centerId, lines], index) => {
       const center = stockCenters.find((item) => item.id === centerId) ?? null
       const shouldReuseOriginalRecord = linesByDestination.size === 1 && distributionLines.length === 0
       return {
         ...record,
-        id: shouldReuseOriginalRecord ? record.id : Date.now() + index + 1,
+        id: shouldReuseOriginalRecord ? record.id : nextSplitRequisitionId + index,
         supplyCenterId: centerId,
         supplyCenterName: center?.name ?? '',
         status: 'SENT_TO_SUPPLIES' as const,
@@ -15630,7 +15644,7 @@ export default function App() {
 
     setPendingInventoryMovements((current) => [
       {
-        id: Date.now() + current.length,
+        id: getNextPersistedIntId(current.map((movement) => movement.id)),
         companyId: currentCompanyId ?? 0,
         stockCenterId,
         inventoryId: openInventory.id,
@@ -15668,7 +15682,11 @@ export default function App() {
     const countedAt = shouldDeductSourceInventory
       ? latestInventoryDateByCenterId.get(sourceCenterId) ?? getTodayDateInputValue()
       : getTodayDateInputValue()
-    const movementTimestamp = Date.now()
+    const movementTimestamp = getNextPersistedIntId([
+      ...inventoryCountSessions.map((record) => record.id),
+      ...inventoryCounts.map((record) => record.id),
+      ...pendingInventoryMovements.map((record) => record.id),
+    ])
     const now = new Date().toISOString()
 
     if (shouldDeductSourceInventory) {
@@ -16683,8 +16701,13 @@ export default function App() {
                 ? 'UNIT'
                 : 'MILLILITER'
 
+        const nextCorrectionCountId = getNextPersistedIntId([
+          ...inventoryCounts.map((record) => record.id),
+          ...additions.map((record) => record.id),
+        ])
+
         additions.push({
-          id: Date.now() + additions.length + 1,
+          id: nextCorrectionCountId,
           inventoryId: sessionRecord.inventoryId,
           sessionId: sessionRecord.id,
           companyId: currentCompanyId,
@@ -16758,7 +16781,10 @@ export default function App() {
     let receiptMovementResult: 'applied' | 'queued' | null = null
 
     if (receivedLines.length > 0) {
-      const nextSessionId = Date.now()
+      const nextSessionId = getNextPersistedIntId([
+        ...inventoryCountSessions.map((record) => record.id),
+        ...inventoryCounts.map((record) => record.id),
+      ])
       const receiptSession: InventoryCountSessionRecord = {
         id: nextSessionId,
         inventoryId: null,
@@ -17310,7 +17336,9 @@ export default function App() {
       return
     }
 
-    const requestId = Date.now()
+    const requestId = getNextPersistedIntId(
+      manualProductionRequests.flatMap((record) => [record.id, record.rootRequestId, record.parentRequestId]),
+    )
     setManualProductionRequests((current) => [
       {
         id: requestId,
@@ -17349,7 +17377,10 @@ export default function App() {
     }
     if (shortageLines.length > 0) {
       const now = new Date().toISOString()
-      const requisitionId = Date.now() + 1
+      const requisitionId = getNextPersistedIntId([
+        ...requisitions.map((record) => record.id),
+        ...requisitions.map((record) => record.requisitionGroupId),
+      ])
       const nextRequisition: RequisitionRecord = {
         id: requisitionId,
         companyId: currentCompanyId,
@@ -17476,10 +17507,14 @@ export default function App() {
     }
 
     const now = new Date().toISOString()
+    const manualSupplyRequisitionId = getNextPersistedIntId([
+      ...requisitions.map((record) => record.id),
+      ...requisitions.map((record) => record.requisitionGroupId),
+    ])
     const nextRequisition: RequisitionRecord = {
-      id: Date.now(),
+      id: manualSupplyRequisitionId,
       companyId: currentCompanyId,
-      requisitionGroupId: Date.now(),
+      requisitionGroupId: manualSupplyRequisitionId,
       stockCenterId: manualSupplyTargetCenter.id,
       stockCenterName: manualSupplyTargetCenter.name,
       supplyCenterId: manualSupplySourceCenter.id,
@@ -17554,7 +17589,10 @@ export default function App() {
 
     const now = new Date().toISOString()
     const countedAt = getTodayDateInputValue()
-    const movementSessionId = Date.now()
+    const movementSessionId = getNextPersistedIntId([
+      ...inventoryCountSessions.map((record) => record.id),
+      ...inventoryCounts.map((record) => record.id),
+    ])
     let consumptionMovementResult: 'applied' | 'queued' | null = null
 
     if (!productionDraftState.startedAt && productionPreparedData) {
@@ -17642,7 +17680,13 @@ export default function App() {
 
     const nextDraft: ProductionDraftState = {
       ...productionDraftState,
-      draftId: productionDraftState.draftId ?? Date.now(),
+      draftId:
+        productionDraftState.draftId ??
+        getNextPersistedIntId(
+          productionInProgressDrafts
+            .filter((record) => record.draftId !== null)
+            .map((record) => record.draftId as number),
+        ),
       startedAt: productionDraftState.startedAt || now,
       startedByUserId: productionDraftState.startedByUserId ?? currentAppUser?.id ?? null,
       startedByUserName: productionDraftState.startedByUserName || currentAppUser?.fullName || 'Administrador do sistema',
@@ -17776,7 +17820,10 @@ export default function App() {
 
     const countedAt = latestInventoryDateByCenterId.get(selectedProductionCenter.id) ?? getTodayDateInputValue()
     const now = new Date().toISOString()
-    const nextSessionId = Date.now()
+    const nextSessionId = getNextPersistedIntId([
+      ...inventoryCountSessions.map((record) => record.id),
+      ...inventoryCounts.map((record) => record.id),
+    ])
     const nextSession: InventoryCountSessionRecord = {
       id: nextSessionId,
       inventoryId: null,
@@ -40278,6 +40325,20 @@ function parseDecimal(value: string) {
 
   const parsed = Number(normalized)
   return Number.isFinite(parsed) ? parsed : null
+}
+
+const maxPersistedIntId = 2147483647
+
+function isSafePersistedIntId(value: number | null | undefined): value is number {
+  return typeof value === 'number' && Number.isInteger(value) && value > 0 && value <= maxPersistedIntId
+}
+
+function getNextPersistedIntId(values: Array<number | null | undefined>) {
+  const currentMax = values.reduce<number>(
+    (highest, value) => (isSafePersistedIntId(value) && value > highest ? value : highest),
+    0,
+  )
+  return currentMax + 1
 }
 
 function formatDecimal(value: number) {

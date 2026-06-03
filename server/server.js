@@ -30,12 +30,14 @@ const pendingInventoryMovementsStorageKey = 'gestor-estoque:pending-inventory-mo
 const inventoryStorageLocationsStorageKey = 'gestor-estoque:inventory-storage-locations'
 const inventoryActiveRecordsStorageKey = 'gestor-estoque:inventory-active-records'
 const inventoryActiveSessionsStorageKey = 'gestor-estoque:inventory-active-sessions'
+const maxInt32Id = 2147483647
 let hasSeededAppAdminRecords = false
 let hasSeededAppStockCenterRecords = false
 let hasSeededAppCatalogRecords = false
 let hasSeededAppRequisitionRecords = false
 let hasSeededAppProductionRecords = false
 let hasSeededAppInventoryRecords = false
+let hasSanitizedLegacyEntitySnapshotIds = false
 
 app.use(cors())
 app.use(express.json({ limit: '5mb' }))
@@ -1220,6 +1222,318 @@ function parseIntegerParam(value) {
   return Number.isFinite(parsed) ? parsed : null
 }
 
+function isSafeInt32Id(value) {
+  return typeof value === 'number' && Number.isInteger(value) && value > 0 && value <= maxInt32Id
+}
+
+function parseSnapshotArrayEntry(entries, key) {
+  const raw = entries?.[key]
+  if (typeof raw !== 'string') {
+    return []
+  }
+
+  try {
+    const parsed = JSON.parse(raw)
+    return Array.isArray(parsed) ? parsed : []
+  } catch (_error) {
+    return []
+  }
+}
+
+function buildSafeInt32IdMap(values) {
+  const usedIds = new Set(values.filter(isSafeInt32Id))
+  let nextId = usedIds.size > 0 ? Math.max(...usedIds) + 1 : 1
+  const idMap = new Map()
+
+  for (const value of values) {
+    if (typeof value !== 'number' || !Number.isInteger(value) || value <= 0 || isSafeInt32Id(value) || idMap.has(value)) {
+      continue
+    }
+
+    while (usedIds.has(nextId) && nextId <= maxInt32Id) {
+      nextId += 1
+    }
+
+    if (nextId > maxInt32Id) {
+      break
+    }
+
+    idMap.set(value, nextId)
+    usedIds.add(nextId)
+    nextId += 1
+  }
+
+  return idMap
+}
+
+function remapSafeInt32Id(value, idMap) {
+  if (typeof value !== 'number' || !Number.isInteger(value) || value <= 0) {
+    return value
+  }
+  return idMap.get(value) ?? value
+}
+
+function remapStockCenterMinimumEntry(entry, stockCenterIdMap) {
+  if (!entry || typeof entry !== 'object') {
+    return entry
+  }
+
+  return {
+    ...entry,
+    destinationCenterId:
+      entry.destinationCenterId === null ? null : remapSafeInt32Id(entry.destinationCenterId, stockCenterIdMap),
+  }
+}
+
+function remapInventorySessionLikeRecord(record, inventoryIdMap, stockCenterIdMap, sessionIdMap) {
+  if (!record || typeof record !== 'object') {
+    return record
+  }
+
+  return {
+    ...record,
+    id: remapSafeInt32Id(record.id, sessionIdMap),
+    inventoryId: record.inventoryId === null ? null : remapSafeInt32Id(record.inventoryId, inventoryIdMap),
+    stockCenterId: remapSafeInt32Id(record.stockCenterId, stockCenterIdMap),
+  }
+}
+
+function remapInventoryCountLikeRecord(record, inventoryIdMap, stockCenterIdMap, sessionIdMap, countIdMap) {
+  if (!record || typeof record !== 'object') {
+    return record
+  }
+
+  return {
+    ...record,
+    id: remapSafeInt32Id(record.id, countIdMap),
+    inventoryId: record.inventoryId === null ? null : remapSafeInt32Id(record.inventoryId, inventoryIdMap),
+    sessionId: remapSafeInt32Id(record.sessionId, sessionIdMap),
+    stockCenterId: remapSafeInt32Id(record.stockCenterId, stockCenterIdMap),
+  }
+}
+
+async function sanitizeLegacyEntitySnapshotIds() {
+  if (hasSanitizedLegacyEntitySnapshotIds) {
+    return
+  }
+
+  const snapshot = await prisma.appStateSnapshot.findUnique({
+    where: { key: appStateSnapshotKey },
+  })
+  const payload = snapshot?.payload
+  const entries = payload && typeof payload === 'object' && !Array.isArray(payload) ? payload.entries : null
+  if (!entries || typeof entries !== 'object' || Array.isArray(entries)) {
+    hasSanitizedLegacyEntitySnapshotIds = true
+    return
+  }
+
+  const stockCenters = parseSnapshotArrayEntry(entries, stockCentersStorageKey)
+  const technicalSheets = parseSnapshotArrayEntry(entries, technicalSheetsStorageKey)
+  const requisitions = parseSnapshotArrayEntry(entries, requisitionsStorageKey)
+  const requisitionNotifications = parseSnapshotArrayEntry(entries, requisitionNotificationsStorageKey)
+  const manualProductionRequests = parseSnapshotArrayEntry(entries, manualProductionRequestsStorageKey)
+  const productionDrafts = parseSnapshotArrayEntry(entries, productionInProgressDraftsStorageKey)
+  const inventoryRecords = parseSnapshotArrayEntry(entries, inventoryRecordsStorageKey)
+  const inventoryActiveRecordLinks = parseSnapshotArrayEntry(entries, inventoryActiveRecordsStorageKey)
+  const inventoryCountSessions = parseSnapshotArrayEntry(entries, inventoryCountSessionsStorageKey)
+  const inventoryActiveSessionLinks = parseSnapshotArrayEntry(entries, inventoryActiveSessionsStorageKey)
+  const inventoryCounts = parseSnapshotArrayEntry(entries, inventoryCountsStorageKey)
+  const pendingInventoryMovements = parseSnapshotArrayEntry(entries, pendingInventoryMovementsStorageKey)
+
+  const stockCenterIdMap = buildSafeInt32IdMap(stockCenters.map((record) => record?.id))
+  const requisitionIdMap = buildSafeInt32IdMap(requisitions.map((record) => record?.id))
+  const requisitionGroupIdMap = buildSafeInt32IdMap(
+    requisitions.map((record) => record?.requisitionGroupId).filter((value) => value !== null && value !== undefined),
+  )
+  const requisitionNotificationIdMap = buildSafeInt32IdMap(requisitionNotifications.map((record) => record?.id))
+  const manualProductionRequestIdMap = buildSafeInt32IdMap(
+    manualProductionRequests.flatMap((record) => [record?.id, record?.rootRequestId, record?.parentRequestId]),
+  )
+  const productionDraftIdMap = buildSafeInt32IdMap(productionDrafts.map((record) => record?.draftId))
+  const inventoryIdMap = buildSafeInt32IdMap(inventoryRecords.map((record) => record?.id))
+  const inventorySessionIdMap = buildSafeInt32IdMap(
+    inventoryCountSessions
+      .flatMap((record) => [record?.id])
+      .concat(
+        pendingInventoryMovements.flatMap((record) => [
+          record?.session?.id,
+          ...(Array.isArray(record?.records) ? record.records.map((item) => item?.sessionId) : []),
+        ]),
+      ),
+  )
+  const inventoryCountIdMap = buildSafeInt32IdMap(
+    inventoryCounts
+      .map((record) => record?.id)
+      .concat(
+        pendingInventoryMovements.flatMap((record) =>
+          Array.isArray(record?.records) ? record.records.map((item) => item?.id) : [],
+        ),
+      ),
+  )
+  const pendingInventoryMovementIdMap = buildSafeInt32IdMap(pendingInventoryMovements.map((record) => record?.id))
+
+  const shouldSanitize =
+    stockCenterIdMap.size > 0 ||
+    requisitionIdMap.size > 0 ||
+    requisitionGroupIdMap.size > 0 ||
+    requisitionNotificationIdMap.size > 0 ||
+    manualProductionRequestIdMap.size > 0 ||
+    productionDraftIdMap.size > 0 ||
+    inventoryIdMap.size > 0 ||
+    inventorySessionIdMap.size > 0 ||
+    inventoryCountIdMap.size > 0 ||
+    pendingInventoryMovementIdMap.size > 0
+
+  if (!shouldSanitize) {
+    hasSanitizedLegacyEntitySnapshotIds = true
+    return
+  }
+
+  const nextEntries = {
+    ...entries,
+    [stockCentersStorageKey]: JSON.stringify(
+      stockCenters.map((record) => ({
+        ...record,
+        id: remapSafeInt32Id(record?.id, stockCenterIdMap),
+      })),
+    ),
+    [technicalSheetsStorageKey]: JSON.stringify(
+      technicalSheets.map((record) => ({
+        ...record,
+        productionCenters: Array.isArray(record?.productionCenters)
+          ? record.productionCenters.map((assignment) => ({
+              ...assignment,
+              stockCenterId: remapSafeInt32Id(assignment?.stockCenterId, stockCenterIdMap),
+            }))
+          : [],
+      })),
+    ),
+    [requisitionsStorageKey]: JSON.stringify(
+      requisitions.map((record) => ({
+        ...record,
+        id: remapSafeInt32Id(record?.id, requisitionIdMap),
+        requisitionGroupId: remapSafeInt32Id(record?.requisitionGroupId, requisitionGroupIdMap),
+        stockCenterId: remapSafeInt32Id(record?.stockCenterId, stockCenterIdMap),
+        supplyCenterId: record?.supplyCenterId === null ? null : remapSafeInt32Id(record?.supplyCenterId, stockCenterIdMap),
+        lines: Array.isArray(record?.lines)
+          ? record.lines.map((line) => ({
+              ...line,
+              destinationCenterId:
+                line?.destinationCenterId === null ? null : remapSafeInt32Id(line?.destinationCenterId, stockCenterIdMap),
+            }))
+          : [],
+      })),
+    ),
+    [requisitionNotificationsStorageKey]: JSON.stringify(
+      requisitionNotifications.map((record) => ({
+        ...record,
+        id: remapSafeInt32Id(record?.id, requisitionNotificationIdMap),
+        requisitionId: remapSafeInt32Id(record?.requisitionId, requisitionIdMap),
+      })),
+    ),
+    [manualProductionRequestsStorageKey]: JSON.stringify(
+      manualProductionRequests.map((record) => ({
+        ...record,
+        id: remapSafeInt32Id(record?.id, manualProductionRequestIdMap),
+        centerId: remapSafeInt32Id(record?.centerId, stockCenterIdMap),
+        rootRequestId: remapSafeInt32Id(record?.rootRequestId, manualProductionRequestIdMap),
+        parentRequestId:
+          record?.parentRequestId === null ? null : remapSafeInt32Id(record?.parentRequestId, manualProductionRequestIdMap),
+      })),
+    ),
+    [productionInProgressDraftsStorageKey]: JSON.stringify(
+      productionDrafts.map((record) => ({
+        ...record,
+        draftId: remapSafeInt32Id(record?.draftId, productionDraftIdMap),
+        centerId: remapSafeInt32Id(record?.centerId, stockCenterIdMap),
+        consumptionSessionId:
+          record?.consumptionSessionId === null
+            ? null
+            : remapSafeInt32Id(record?.consumptionSessionId, inventorySessionIdMap),
+        manualRequestIds: Array.isArray(record?.manualRequestIds)
+          ? record.manualRequestIds.map((value) => remapSafeInt32Id(value, manualProductionRequestIdMap))
+          : [],
+      })),
+    ),
+    [inventoryRecordsStorageKey]: JSON.stringify(
+      inventoryRecords.map((record) => ({
+        ...record,
+        id: remapSafeInt32Id(record?.id, inventoryIdMap),
+        stockCenterId: remapSafeInt32Id(record?.stockCenterId, stockCenterIdMap),
+      })),
+    ),
+    [inventoryActiveRecordsStorageKey]: JSON.stringify(
+      inventoryActiveRecordLinks.map((record) => ({
+        ...record,
+        inventoryId: record?.inventoryId === null ? null : remapSafeInt32Id(record?.inventoryId, inventoryIdMap),
+      })),
+    ),
+    [inventoryCountSessionsStorageKey]: JSON.stringify(
+      inventoryCountSessions.map((record) =>
+        remapInventorySessionLikeRecord(record, inventoryIdMap, stockCenterIdMap, inventorySessionIdMap),
+      ),
+    ),
+    [inventoryActiveSessionsStorageKey]: JSON.stringify(
+      inventoryActiveSessionLinks.map((record) => ({
+        ...record,
+        sessionId: record?.sessionId === null ? null : remapSafeInt32Id(record?.sessionId, inventorySessionIdMap),
+      })),
+    ),
+    [inventoryCountsStorageKey]: JSON.stringify(
+      inventoryCounts.map((record) =>
+        remapInventoryCountLikeRecord(record, inventoryIdMap, stockCenterIdMap, inventorySessionIdMap, inventoryCountIdMap),
+      ),
+    ),
+    [pendingInventoryMovementsStorageKey]: JSON.stringify(
+      pendingInventoryMovements.map((record) => ({
+        ...record,
+        id: remapSafeInt32Id(record?.id, pendingInventoryMovementIdMap),
+        stockCenterId: remapSafeInt32Id(record?.stockCenterId, stockCenterIdMap),
+        inventoryId: remapSafeInt32Id(record?.inventoryId, inventoryIdMap),
+        session: remapInventorySessionLikeRecord(record?.session, inventoryIdMap, stockCenterIdMap, inventorySessionIdMap),
+        records: Array.isArray(record?.records)
+          ? record.records.map((item) =>
+              remapInventoryCountLikeRecord(item, inventoryIdMap, stockCenterIdMap, inventorySessionIdMap, inventoryCountIdMap),
+            )
+          : [],
+      })),
+    ),
+  }
+
+  await prisma.appStateSnapshot.update({
+    where: { key: appStateSnapshotKey },
+    data: {
+      payload: {
+        ...payload,
+        entries: nextEntries,
+      },
+    },
+  })
+
+  if (stockCenterIdMap.size > 0) {
+    const technicalSheetRecords = await prisma.appTechnicalSheetRecord.findMany()
+    for (const record of technicalSheetRecords) {
+      const productionCenters = Array.isArray(record.productionCenters)
+        ? record.productionCenters.map((assignment) =>
+            assignment && typeof assignment === 'object'
+              ? {
+                  ...assignment,
+                  stockCenterId: remapSafeInt32Id(assignment.stockCenterId, stockCenterIdMap),
+                }
+              : assignment,
+          )
+        : []
+
+      await prisma.appTechnicalSheetRecord.update({
+        where: { id: record.id },
+        data: { productionCenters },
+      })
+    }
+  }
+
+  hasSanitizedLegacyEntitySnapshotIds = true
+}
+
 function normalizeRegistrationText(value) {
   return String(value ?? '')
     .normalize('NFD')
@@ -2390,6 +2704,8 @@ async function ensureAppStockCenterRecordsSeeded() {
     return
   }
 
+  await sanitizeLegacyEntitySnapshotIds()
+
   const stockCentersCount = await prisma.appStockCenterRecord.count()
   if (stockCentersCount > 0) {
     hasSeededAppStockCenterRecords = true
@@ -2425,6 +2741,8 @@ async function ensureAppRequisitionRecordsSeeded() {
   if (hasSeededAppRequisitionRecords) {
     return
   }
+
+  await sanitizeLegacyEntitySnapshotIds()
 
   const [requisitionsCount, notificationsCount] = await Promise.all([
     prisma.appRequisitionRecord.count(),
@@ -2474,6 +2792,8 @@ async function ensureAppProductionRecordsSeeded() {
     return
   }
 
+  await sanitizeLegacyEntitySnapshotIds()
+
   const [manualRequestsCount, draftsCount] = await Promise.all([
     prisma.appManualProductionRequestRecord.count(),
     prisma.appProductionDraftRecord.count(),
@@ -2521,6 +2841,8 @@ async function ensureAppInventoryRecordsSeeded() {
   if (hasSeededAppInventoryRecords) {
     return
   }
+
+  await sanitizeLegacyEntitySnapshotIds()
 
   const [locationsCount, activeRecordLinksCount, inventoriesCount, sessionsCount, activeSessionLinksCount, countsCount, pendingMovementsCount] = await Promise.all([
     prisma.appInventoryStorageLocationRecord.count(),
