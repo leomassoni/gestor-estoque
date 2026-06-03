@@ -26844,10 +26844,6 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                                 <strong>{recipePanelData.sheet.subfamily}</strong>
                               </article>
                               <article className="receituario-metric-card">
-                                <span>Setores</span>
-                                <strong>{recipePanelData.sheet.sectors.join(', ') || '-'}</strong>
-                              </article>
-                              <article className="receituario-metric-card">
                                 <span>Rendimento base</span>
                                 <strong>
                                   {formatDecimal(recipePanelData.baseYield)} {getTechnicalSheetYieldUnitLabel(recipePanelData.sheet, technicalSheets, products)}
@@ -26884,10 +26880,6 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                               <article className="receituario-metric-card">
                                 <span>% alcool final</span>
                                 <strong>{formatDecimal(recipePanelData.finalAlcoholPercentage)}%</strong>
-                              </article>
-                              <article className="receituario-metric-card">
-                                <span>CMV final</span>
-                                <strong>{formatDecimal(recipePanelData.finalCmvPercentage)}%</strong>
                               </article>
                               <article className="receituario-metric-card">
                                 <span>Valor final de venda</span>
