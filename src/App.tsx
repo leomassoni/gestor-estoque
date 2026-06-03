@@ -3870,9 +3870,12 @@ export default function App() {
         const realMinimumQuantity = computeEffectiveMinimum(sheet.id)
         const automaticSuggestedQuantity = Math.max(realMinimumQuantity - currentQuantity, 0)
         const manualRequestedQuantity = manualRequestedQuantityBySheetId.get(sheet.id) ?? 0
+        const manualRequestIds = manualRequestIdsBySheetId.get(sheet.id) ?? []
+        const cancellableManualRequestIds = cancellableManualRequestIdsBySheetId.get(sheet.id) ?? []
         const suggestedProductionQuantity = automaticSuggestedQuantity + manualRequestedQuantity
         const priority = computePriority(sheet.id)
         const inProgressDraft = productionInProgressDraftByKey.get(`${selectedProductionCenter.id}:${sheet.id}`) ?? null
+        const hasManualRequests = manualRequestIds.length > 0
 
         return {
           sheetId: sheet.id,
@@ -3891,12 +3894,17 @@ export default function App() {
           suggestedProductionLabel: `${formatDecimal(suggestedProductionQuantity)} ${formatControlUnitShort(sheet.outputUnit)}`,
           baseUnitLabel: formatControlUnitShort(sheet.outputUnit),
           priority,
-          statusLabel: inProgressDraft ? 'Em producao' : suggestedProductionQuantity > 0 ? 'A produzir' : 'Produzido',
-          manualRequestIds: manualRequestIdsBySheetId.get(sheet.id) ?? [],
-          cancellableManualRequestIds: cancellableManualRequestIdsBySheetId.get(sheet.id) ?? [],
+          statusLabel: inProgressDraft ? 'Em producao' : hasManualRequests || suggestedProductionQuantity > 0 ? 'A produzir' : 'Produzido',
+          manualRequestIds,
+          cancellableManualRequestIds,
         } satisfies ProductionRequestRow
       })
-      .filter((row) => row.suggestedProductionQuantity > 0 || productionInProgressDraftByKey.has(`${row.centerId}:${row.sheetId}`))
+      .filter(
+        (row) =>
+          row.suggestedProductionQuantity > 0 ||
+          row.manualRequestIds.length > 0 ||
+          productionInProgressDraftByKey.has(`${row.centerId}:${row.sheetId}`),
+      )
       .filter((row) => {
         const search = normalizeFreeText(productionSearch)
         return (

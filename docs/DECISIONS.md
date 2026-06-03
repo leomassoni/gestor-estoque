@@ -1,12 +1,33 @@
 # Decisoes do Projeto
 
-Ultima atualizacao: 2026-06-02
+ Ultima atualizacao: 2026-06-03
 
 ## Objetivo deste arquivo
 
 Registrar o que foi decidido, o que foi adiado e o que foi descartado, com foco em evitar retrabalho e duvida futura.
 
 ## Decisoes ativas
+
+### Catalogo compartilhado deve seguir empresas vinculadas, nao grupo + produto mestre
+
+- Decisao: o compartilhamento de `Produtos` e `Fichas tecnicas` deve seguir um modelo simplificado de `empresas vinculadas`.
+- Regra:
+  - o master pode vincular uma empresa a outra no painel `Empresa`
+  - `Produto` e `Ficha tecnica` continuam tendo empresa de origem
+  - cada cadastro pode ter `empresas compartilhadas`
+  - operacao de estoque, inventario, requisicao, suprimento, recebimento e producao continua sempre separada por empresa
+- Fluxo definido para cadastro em cascata:
+  - se o usuario criar um produto pela ficha tecnica, o produto nasce na empresa atual
+  - e pode ser compartilhado com empresas vinculadas
+  - se o produto ja existir em empresa vinculada, o sistema deve oferecer reutilizar/habilitar esse cadastro em vez de criar duplicado
+- Regra adicional para `PREPARO`:
+  - uma ficha compartilhada pode ter centros produtores por empresa
+  - compartilhar a ficha nao compartilha automaticamente o centro produtor; ele pode ser configurado para cada empresa compartilhada
+- Motivo:
+  - muito menor complexidade que `grupo + product master + company link`
+  - encaixa melhor no sistema atual
+  - preserva segregacao operacional por empresa
+- Status: definido para implementacao futura.
 
 ### Formularios de ficha tecnica devem obedecer configuracoes centralizadas
 
@@ -133,6 +154,15 @@ Registrar o que foi decidido, o que foi adiado e o que foi descartado, com foco 
   - `Render DB -> Neon`
   - `imagens -> Cloudflare R2`
 - Status: planejado.
+
+### O plano `grupo + produto mestre + liberacao por empresa` foi descartado
+
+- Decisao: nao seguir com a modelagem de `CompanyGroup + ProductMaster + CompanyProductLink` como proxima evolucao do cadastro compartilhado.
+- Motivo:
+  - custo de implantacao alto para o estagio atual do sistema
+  - impacto grande em `Produtos`, `Fichas`, `Estoque`, `Requisicoes`, `Producoes` e historico
+  - existe alternativa funcionalmente suficiente e mais simples com `empresas vinculadas`
+- Status: descartado.
 
 ### Otimizacao de consultas e saudavel e nao deve ser tratada como opcional
 

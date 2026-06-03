@@ -1,6 +1,6 @@
 # Worklog
 
-Ultima atualizacao: 2026-06-02
+ Ultima atualizacao: 2026-06-03
 
 ## Objetivo deste arquivo
 
@@ -110,3 +110,33 @@ Registrar um historico resumido do que foi feito, do que falhou e do que ficou p
   - paginacao
   - filtros no servidor
   - selecao de colunas necessarias
+
+## 2026-06-03
+
+### Confirmado / decidido
+
+- O plano de compartilhamento por `grupo + produto mestre + liberacao por empresa` foi abandonado antes da implementacao.
+- Foi definido um modelo mais simples de compartilhamento entre `empresas vinculadas`.
+- Regra escolhida:
+  - o master vincula empresas entre si no painel `Empresa`
+  - `Produtos` e `Fichas tecnicas` passam a ter empresa de origem + empresas compartilhadas
+  - o cadastro em cascata da ficha continua existindo
+  - quando o usuario criar um produto pela ficha, ele nasce na empresa atual e pode ser compartilhado com empresas vinculadas
+  - se o cadastro ja existir em empresa vinculada, o sistema deve oferecer reutilizar/habilitar em vez de duplicar
+  - `PREPARO` compartilhado pode ter centros produtores configurados por empresa compartilhada
+- A segregacao operacional continua por empresa:
+  - estoque
+  - inventario
+  - requisicao
+  - suprimento
+  - recebimento
+  - producao
+
+### Pendencia aberta
+
+- Transformar essa modelagem simplificada em implementacao no codigo, incluindo:
+  - vinculacao entre empresas
+  - compartilhamento de `Produtos`
+  - compartilhamento de `Fichas tecnicas`
+  - comportamento dos pop-ups de cadastro em cascata
+  - configuracao de centros produtores por empresa em fichas `PREPARO` compartilhadas

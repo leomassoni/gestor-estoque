@@ -1,6 +1,6 @@
 # Status do Sistema
 
-Ultima atualizacao: 2026-06-02
+ Ultima atualizacao: 2026-06-03
 
 ## Objetivo deste arquivo
 
@@ -158,6 +158,12 @@ Registrar em que pe o sistema esta hoje, por area, para consulta rapida antes de
 
 ## Proximos candidatos naturais
 
+- Implementar compartilhamento simplificado de cadastro entre empresas vinculadas:
+  - master vincula empresas no painel `Empresa`
+  - `Produtos` passam a ter empresa de origem + empresas compartilhadas
+  - `Fichas tecnicas` passam a ter empresa de origem + empresas compartilhadas
+  - `PREPARO` compartilhado pode receber centros produtores por empresa compartilhada
+  - operacao continua separada por empresa
 - Criar um fluxo aninhado real para `EXECUCAO` e/ou `VENDA`, se isso fizer sentido de produto.
 - Continuar quebrando [`src/App.tsx`](/home/leomassoni/Documentos/Igarapé/Projetos/TCC-SP/gestor-estoque/src/App.tsx) em componentes menores.
 - Criar o submenu `Relatorios` dentro de `Estoque`, com relatorios operacionais, gerenciais e analiticos.
