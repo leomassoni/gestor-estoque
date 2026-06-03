@@ -388,6 +388,7 @@ type SaveProgressState = {
 
 const operationalEntityPollingIntervalMs = 15000
 const catalogEntityPollingIntervalMs = 60000
+const remoteSnapshotSyncEnabled = false
 
 type StockCountableKind = 'PREPARO' | 'PRODUTO' | 'ITEM'
 
@@ -5239,6 +5240,10 @@ export default function App() {
   }
 
   async function pushRemoteAppState(payload: RemoteAppStatePayload, options?: { keepalive?: boolean; useBeacon?: boolean }) {
+    if (!remoteSnapshotSyncEnabled) {
+      return
+    }
+
     const body = JSON.stringify({ payload })
     const signature = getRemoteAppStatePayloadSignature(payload)
 
@@ -5270,6 +5275,10 @@ export default function App() {
   }
 
   async function refreshRemoteAppStateFromServer() {
+    if (!remoteSnapshotSyncEnabled) {
+      return
+    }
+
     const response = await fetch('/api/state')
     if (!response.ok) {
       throw new Error(`Falha ao carregar estado remoto (${response.status}).`)
@@ -5305,6 +5314,14 @@ export default function App() {
     let isCancelled = false
 
     async function bootstrapRemoteAppState() {
+      if (!remoteSnapshotSyncEnabled) {
+        if (!isCancelled) {
+          logRemoteAppStateMessage('Sincronizacao de snapshot remoto desativada. O app usara apenas APIs por entidade.')
+          setIsRemoteAppStateReady(true)
+        }
+        return
+      }
+
       try {
         const localPayload = readRemoteAppStatePayloadFromLocalStorage()
         const response = await fetch('/api/state')
