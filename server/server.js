@@ -1113,7 +1113,31 @@ app.get('/api/technical-sheets', async (request, response) => {
     where: companyId === null ? undefined : { companyId },
     orderBy: [{ name: 'asc' }, { id: 'asc' }],
   })
-  response.json({ technicalSheets })
+  response.json({
+    technicalSheets: technicalSheets.map((sheet) => ({
+      ...sheet,
+      imageDataUrl: '',
+    })),
+  })
+})
+
+app.get('/api/technical-sheets/:id', async (request, response) => {
+  await ensureAppCatalogRecordsSeeded()
+  const technicalSheetId = parseIntegerParam(request.params.id)
+  if (technicalSheetId === null) {
+    response.status(400).json({ error: 'Ficha tecnica invalida.' })
+    return
+  }
+
+  const technicalSheet = await prisma.appTechnicalSheetRecord.findUnique({
+    where: { id: technicalSheetId },
+  })
+  if (!technicalSheet) {
+    response.status(404).json({ error: 'Ficha tecnica nao encontrada.' })
+    return
+  }
+
+  response.json({ technicalSheet })
 })
 
 app.post('/api/technical-sheets', async (request, response) => {

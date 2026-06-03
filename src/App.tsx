@@ -4904,6 +4904,22 @@ export default function App() {
     setTechnicalSheets(nextTechnicalSheets)
   }
 
+  async function fetchTechnicalSheetRecordFromApi(technicalSheetId: number) {
+    const response = await fetch(`/api/technical-sheets/${technicalSheetId}`)
+    if (!response.ok) {
+      const errorPayload = (await response.json().catch(() => null)) as { error?: string } | null
+      throw new Error(errorPayload?.error || 'Nao foi possivel carregar a ficha tecnica completa do servidor.')
+    }
+
+    const data = (await response.json()) as { technicalSheet?: unknown }
+    const technicalSheet = normalizeTechnicalSheetRecord(data?.technicalSheet)
+    if (!technicalSheet) {
+      throw new Error('A ficha tecnica retornada pelo servidor e invalida.')
+    }
+
+    return technicalSheet
+  }
+
   async function upsertProductRecordOnApi(product: ProductRecord, previousId?: string | null) {
     const targetId = previousId ?? product.id
     const response = await fetch(previousId ? `/api/products/${encodeURIComponent(targetId)}` : '/api/products', {
@@ -10546,6 +10562,17 @@ export default function App() {
 
     return recipePanelSheetsByTab[recipePanelTab].find((sheet) => sheet.id === selectedId) ?? null
   }, [recipePanelSelectedId, recipePanelSheetsByTab, recipePanelTab])
+  useEffect(() => {
+    if (!selectedRecipePanelSheet || selectedRecipePanelSheet.kind !== 'EXECUCAO' || selectedRecipePanelSheet.imageDataUrl) {
+      return
+    }
+
+    void fetchTechnicalSheetRecordFromApi(selectedRecipePanelSheet.id)
+      .then((fullSheet) => {
+        setTechnicalSheets((current) => current.map((sheet) => (sheet.id === fullSheet.id ? fullSheet : sheet)))
+      })
+      .catch(() => {})
+  }, [selectedRecipePanelSheet])
   function buildRecipePanelDataForSheet(
     sheet: TechnicalSheetRecord,
     desiredYieldInput: number,
@@ -20483,11 +20510,13 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
     )
   }
 
-  function openEditTechnicalSheetForm(technicalSheetId: number) {
-    const technicalSheet = technicalSheets.find((item) => item.id === technicalSheetId)
+  async function openEditTechnicalSheetForm(technicalSheetId: number) {
+    const cachedTechnicalSheet = technicalSheets.find((item) => item.id === technicalSheetId) ?? null
+    const technicalSheet = await fetchTechnicalSheetRecordFromApi(technicalSheetId).catch(() => cachedTechnicalSheet)
     if (!technicalSheet) {
       return
     }
+    setTechnicalSheets((current) => current.map((item) => (item.id === technicalSheet.id ? technicalSheet : item)))
 
     const nextForm = {
       kind: technicalSheet.kind ?? 'PREPARO',
