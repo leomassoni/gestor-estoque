@@ -9674,11 +9674,16 @@ export default function App() {
     return activeCompanyAccessProfiles.filter((profile) => profile.role === 'Colaborador')
   }, [activeCompanyAccessProfiles, canAssignPrivilegedUserRoles])
   const userAssignableCompanies = useMemo(
-    () =>
-      companies
-        .filter((company) => (isSystemAdmin ? true : currentCompanyId !== null && company.id === currentCompanyId))
-        .sort((left, right) => left.tradeName.localeCompare(right.tradeName, 'pt-BR')),
-    [companies, currentCompanyId, isSystemAdmin],
+    () => {
+      if (currentCompanyId === null) {
+        return []
+      }
+      const assignableCompanyIds = new Set(getCompanyLinkScopeIds(currentCompanyId))
+      return companies
+        .filter((company) => assignableCompanyIds.has(company.id))
+        .sort((left, right) => left.tradeName.localeCompare(right.tradeName, 'pt-BR'))
+    },
+    [companies, currentCompanyId],
   )
   const userAssignableCompanyLabels = useMemo(
     () => userAssignableCompanies.map((company) => `${company.tradeName} (${company.cnpj || `ID ${company.id}`})`),
@@ -9702,6 +9707,18 @@ export default function App() {
         .map((company) => `${company.tradeName} (${company.cnpj || `ID ${company.id}`})`),
     [userAssignableCompanies, userForm.companyIds],
   )
+  useEffect(() => {
+    const assignableCompanyIds = new Set(userAssignableCompanies.map((company) => company.id))
+    setUserForm((current) => {
+      const nextCompanyIds = current.companyIds.filter((companyId) => assignableCompanyIds.has(companyId))
+      return nextCompanyIds.length === current.companyIds.length
+        ? current
+        : {
+            ...current,
+            companyIds: nextCompanyIds,
+          }
+    })
+  }, [userAssignableCompanies])
   const [draftProductId, setDraftProductId] = useState(() => buildProductId(''))
   const generatedProductId = editingProductId ?? draftProductId
   const generatedServiceItemId = useMemo(
@@ -19383,13 +19400,17 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
   }
 
   async function saveUser() {
+    const assignableCompanyIds = new Set(userAssignableCompanies.map((company) => company.id))
     const fullName = normalizeRegistrationText(userForm.fullName.trim())
     const username = userForm.username.trim()
     const password = userForm.password.trim()
     const selectedCompanyIds = Array.from(
       new Set(
         (isSystemAdmin ? userForm.companyIds : currentCompanyId !== null ? [currentCompanyId] : [])
-          .filter((companyId): companyId is number => typeof companyId === 'number'),
+          .filter(
+            (companyId): companyId is number =>
+              typeof companyId === 'number' && assignableCompanyIds.has(companyId),
+          ),
       ),
     )
     const companyId = selectedCompanyIds[0] ?? currentCompanyId
@@ -19473,6 +19494,104 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
       message: 'Registrando, aguarde. Nao feche a tela nem clique novamente em salvar.',
     })
     try {
+      if (selectedProfile) {
+        const sourceStockSettings = stockModuleSettings.find((record) => record.companyId === selectedProfile.companyId) ?? null
+        const sourceStockPermissions = {
+          inventorySummaryEdit: sourceStockSettings?.inventorySummaryEditProfileIds.includes(selectedProfile.id) ?? false,
+          inventorySummaryDelete: sourceStockSettings?.inventorySummaryDeleteProfileIds.includes(selectedProfile.id) ?? false,
+          closedInventoryReopen: sourceStockSettings?.closedInventoryReopenProfileIds.includes(selectedProfile.id) ?? false,
+          closedInventoryDelete: sourceStockSettings?.closedInventoryDeleteProfileIds.includes(selectedProfile.id) ?? false,
+        }
+        let nextProfileId =
+          accessProfiles.length > 0 ? Math.max(...accessProfiles.map((profile) => profile.id)) + 1 : 1
+
+        for (const selectedCompanyId of selectedCompanyIds) {
+          if (selectedCompanyId === selectedProfile.companyId) {
+            continue
+          }
+
+          const existingProfile =
+            accessProfiles.find(
+              (profile) =>
+                profile.companyId === selectedCompanyId &&
+                normalizeRegistrationText(profile.name) === normalizeRegistrationText(selectedProfile.name),
+            ) ?? null
+
+          const mirroredProfile: AccessProfileRecord = existingProfile
+            ? {
+                ...existingProfile,
+                name: selectedProfile.name,
+                role: selectedProfile.role,
+                sectionAccess: selectedProfile.sectionAccess,
+                catalogAccess: selectedProfile.catalogAccess,
+                isActive: true,
+              }
+            : {
+                id: nextProfileId++,
+                companyId: selectedCompanyId,
+                name: selectedProfile.name,
+                role: selectedProfile.role,
+                sectionAccess: selectedProfile.sectionAccess,
+                catalogAccess: selectedProfile.catalogAccess,
+                isActive: true,
+              }
+
+          const mirroredProfileResponse = await fetch(
+            existingProfile ? `/api/access-profiles/${mirroredProfile.id}` : '/api/access-profiles',
+            {
+              method: existingProfile ? 'PUT' : 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(mirroredProfile),
+            },
+          )
+          if (!mirroredProfileResponse.ok) {
+            const errorPayload = (await mirroredProfileResponse.json().catch(() => null)) as { error?: string } | null
+            throw new Error(errorPayload?.error || 'Nao foi possivel espelhar o perfil de acesso nas empresas vinculadas.')
+          }
+
+          const targetStockSettings = stockModuleSettings.find((record) => record.companyId === selectedCompanyId) ?? {
+            companyId: selectedCompanyId,
+            inventorySummaryEditProfileIds: [],
+            inventorySummaryDeleteProfileIds: [],
+            closedInventoryReopenProfileIds: [],
+            closedInventoryDeleteProfileIds: [],
+          }
+          const syncProfileId = (profileIds: number[], isEnabled: boolean) =>
+            isEnabled
+              ? Array.from(new Set([...profileIds, mirroredProfile.id]))
+              : profileIds.filter((profileId) => profileId !== mirroredProfile.id)
+          const nextTargetStockSettings: StockModuleSettingsRecord = {
+            companyId: targetStockSettings.companyId,
+            inventorySummaryEditProfileIds: syncProfileId(
+              targetStockSettings.inventorySummaryEditProfileIds,
+              sourceStockPermissions.inventorySummaryEdit,
+            ),
+            inventorySummaryDeleteProfileIds: syncProfileId(
+              targetStockSettings.inventorySummaryDeleteProfileIds,
+              sourceStockPermissions.inventorySummaryDelete,
+            ),
+            closedInventoryReopenProfileIds: syncProfileId(
+              targetStockSettings.closedInventoryReopenProfileIds,
+              sourceStockPermissions.closedInventoryReopen,
+            ),
+            closedInventoryDeleteProfileIds: syncProfileId(
+              targetStockSettings.closedInventoryDeleteProfileIds,
+              sourceStockPermissions.closedInventoryDelete,
+            ),
+          }
+
+          const stockSettingsResponse = await fetch(`/api/stock-module-settings/${selectedCompanyId}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(nextTargetStockSettings),
+          })
+          if (!stockSettingsResponse.ok) {
+            const errorPayload = (await stockSettingsResponse.json().catch(() => null)) as { error?: string } | null
+            throw new Error(errorPayload?.error || 'Nao foi possivel espelhar as permissoes de estoque do perfil nas empresas vinculadas.')
+          }
+        }
+      }
+
       const response = await fetch(editingUserId ? `/api/users/${userToSave.id}` : '/api/users', {
         method: editingUserId ? 'PUT' : 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -21440,11 +21559,11 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
       title: 'Registrando ficha tecnica',
       message: 'Registrando, aguarde. Nao feche a tela nem clique novamente em salvar.',
     })
+    let postSaveWarning: string | null = null
     try {
       await upsertTechnicalSheetRecordOnApi(technicalSheetToSave)
       await persistChangedTechnicalSheetsOnApi(technicalSheets, nextTechnicalSheets)
       await upsertProductRecordOnApi(technicalProduct, linkedExisting?.id ?? null)
-      await persistChangedStockCentersOnApi(stockCenters, nextStockCenters)
       if (
         previousTechnicalSheet &&
         previousTechnicalSheet.productId !== technicalProduct.id &&
@@ -21473,11 +21592,37 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
 
     setTechnicalSheets(nextTechnicalSheets)
     setProducts(nextProducts)
-    setStockCenters(nextStockCenters)
-    await Promise.all([
-      refreshAppCatalogRecordsFromApi(),
-      refreshAppStockCenterRecordsFromApi(),
-    ])
+
+    try {
+      await persistChangedStockCentersOnApi(stockCenters, nextStockCenters)
+      setStockCenters(nextStockCenters)
+    } catch (error) {
+      console.error(error)
+      postSaveWarning =
+        error instanceof Error
+          ? `A ficha tecnica foi salva, mas houve uma falha ao sincronizar os centros de estoque: ${error.message}`
+          : 'A ficha tecnica foi salva, mas houve uma falha ao sincronizar os centros de estoque.'
+    }
+
+    try {
+      await refreshAppCatalogRecordsFromApi()
+    } catch (error) {
+      console.error(error)
+      if (!postSaveWarning) {
+        postSaveWarning =
+          'A ficha tecnica foi salva, mas nao foi possivel atualizar os cadastros desta sessao automaticamente.'
+      }
+    }
+
+    try {
+      await refreshAppStockCenterRecordsFromApi()
+    } catch (error) {
+      console.error(error)
+      if (!postSaveWarning) {
+        postSaveWarning =
+          'A ficha tecnica foi salva, mas nao foi possivel atualizar os centros de estoque desta sessao automaticamente.'
+      }
+    }
 
     if (pendingNestedTechnicalSheetKind === technicalSheetForm.kind) {
       if (pendingNestedTechnicalSheetPurpose === 'subproduct') {
@@ -21496,8 +21641,10 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
         title: 'Ficha tecnica salva com sucesso',
         message:
           pendingNestedTechnicalSheetPurpose === 'subproduct'
-            ? 'A ficha tecnica do subproduto foi cadastrada e vinculada ao pre-preparo anterior.'
-            : 'A ficha tecnica foi cadastrada e vinculada ao insumo em edicao na ficha anterior.',
+            ? postSaveWarning ??
+              'A ficha tecnica do subproduto foi cadastrada e vinculada ao pre-preparo anterior.'
+            : postSaveWarning ??
+              'A ficha tecnica foi cadastrada e vinculada ao insumo em edicao na ficha anterior.',
       })
       return
     }
@@ -21516,14 +21663,16 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
     setSaveFeedback({
       status: 'success',
       title: editingTechnicalSheetId ? 'Ficha tecnica atualizada com sucesso' : 'Ficha tecnica salva com sucesso',
-      message:
+      message: postSaveWarning ??
+        (
         dependencySheetAdditions.some((item) => item.companyIdsToAdd.length > 0) || selectedDependencyRemovalIds.size > 0
           ? `A ficha tecnica foi ${
               editingTechnicalSheetId ? 'atualizada' : 'cadastrada'
             } e as fichas dependentes necessarias tambem foram ajustadas automaticamente no compartilhamento.`
           : editingTechnicalSheetId
             ? 'A ficha tecnica foi atualizada e o produto vinculado tambem foi atualizado.'
-            : 'A ficha tecnica foi cadastrada e o produto vinculado ja entrou na lista de produtos.',
+            : 'A ficha tecnica foi cadastrada e o produto vinculado ja entrou na lista de produtos.'
+        ),
     })
   }
 
