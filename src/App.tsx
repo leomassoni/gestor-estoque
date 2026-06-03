@@ -739,12 +739,16 @@ type ManualProductionPreviewState = {
 }
 
 type TechnicalSheetShareCascadePreviewState = {
+  mode: 'share' | 'unshare'
   targetCompanyIds: number[]
   targetCompanyLabels: string[]
   dependencySheets: Array<{
     id: number
     name: string
+    status: 'already_shared' | 'share_now' | 'candidate_unshare'
     targetCompanyLabels: string[]
+    impactedMotherNames: string[]
+    selectedForUnshare: boolean
   }>
 }
 
@@ -3497,7 +3501,12 @@ export default function App() {
   function getCompanyTradeName(companyId: number) {
     return companies.find((item) => item.id === companyId)?.tradeName ?? `EMPRESA ${companyId}`
   }
-  function analyzeTechnicalSheetShareCascade(
+  function sheetDependsOnProductId(sheet: TechnicalSheetRecord, productId: string) {
+    return [...sheet.ingredients, ...sheet.garnishIngredients].some(
+      (ingredient) => ingredient.isActive && ingredient.productId.trim() === productId,
+    )
+  }
+  function collectTechnicalSheetDependencies(
     targetCompanyIds: number[],
     ingredients: TechnicalSheetIngredient[],
     garnishIngredients: TechnicalSheetIngredient[],
@@ -3544,43 +3553,39 @@ export default function App() {
       relevantTargetCompanyIds.some((companyId) => !getCompanyLinkScopeIds(getProductOwnerCompanyId(product)).includes(companyId)),
     )
 
-    const blockedSheets = Array.from(dependencySheetMap.values())
-      .map((sheet) => {
-        const missingCompanyIds = relevantTargetCompanyIds.filter(
-          (companyId) => !getCompanyLinkScopeIds(getTechnicalSheetOwnerCompanyId(sheet)).includes(companyId),
-        )
-        return missingCompanyIds.length > 0
-          ? {
-              id: sheet.id,
-              name: sheet.name,
-              targetCompanyIds: missingCompanyIds,
-            }
-          : null
-      })
-      .filter((item): item is { id: number; name: string; targetCompanyIds: number[] } => item !== null)
-
-    const dependencySheetUpdates = Array.from(dependencySheetMap.values())
-      .map((sheet) => {
-        const companyIdsToAdd = relevantTargetCompanyIds.filter(
-          (companyId) =>
-            getCompanyLinkScopeIds(getTechnicalSheetOwnerCompanyId(sheet)).includes(companyId) &&
-            !getTechnicalSheetSharedCompanyIds(sheet).includes(companyId),
-        )
-        return companyIdsToAdd.length > 0
-          ? {
-              id: sheet.id,
-              name: sheet.name,
-              companyIdsToAdd,
-            }
-          : null
-      })
-      .filter((item): item is { id: number; name: string; companyIdsToAdd: number[] } => item !== null)
-
     return {
+      dependencySheets: Array.from(dependencySheetMap.values()),
       blockedProducts,
-      blockedSheets,
-      dependencySheetUpdates,
+      blockedSheets: Array.from(dependencySheetMap.values())
+        .map((sheet) => {
+          const missingCompanyIds = relevantTargetCompanyIds.filter(
+            (companyId) => !getCompanyLinkScopeIds(getTechnicalSheetOwnerCompanyId(sheet)).includes(companyId),
+          )
+          return missingCompanyIds.length > 0
+            ? {
+                id: sheet.id,
+                name: sheet.name,
+                targetCompanyIds: missingCompanyIds,
+              }
+            : null
+        })
+        .filter((item): item is { id: number; name: string; targetCompanyIds: number[] } => item !== null),
     }
+  }
+  function findOtherMotherSheetsForDependency(
+    dependencySheet: TechnicalSheetRecord,
+    companyIds: number[],
+    currentMotherSheetId: number | null,
+  ) {
+    return technicalSheets.filter((sheet) => {
+      if (sheet.id === currentMotherSheetId || sheet.id === dependencySheet.id || !sheet.isActive) {
+        return false
+      }
+      if (!companyIds.some((companyId) => isTechnicalSheetVisibleForCompany(sheet, companyId))) {
+        return false
+      }
+      return sheetDependsOnProductId(sheet, dependencySheet.productId)
+    })
   }
   const companyLinkableOptions = useMemo(
     () =>
@@ -20855,7 +20860,10 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
     setEditingTechnicalSheetServiceItemId(serviceItemId)
   }
 
-  async function saveTechnicalSheet(skipCascadeConfirmation = false) {
+  async function saveTechnicalSheet(
+    skipCascadeConfirmation = false,
+    cascadeDecisionState: TechnicalSheetShareCascadePreviewState | null = null,
+  ) {
     if (isSavingTechnicalSheet) {
       return
     }
@@ -21068,6 +21076,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
     const generatedProductId = previousTechnicalSheet?.productId ?? buildTechnicalSheetProductId(normalizedName, technicalSheetForm.kind)
     const technicalSheetOwnerCompanyId =
       previousTechnicalSheet?.ownerCompanyId ?? previousTechnicalSheet?.companyId ?? currentCompanyId ?? 0
+    const previousSharedCompanyIds = previousTechnicalSheet ? getTechnicalSheetSharedCompanyIds(previousTechnicalSheet) : []
     const technicalSheetSharedCompanyIds = Array.from(
       new Set(
         [technicalSheetOwnerCompanyId, ...technicalSheetForm.sharedCompanyIds].filter(
@@ -21075,7 +21084,11 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
         ),
       ),
     )
-    const shareCascadeAnalysis = analyzeTechnicalSheetShareCascade(
+    const addedSharedCompanyIds = technicalSheetSharedCompanyIds.filter((companyId) => !previousSharedCompanyIds.includes(companyId))
+    const removedSharedCompanyIds = previousSharedCompanyIds.filter(
+      (companyId) => companyId !== technicalSheetOwnerCompanyId && !technicalSheetSharedCompanyIds.includes(companyId),
+    )
+    const shareCascadeAnalysis = collectTechnicalSheetDependencies(
       technicalSheetSharedCompanyIds,
       normalizedIngredients,
       normalizedGarnishIngredients,
@@ -21100,17 +21113,99 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
       return
     }
 
-    if (!skipCascadeConfirmation && shareCascadeAnalysis.dependencySheetUpdates.length > 0) {
-      setTechnicalSheetShareCascadePreviewState({
-        targetCompanyIds: technicalSheetSharedCompanyIds,
-        targetCompanyLabels: technicalSheetSharedCompanyIds.map((companyId) => getCompanyTradeName(companyId)),
-        dependencySheets: shareCascadeAnalysis.dependencySheetUpdates.map((sheet) => ({
-          id: sheet.id,
-          name: sheet.name,
-          targetCompanyLabels: sheet.companyIdsToAdd.map((companyId) => getCompanyTradeName(companyId)),
-        })),
+    const dependencySheetAdditions = shareCascadeAnalysis.dependencySheets
+      .map((sheet) => {
+        const companyIdsToAdd = addedSharedCompanyIds.filter(
+          (companyId) =>
+            getCompanyLinkScopeIds(getTechnicalSheetOwnerCompanyId(sheet)).includes(companyId) &&
+            !getTechnicalSheetSharedCompanyIds(sheet).includes(companyId),
+        )
+        const alreadySharedCompanyIds = addedSharedCompanyIds.filter((companyId) =>
+          getTechnicalSheetSharedCompanyIds(sheet).includes(companyId),
+        )
+        return {
+          sheet,
+          companyIdsToAdd,
+          alreadySharedCompanyIds,
+        }
       })
-      return
+      .filter((item) => item.companyIdsToAdd.length > 0 || item.alreadySharedCompanyIds.length > 0)
+
+    const dependencySheetRemovals = shareCascadeAnalysis.dependencySheets
+      .map((sheet) => {
+        const companyIdsToRemove = removedSharedCompanyIds.filter((companyId) =>
+          getTechnicalSheetSharedCompanyIds(sheet).includes(companyId),
+        )
+        if (companyIdsToRemove.length === 0) {
+          return null
+        }
+        const impactedMotherNames = findOtherMotherSheetsForDependency(sheet, companyIdsToRemove, editingTechnicalSheetId).map(
+          (candidate) => candidate.name,
+        )
+        return {
+          sheet,
+          companyIdsToRemove,
+          impactedMotherNames,
+        }
+      })
+      .filter(
+        (item): item is { sheet: TechnicalSheetRecord; companyIdsToRemove: number[]; impactedMotherNames: string[] } =>
+          item !== null,
+      )
+
+    if (!skipCascadeConfirmation) {
+      if (removedSharedCompanyIds.length > 0 && dependencySheetRemovals.length > 0) {
+        setTechnicalSheetShareCascadePreviewState({
+          mode: 'unshare',
+          targetCompanyIds: removedSharedCompanyIds,
+          targetCompanyLabels: removedSharedCompanyIds.map((companyId) => getCompanyTradeName(companyId)),
+          dependencySheets: dependencySheetRemovals.map((item) => ({
+            id: item.sheet.id,
+            name: item.sheet.name,
+            status: 'candidate_unshare',
+            targetCompanyLabels: item.companyIdsToRemove.map((companyId) => getCompanyTradeName(companyId)),
+            impactedMotherNames: item.impactedMotherNames,
+            selectedForUnshare: item.impactedMotherNames.length === 0,
+          })),
+        })
+        return
+      }
+
+      if (addedSharedCompanyIds.length > 0 && dependencySheetAdditions.length > 0) {
+        setTechnicalSheetShareCascadePreviewState({
+          mode: 'share',
+          targetCompanyIds: addedSharedCompanyIds,
+          targetCompanyLabels: addedSharedCompanyIds.map((companyId) => getCompanyTradeName(companyId)),
+          dependencySheets: dependencySheetAdditions.flatMap((item) => {
+            const sharedRows = item.alreadySharedCompanyIds.length
+              ? [
+                  {
+                    id: item.sheet.id,
+                    name: item.sheet.name,
+                    status: 'already_shared' as const,
+                    targetCompanyLabels: item.alreadySharedCompanyIds.map((companyId) => getCompanyTradeName(companyId)),
+                    impactedMotherNames: [] as string[],
+                    selectedForUnshare: false,
+                  },
+                ]
+              : []
+            const addRows = item.companyIdsToAdd.length
+              ? [
+                  {
+                    id: item.sheet.id,
+                    name: item.sheet.name,
+                    status: 'share_now' as const,
+                    targetCompanyLabels: item.companyIdsToAdd.map((companyId) => getCompanyTradeName(companyId)),
+                    impactedMotherNames: [] as string[],
+                    selectedForUnshare: false,
+                  },
+                ]
+              : []
+            return [...sharedRows, ...addRows]
+          }),
+        })
+        return
+      }
     }
 
     const technicalSheetToSave: TechnicalSheetRecord = {
@@ -21170,16 +21265,34 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
       ? technicalSheets.map((item) => (item.id === editingTechnicalSheetId ? technicalSheetToSave : item))
       : [technicalSheetToSave, ...technicalSheets]
 
+    const selectedDependencyRemovalIds =
+      cascadeDecisionState?.mode === 'unshare'
+        ? new Set(
+            cascadeDecisionState.dependencySheets
+              .filter((sheet) => sheet.status === 'candidate_unshare' && sheet.selectedForUnshare)
+              .map((sheet) => sheet.id),
+          )
+        : new Set<number>()
     const cascadedBaseSheets =
-      shareCascadeAnalysis.dependencySheetUpdates.length > 0
+      dependencySheetAdditions.some((item) => item.companyIdsToAdd.length > 0) || selectedDependencyRemovalIds.size > 0
         ? baseSheets.map((sheet) => {
-            const dependencyUpdate = shareCascadeAnalysis.dependencySheetUpdates.find((item) => item.id === sheet.id)
-            return dependencyUpdate
+            const dependencyAddition = dependencySheetAdditions.find((item) => item.sheet.id === sheet.id)
+            const dependencyRemoval = dependencySheetRemovals.find((item) => item.sheet.id === sheet.id)
+            let nextSharedCompanyIds = getTechnicalSheetSharedCompanyIds(sheet)
+            if (dependencyAddition && dependencyAddition.companyIdsToAdd.length > 0) {
+              nextSharedCompanyIds = Array.from(new Set([...nextSharedCompanyIds, ...dependencyAddition.companyIdsToAdd]))
+            }
+            if (dependencyRemoval && selectedDependencyRemovalIds.has(sheet.id)) {
+              nextSharedCompanyIds = nextSharedCompanyIds.filter(
+                (companyId) =>
+                  companyId === getTechnicalSheetOwnerCompanyId(sheet) || !dependencyRemoval.companyIdsToRemove.includes(companyId),
+              )
+            }
+            return nextSharedCompanyIds.length !== getTechnicalSheetSharedCompanyIds(sheet).length ||
+              nextSharedCompanyIds.some((companyId, index) => companyId !== getTechnicalSheetSharedCompanyIds(sheet)[index])
               ? {
                   ...sheet,
-                  sharedCompanyIds: Array.from(
-                    new Set([...getTechnicalSheetSharedCompanyIds(sheet), ...dependencyUpdate.companyIdsToAdd]),
-                  ),
+                  sharedCompanyIds: nextSharedCompanyIds,
                 }
               : sheet
           })
@@ -21311,10 +21424,10 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
       status: 'success',
       title: editingTechnicalSheetId ? 'Ficha tecnica atualizada com sucesso' : 'Ficha tecnica salva com sucesso',
       message:
-        shareCascadeAnalysis.dependencySheetUpdates.length > 0
+        dependencySheetAdditions.some((item) => item.companyIdsToAdd.length > 0) || selectedDependencyRemovalIds.size > 0
           ? `A ficha tecnica foi ${
               editingTechnicalSheetId ? 'atualizada' : 'cadastrada'
-            } e ${shareCascadeAnalysis.dependencySheetUpdates.length} ficha(s) dependente(s) tambem foram compartilhadas automaticamente.`
+            } e as fichas dependentes necessarias tambem foram ajustadas automaticamente no compartilhamento.`
           : editingTechnicalSheetId
             ? 'A ficha tecnica foi atualizada e o produto vinculado tambem foi atualizado.'
             : 'A ficha tecnica foi cadastrada e o produto vinculado ja entrou na lista de produtos.',
@@ -31883,14 +31996,18 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
             <div className="section-heading">
               <div>
                 <p className="kicker">Compartilhamento de ficha</p>
-                <h2 id="technical-sheet-share-cascade-title">Confirmar compartilhamento das dependencias</h2>
+                <h2 id="technical-sheet-share-cascade-title">
+                  {technicalSheetShareCascadePreviewState.mode === 'share'
+                    ? 'Confirmar compartilhamento das dependencias'
+                    : 'Confirmar desvinculo das dependencias'}
+                </h2>
               </div>
             </div>
 
             <p className="confirm-copy">
-              Ao compartilhar esta ficha tecnica com{' '}
-              {technicalSheetShareCascadePreviewState.targetCompanyLabels.join(', ')}, o sistema tambem precisa
-              disponibilizar as dependencias tecnicas dela para manter a composicao utilizavel nessas empresas.
+              {technicalSheetShareCascadePreviewState.mode === 'share'
+                ? `Ao compartilhar esta ficha tecnica com ${technicalSheetShareCascadePreviewState.targetCompanyLabels.join(', ')}, o sistema tambem precisa disponibilizar as dependencias tecnicas dela para manter a composicao utilizavel nessas empresas.`
+                : `Ao retirar o vinculo desta ficha tecnica com ${technicalSheetShareCascadePreviewState.targetCompanyLabels.join(', ')}, voce pode escolher quais fichas filhas tambem devem ser desvinculadas e quais devem continuar compartilhadas.`}
             </p>
 
             <div className="confirmation-details">
@@ -31898,14 +32015,52 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
               {technicalSheetShareCascadePreviewState.dependencySheets.length > 0 ? (
                 <ul className="sector-impact-list">
                   {technicalSheetShareCascadePreviewState.dependencySheets.map((sheet) => (
-                    <li key={`technical-sheet-share-sheet-${sheet.id}`}>
-                      {sheet.name}
-                      {sheet.targetCompanyLabels.length > 0 ? ` -> ${sheet.targetCompanyLabels.join(', ')}` : ''}
+                    <li key={`technical-sheet-share-sheet-${sheet.id}-${sheet.status}-${sheet.targetCompanyLabels.join('-')}`}>
+                      {technicalSheetShareCascadePreviewState.mode === 'unshare' &&
+                      sheet.status === 'candidate_unshare' ? (
+                        <label className="checkbox-line">
+                          <input
+                            type="checkbox"
+                            checked={sheet.selectedForUnshare}
+                            onChange={() =>
+                              setTechnicalSheetShareCascadePreviewState((current) =>
+                                current
+                                  ? {
+                                      ...current,
+                                      dependencySheets: current.dependencySheets.map((item) =>
+                                        item.id === sheet.id && item.status === 'candidate_unshare'
+                                          ? { ...item, selectedForUnshare: !item.selectedForUnshare }
+                                          : item,
+                                      ),
+                                    }
+                                  : current,
+                              )
+                            }
+                          />
+                          <span>
+                            {sheet.name}
+                            {sheet.targetCompanyLabels.length > 0 ? ` -> ${sheet.targetCompanyLabels.join(', ')}` : ''}
+                            {sheet.impactedMotherNames.length > 0
+                              ? ` | Tambem usada por: ${sheet.impactedMotherNames.join(', ')}`
+                              : ' | Usada apenas por esta ficha mae'}
+                          </span>
+                        </label>
+                      ) : (
+                        <span>
+                          {sheet.name}
+                          {sheet.targetCompanyLabels.length > 0 ? ` -> ${sheet.targetCompanyLabels.join(', ')}` : ''}
+                          {sheet.status === 'already_shared' ? ' | Ja compartilhada' : ' | Sera compartilhada agora'}
+                        </span>
+                      )}
                     </li>
                   ))}
                 </ul>
               ) : (
-                <p>Nenhuma ficha tecnica filha precisa de compartilhamento adicional.</p>
+                <p>
+                  {technicalSheetShareCascadePreviewState.mode === 'share'
+                    ? 'Nenhuma ficha tecnica filha precisa de compartilhamento adicional.'
+                    : 'Nenhuma ficha tecnica filha depende deste vinculo.'}
+                </p>
               )}
             </div>
 
@@ -31921,11 +32076,14 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                 className="primary-button"
                 type="button"
                 onClick={() => {
+                  const cascadeDecisionState = technicalSheetShareCascadePreviewState
                   setTechnicalSheetShareCascadePreviewState(null)
-                  void saveTechnicalSheet(true)
+                  void saveTechnicalSheet(true, cascadeDecisionState)
                 }}
               >
-                Compartilhar dependencias e salvar
+                {technicalSheetShareCascadePreviewState.mode === 'share'
+                  ? 'Compartilhar dependencias e salvar'
+                  : 'Aplicar desvinculo e salvar'}
               </button>
             </div>
           </section>
