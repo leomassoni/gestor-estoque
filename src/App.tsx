@@ -12478,20 +12478,15 @@ export default function App() {
     }
 
     setUserForm((current) => {
-      const nextCompanyIds = isSystemAdmin
-        ? current.companyIds.length > 0
+      const nextCompanyIds =
+        current.companyIds.length > 0
           ? current.companyIds
           : [currentCompanyId]
-        : [currentCompanyId]
-      if (isSystemAdmin) {
-        return current.companyIds.length > 0
-          ? current
-          : { ...current, companyIds: nextCompanyIds }
-      }
-
-      return { ...current, companyIds: nextCompanyIds }
+      return current.companyIds.length > 0
+        ? current
+        : { ...current, companyIds: nextCompanyIds }
     })
-  }, [currentCompanyId, editingUserId, isSystemAdmin])
+  }, [currentCompanyId, editingUserId])
 
   useEffect(() => {
     setUsers((current) =>
@@ -19847,7 +19842,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
     const password = userForm.password.trim()
     const selectedCompanyIds = Array.from(
       new Set(
-        (isSystemAdmin ? userForm.companyIds : currentCompanyId !== null ? [currentCompanyId] : [])
+        (userForm.companyIds.length > 0 ? userForm.companyIds : currentCompanyId !== null ? [currentCompanyId] : [])
           .filter(
             (companyId): companyId is number =>
               typeof companyId === 'number' && assignableCompanyIds.has(companyId),
@@ -30139,7 +30134,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
             </label>
             <div className="field field-span-all">
               <span>Empresas vinculadas</span>
-              {isSystemAdmin ? (
+              {userAssignableCompanies.length > 1 ? (
                 <MultiSelectChips
                   selectedValues={selectedUserCompanyLabels}
                   suggestions={userAssignableCompanyLabels}
@@ -30159,7 +30154,10 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
               ) : (
                 <div className="empty-state empty-state-inline requisition-info-card">
                   <strong>{currentCompany?.tradeName || 'Nenhuma empresa selecionada'}</strong>
-                  <p>Usuarios internos ficam vinculados a empresa ativa. Vinculos multiplos sao definidos apenas pelo usuario master.</p>
+                  <p>
+                    O master define quais empresas podem se vincular entre si. Dentro dessa rede, usuarios com acesso a este painel
+                    podem vincular usuarios as empresas autorizadas.
+                  </p>
                 </div>
               )}
             </div>
