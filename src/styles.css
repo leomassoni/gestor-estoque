@@ -1777,6 +1777,8 @@ h3 {
 .form-actions {
   display: flex;
   justify-content: flex-end;
+  gap: 12px;
+  flex-wrap: wrap;
 }
 
 .inventory-record-actions {
