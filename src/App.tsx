@@ -55,6 +55,17 @@ type UserCatalogAccess = {
   materialsDelete: boolean
 }
 
+type UserCompanyMembershipRecord = {
+  id: number
+  companyId: number
+  role: CompanyUserRole
+  sectors: string[]
+  sectionAccess: UserSectionAccess
+  catalogAccess: UserCatalogAccess
+  accessProfileId: number | null
+  isActive: boolean
+}
+
 type AppUserRecord = {
   id: number
   fullName: string
@@ -68,6 +79,7 @@ type AppUserRecord = {
   catalogAccess: UserCatalogAccess
   accessProfileId: number | null
   isActive: boolean
+  memberships: UserCompanyMembershipRecord[]
 }
 
 type Session =
@@ -1213,6 +1225,15 @@ type UserFormState = {
   sectionAccess: UserSectionAccess
   catalogAccess: UserCatalogAccess
   accessProfileId: string
+  memberships: Array<{
+    companyId: number
+    accessProfileId: string
+    role: CompanyUserRole
+    sectors: string[]
+    sectionAccess: UserSectionAccess
+    catalogAccess: UserCatalogAccess
+    isActive: boolean
+  }>
 }
 
 type AccessProfileRecord = {
@@ -2545,6 +2566,7 @@ const emptyUserForm = (): UserFormState => ({
   sectionAccess: defaultSectionAccessByRole('Gestor'),
   catalogAccess: defaultCatalogAccessByRole('Gestor'),
   accessProfileId: '',
+  memberships: [],
 })
 
 const emptyTechnicalSheetForm = (): TechnicalSheetFormState => ({
@@ -3362,16 +3384,36 @@ export default function App() {
   )
 
   const isSystemAdmin = session?.kind === 'systemAdmin'
-  const isAdministrative = session?.kind === 'appUser' && session.user.role === 'Administrativo'
-  const isManagerUser = session?.kind === 'appUser' && session.user.role === 'Gestor'
-  const canAccessUsersPanel = isSystemAdmin || (session?.kind === 'appUser' && session.user.sectionAccess.Usuarios === true)
+  const effectiveSessionAppUser =
+    session?.kind === 'appUser'
+      ? (() => {
+          const membership =
+            currentCompanyId === null
+              ? null
+              : session.user.memberships.find((entry) => entry.companyId === currentCompanyId && entry.isActive) ?? null
+          return membership
+            ? {
+                ...session.user,
+                companyId: membership.companyId,
+                role: membership.role,
+                sectors: membership.sectors,
+                sectionAccess: membership.sectionAccess,
+                catalogAccess: membership.catalogAccess,
+                accessProfileId: membership.accessProfileId,
+              }
+            : session.user
+        })()
+      : null
+  const isAdministrative = effectiveSessionAppUser?.role === 'Administrativo'
+  const isManagerUser = effectiveSessionAppUser?.role === 'Gestor'
+  const canAccessUsersPanel = isSystemAdmin || (effectiveSessionAppUser?.sectionAccess.Usuarios === true)
   const canManageCompanies = isSystemAdmin
   const canEditCompanyData =
-    isSystemAdmin || (session?.kind === 'appUser' && session.user.sectionAccess.Empresa === true)
+    isSystemAdmin || (effectiveSessionAppUser?.sectionAccess.Empresa === true)
   const canDeleteRecords = isSystemAdmin || isAdministrative
   const canAssignPrivilegedUserRoles = isSystemAdmin || isManagerUser
   const userCatalogAccess =
-    session?.kind === 'appUser' ? session.user.catalogAccess : defaultCatalogAccessByRole('Colaborador')
+    effectiveSessionAppUser?.catalogAccess ?? defaultCatalogAccessByRole('Colaborador')
   const canCreateSectors = isSystemAdmin || userCatalogAccess.sectorsCreate
   const canDeleteSectors = isSystemAdmin || userCatalogAccess.sectorsDelete
   const canCreateFamilies = isSystemAdmin || userCatalogAccess.familiesCreate
@@ -3465,7 +3507,12 @@ export default function App() {
       ]),
     [technicalSheetGarnishIngredients, technicalSheetIngredients],
   )
-  const currentUserSectorScope = session?.kind === 'appUser' ? session.user.sectors : []
+  const rawSessionAppUser = session?.kind === 'appUser' ? session.user : null
+  const currentAppUser = useMemo(
+    () => (rawSessionAppUser ? buildEffectiveAppUserForCompany(rawSessionAppUser, currentCompanyId) : null),
+    [currentCompanyId, rawSessionAppUser],
+  )
+  const currentUserSectorScope = currentAppUser?.sectors ?? []
   const shouldFilterByUserSectors = session?.kind === 'appUser' && currentUserSectorScope.length > 0
   const allowedUserSectorScope = useMemo(
     () =>
@@ -3477,20 +3524,24 @@ export default function App() {
     [currentUserSectorScope, shouldFilterByUserSectors],
   )
   const singleAllowedUserSector = allowedUserSectorScope.length === 1 ? allowedUserSectorScope[0] : null
-  const currentAppUser = session?.kind === 'appUser' ? session.user : null
   const currentAppUserCompanyIds = useMemo(
     () =>
-      currentAppUser
+      rawSessionAppUser
         ? Array.from(
             new Set(
               [
-                ...(Array.isArray(currentAppUser.companyIds) ? currentAppUser.companyIds : []),
-                ...(typeof currentAppUser.companyId === 'number' ? [currentAppUser.companyId] : []),
+                ...(Array.isArray(rawSessionAppUser.companyIds) ? rawSessionAppUser.companyIds : []),
+                ...(typeof rawSessionAppUser.companyId === 'number' ? [rawSessionAppUser.companyId] : []),
+                ...(Array.isArray(rawSessionAppUser.memberships)
+                  ? rawSessionAppUser.memberships
+                      .filter((membership) => membership.isActive)
+                      .map((membership) => membership.companyId)
+                  : []),
               ].filter((companyId): companyId is number => typeof companyId === 'number'),
             ),
           )
         : [],
-    [currentAppUser],
+    [rawSessionAppUser],
   )
   const currentCompany =
     currentCompanyId === null ? null : companies.find((item) => item.id === currentCompanyId) ?? null
@@ -3529,6 +3580,71 @@ export default function App() {
     return Array.from(
       new Set([getTechnicalSheetOwnerCompanyId(sheet), ...getTechnicalSheetExplicitSharedCompanyIds(sheet)]),
     )
+  }
+  function getUserMembershipForCompany(user: AppUserRecord, companyId: number | null) {
+    if (companyId === null) {
+      return null
+    }
+
+    return user.memberships.find((membership) => membership.companyId === companyId && membership.isActive) ?? null
+  }
+  function buildEffectiveAppUserForCompany(user: AppUserRecord, companyId: number | null) {
+    const membership = getUserMembershipForCompany(user, companyId)
+    if (!membership) {
+      return user
+    }
+
+    return {
+      ...user,
+      companyId: membership.companyId,
+      role: membership.role,
+      sectors: membership.sectors,
+      sectionAccess: membership.sectionAccess,
+      catalogAccess: membership.catalogAccess,
+      accessProfileId: membership.accessProfileId,
+    }
+  }
+
+  function applyFallbackProfileToUserForCompany(
+    user: AppUserRecord,
+    companyId: number,
+    removedProfileId: number,
+    fallbackProfile: AccessProfileRecord | null,
+  ) {
+    let membershipChanged = false
+    const nextMemberships = user.memberships.map((membership) => {
+      if (membership.companyId !== companyId || membership.accessProfileId !== removedProfileId) {
+        return membership
+      }
+
+      membershipChanged = true
+      return {
+        ...membership,
+        accessProfileId: fallbackProfile?.id ?? null,
+        role: fallbackProfile?.role ?? membership.role,
+        sectionAccess: fallbackProfile?.sectionAccess ?? defaultSectionAccessByRole(membership.role),
+        catalogAccess: fallbackProfile?.catalogAccess ?? defaultCatalogAccessByRole(membership.role),
+      }
+    })
+
+    if (!membershipChanged) {
+      return user
+    }
+
+    const primaryMembership =
+      nextMemberships.find((membership) => membership.companyId === user.companyId && membership.isActive) ??
+      nextMemberships.find((membership) => membership.isActive) ??
+      null
+
+    return {
+      ...user,
+      role: primaryMembership?.role ?? user.role,
+      sectors: primaryMembership?.sectors ?? user.sectors,
+      sectionAccess: primaryMembership?.sectionAccess ?? user.sectionAccess,
+      catalogAccess: primaryMembership?.catalogAccess ?? user.catalogAccess,
+      accessProfileId: primaryMembership?.accessProfileId ?? null,
+      memberships: nextMemberships,
+    }
   }
   function isProductVisibleForCompany(product: ProductRecord, companyId: number | null) {
     return companyId !== null && getCompanyLinkScopeIds(getProductOwnerCompanyId(product)).includes(companyId)
@@ -3770,7 +3886,10 @@ export default function App() {
     [technicalSheetForm.sharedCompanyIds, technicalSheetOwnerCompanyId, technicalSheetShareableCompanies],
   )
   const userBelongsToCompany = (user: AppUserRecord, companyId: number | null) =>
-    companyId !== null && (user.companyIds.includes(companyId) || user.companyId === companyId)
+    companyId !== null &&
+    (user.companyIds.includes(companyId) ||
+      user.companyId === companyId ||
+      user.memberships.some((membership) => membership.companyId === companyId && membership.isActive))
   const constrainSectorsToCurrentUserScope = (sectors: string[]) => {
     const normalizedSectors = sectors.map((sector) => normalizeRegistrationText(sector)).filter(Boolean)
     if (!shouldFilterByUserSectors) {
@@ -7009,9 +7128,11 @@ export default function App() {
   const stockCenterSectorScopedUsers = useMemo(
     () =>
       companyUsers.filter((user) =>
-        stockCenterForm.sector ? user.sectors.includes(stockCenterForm.sector) : false,
+        stockCenterForm.sector
+          ? buildEffectiveAppUserForCompany(user, currentCompanyId).sectors.includes(stockCenterForm.sector)
+          : false,
       ),
-    [companyUsers, stockCenterForm.sector],
+    [buildEffectiveAppUserForCompany, companyUsers, currentCompanyId, stockCenterForm.sector],
   )
   const stockCenterUserOptionLabels = useMemo(
     () =>
@@ -9699,7 +9820,7 @@ export default function App() {
           return true
         }
 
-        return hasSectorOverlap(item.sectors, currentUserSectorScope)
+        return hasSectorOverlap(buildEffectiveAppUserForCompany(item, currentCompanyId).sectors, currentUserSectorScope)
       }),
     [currentCompanyId, currentUserSectorScope, shouldFilterByUserSectors, users],
   )
@@ -9714,12 +9835,6 @@ export default function App() {
   const accessProfilesById = useMemo(() => {
     return new Map(companyAccessProfiles.map((profile) => [profile.id, profile]))
   }, [companyAccessProfiles])
-  const assignableAccessProfiles = useMemo(() => {
-    if (canAssignPrivilegedUserRoles) {
-      return activeCompanyAccessProfiles
-    }
-    return activeCompanyAccessProfiles.filter((profile) => profile.role === 'Colaborador')
-  }, [activeCompanyAccessProfiles, canAssignPrivilegedUserRoles])
   const userAssignableCompanies = useMemo(
     () => {
       if (currentCompanyId === null) {
@@ -9732,6 +9847,16 @@ export default function App() {
     },
     [companies, currentCompanyId],
   )
+  const assignableAccessProfilesByCompanyId = useMemo(() => {
+    const entries = userAssignableCompanies.map((company) => [
+      company.id,
+      accessProfiles
+        .filter((profile) => profile.companyId === company.id && profile.isActive)
+        .filter((profile) => canAssignPrivilegedUserRoles || profile.role === 'Colaborador')
+        .sort((left, right) => left.name.localeCompare(right.name, 'pt-BR')),
+    ] as const)
+    return new Map<number, AccessProfileRecord[]>(entries)
+  }, [accessProfiles, canAssignPrivilegedUserRoles, userAssignableCompanies])
   const userAssignableCompanyLabels = useMemo(
     () => userAssignableCompanies.map((company) => `${company.tradeName} (${company.cnpj || `ID ${company.id}`})`),
     [userAssignableCompanies],
@@ -9752,6 +9877,13 @@ export default function App() {
         .map((companyId) => userAssignableCompanies.find((company) => company.id === companyId) ?? null)
         .filter((company): company is CompanyRecord => company !== null)
         .map((company) => `${company.tradeName} (${company.cnpj || `ID ${company.id}`})`),
+    [userAssignableCompanies, userForm.companyIds],
+  )
+  const selectedUserCompanies = useMemo(
+    () =>
+      userForm.companyIds
+        .map((companyId) => userAssignableCompanies.find((company) => company.id === companyId) ?? null)
+        .filter((company): company is CompanyRecord => company !== null),
     [userAssignableCompanies, userForm.companyIds],
   )
   useEffect(() => {
@@ -9940,13 +10072,23 @@ export default function App() {
             .flatMap((item) => item.sectors),
           ...users
             .filter((user) => userBelongsToCompany(user, currentCompanyId))
-            .flatMap((user) => user.sectors),
+            .flatMap((user) => buildEffectiveAppUserForCompany(user, currentCompanyId).sectors),
         ]
           .map((sector) => normalizeRegistrationText(sector))
           .filter((sector) => !shouldFilterByUserSectors || allowedUserSectorScope.includes(sector))),
       )
         .sort(),
-    [allowedUserSectorScope, currentCompanyId, isProductVisibleForCompany, products, serviceItems, shouldFilterByUserSectors, technicalSheets, users],
+    [
+      allowedUserSectorScope,
+      buildEffectiveAppUserForCompany,
+      currentCompanyId,
+      isProductVisibleForCompany,
+      products,
+      serviceItems,
+      shouldFilterByUserSectors,
+      technicalSheets,
+      users,
+    ],
   )
   const stockCenterSectorSuggestions = useMemo(
     () =>
@@ -9959,31 +10101,21 @@ export default function App() {
       ]),
     [allowedUserSectorScope, currentCompanyId, dynamicSectorSuggestions, shouldFilterByUserSectors, stockCenters],
   )
-  const userSectorSuggestions = useMemo(() => {
-    const selectedCompanyId = currentCompanyId
-    if (selectedCompanyId === null) {
-      return Array.from(
-        new Set(
-          users
-            .flatMap((item) => item.sectors)
-            .map((sector) => normalizeRegistrationText(sector))
-            .filter((sector) => !shouldFilterByUserSectors || allowedUserSectorScope.includes(sector)),
-        ),
-      )
-        .sort()
-    }
-
-    return Array.from(
+  const getUserSectorSuggestionsForCompany = (selectedCompanyId: number) =>
+    Array.from(
       new Set([
         ...products.filter((product) => isProductVisibleForCompany(product, selectedCompanyId)).flatMap((product) => product.sectors),
         ...serviceItems.filter((item) => item.companyId === selectedCompanyId).flatMap((item) => item.sectors),
-        ...users.filter((item) => item.companyId === selectedCompanyId).flatMap((item) => item.sectors),
+        ...users
+          .filter((item) => userBelongsToCompany(item, selectedCompanyId))
+          .flatMap((item) => {
+            const membership = item.memberships.find((entry) => entry.companyId === selectedCompanyId) ?? null
+            return membership?.sectors ?? item.sectors
+          }),
       ]
         .map((sector) => normalizeRegistrationText(sector))
         .filter((sector) => !shouldFilterByUserSectors || allowedUserSectorScope.includes(sector))),
-    )
-      .sort()
-  }, [allowedUserSectorScope, currentCompanyId, isProductVisibleForCompany, products, serviceItems, shouldFilterByUserSectors, users])
+    ).sort()
   const technicalSheetProductOptions = useMemo(
     () =>
       products
@@ -12229,7 +12361,15 @@ export default function App() {
 
     setUserForm((current) => {
       const nextSectors = constrainSectorsToCurrentUserScope(current.sectors)
-      return nextSectors.join('|') === current.sectors.join('|') ? current : { ...current, sectors: nextSectors }
+      const nextMemberships = current.memberships.map((membership) => ({
+        ...membership,
+        sectors: constrainSectorsToCurrentUserScope(membership.sectors),
+      }))
+      return nextSectors.join('|') === current.sectors.join('|') &&
+        JSON.stringify(nextMemberships.map((membership) => membership.sectors)) ===
+          JSON.stringify(current.memberships.map((membership) => membership.sectors))
+        ? current
+        : { ...current, sectors: nextSectors, memberships: nextMemberships }
     })
   }, [allowedUserSectorScope, shouldFilterByUserSectors, singleAllowedUserSector])
 
@@ -12268,7 +12408,8 @@ export default function App() {
       refreshedUser.sectors.join('|') !== session.user.sectors.join('|') ||
       JSON.stringify(refreshedUser.sectionAccess) !== JSON.stringify(session.user.sectionAccess) ||
       JSON.stringify(refreshedUser.catalogAccess) !== JSON.stringify(session.user.catalogAccess) ||
-      refreshedUser.accessProfileId !== session.user.accessProfileId
+      refreshedUser.accessProfileId !== session.user.accessProfileId ||
+      JSON.stringify(refreshedUser.memberships) !== JSON.stringify(session.user.memberships)
     ) {
       setSession({ kind: 'appUser', user: refreshedUser })
     }
@@ -12299,25 +12440,37 @@ export default function App() {
     if (editingUserId !== null) {
       return
     }
-
-    const defaultProfile = assignableAccessProfiles[0] ?? null
-
     setUserForm((current) => {
-      if (!defaultProfile) {
-        return current
-      }
-      if (current.accessProfileId === String(defaultProfile.id)) {
-        return current
-      }
+      const nextMemberships = current.companyIds.map((companyId) => {
+        const existing = current.memberships.find((membership) => membership.companyId === companyId) ?? null
+        const companyProfiles = assignableAccessProfilesByCompanyId.get(companyId) ?? []
+        const defaultProfile = companyProfiles[0] ?? null
+        const resolvedProfile =
+          existing?.accessProfileId
+            ? companyProfiles.find((profile) => String(profile.id) === existing.accessProfileId) ?? defaultProfile
+            : defaultProfile
+        return {
+          companyId,
+          accessProfileId: resolvedProfile ? String(resolvedProfile.id) : '',
+          role: resolvedProfile?.role ?? existing?.role ?? current.role,
+          sectors: existing?.sectors ?? (singleAllowedUserSector ? [singleAllowedUserSector] : []),
+          sectionAccess: resolvedProfile?.sectionAccess ?? existing?.sectionAccess ?? current.sectionAccess,
+          catalogAccess: resolvedProfile?.catalogAccess ?? existing?.catalogAccess ?? current.catalogAccess,
+          isActive: existing?.isActive ?? true,
+        }
+      })
+      const primaryMembership = nextMemberships[0] ?? null
       return {
         ...current,
-        role: defaultProfile.role,
-        accessProfileId: String(defaultProfile.id),
-        sectionAccess: defaultProfile.sectionAccess,
-        catalogAccess: defaultProfile.catalogAccess,
+        role: primaryMembership?.role ?? current.role,
+        accessProfileId: primaryMembership?.accessProfileId ?? '',
+        sectors: primaryMembership?.sectors ?? current.sectors,
+        sectionAccess: primaryMembership?.sectionAccess ?? current.sectionAccess,
+        catalogAccess: primaryMembership?.catalogAccess ?? current.catalogAccess,
+        memberships: nextMemberships,
       }
     })
-  }, [assignableAccessProfiles, editingUserId])
+  }, [assignableAccessProfilesByCompanyId, editingUserId, singleAllowedUserSector])
 
   useEffect(() => {
     if (editingUserId !== null || currentCompanyId === null) {
@@ -12325,36 +12478,67 @@ export default function App() {
     }
 
     setUserForm((current) => {
+      const nextCompanyIds = isSystemAdmin
+        ? current.companyIds.length > 0
+          ? current.companyIds
+          : [currentCompanyId]
+        : [currentCompanyId]
       if (isSystemAdmin) {
-        return current.companyIds.length > 0 ? current : { ...current, companyIds: [currentCompanyId] }
+        return current.companyIds.length > 0
+          ? current
+          : { ...current, companyIds: nextCompanyIds }
       }
 
-      return { ...current, companyIds: [currentCompanyId] }
+      return { ...current, companyIds: nextCompanyIds }
     })
   }, [currentCompanyId, editingUserId, isSystemAdmin])
 
   useEffect(() => {
     setUsers((current) =>
       current.map((user) => {
-        const companyProfiles = [
-          ...buildDefaultAccessProfiles(user.companyId),
-          ...accessProfiles.filter((profile) => profile.companyId === user.companyId && profile.isActive),
-        ]
-        const assignedProfile =
-          user.accessProfileId === null
-            ? null
-            : companyProfiles.find((profile) => profile.id === user.accessProfileId) ?? null
+        let membershipsChanged = false
+        const nextMemberships = user.memberships.map((membership) => {
+          const companyProfiles = [
+            ...buildDefaultAccessProfiles(membership.companyId),
+            ...accessProfiles.filter((profile) => profile.companyId === membership.companyId && profile.isActive),
+          ]
+          const assignedProfile =
+            membership.accessProfileId === null
+              ? null
+              : companyProfiles.find((profile) => profile.id === membership.accessProfileId) ?? null
 
-        if (assignedProfile) {
+          if (assignedProfile) {
+            return membership
+          }
+
+          membershipsChanged = true
+          const fallbackProfile = getFirstAccessProfileForRole(companyProfiles, membership.role)
+          return {
+            ...membership,
+            accessProfileId: fallbackProfile?.id ?? null,
+            role: fallbackProfile?.role ?? membership.role,
+            sectionAccess: fallbackProfile?.sectionAccess ?? defaultSectionAccessByRole(membership.role),
+            catalogAccess: fallbackProfile?.catalogAccess ?? defaultCatalogAccessByRole(membership.role),
+          }
+        })
+
+        if (!membershipsChanged) {
           return user
         }
 
-        const fallbackProfile = getFirstAccessProfileForRole(companyProfiles, user.role)
+        const primaryMembership =
+          nextMemberships.find((membership) => membership.companyId === user.companyId && membership.isActive) ??
+          nextMemberships.find((membership) => membership.isActive) ??
+          null
+
         return {
           ...user,
-          accessProfileId: fallbackProfile?.id ?? null,
-          sectionAccess: fallbackProfile?.sectionAccess ?? defaultSectionAccessByRole(user.role),
-          catalogAccess: fallbackProfile?.catalogAccess ?? defaultCatalogAccessByRole(user.role),
+          role: primaryMembership?.role ?? user.role,
+          sectors: primaryMembership?.sectors ?? user.sectors,
+          sectionAccess: primaryMembership?.sectionAccess ?? user.sectionAccess,
+          catalogAccess: primaryMembership?.catalogAccess ?? user.catalogAccess,
+          accessProfileId: primaryMembership?.accessProfileId ?? null,
+          memberships: nextMemberships,
         }
       }),
     )
@@ -13222,6 +13406,9 @@ export default function App() {
         [
           ...(Array.isArray(appUser.companyIds) ? appUser.companyIds : []),
           ...(typeof appUser.companyId === 'number' ? [appUser.companyId] : []),
+          ...(Array.isArray(appUser.memberships)
+            ? appUser.memberships.filter((membership) => membership.isActive).map((membership) => membership.companyId)
+            : []),
         ].filter((companyId): companyId is number => typeof companyId === 'number'),
       ),
     )
@@ -13309,13 +13496,13 @@ export default function App() {
     const matchingUsers = users.filter(
       (user) =>
         userBelongsToCompany(user, currentCompanyId) &&
-        user.sectors.includes(normalizedSector),
+        buildEffectiveAppUserForCompany(user, currentCompanyId).sectors.includes(normalizedSector),
     )
     const impactedUsers = matchingUsers
       .map((user) => user.fullName)
       .sort((a, b) => a.localeCompare(b, 'pt-BR'))
     const orphanUsers = matchingUsers
-      .filter((user) => user.sectors.length === 1)
+      .filter((user) => buildEffectiveAppUserForCompany(user, currentCompanyId).sectors.length === 1)
       .map((user) => user.fullName)
       .sort((a, b) => a.localeCompare(b, 'pt-BR'))
 
@@ -13598,23 +13785,50 @@ export default function App() {
     )
     setUsers((current) =>
       current.map((user) =>
-        user.sectors.includes(sectorHideState.sector)
-          ? {
-              ...user,
-              sectors: resolveSectorDeletion(
-                user.sectors,
-                sectorHideState.sector,
-                sectorHideState.resolution,
-                replacementSector,
-              ),
-              isActive:
-                sectorHideState.resolution === 'inactivate' &&
-                user.sectors.length === 1 &&
-                user.sectors[0] === sectorHideState.sector
-                  ? false
-                  : user.isActive,
-            }
-          : user,
+        (() => {
+          const membership = getUserMembershipForCompany(user, currentCompanyId)
+          if (!membership || !membership.sectors.includes(sectorHideState.sector)) {
+            return user
+          }
+
+          const nextMemberships = user.memberships.map((item) =>
+            item.companyId === membership.companyId
+              ? {
+                  ...item,
+                  sectors: resolveSectorDeletion(
+                    item.sectors,
+                    sectorHideState.sector,
+                    sectorHideState.resolution,
+                    replacementSector,
+                  ),
+                  isActive:
+                    sectorHideState.resolution === 'inactivate' &&
+                    item.sectors.length === 1 &&
+                    item.sectors[0] === sectorHideState.sector
+                      ? false
+                      : item.isActive,
+                }
+              : item,
+          )
+          const primaryMembership =
+            nextMemberships.find((item) => item.companyId === user.companyId && item.isActive) ??
+            nextMemberships.find((item) => item.isActive) ??
+            null
+
+          return {
+            ...user,
+            sectors: primaryMembership?.sectors ?? user.sectors,
+            role: primaryMembership?.role ?? user.role,
+            sectionAccess: primaryMembership?.sectionAccess ?? user.sectionAccess,
+            catalogAccess: primaryMembership?.catalogAccess ?? user.catalogAccess,
+            accessProfileId: primaryMembership?.accessProfileId ?? user.accessProfileId,
+            isActive:
+              primaryMembership === null
+                ? false
+                : user.isActive,
+            memberships: nextMemberships,
+          }
+        })(),
       ),
     )
     setProductForm((current) => ({
@@ -13770,6 +13984,9 @@ export default function App() {
         companyIds: Array.from(
           new Set((value as number[]).filter((companyId): companyId is number => typeof companyId === 'number')),
         ),
+        memberships: current.memberships.filter((membership) =>
+          (value as number[]).some((companyId) => companyId === membership.companyId),
+        ),
       }))
       return
     }
@@ -13777,16 +13994,41 @@ export default function App() {
     setUserForm((current) => ({ ...current, [field]: value }))
   }
 
-  function updateUserAccessProfile(profileId: string) {
-    const targetProfile =
-      assignableAccessProfiles.find((profile) => String(profile.id) === profileId) ?? null
+  function updateUserMembershipAccessProfile(companyId: number, profileId: string) {
+    setUserForm((current) => {
+      const availableProfiles = assignableAccessProfilesByCompanyId.get(companyId) ?? []
+      const selectedProfile =
+        profileId === '' ? null : availableProfiles.find((profile) => String(profile.id) === profileId) ?? null
+      return {
+        ...current,
+        memberships: current.memberships.map((membership) =>
+          membership.companyId === companyId
+            ? {
+                ...membership,
+                accessProfileId: profileId,
+                role: selectedProfile?.role ?? membership.role,
+                sectionAccess: selectedProfile?.sectionAccess ?? membership.sectionAccess,
+                catalogAccess: selectedProfile?.catalogAccess ?? membership.catalogAccess,
+              }
+            : membership,
+        ),
+      }
+    })
+  }
 
+  function updateUserMembershipSectors(companyId: number, nextValues: string[]) {
     setUserForm((current) => ({
       ...current,
-      role: targetProfile?.role ?? current.role,
-      accessProfileId: profileId,
-      sectionAccess: targetProfile?.sectionAccess ?? current.sectionAccess,
-      catalogAccess: targetProfile?.catalogAccess ?? current.catalogAccess,
+      memberships: current.memberships.map((membership) =>
+        membership.companyId === companyId
+          ? {
+              ...membership,
+              sectors: constrainSectorsToCurrentUserScope(
+                nextValues.map((value) => normalizeRegistrationText(value)).filter(Boolean),
+              ),
+            }
+          : membership,
+      ),
     }))
   }
 
@@ -14868,7 +15110,10 @@ export default function App() {
 
     const validUserIds = Array.from(new Set(stockCenterForm.userIds)).filter((userId) => {
       const user = users.find((candidate) => candidate.id === userId && userBelongsToCompany(candidate, currentCompanyId))
-      return user?.isActive === true && user.sectors.includes(normalizedStockCenterSector)
+      return (
+        user?.isActive === true &&
+        buildEffectiveAppUserForCompany(user, currentCompanyId).sectors.includes(normalizedStockCenterSector)
+      )
     })
 
     if (validUserIds.length === 0) {
@@ -19404,19 +19649,18 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
         throw new Error('Nao foi possivel atualizar o perfil no servidor.')
       }
       if (targetProfile.isActive) {
+        const affectedUsers = users
+          .map((user) => ({
+            original: user,
+            updated: applyFallbackProfileToUserForCompany(user, targetProfile.companyId, profileId, fallbackProfile),
+          }))
+          .filter(({ original, updated }) => JSON.stringify(updated.memberships) !== JSON.stringify(original.memberships))
         await Promise.all(
-          users
-            .filter((user) => user.accessProfileId === profileId)
-            .map((user) =>
-              fetch(`/api/users/${user.id}`, {
+          affectedUsers.map(({ updated }) =>
+              fetch(`/api/users/${updated.id}`, {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                  ...user,
-                  accessProfileId: fallbackProfile?.id ?? null,
-                  sectionAccess: fallbackProfile?.sectionAccess ?? defaultSectionAccessByRole(user.role),
-                  catalogAccess: fallbackProfile?.catalogAccess ?? defaultCatalogAccessByRole(user.role),
-                }),
+                body: JSON.stringify(updated),
               }),
             ),
         )
@@ -19446,13 +19690,43 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
       return
     }
 
-    if (userForm.accessProfileId === String(profileId) && targetProfile.isActive) {
-      setUserForm((current) => ({
-        ...current,
-        accessProfileId: fallbackProfile ? String(fallbackProfile.id) : '',
-        sectionAccess: fallbackProfile?.sectionAccess ?? defaultSectionAccessByRole(current.role),
-        catalogAccess: fallbackProfile?.catalogAccess ?? defaultCatalogAccessByRole(current.role),
-      }))
+    if (
+      targetProfile.isActive &&
+      userForm.memberships.some(
+        (membership) => membership.companyId === targetProfile.companyId && membership.accessProfileId === String(profileId),
+      )
+    ) {
+      setUserForm((current) => {
+        const primaryCompanyId = current.companyIds[0] ?? null
+        return {
+          ...current,
+          accessProfileId:
+            primaryCompanyId === targetProfile.companyId
+              ? fallbackProfile
+                ? String(fallbackProfile.id)
+                : ''
+              : current.accessProfileId,
+          sectionAccess:
+            primaryCompanyId === targetProfile.companyId
+              ? fallbackProfile?.sectionAccess ?? defaultSectionAccessByRole(current.role)
+              : current.sectionAccess,
+          catalogAccess:
+            primaryCompanyId === targetProfile.companyId
+              ? fallbackProfile?.catalogAccess ?? defaultCatalogAccessByRole(current.role)
+              : current.catalogAccess,
+          memberships: current.memberships.map((membership) =>
+            membership.companyId === targetProfile.companyId && membership.accessProfileId === String(profileId)
+              ? {
+                  ...membership,
+                  accessProfileId: fallbackProfile ? String(fallbackProfile.id) : '',
+                  role: fallbackProfile?.role ?? membership.role,
+                  sectionAccess: fallbackProfile?.sectionAccess ?? defaultSectionAccessByRole(membership.role),
+                  catalogAccess: fallbackProfile?.catalogAccess ?? defaultCatalogAccessByRole(membership.role),
+                }
+              : membership,
+          ),
+        }
+      })
     }
 
     await refreshAppAdminRecordsFromApi()
@@ -19474,19 +19748,18 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
       if (!response.ok) {
         throw new Error('Nao foi possivel excluir o perfil no servidor.')
       }
+      const affectedUsers = users
+        .map((user) => ({
+          original: user,
+          updated: applyFallbackProfileToUserForCompany(user, targetProfile.companyId, profileId, fallbackProfile),
+        }))
+        .filter(({ original, updated }) => JSON.stringify(updated.memberships) !== JSON.stringify(original.memberships))
       await Promise.all(
-        users
-          .filter((user) => user.accessProfileId === profileId)
-          .map((user) =>
-            fetch(`/api/users/${user.id}`, {
+        affectedUsers.map(({ updated }) =>
+            fetch(`/api/users/${updated.id}`, {
               method: 'PUT',
               headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                ...user,
-                accessProfileId: fallbackProfile?.id ?? null,
-                sectionAccess: fallbackProfile?.sectionAccess ?? defaultSectionAccessByRole(user.role),
-                catalogAccess: fallbackProfile?.catalogAccess ?? defaultCatalogAccessByRole(user.role),
-              }),
+              body: JSON.stringify(updated),
             }),
           ),
       )
@@ -19505,13 +19778,42 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
       setAccessProfileForm(emptyAccessProfileForm())
     }
 
-    if (userForm.accessProfileId === String(profileId)) {
-      setUserForm((current) => ({
-        ...current,
-        accessProfileId: fallbackProfile ? String(fallbackProfile.id) : '',
-        sectionAccess: fallbackProfile?.sectionAccess ?? defaultSectionAccessByRole(current.role),
-        catalogAccess: fallbackProfile?.catalogAccess ?? defaultCatalogAccessByRole(current.role),
-      }))
+    if (
+      userForm.memberships.some(
+        (membership) => membership.companyId === targetProfile.companyId && membership.accessProfileId === String(profileId),
+      )
+    ) {
+      setUserForm((current) => {
+        const primaryCompanyId = current.companyIds[0] ?? null
+        return {
+          ...current,
+          accessProfileId:
+            primaryCompanyId === targetProfile.companyId
+              ? fallbackProfile
+                ? String(fallbackProfile.id)
+                : ''
+              : current.accessProfileId,
+          sectionAccess:
+            primaryCompanyId === targetProfile.companyId
+              ? fallbackProfile?.sectionAccess ?? defaultSectionAccessByRole(current.role)
+              : current.sectionAccess,
+          catalogAccess:
+            primaryCompanyId === targetProfile.companyId
+              ? fallbackProfile?.catalogAccess ?? defaultCatalogAccessByRole(current.role)
+              : current.catalogAccess,
+          memberships: current.memberships.map((membership) =>
+            membership.companyId === targetProfile.companyId && membership.accessProfileId === String(profileId)
+              ? {
+                  ...membership,
+                  accessProfileId: fallbackProfile ? String(fallbackProfile.id) : '',
+                  role: fallbackProfile?.role ?? membership.role,
+                  sectionAccess: fallbackProfile?.sectionAccess ?? defaultSectionAccessByRole(membership.role),
+                  catalogAccess: fallbackProfile?.catalogAccess ?? defaultCatalogAccessByRole(membership.role),
+                }
+              : membership,
+          ),
+        }
+      })
     }
     await refreshAppAdminRecordsFromApi()
   }
@@ -19531,13 +19833,27 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
       ),
     )
     const companyId = selectedCompanyIds[0] ?? currentCompanyId
-    const selectedProfile =
-      userForm.accessProfileId === ''
-        ? null
-        : assignableAccessProfiles.find((profile) => String(profile.id) === userForm.accessProfileId) ?? null
-    const normalizedSectors = constrainSectorsToCurrentUserScope(
-      userForm.sectors.map((sector) => normalizeRegistrationText(sector.trim())).filter(Boolean),
-    )
+    const normalizedMemberships = selectedCompanyIds.map((selectedCompanyId) => {
+      const membership = userForm.memberships.find((item) => item.companyId === selectedCompanyId) ?? null
+      const companyProfiles = assignableAccessProfilesByCompanyId.get(selectedCompanyId) ?? []
+      const selectedProfile =
+        membership?.accessProfileId
+          ? companyProfiles.find((profile) => String(profile.id) === membership.accessProfileId) ?? null
+          : null
+      const normalizedSectors = constrainSectorsToCurrentUserScope(
+        (membership?.sectors ?? []).map((sector) => normalizeRegistrationText(sector.trim())).filter(Boolean),
+      )
+
+      return {
+        companyId: selectedCompanyId,
+        selectedProfile,
+        accessProfileId: membership?.accessProfileId ?? '',
+        normalizedSectors,
+        role: selectedProfile?.role ?? membership?.role ?? userForm.role,
+        sectionAccess: selectedProfile?.sectionAccess ?? membership?.sectionAccess ?? userForm.sectionAccess,
+        catalogAccess: selectedProfile?.catalogAccess ?? membership?.catalogAccess ?? userForm.catalogAccess,
+      }
+    })
     const errors: string[] = []
 
     if (!fullName) {
@@ -19552,18 +19868,24 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
     if (selectedCompanyIds.length === 0 || companyId === null) {
       errors.push('selecione ao menos uma empresa antes de cadastrar usuarios')
     }
-    if (userForm.role !== 'Administrativo' && normalizedSectors.length === 0) {
-      errors.push(`ao menos 1 setor obrigatorio para usuario ${userForm.role.toLowerCase()}`)
-    }
     if (!canAssignPrivilegedUserRoles && (userForm.role === 'Administrativo' || userForm.role === 'Gestor')) {
       errors.push('apenas usuarios master ou gestor podem cadastrar usuarios gestor ou administrativo')
     }
-    if (!userForm.accessProfileId) {
-      errors.push('selecione um perfil de acesso')
-    }
-    if (!selectedProfile) {
-      errors.push('perfil de acesso invalido')
-    }
+
+    normalizedMemberships.forEach((membership) => {
+      if (!membership.accessProfileId) {
+        errors.push(`selecione um perfil de acesso para ${getCompanyTradeName(membership.companyId)}`)
+      }
+      if (!membership.selectedProfile) {
+        errors.push(`perfil de acesso invalido para ${getCompanyTradeName(membership.companyId)}`)
+      }
+      if (membership.role !== 'Administrativo' && membership.normalizedSectors.length === 0) {
+        errors.push(`ao menos 1 setor obrigatorio para ${getCompanyTradeName(membership.companyId)}`)
+      }
+      if (!canAssignPrivilegedUserRoles && (membership.role === 'Administrativo' || membership.role === 'Gestor')) {
+        errors.push(`apenas usuarios master ou gestor podem vincular perfil privilegiado em ${getCompanyTradeName(membership.companyId)}`)
+      }
+    })
 
     const duplicateUsername = users.find(
       (item) =>
@@ -19596,14 +19918,24 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
       fullName,
       username,
       password,
-      role: selectedProfile?.role ?? userForm.role,
+      role: normalizedMemberships[0]?.role ?? userForm.role,
       companyId,
       companyIds: selectedCompanyIds,
-      sectors: normalizedSectors,
-      sectionAccess: selectedProfile?.sectionAccess ?? userForm.sectionAccess,
-      catalogAccess: selectedProfile?.catalogAccess ?? userForm.catalogAccess,
-      accessProfileId: userForm.accessProfileId ? Number(userForm.accessProfileId) : null,
+      sectors: normalizedMemberships[0]?.normalizedSectors ?? [],
+      sectionAccess: normalizedMemberships[0]?.sectionAccess ?? userForm.sectionAccess,
+      catalogAccess: normalizedMemberships[0]?.catalogAccess ?? userForm.catalogAccess,
+      accessProfileId: normalizedMemberships[0]?.selectedProfile?.id ?? null,
       isActive: editingUserId ? users.find((item) => item.id === editingUserId)?.isActive ?? true : true,
+      memberships: normalizedMemberships.map((membership, index) => ({
+        id: index + 1,
+        companyId: membership.companyId,
+        role: membership.role,
+        sectors: membership.normalizedSectors,
+        sectionAccess: membership.sectionAccess,
+        catalogAccess: membership.catalogAccess,
+        accessProfileId: membership.selectedProfile?.id ?? null,
+        isActive: true,
+      })),
     }
 
     setSaveProgressState({
@@ -19611,104 +19943,6 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
       message: 'Registrando, aguarde. Nao feche a tela nem clique novamente em salvar.',
     })
     try {
-      if (selectedProfile) {
-        const sourceStockSettings = stockModuleSettings.find((record) => record.companyId === selectedProfile.companyId) ?? null
-        const sourceStockPermissions = {
-          inventorySummaryEdit: sourceStockSettings?.inventorySummaryEditProfileIds.includes(selectedProfile.id) ?? false,
-          inventorySummaryDelete: sourceStockSettings?.inventorySummaryDeleteProfileIds.includes(selectedProfile.id) ?? false,
-          closedInventoryReopen: sourceStockSettings?.closedInventoryReopenProfileIds.includes(selectedProfile.id) ?? false,
-          closedInventoryDelete: sourceStockSettings?.closedInventoryDeleteProfileIds.includes(selectedProfile.id) ?? false,
-        }
-        let nextProfileId =
-          accessProfiles.length > 0 ? Math.max(...accessProfiles.map((profile) => profile.id)) + 1 : 1
-
-        for (const selectedCompanyId of selectedCompanyIds) {
-          if (selectedCompanyId === selectedProfile.companyId) {
-            continue
-          }
-
-          const existingProfile =
-            accessProfiles.find(
-              (profile) =>
-                profile.companyId === selectedCompanyId &&
-                normalizeRegistrationText(profile.name) === normalizeRegistrationText(selectedProfile.name),
-            ) ?? null
-
-          const mirroredProfile: AccessProfileRecord = existingProfile
-            ? {
-                ...existingProfile,
-                name: selectedProfile.name,
-                role: selectedProfile.role,
-                sectionAccess: selectedProfile.sectionAccess,
-                catalogAccess: selectedProfile.catalogAccess,
-                isActive: true,
-              }
-            : {
-                id: nextProfileId++,
-                companyId: selectedCompanyId,
-                name: selectedProfile.name,
-                role: selectedProfile.role,
-                sectionAccess: selectedProfile.sectionAccess,
-                catalogAccess: selectedProfile.catalogAccess,
-                isActive: true,
-              }
-
-          const mirroredProfileResponse = await fetch(
-            existingProfile ? `/api/access-profiles/${mirroredProfile.id}` : '/api/access-profiles',
-            {
-              method: existingProfile ? 'PUT' : 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify(mirroredProfile),
-            },
-          )
-          if (!mirroredProfileResponse.ok) {
-            const errorPayload = (await mirroredProfileResponse.json().catch(() => null)) as { error?: string } | null
-            throw new Error(errorPayload?.error || 'Nao foi possivel espelhar o perfil de acesso nas empresas vinculadas.')
-          }
-
-          const targetStockSettings = stockModuleSettings.find((record) => record.companyId === selectedCompanyId) ?? {
-            companyId: selectedCompanyId,
-            inventorySummaryEditProfileIds: [],
-            inventorySummaryDeleteProfileIds: [],
-            closedInventoryReopenProfileIds: [],
-            closedInventoryDeleteProfileIds: [],
-          }
-          const syncProfileId = (profileIds: number[], isEnabled: boolean) =>
-            isEnabled
-              ? Array.from(new Set([...profileIds, mirroredProfile.id]))
-              : profileIds.filter((profileId) => profileId !== mirroredProfile.id)
-          const nextTargetStockSettings: StockModuleSettingsRecord = {
-            companyId: targetStockSettings.companyId,
-            inventorySummaryEditProfileIds: syncProfileId(
-              targetStockSettings.inventorySummaryEditProfileIds,
-              sourceStockPermissions.inventorySummaryEdit,
-            ),
-            inventorySummaryDeleteProfileIds: syncProfileId(
-              targetStockSettings.inventorySummaryDeleteProfileIds,
-              sourceStockPermissions.inventorySummaryDelete,
-            ),
-            closedInventoryReopenProfileIds: syncProfileId(
-              targetStockSettings.closedInventoryReopenProfileIds,
-              sourceStockPermissions.closedInventoryReopen,
-            ),
-            closedInventoryDeleteProfileIds: syncProfileId(
-              targetStockSettings.closedInventoryDeleteProfileIds,
-              sourceStockPermissions.closedInventoryDelete,
-            ),
-          }
-
-          const stockSettingsResponse = await fetch(`/api/stock-module-settings/${selectedCompanyId}`, {
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(nextTargetStockSettings),
-          })
-          if (!stockSettingsResponse.ok) {
-            const errorPayload = (await stockSettingsResponse.json().catch(() => null)) as { error?: string } | null
-            throw new Error(errorPayload?.error || 'Nao foi possivel espelhar as permissoes de estoque do perfil nas empresas vinculadas.')
-          }
-        }
-      }
-
       const response = await fetch(editingUserId ? `/api/users/${userToSave.id}` : '/api/users', {
         method: editingUserId ? 'PUT' : 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -19763,6 +19997,15 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
       sectionAccess: targetUser.sectionAccess,
       catalogAccess: targetUser.catalogAccess,
       accessProfileId: targetUser.accessProfileId === null ? '' : String(targetUser.accessProfileId),
+      memberships: targetUser.memberships.map((membership) => ({
+        companyId: membership.companyId,
+        accessProfileId: membership.accessProfileId === null ? '' : String(membership.accessProfileId),
+        role: membership.role,
+        sectors: membership.sectors,
+        sectionAccess: membership.sectionAccess,
+        catalogAccess: membership.catalogAccess,
+        isActive: membership.isActive,
+      })),
     })
   }
 
@@ -29888,32 +30131,63 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                 </div>
               )}
             </div>
-            <label className="field company-field-wide">
-              <span>Perfil</span>
-              <select
-                value={userForm.accessProfileId}
-                onChange={(event) => updateUserAccessProfile(event.target.value)}
-              >
-                <option value="">Selecione</option>
-                {assignableAccessProfiles.map((profile) => (
-                  <option key={profile.id} value={String(profile.id)}>
-                    {profile.name}
-                  </option>
-                ))}
-              </select>
-            </label>
             <div className="field field-span-all">
-              <span>Setores {userForm.role !== 'Administrativo' ? '*' : ''}</span>
-              <MultiSelectChips
-                selectedValues={userForm.sectors}
-                suggestions={userSectorSuggestions}
-                inputValue={userSectorInput}
-                onInputChange={(value) => setUserSectorInput(normalizeRegistrationText(value))}
-                onChange={(nextValues) => updateUserFormField('sectors', nextValues)}
-                placeholder="Busque e selecione setores"
-                onHideSuggestion={canDeleteSectors && (isManagerUser || isSystemAdmin) ? requestDeleteSector : undefined}
-                allowCreate={canCreateSectors}
-              />
+              <span>Perfis e setores por empresa</span>
+              <div className="ingredient-stack">
+                {selectedUserCompanies.map((company) => {
+                  const membership =
+                    userForm.memberships.find((item) => item.companyId === company.id) ??
+                    ({
+                      companyId: company.id,
+                      accessProfileId: '',
+                      role: userForm.role,
+                      sectors: [],
+                      sectionAccess: userForm.sectionAccess,
+                      catalogAccess: userForm.catalogAccess,
+                      isActive: true,
+                    } satisfies UserFormState['memberships'][number])
+                  const companyProfiles = assignableAccessProfilesByCompanyId.get(company.id) ?? []
+                  return (
+                    <div key={company.id} className="ingredient-row ingredient-row-summary">
+                      <div className="field field-wide">
+                        <div className="ingredient-summary-line">
+                          <div className="ingredient-summary-block ingredient-summary-block-wide">
+                            <span>Empresa</span>
+                            <strong className="ingredient-summary-title">{company.tradeName}</strong>
+                          </div>
+                          <div className="ingredient-summary-block ingredient-summary-block-wide">
+                            <span>Perfil</span>
+                            <select
+                              value={membership.accessProfileId}
+                              onChange={(event) => updateUserMembershipAccessProfile(company.id, event.target.value)}
+                            >
+                              <option value="">Selecione</option>
+                              {companyProfiles.map((profile) => (
+                                <option key={profile.id} value={String(profile.id)}>
+                                  {profile.name}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+                        </div>
+                        <div style={{ marginTop: '0.75rem' }}>
+                          <span>Setores {membership.role !== 'Administrativo' ? '*' : ''}</span>
+                          <MultiSelectChips
+                            selectedValues={membership.sectors}
+                            suggestions={getUserSectorSuggestionsForCompany(company.id)}
+                            inputValue={userSectorInput}
+                            onInputChange={(value) => setUserSectorInput(normalizeRegistrationText(value))}
+                            onChange={(nextValues) => updateUserMembershipSectors(company.id, nextValues)}
+                            placeholder="Busque e selecione setores"
+                            onHideSuggestion={canDeleteSectors && (isManagerUser || isSystemAdmin) ? requestDeleteSector : undefined}
+                            allowCreate={canCreateSectors}
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
             </div>
             <div className="form-actions field-span-all">
               <button type="button" className="primary-button" onClick={saveUser}>
@@ -29933,6 +30207,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
 
           <div className="selector-list company-management-list">
             {visibleUsers.map((item) => {
+              const effectiveUser = buildEffectiveAppUserForCompany(item, currentCompanyId)
               return (
                 <article key={item.id} className="list-row user-list-row">
                   <div className="user-row-header">
@@ -29993,12 +30268,12 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                           {visibleUserPasswords[item.id] ? '🙈' : '👁'}
                         </button>
                       </div>
-                      <span><strong className="meta-label">Setores:</strong> {item.sectors.join(', ') || 'Sem setores vinculados'}</span>
+                      <span><strong className="meta-label">Setores:</strong> {effectiveUser.sectors.join(', ') || 'Sem setores vinculados'}</span>
                       <span>
                         <strong className="meta-label">Perfil:</strong>{' '}
-                        {item.accessProfileId !== null
-                          ? accessProfilesById.get(item.accessProfileId)?.name ?? item.role
-                          : item.role}
+                        {effectiveUser.accessProfileId !== null
+                          ? accessProfilesById.get(effectiveUser.accessProfileId)?.name ?? effectiveUser.role
+                          : effectiveUser.role}
                       </span>
                     </div>
                   </div>
@@ -38800,6 +39075,105 @@ function normalizeSessionUser(value: unknown): AppUserRecord | null {
     return null
   }
 
+  const baseRole: CompanyUserRole = user.role
+  const normalizedSectionAccess =
+    user.sectionAccess && typeof user.sectionAccess === 'object'
+      ? {
+          Produtos: user.sectionAccess.Produtos !== false,
+          Itens: user.sectionAccess.Itens !== false,
+          FichasTecnicas: user.sectionAccess.FichasTecnicas !== false,
+          Receituarios: user.sectionAccess.Receituarios !== false,
+          Configuracoes: user.sectionAccess.Configuracoes === true,
+          CentrosEstoque: user.sectionAccess.CentrosEstoque === true,
+          Inventario: user.sectionAccess.Inventario === true,
+          ConfiguracoesEstoque: user.sectionAccess.ConfiguracoesEstoque === true,
+          Requisicoes: user.sectionAccess.Requisicoes === true,
+          Suprimentos: user.sectionAccess.Suprimentos === true,
+          EntradaProducoes: user.sectionAccess.EntradaProducoes === true,
+          RelatoriosEstoque: user.sectionAccess.RelatoriosEstoque === true,
+          Empresa: user.sectionAccess.Empresa === true,
+          Usuarios: user.sectionAccess.Usuarios === true,
+        }
+      : defaultSectionAccessByRole(baseRole)
+  const normalizedCatalogAccess =
+    user.catalogAccess && typeof user.catalogAccess === 'object'
+      ? {
+          sectorsCreate: user.catalogAccess.sectorsCreate === true,
+          sectorsDelete: user.catalogAccess.sectorsDelete === true,
+          familiesCreate: user.catalogAccess.familiesCreate === true,
+          familiesDelete: user.catalogAccess.familiesDelete === true,
+          subfamiliesCreate: user.catalogAccess.subfamiliesCreate === true,
+          subfamiliesDelete: user.catalogAccess.subfamiliesDelete === true,
+          itemTypesCreate: user.catalogAccess.itemTypesCreate === true,
+          itemTypesDelete: user.catalogAccess.itemTypesDelete === true,
+          materialsCreate: user.catalogAccess.materialsCreate === true,
+          materialsDelete: user.catalogAccess.materialsDelete === true,
+        }
+      : defaultCatalogAccessByRole(baseRole)
+  const normalizedSectors = user.sectors
+    .filter((item): item is string => typeof item === 'string')
+    .map((item) => normalizeRegistrationText(item))
+    .filter(Boolean)
+  const normalizedMemberships = Array.isArray(user.memberships)
+    ? user.memberships
+        .map((membership) => {
+          if (!membership || typeof membership !== 'object' || typeof membership.companyId !== 'number') {
+            return null
+          }
+          return {
+            id: typeof membership.id === 'number' ? membership.id : membership.companyId,
+            companyId: membership.companyId,
+            role:
+              membership.role === 'Administrativo' || membership.role === 'Gestor' || membership.role === 'Colaborador'
+                ? membership.role
+                : baseRole,
+            sectors: Array.isArray(membership.sectors)
+              ? membership.sectors
+                  .filter((item): item is string => typeof item === 'string')
+                  .map((item) => normalizeRegistrationText(item))
+                  .filter(Boolean)
+              : normalizedSectors,
+            sectionAccess:
+              membership.sectionAccess && typeof membership.sectionAccess === 'object'
+                ? {
+                    Produtos: membership.sectionAccess.Produtos !== false,
+                    Itens: membership.sectionAccess.Itens !== false,
+                    FichasTecnicas: membership.sectionAccess.FichasTecnicas !== false,
+                    Receituarios: membership.sectionAccess.Receituarios !== false,
+                    Configuracoes: membership.sectionAccess.Configuracoes === true,
+                    CentrosEstoque: membership.sectionAccess.CentrosEstoque === true,
+                    Inventario: membership.sectionAccess.Inventario === true,
+                    ConfiguracoesEstoque: membership.sectionAccess.ConfiguracoesEstoque === true,
+                    Requisicoes: membership.sectionAccess.Requisicoes === true,
+                    Suprimentos: membership.sectionAccess.Suprimentos === true,
+                    EntradaProducoes: membership.sectionAccess.EntradaProducoes === true,
+                    RelatoriosEstoque: membership.sectionAccess.RelatoriosEstoque === true,
+                    Empresa: membership.sectionAccess.Empresa === true,
+                    Usuarios: membership.sectionAccess.Usuarios === true,
+                  }
+                : normalizedSectionAccess,
+            catalogAccess:
+              membership.catalogAccess && typeof membership.catalogAccess === 'object'
+                ? {
+                    sectorsCreate: membership.catalogAccess.sectorsCreate === true,
+                    sectorsDelete: membership.catalogAccess.sectorsDelete === true,
+                    familiesCreate: membership.catalogAccess.familiesCreate === true,
+                    familiesDelete: membership.catalogAccess.familiesDelete === true,
+                    subfamiliesCreate: membership.catalogAccess.subfamiliesCreate === true,
+                    subfamiliesDelete: membership.catalogAccess.subfamiliesDelete === true,
+                    itemTypesCreate: membership.catalogAccess.itemTypesCreate === true,
+                    itemTypesDelete: membership.catalogAccess.itemTypesDelete === true,
+                    materialsCreate: membership.catalogAccess.materialsCreate === true,
+                    materialsDelete: membership.catalogAccess.materialsDelete === true,
+                  }
+                : normalizedCatalogAccess,
+            accessProfileId: typeof membership.accessProfileId === 'number' ? membership.accessProfileId : typeof user.accessProfileId === 'number' ? user.accessProfileId : null,
+            isActive: membership.isActive !== false,
+          } satisfies UserCompanyMembershipRecord
+        })
+        .filter((membership): membership is UserCompanyMembershipRecord => membership !== null)
+    : []
+
   return {
     id: user.id,
     fullName: normalizeRegistrationText(user.fullName),
@@ -38812,49 +39186,16 @@ function normalizeSessionUser(value: unknown): AppUserRecord | null {
         [
           ...(Array.isArray(user.companyIds) ? user.companyIds : []),
           ...(typeof user.companyId === 'number' ? [user.companyId] : []),
+          ...normalizedMemberships.map((membership) => membership.companyId),
         ].filter((companyId): companyId is number => typeof companyId === 'number'),
       ),
     ),
-    sectors: user.sectors
-      .filter((item): item is string => typeof item === 'string')
-      .map((item) => normalizeRegistrationText(item))
-      .filter(Boolean),
-    sectionAccess:
-      user.sectionAccess && typeof user.sectionAccess === 'object'
-        ? {
-            Produtos: user.sectionAccess.Produtos !== false,
-            Itens: user.sectionAccess.Itens !== false,
-            FichasTecnicas: user.sectionAccess.FichasTecnicas !== false,
-            Receituarios: user.sectionAccess.Receituarios !== false,
-            Configuracoes: user.sectionAccess.Configuracoes === true,
-            CentrosEstoque: user.sectionAccess.CentrosEstoque === true,
-            Inventario: user.sectionAccess.Inventario === true,
-            ConfiguracoesEstoque: user.sectionAccess.ConfiguracoesEstoque === true,
-            Requisicoes: user.sectionAccess.Requisicoes === true,
-            Suprimentos: user.sectionAccess.Suprimentos === true,
-            EntradaProducoes: user.sectionAccess.EntradaProducoes === true,
-            RelatoriosEstoque: user.sectionAccess.RelatoriosEstoque === true,
-            Empresa: user.sectionAccess.Empresa === true,
-            Usuarios: user.sectionAccess.Usuarios === true,
-          }
-        : defaultSectionAccessByRole(user.role),
-    catalogAccess:
-      user.catalogAccess && typeof user.catalogAccess === 'object'
-        ? {
-            sectorsCreate: user.catalogAccess.sectorsCreate === true,
-            sectorsDelete: user.catalogAccess.sectorsDelete === true,
-            familiesCreate: user.catalogAccess.familiesCreate === true,
-            familiesDelete: user.catalogAccess.familiesDelete === true,
-            subfamiliesCreate: user.catalogAccess.subfamiliesCreate === true,
-            subfamiliesDelete: user.catalogAccess.subfamiliesDelete === true,
-            itemTypesCreate: user.catalogAccess.itemTypesCreate === true,
-            itemTypesDelete: user.catalogAccess.itemTypesDelete === true,
-            materialsCreate: user.catalogAccess.materialsCreate === true,
-            materialsDelete: user.catalogAccess.materialsDelete === true,
-          }
-        : defaultCatalogAccessByRole(user.role),
+    sectors: normalizedSectors,
+    sectionAccess: normalizedSectionAccess,
+    catalogAccess: normalizedCatalogAccess,
     accessProfileId: typeof user.accessProfileId === 'number' ? user.accessProfileId : null,
     isActive: user.isActive,
+    memberships: normalizedMemberships,
   }
 }
 

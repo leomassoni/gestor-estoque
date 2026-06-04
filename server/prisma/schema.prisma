@@ -318,7 +318,27 @@ model AppUserRecord {
   isActive       Boolean  @default(true)
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
+  memberships    AppUserCompanyMembershipRecord[]
 
+  @@index([companyId])
+  @@index([accessProfileId])
+}
+
+model AppUserCompanyMembershipRecord {
+  id              Int      @id @default(autoincrement())
+  userId          Int
+  companyId       Int
+  role            String
+  sectors         String[]
+  sectionAccess   Json
+  catalogAccess   Json
+  accessProfileId Int?
+  isActive        Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  user            AppUserRecord @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, companyId])
   @@index([companyId])
   @@index([accessProfileId])
 }

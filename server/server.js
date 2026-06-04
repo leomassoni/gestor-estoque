@@ -271,6 +271,7 @@ app.delete('/api/companies/:id', async (request, response) => {
     await transaction.appStockModuleSettingsRecord.deleteMany({ where: { companyId } })
     await transaction.appStockCenterRecord.deleteMany({ where: { companyId } })
     await transaction.appRequisitionNotificationRecord.deleteMany({ where: { companyId } })
+    await transaction.appUserCompanyMembershipRecord.deleteMany({ where: { companyId } })
     await transaction.appRequisitionRecord.deleteMany({ where: { companyId } })
     await transaction.appProductionDraftRecord.deleteMany({ where: { companyId } })
     await transaction.appManualProductionRequestRecord.deleteMany({ where: { companyId } })
@@ -343,6 +344,10 @@ app.delete('/api/access-profiles/:id', async (request, response) => {
       where: { accessProfileId },
       data: { accessProfileId: null },
     }),
+    prisma.appUserCompanyMembershipRecord.updateMany({
+      where: { accessProfileId },
+      data: { accessProfileId: null },
+    }),
     prisma.appAccessProfileRecord.deleteMany({ where: { id: accessProfileId } }),
   ])
   await removeProfileIdFromStockModuleSettings(accessProfileId)
@@ -361,6 +366,7 @@ app.get('/api/users', async (request, response) => {
             OR: [{ companyId }, { companyIds: { has: companyId } }],
           },
     orderBy: [{ fullName: 'asc' }, { id: 'asc' }],
+    include: { memberships: true },
   })
   response.json({ users })
 })
@@ -372,10 +378,32 @@ app.post('/api/users', async (request, response) => {
     return
   }
 
-  const saved = await prisma.appUserRecord.upsert({
-    where: { id: user.id },
-    create: user,
-    update: user,
+  const { memberships, ...userRecord } = user
+  const saved = await prisma.$transaction(async (transaction) => {
+    const savedUser = await transaction.appUserRecord.upsert({
+      where: { id: userRecord.id },
+      create: userRecord,
+      update: userRecord,
+    })
+    await transaction.appUserCompanyMembershipRecord.deleteMany({ where: { userId: userRecord.id } })
+    for (const membership of memberships) {
+      await transaction.appUserCompanyMembershipRecord.create({
+        data: {
+          userId: userRecord.id,
+          companyId: membership.companyId,
+          role: membership.role,
+          sectors: membership.sectors,
+          sectionAccess: membership.sectionAccess,
+          catalogAccess: membership.catalogAccess,
+          accessProfileId: membership.accessProfileId,
+          isActive: membership.isActive,
+        },
+      })
+    }
+    return transaction.appUserRecord.findUnique({
+      where: { id: savedUser.id },
+      include: { memberships: true },
+    })
   })
   response.json({ user: saved })
 })
@@ -388,10 +416,32 @@ app.put('/api/users/:id', async (request, response) => {
     return
   }
 
-  const saved = await prisma.appUserRecord.upsert({
-    where: { id: userId },
-    create: user,
-    update: user,
+  const { memberships, ...userRecord } = user
+  const saved = await prisma.$transaction(async (transaction) => {
+    const savedUser = await transaction.appUserRecord.upsert({
+      where: { id: userId },
+      create: userRecord,
+      update: userRecord,
+    })
+    await transaction.appUserCompanyMembershipRecord.deleteMany({ where: { userId } })
+    for (const membership of memberships) {
+      await transaction.appUserCompanyMembershipRecord.create({
+        data: {
+          userId,
+          companyId: membership.companyId,
+          role: membership.role,
+          sectors: membership.sectors,
+          sectionAccess: membership.sectionAccess,
+          catalogAccess: membership.catalogAccess,
+          accessProfileId: membership.accessProfileId,
+          isActive: membership.isActive,
+        },
+      })
+    }
+    return transaction.appUserRecord.findUnique({
+      where: { id: savedUser.id },
+      include: { memberships: true },
+    })
   })
   response.json({ user: saved })
 })
@@ -1757,6 +1807,55 @@ function normalizeUserPayload(value) {
     return null
   }
 
+  const normalizedCompanyIds = Array.from(new Set([...companyIds, ...(companyId === null ? [] : [companyId])]))
+  const normalizedMemberships = Array.isArray(user.memberships)
+    ? user.memberships
+        .map((membership, index) => {
+          if (!membership || typeof membership !== 'object') {
+            return null
+          }
+
+          const membershipCompanyId = parseIntegerParam(membership.companyId)
+          const membershipAccessProfileId =
+            membership.accessProfileId === null ? null : parseIntegerParam(membership.accessProfileId)
+          const membershipRole =
+            membership.role === 'Administrativo' || membership.role === 'Gestor' || membership.role === 'Colaborador'
+              ? membership.role
+              : role
+
+          if (
+            membershipCompanyId === null ||
+            !membership.sectionAccess ||
+            typeof membership.sectionAccess !== 'object' ||
+            !membership.catalogAccess ||
+            typeof membership.catalogAccess !== 'object'
+          ) {
+            return null
+          }
+
+          return {
+            id: parseIntegerParam(membership.id) ?? -(index + 1),
+            companyId: membershipCompanyId,
+            role: membershipRole,
+            sectors: Array.isArray(membership.sectors) ? membership.sectors.filter((item) => typeof item === 'string') : [],
+            sectionAccess: membership.sectionAccess,
+            catalogAccess: membership.catalogAccess,
+            accessProfileId: membershipAccessProfileId,
+            isActive: membership.isActive !== false,
+          }
+        })
+        .filter((membership) => membership !== null)
+    : normalizedCompanyIds.map((membershipCompanyId, index) => ({
+        id: -(index + 1),
+        companyId: membershipCompanyId,
+        role,
+        sectors,
+        sectionAccess: user.sectionAccess,
+        catalogAccess: user.catalogAccess,
+        accessProfileId,
+        isActive: user.isActive,
+      }))
+
   return {
     id,
     fullName: user.fullName,
@@ -1764,12 +1863,13 @@ function normalizeUserPayload(value) {
     password: user.password,
     role,
     companyId,
-    companyIds,
+    companyIds: normalizedCompanyIds,
     sectors,
     sectionAccess: user.sectionAccess,
     catalogAccess: user.catalogAccess,
     accessProfileId,
     isActive: user.isActive,
+    memberships: normalizedMemberships,
   }
 }
 
@@ -2601,20 +2701,76 @@ async function removeProfileIdFromStockModuleSettings(profileId) {
   )
 }
 
-async function ensureAppAdminRecordsSeeded() {
-  if (hasSeededAppAdminRecords) {
+async function ensureAppUserMembershipRecordsHydrated() {
+  const [usersCount, membershipsCount] = await Promise.all([
+    prisma.appUserRecord.count(),
+    prisma.appUserCompanyMembershipRecord.count(),
+  ])
+
+  if (usersCount === 0 || membershipsCount > 0) {
     return
   }
 
-  const [companiesCount, usersCount, accessProfilesCount, stockModuleSettingsCount] = await Promise.all([
+  const users = await prisma.appUserRecord.findMany()
+  await prisma.$transaction(
+    users.flatMap((user) => {
+      const companyIds = Array.from(
+        new Set(
+          [
+            ...(Array.isArray(user.companyIds) ? user.companyIds : []),
+            ...(typeof user.companyId === 'number' ? [user.companyId] : []),
+          ].filter((companyId) => typeof companyId === 'number'),
+        ),
+      )
+      return companyIds.map((companyId) =>
+        prisma.appUserCompanyMembershipRecord.upsert({
+          where: {
+            userId_companyId: {
+              userId: user.id,
+              companyId,
+            },
+          },
+          create: {
+            userId: user.id,
+            companyId,
+            role: user.role,
+            sectors: user.sectors,
+            sectionAccess: user.sectionAccess,
+            catalogAccess: user.catalogAccess,
+            accessProfileId: user.accessProfileId,
+            isActive: user.isActive,
+          },
+          update: {
+            role: user.role,
+            sectors: user.sectors,
+            sectionAccess: user.sectionAccess,
+            catalogAccess: user.catalogAccess,
+            accessProfileId: user.accessProfileId,
+            isActive: user.isActive,
+          },
+        }),
+      )
+    }),
+  )
+}
+
+async function ensureAppAdminRecordsSeeded() {
+  if (hasSeededAppAdminRecords) {
+    await ensureAppUserMembershipRecordsHydrated()
+    return
+  }
+
+  const [companiesCount, usersCount, accessProfilesCount, stockModuleSettingsCount, membershipsCount] = await Promise.all([
     prisma.appCompanyRecord.count(),
     prisma.appUserRecord.count(),
     prisma.appAccessProfileRecord.count(),
     prisma.appStockModuleSettingsRecord.count(),
+    prisma.appUserCompanyMembershipRecord.count(),
   ])
 
-  if (companiesCount > 0 || usersCount > 0 || accessProfilesCount > 0 || stockModuleSettingsCount > 0) {
+  if (companiesCount > 0 || usersCount > 0 || accessProfilesCount > 0 || stockModuleSettingsCount > 0 || membershipsCount > 0) {
     hasSeededAppAdminRecords = true
+    await ensureAppUserMembershipRecordsHydrated()
     return
   }
 
@@ -2651,11 +2807,41 @@ async function ensureAppAdminRecordsSeeded() {
     }
 
     for (const user of users) {
+      const { memberships, ...userRecord } = user
       await transaction.appUserRecord.upsert({
         where: { id: user.id },
-        create: user,
-        update: user,
+        create: userRecord,
+        update: userRecord,
       })
+
+      for (const membership of memberships) {
+        await transaction.appUserCompanyMembershipRecord.upsert({
+          where: {
+            userId_companyId: {
+              userId: userRecord.id,
+              companyId: membership.companyId,
+            },
+          },
+          create: {
+            userId: userRecord.id,
+            companyId: membership.companyId,
+            role: membership.role,
+            sectors: membership.sectors,
+            sectionAccess: membership.sectionAccess,
+            catalogAccess: membership.catalogAccess,
+            accessProfileId: membership.accessProfileId,
+            isActive: membership.isActive,
+          },
+          update: {
+            role: membership.role,
+            sectors: membership.sectors,
+            sectionAccess: membership.sectionAccess,
+            catalogAccess: membership.catalogAccess,
+            accessProfileId: membership.accessProfileId,
+            isActive: membership.isActive,
+          },
+        })
+      }
     }
 
     for (const record of stockModuleSettings) {
@@ -2668,6 +2854,7 @@ async function ensureAppAdminRecordsSeeded() {
   })
 
   hasSeededAppAdminRecords = true
+  await ensureAppUserMembershipRecordsHydrated()
 }
 
 async function ensureAppCatalogRecordsSeeded() {
