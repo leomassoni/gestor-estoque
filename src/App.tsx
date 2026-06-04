@@ -13999,19 +13999,28 @@ export default function App() {
       const availableProfiles = assignableAccessProfilesByCompanyId.get(companyId) ?? []
       const selectedProfile =
         profileId === '' ? null : availableProfiles.find((profile) => String(profile.id) === profileId) ?? null
+      const existingMembership = current.memberships.find((membership) => membership.companyId === companyId) ?? null
+      const baseMembership = existingMembership ?? {
+        companyId,
+        accessProfileId: '',
+        role: current.role,
+        sectors: current.sectors,
+        sectionAccess: current.sectionAccess,
+        catalogAccess: current.catalogAccess,
+        isActive: true,
+      }
+      const nextMembership = {
+        ...baseMembership,
+        accessProfileId: profileId,
+        role: selectedProfile?.role ?? baseMembership.role,
+        sectionAccess: selectedProfile?.sectionAccess ?? baseMembership.sectionAccess,
+        catalogAccess: selectedProfile?.catalogAccess ?? baseMembership.catalogAccess,
+      }
       return {
         ...current,
-        memberships: current.memberships.map((membership) =>
-          membership.companyId === companyId
-            ? {
-                ...membership,
-                accessProfileId: profileId,
-                role: selectedProfile?.role ?? membership.role,
-                sectionAccess: selectedProfile?.sectionAccess ?? membership.sectionAccess,
-                catalogAccess: selectedProfile?.catalogAccess ?? membership.catalogAccess,
-              }
-            : membership,
-        ),
+        memberships: existingMembership
+          ? current.memberships.map((membership) => (membership.companyId === companyId ? nextMembership : membership))
+          : [...current.memberships, nextMembership],
       }
     })
   }
@@ -14019,16 +14028,29 @@ export default function App() {
   function updateUserMembershipSectors(companyId: number, nextValues: string[]) {
     setUserForm((current) => ({
       ...current,
-      memberships: current.memberships.map((membership) =>
-        membership.companyId === companyId
+      memberships: (() => {
+        const existingMembership = current.memberships.find((membership) => membership.companyId === companyId) ?? null
+        const normalizedSectors = constrainSectorsToCurrentUserScope(
+          nextValues.map((value) => normalizeRegistrationText(value)).filter(Boolean),
+        )
+        const nextMembership = existingMembership
           ? {
-              ...membership,
-              sectors: constrainSectorsToCurrentUserScope(
-                nextValues.map((value) => normalizeRegistrationText(value)).filter(Boolean),
-              ),
+              ...existingMembership,
+              sectors: normalizedSectors,
             }
-          : membership,
-      ),
+          : {
+              companyId,
+              accessProfileId: '',
+              role: current.role,
+              sectors: normalizedSectors,
+              sectionAccess: current.sectionAccess,
+              catalogAccess: current.catalogAccess,
+              isActive: true,
+            }
+        return existingMembership
+          ? current.memberships.map((membership) => (membership.companyId === companyId ? nextMembership : membership))
+          : [...current.memberships, nextMembership]
+      })(),
     }))
   }
 
@@ -19987,25 +20009,35 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
     setEditingUserId(userId)
     setUserCompanyInput('')
     setUserSectorInput('')
+    const targetCompanyIds =
+      targetUser.companyIds.length > 0 ? targetUser.companyIds : targetUser.companyId !== null ? [targetUser.companyId] : []
     setUserForm({
       fullName: targetUser.fullName,
       username: targetUser.username,
       password: targetUser.password,
       role: targetUser.role,
-      companyIds: targetUser.companyIds.length > 0 ? targetUser.companyIds : targetUser.companyId !== null ? [targetUser.companyId] : [],
+      companyIds: targetCompanyIds,
       sectors: targetUser.sectors,
       sectionAccess: targetUser.sectionAccess,
       catalogAccess: targetUser.catalogAccess,
       accessProfileId: targetUser.accessProfileId === null ? '' : String(targetUser.accessProfileId),
-      memberships: targetUser.memberships.map((membership) => ({
-        companyId: membership.companyId,
-        accessProfileId: membership.accessProfileId === null ? '' : String(membership.accessProfileId),
-        role: membership.role,
-        sectors: membership.sectors,
-        sectionAccess: membership.sectionAccess,
-        catalogAccess: membership.catalogAccess,
-        isActive: membership.isActive,
-      })),
+      memberships: targetCompanyIds.map((companyId, index) => {
+        const membership = targetUser.memberships.find((item) => item.companyId === companyId) ?? null
+        return {
+          companyId,
+          accessProfileId:
+            membership?.accessProfileId === null || membership?.accessProfileId === undefined
+              ? index === 0 && targetUser.accessProfileId !== null
+                ? String(targetUser.accessProfileId)
+                : ''
+              : String(membership.accessProfileId),
+          role: membership?.role ?? (index === 0 ? targetUser.role : 'Colaborador'),
+          sectors: membership?.sectors ?? (index === 0 ? targetUser.sectors : []),
+          sectionAccess: membership?.sectionAccess ?? (index === 0 ? targetUser.sectionAccess : defaultSectionAccessByRole('Colaborador')),
+          catalogAccess: membership?.catalogAccess ?? (index === 0 ? targetUser.catalogAccess : defaultCatalogAccessByRole('Colaborador')),
+          isActive: membership?.isActive ?? true,
+        }
+      }),
     })
   }
 
