@@ -20036,6 +20036,19 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
     })
   }
 
+  function cancelUserEditing() {
+    setEditingUserId(null)
+    setUserForm(emptyUserForm())
+    setUserCompanyInput('')
+    setUserSectorInput('')
+    setIsUserPasswordVisible(false)
+  }
+
+  function cancelAccessProfileEditing() {
+    setEditingAccessProfileId(null)
+    setAccessProfileForm(emptyAccessProfileForm())
+  }
+
   async function runUserAction() {
     if (!userActionState) {
       return
@@ -30220,6 +30233,9 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
               </div>
             </div>
             <div className="form-actions field-span-all">
+              <button type="button" className="ghost-button" onClick={cancelUserEditing}>
+                Cancelar
+              </button>
               <button type="button" className="primary-button" onClick={saveUser}>
                 {editingUserId === null ? 'Salvar usuario' : 'Salvar alteracoes'}
               </button>
@@ -30618,6 +30634,9 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                 </div>
               </div>
               <div className="form-actions field-span-all">
+                <button type="button" className="ghost-button" onClick={cancelAccessProfileEditing}>
+                  Cancelar
+                </button>
                 <button type="button" className="primary-button" onClick={saveAccessProfile}>
                   {editingAccessProfileId === null ? 'Salvar perfil' : 'Salvar alteracoes'}
                 </button>
