@@ -9850,8 +9850,8 @@ export default function App() {
   const assignableAccessProfilesByCompanyId = useMemo(() => {
     const entries = userAssignableCompanies.map((company) => [
       company.id,
-      accessProfiles
-        .filter((profile) => profile.companyId === company.id && profile.isActive)
+      buildCompanyAccessProfilesForSettings(company.id, accessProfiles)
+        .filter((profile) => profile.isActive)
         .filter((profile) => canAssignPrivilegedUserRoles || profile.role === 'Colaborador')
         .sort((left, right) => left.name.localeCompare(right.name, 'pt-BR')),
     ] as const)
