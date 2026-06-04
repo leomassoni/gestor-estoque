@@ -920,6 +920,7 @@ type TechnicalSheetDraftState = {
   draftProductId: string
   outputQuantityMode: 'auto' | 'manual'
   sectorInput: string
+  sharedCompanyInput: string
   productionCenterInput: string
   ingredients: TechnicalSheetIngredient[]
   editingIngredientId: number | null
@@ -2788,6 +2789,7 @@ function logRemoteAppStateMessage(message: string) {
 function buildTechnicalSheetDiscardSnapshot(state: {
   form: TechnicalSheetFormState
   sectorInput: string
+  sharedCompanyInput: string
   productionCenterInput: string
   ingredients: TechnicalSheetIngredient[]
   garnishIngredients: TechnicalSheetIngredient[]
@@ -2984,7 +2986,7 @@ export default function App() {
   const [isFetchingCompanyCep, setIsFetchingCompanyCep] = useState(false)
   const [isCompanyModalOpen, setIsCompanyModalOpen] = useState(false)
   const [editingCompanyId, setEditingCompanyId] = useState<number | null>(null)
-  const [activeSection, setActiveSection] = useState<AppSection>('Produtos')
+  const [activeSection, setActiveSection] = useState<AppSection>('Receituarios')
   const [isCadastrosMenuOpen, setIsCadastrosMenuOpen] = useState(false)
   const [isEstoqueMenuOpen, setIsEstoqueMenuOpen] = useState(false)
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false)
@@ -3338,6 +3340,7 @@ export default function App() {
       buildTechnicalSheetDiscardSnapshot({
         form: technicalSheetForm,
         sectorInput: technicalSheetSectorInput,
+        sharedCompanyInput: technicalSheetSharedCompanyInput,
         productionCenterInput: technicalSheetProductionCenterInput,
         ingredients: technicalSheetIngredients,
         garnishIngredients: technicalSheetGarnishIngredients,
@@ -3351,10 +3354,11 @@ export default function App() {
       technicalSheetGarnishIngredients,
       technicalSheetIngredients,
       technicalSheetPackages,
+      technicalSheetSharedCompanyInput,
       technicalSheetServiceItems,
     ],
   )
-  const technicalSheetProductCurrentDiscardSnapshot = useMemo(
+  const productCurrentDiscardSnapshot = useMemo(
     () =>
       buildProductDiscardSnapshot({
         form: productForm,
@@ -10414,6 +10418,9 @@ export default function App() {
         if (isCommercialTechnicalSheetProduct(product, technicalSheets)) {
           return false
         }
+        if (isPrepTechnicalSheetProduct(product, technicalSheets)) {
+          return false
+        }
 
         const matchesSearch =
           productSearch.trim() === '' ||
@@ -12607,9 +12614,23 @@ export default function App() {
     }
 
     if (!allowedSections.includes(activeSection)) {
-      setActiveSection(allowedSections[0])
+      setActiveSection(allowedSections.includes('Receituarios') ? 'Receituarios' : allowedSections[0])
     }
   }, [activeSection, allowedSections])
+
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return
+    }
+
+    if (session === null || currentCompanyId === null || activeSection !== 'Receituarios') {
+      return
+    }
+
+    if (window.matchMedia('(max-width: 1120px)').matches) {
+      setIsMobileSidebarOpen(true)
+    }
+  }, [activeSection, currentCompanyId, session])
 
   function openNewProductForm() {
     const nextProductForm = {
@@ -12853,6 +12874,7 @@ export default function App() {
         draftProductId: draftTechnicalSheetProductId,
         outputQuantityMode: technicalSheetOutputQuantityMode,
         sectorInput: technicalSheetSectorInput,
+        sharedCompanyInput: technicalSheetSharedCompanyInput,
         productionCenterInput: technicalSheetProductionCenterInput,
         ingredients: technicalSheetIngredients,
         editingIngredientId: editingTechnicalSheetIngredientId,
@@ -12901,6 +12923,7 @@ export default function App() {
         draftProductId: draftTechnicalSheetProductId,
         outputQuantityMode: technicalSheetOutputQuantityMode,
         sectorInput: technicalSheetSectorInput,
+        sharedCompanyInput: technicalSheetSharedCompanyInput,
         productionCenterInput: technicalSheetProductionCenterInput,
         ingredients: technicalSheetIngredients,
         editingIngredientId: editingTechnicalSheetIngredientId,
@@ -12947,6 +12970,7 @@ export default function App() {
         draftProductId: draftTechnicalSheetProductId,
         outputQuantityMode: technicalSheetOutputQuantityMode,
         sectorInput: technicalSheetSectorInput,
+        sharedCompanyInput: technicalSheetSharedCompanyInput,
         productionCenterInput: technicalSheetProductionCenterInput,
         ingredients: technicalSheetIngredients,
         editingIngredientId: editingTechnicalSheetIngredientId,
@@ -13002,7 +13026,7 @@ export default function App() {
   }
 
   function requestProductDiscard() {
-    if (technicalSheetProductCurrentDiscardSnapshot === productDiscardBaseline) {
+    if (productCurrentDiscardSnapshot === productDiscardBaseline) {
       closeProductForm()
       return
     }
@@ -13021,7 +13045,7 @@ export default function App() {
     }
 
     if (target === 'technicalSheetProductModal') {
-      return technicalSheetProductCurrentDiscardSnapshot !== technicalSheetProductDiscardBaseline
+      return productCurrentDiscardSnapshot !== technicalSheetProductDiscardBaseline
     }
 
     if (target === 'technicalSheetServiceItemModal') {
@@ -13096,6 +13120,7 @@ export default function App() {
     setTechnicalSheetOutputQuantityMode(draft.outputQuantityMode)
     setTechnicalSheetForm(draft.form)
     setTechnicalSheetSectorInput(draft.sectorInput)
+    setTechnicalSheetSharedCompanyInput(draft.sharedCompanyInput)
     setTechnicalSheetProductionCenterInput(draft.productionCenterInput)
     setTechnicalSheetIngredients(nextIngredients)
     setEditingTechnicalSheetIngredientId(draft.editingIngredientId)
@@ -13112,6 +13137,7 @@ export default function App() {
       buildTechnicalSheetDiscardSnapshot({
         form: draft.form,
         sectorInput: draft.sectorInput,
+        sharedCompanyInput: draft.sharedCompanyInput,
         productionCenterInput: draft.productionCenterInput,
         ingredients: nextIngredients,
         garnishIngredients: nextGarnishIngredients,
@@ -13216,6 +13242,7 @@ export default function App() {
       buildTechnicalSheetDiscardSnapshot({
         form: nextForm,
         sectorInput: '',
+        sharedCompanyInput: '',
         productionCenterInput: '',
         ingredients: [nextIngredient],
         garnishIngredients: [nextGarnishIngredient],
@@ -13258,6 +13285,7 @@ export default function App() {
         draftProductId: draftTechnicalSheetProductId,
         outputQuantityMode: technicalSheetOutputQuantityMode,
         sectorInput: technicalSheetSectorInput,
+        sharedCompanyInput: technicalSheetSharedCompanyInput,
         productionCenterInput: technicalSheetProductionCenterInput,
         ingredients: technicalSheetIngredients,
         editingIngredientId: editingTechnicalSheetIngredientId,
@@ -13295,6 +13323,7 @@ export default function App() {
       buildTechnicalSheetDiscardSnapshot({
         form: nextForm,
         sectorInput: '',
+        sharedCompanyInput: '',
         productionCenterInput: '',
         ingredients: [nextIngredient],
         garnishIngredients: [nextGarnishIngredient],
@@ -13428,7 +13457,7 @@ export default function App() {
     setSession({ kind: 'appUser', user: appUser })
     setCurrentCompanyId(activeLinkedCompanies.length === 1 ? activeLinkedCompanies[0].id : null)
     setLoginError('')
-    setActiveSection('Produtos')
+    setActiveSection('Receituarios')
     setScreenMode('list')
     setItemScreenMode('list')
   }
@@ -20797,6 +20826,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
       buildTechnicalSheetDiscardSnapshot({
         form: nextForm,
         sectorInput: '',
+        sharedCompanyInput: '',
         productionCenterInput: '',
         ingredients: [nextIngredient],
         garnishIngredients: [nextGarnishIngredient],
@@ -20918,6 +20948,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
       buildTechnicalSheetDiscardSnapshot({
         form: nextForm,
         sectorInput: '',
+        sharedCompanyInput: '',
         productionCenterInput: '',
         ingredients: [...savedIngredients, nextIngredient],
         garnishIngredients: [...savedGarnishIngredients, nextGarnishIngredient],
@@ -25826,7 +25857,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
             <div className="section-heading">
               <div>
                 <p className="kicker">Fichas Tecnicas</p>
-                <h2>Pre-preparos</h2>
+                <h2>Fichas cadastradas</h2>
               </div>
               <div className="toolbar-actions">
                 <button className="primary-button" type="button" onClick={() => openNewTechnicalSheetForm('PREPARO')}>
@@ -40179,6 +40210,15 @@ function isCommercialTechnicalSheetProduct(product: ProductRecord, technicalShee
 
   const linkedTechnicalSheet = technicalSheets.find((sheet) => sheet.id === product.technicalSheetId) ?? null
   return linkedTechnicalSheet ? isCommercialTechnicalSheetKind(linkedTechnicalSheet.kind) : false
+}
+
+function isPrepTechnicalSheetProduct(product: ProductRecord, technicalSheets: TechnicalSheetRecord[]) {
+  if (typeof product.technicalSheetId !== 'number') {
+    return false
+  }
+
+  const linkedTechnicalSheet = technicalSheets.find((sheet) => sheet.id === product.technicalSheetId) ?? null
+  return linkedTechnicalSheet?.kind === 'PREPARO'
 }
 
 function getProductDisplayUnitLabel(product: ProductRecord, technicalSheets: TechnicalSheetRecord[]) {
