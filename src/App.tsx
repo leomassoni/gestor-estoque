@@ -32840,7 +32840,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
           onClick={requestTechnicalSheetCopyDiscard}
         >
           <section
-            className="modal-card"
+            className="modal-card modal-card-allow-overflow"
             role="dialog"
             aria-modal="true"
             aria-labelledby="technical-sheet-copy-title"

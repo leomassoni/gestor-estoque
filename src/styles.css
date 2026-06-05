@@ -2455,6 +2455,10 @@ h3 {
   overflow-x: hidden;
 }
 
+.modal-card-allow-overflow {
+  overflow: visible;
+}
+
 .modal-card-full .form-grid,
 .modal-card-full .field,
 .modal-card-full .field > *,
