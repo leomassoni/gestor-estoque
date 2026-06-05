@@ -768,6 +768,30 @@ type TechnicalSheetShareCascadePreviewState = {
   }>
 }
 
+type TechnicalSheetCopyState = {
+  sourceSheetId: number
+  sourceSheetName: string
+  sourceSheetKind: TechnicalSheetKind
+  destinationCompanyId: number | null
+  destinationCompanyInput: string
+  newName: string
+  errorMessage: string
+}
+
+type TechnicalSheetCopyPreviewState = {
+  sourceSheet: TechnicalSheetRecord
+  targetCompanyId: number
+  targetCompanyLabel: string
+  newName: string
+  dependencySheets: Array<{
+    id: number
+    name: string
+    status: 'already_shared' | 'share_now'
+    targetCompanyLabels: string[]
+  }>
+  willResetProductionCenters: boolean
+}
+
 type TechnicalSheetDiscardTarget = 'technicalSheetForm' | 'technicalSheetProductModal' | 'technicalSheetServiceItemModal' | 'packageModal'
 
 type ManualSupplyDraftLine = {
@@ -3016,6 +3040,9 @@ export default function App() {
   const [saveProgressState, setSaveProgressState] = useState<SaveProgressState | null>(null)
   const [technicalSheetShareCascadePreviewState, setTechnicalSheetShareCascadePreviewState] =
     useState<TechnicalSheetShareCascadePreviewState | null>(null)
+  const [technicalSheetCopyState, setTechnicalSheetCopyState] = useState<TechnicalSheetCopyState | null>(null)
+  const [technicalSheetCopyPreviewState, setTechnicalSheetCopyPreviewState] = useState<TechnicalSheetCopyPreviewState | null>(null)
+  const [technicalSheetCopyDiscardState, setTechnicalSheetCopyDiscardState] = useState(false)
   const [isSavingProduct, setIsSavingProduct] = useState(false)
   const [isSavingServiceItem, setIsSavingServiceItem] = useState(false)
   const [isSavingTechnicalSheet, setIsSavingTechnicalSheet] = useState(false)
@@ -3664,6 +3691,9 @@ export default function App() {
   function getCompanyTradeName(companyId: number) {
     return companies.find((item) => item.id === companyId)?.tradeName ?? `EMPRESA ${companyId}`
   }
+  function buildCompanySelectionLabel(company: CompanyRecord) {
+    return `${company.tradeName} (${company.city}/${company.state || 'UF'})`
+  }
   function sheetDependsOnProductId(sheet: TechnicalSheetRecord, productId: string) {
     return [...sheet.ingredients, ...sheet.garnishIngredients].some(
       (ingredient) => ingredient.isActive && ingredient.productId.trim() === productId,
@@ -3674,6 +3704,7 @@ export default function App() {
     ingredients: TechnicalSheetIngredient[],
     garnishIngredients: TechnicalSheetIngredient[],
     rootTechnicalSheetId?: number | null,
+    extraDependencyTechnicalSheetIds: number[] = [],
   ) {
     const relevantTargetCompanyIds = Array.from(new Set(targetCompanyIds.filter((companyId) => companyId > 0)))
     const dependencyProductMap = new Map<string, ProductRecord>()
@@ -3711,6 +3742,14 @@ export default function App() {
     ;[...ingredients, ...garnishIngredients]
       .filter((ingredient) => ingredient.isActive && ingredient.productId.trim() !== '')
       .forEach((ingredient) => visitProduct(ingredient.productId))
+    extraDependencyTechnicalSheetIds
+      .filter((sheetId) => typeof sheetId === 'number' && sheetId > 0)
+      .forEach((sheetId) => {
+        const dependencySheet = technicalSheets.find((sheet) => sheet.id === sheetId) ?? null
+        if (dependencySheet && dependencySheet.id !== rootTechnicalSheetId) {
+          visitTechnicalSheet(dependencySheet)
+        }
+      })
 
     const blockedProducts = Array.from(dependencyProductMap.values()).some((product) =>
       relevantTargetCompanyIds.some((companyId) => !getCompanyLinkScopeIds(getProductOwnerCompanyId(product)).includes(companyId)),
@@ -3884,10 +3923,32 @@ export default function App() {
         .filter((companyId) => companyId !== technicalSheetOwnerCompanyId)
         .map((companyId) => {
           const company = technicalSheetShareableCompanies.find((item) => item.id === companyId) ?? null
-          return company ? `${company.tradeName} (${company.city}/${company.state || 'UF'})` : null
+          return company ? buildCompanySelectionLabel(company) : null
         })
         .filter((value): value is string => Boolean(value)),
     [technicalSheetForm.sharedCompanyIds, technicalSheetOwnerCompanyId, technicalSheetShareableCompanies],
+  )
+  const technicalSheetCopyDestinationCompanies = useMemo(
+    () =>
+      (currentCompanyId === null
+        ? []
+        : companies.filter((company) => getCompanyLinkScopeIds(currentCompanyId).includes(company.id))
+      ).sort((left, right) => left.tradeName.localeCompare(right.tradeName, 'pt-BR')),
+    [companies, currentCompanyId],
+  )
+  const technicalSheetCopyDestinationLabels = useMemo(
+    () => technicalSheetCopyDestinationCompanies.map((company) => buildCompanySelectionLabel(company)),
+    [technicalSheetCopyDestinationCompanies],
+  )
+  const technicalSheetCopyDestinationIdByLabel = useMemo(
+    () =>
+      new Map(
+        technicalSheetCopyDestinationCompanies.map((company) => [
+          normalizeRegistrationText(buildCompanySelectionLabel(company)),
+          company.id,
+        ] as const),
+      ),
+    [technicalSheetCopyDestinationCompanies],
   )
   const userBelongsToCompany = (user: AppUserRecord, companyId: number | null) =>
     companyId !== null &&
@@ -20959,6 +21020,443 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
     )
   }
 
+  function requestTechnicalSheetCopyDiscard() {
+    if (!technicalSheetCopyState) {
+      return
+    }
+
+    const defaultCompanyLabel =
+      currentCompanyId === null
+        ? ''
+        : buildCompanySelectionLabel(
+            companies.find((company) => company.id === currentCompanyId) ?? {
+              id: currentCompanyId,
+              tradeName: getCompanyTradeName(currentCompanyId),
+              legalName: '',
+              cnpj: '',
+              cep: '',
+              street: '',
+              number: '',
+              complement: '',
+              neighborhood: '',
+              city: '',
+              state: '',
+              status: 'ATIVA' as const,
+              linkedCompanyIds: [],
+            },
+          )
+    const hasProgress =
+      normalizeRegistrationText(technicalSheetCopyState.newName).trim() !== '' ||
+      normalizeRegistrationText(technicalSheetCopyState.destinationCompanyInput).trim() !==
+        normalizeRegistrationText(defaultCompanyLabel).trim()
+
+    if (!hasProgress) {
+      setTechnicalSheetCopyState(null)
+      setTechnicalSheetCopyPreviewState(null)
+      setTechnicalSheetCopyDiscardState(false)
+      return
+    }
+
+    setTechnicalSheetCopyDiscardState(true)
+  }
+
+  function confirmTechnicalSheetCopyDiscard() {
+    setTechnicalSheetCopyDiscardState(false)
+    setTechnicalSheetCopyPreviewState(null)
+    setTechnicalSheetCopyState(null)
+  }
+
+  function openTechnicalSheetCopyModal(technicalSheetId: number) {
+    const sourceSheet = technicalSheets.find((sheet) => sheet.id === technicalSheetId) ?? null
+    if (!sourceSheet || currentCompanyId === null) {
+      return
+    }
+
+    const currentCompany = companies.find((company) => company.id === currentCompanyId) ?? null
+    setTechnicalSheetCopyPreviewState(null)
+    setTechnicalSheetCopyDiscardState(false)
+    setTechnicalSheetCopyState({
+      sourceSheetId: sourceSheet.id,
+      sourceSheetName: sourceSheet.name,
+      sourceSheetKind: sourceSheet.kind,
+      destinationCompanyId: currentCompanyId,
+      destinationCompanyInput: currentCompany ? buildCompanySelectionLabel(currentCompany) : '',
+      newName: '',
+      errorMessage: '',
+    })
+  }
+
+  function openCopiedTechnicalSheetForm(sourceSheet: TechnicalSheetRecord, newName: string) {
+    const normalizedTargetCompanyId = currentCompanyId
+    if (normalizedTargetCompanyId === null) {
+      return
+    }
+
+    const linkedTechnicalSheetProduct =
+      products.find((product) => product.technicalSheetId === sourceSheet.id && isProductVisibleForCompany(product, currentCompanyId)) ?? null
+    const filteredProductionCenters =
+      sourceSheet.kind === 'PREPARO'
+        ? sourceSheet.productionCenters.filter((assignment) => {
+            const center = stockCenters.find((item) => item.id === assignment.stockCenterId) ?? null
+            return center?.companyId === normalizedTargetCompanyId
+          })
+        : []
+    const byproductSheet =
+      sourceSheet.kind === 'PREPARO' && typeof sourceSheet.yieldDifferenceByproductTechnicalSheetId === 'number'
+        ? technicalSheets.find((sheet) => sheet.id === sourceSheet.yieldDifferenceByproductTechnicalSheetId) ?? null
+        : null
+    const byproductVisibleInTarget =
+      sourceSheet.kind === 'PREPARO' &&
+      typeof sourceSheet.yieldDifferenceByproductTechnicalSheetId === 'number' &&
+      byproductSheet !== null &&
+      isTechnicalSheetVisibleForCompany(byproductSheet, normalizedTargetCompanyId)
+    const nextForm = {
+      kind: sourceSheet.kind,
+      sharedCompanyIds: [],
+      companyProductId: '',
+      name: newName,
+      family: sourceSheet.family,
+      subfamily: sourceSheet.subfamily,
+      sectors: [...sourceSheet.sectors],
+      outputQuantity: sourceSheet.outputQuantity,
+      outputUnit: sourceSheet.outputUnit,
+      densitySampleVolume: sourceSheet.densitySampleVolume || '',
+      densitySampleWeight: sourceSheet.densitySampleWeight || '',
+      yieldDifferenceDestination: sourceSheet.yieldDifferenceDestination || '',
+      yieldDifferenceByproductName: sourceSheet.yieldDifferenceByproductName || '',
+      yieldDifferenceByproductTechnicalSheetId:
+        sourceSheet.kind === 'PREPARO' && byproductVisibleInTarget
+          ? sourceSheet.yieldDifferenceByproductTechnicalSheetId ?? null
+          : null,
+      targetPh: sourceSheet.targetPh || '',
+      targetBrix: sourceSheet.targetBrix || '',
+      portionSize: sourceSheet.portionSize || '1000',
+      colorTagOne: sourceSheet.colorTagOne || '',
+      colorTagTwo: sourceSheet.colorTagTwo || '',
+      desiredCmvPercentage: sourceSheet.desiredCmvPercentage || '',
+      dilutionRatePercentage: sourceSheet.dilutionRatePercentage || '',
+      imageDataUrl: sourceSheet.imageDataUrl || '',
+      finalSalePrice: sourceSheet.finalSalePrice || '',
+      flavorSweet: sourceSheet.flavorSweet || '0',
+      flavorSour: sourceSheet.flavorSour || '0',
+      flavorBitter: sourceSheet.flavorBitter || '0',
+      flavorSalty: sourceSheet.flavorSalty || '0',
+      flavorUmami: sourceSheet.flavorUmami || '0',
+      storytelling: sourceSheet.storytelling || '',
+      preparationMode: sourceSheet.preparationMode,
+      shelfLifeRoom: sourceSheet.shelfLifeRoom,
+      shelfLifeRefrigerated: sourceSheet.shelfLifeRefrigerated,
+      shelfLifeFrozen: sourceSheet.shelfLifeFrozen,
+      productionCenters: filteredProductionCenters,
+    } satisfies TechnicalSheetFormState
+    const savedIngredients = sourceSheet.ingredients.map((ingredient) => ({
+      ...ingredient,
+      productLabel:
+        products.find((product) => product.id === ingredient.productId)?.name ?? ingredient.productLabel ?? '',
+    }))
+    const savedGarnishIngredients = sourceSheet.garnishIngredients.map((ingredient) => ({
+      ...ingredient,
+      productLabel:
+        products.find((product) => product.id === ingredient.productId)?.name ?? ingredient.productLabel ?? '',
+    }))
+    const savedServiceItems = sourceSheet.serviceItems.map((serviceItem) => ({
+      ...serviceItem,
+      itemLabel: serviceItems.find((item) => item.id === serviceItem.itemId)?.name ?? serviceItem.itemLabel ?? '',
+    }))
+    const nextIngredient = emptyTechnicalSheetIngredient()
+    const nextGarnishIngredient = emptyTechnicalSheetIngredient()
+    const nextServiceItem = emptyTechnicalSheetServiceItem()
+    const savedSuggestedYield = calculateTechnicalSheetSuggestedYieldFromDraft(
+      sourceSheet.kind,
+      savedIngredients,
+      savedGarnishIngredients,
+    )
+    const savedOutputQuantity = parseDecimal(sourceSheet.outputQuantity) ?? 0
+
+    setTechnicalSheetCopyPreviewState(null)
+    setTechnicalSheetCopyDiscardState(false)
+    setTechnicalSheetCopyState(null)
+    setActiveSection('FichasTecnicas')
+    setTechnicalSheetScreenMode('form')
+    setTechnicalSheetDraftStack([])
+    setPendingNestedTechnicalSheetKind(null)
+    setPendingNestedTechnicalSheetPurpose(null)
+    setDraftTechnicalSheetProductId(buildTechnicalSheetProductId(newName, sourceSheet.kind))
+    setEditingTechnicalSheetId(null)
+    setTechnicalSheetSectorInput('')
+    setTechnicalSheetSharedCompanyInput('')
+    setTechnicalSheetProductionCenterInput('')
+    setTechnicalSheetForm(nextForm)
+    setTechnicalSheetIngredients([...savedIngredients, nextIngredient])
+    setEditingTechnicalSheetIngredientId(nextIngredient.id)
+    setTechnicalSheetGarnishIngredients([...savedGarnishIngredients, nextGarnishIngredient])
+    setEditingTechnicalSheetGarnishIngredientId(sourceSheet.kind === 'EXECUCAO' ? nextGarnishIngredient.id : null)
+    setTechnicalSheetServiceItems([...savedServiceItems, nextServiceItem])
+    setEditingTechnicalSheetServiceItemId(sourceSheet.kind === 'EXECUCAO' ? nextServiceItem.id : null)
+    setTechnicalSheetPackages(linkedTechnicalSheetProduct?.packages ?? [])
+    setPackageEditorContext('technicalSheet')
+    setTechnicalSheetOutputQuantityMode(
+      sourceSheet.kind === 'PREPARO' && (savedOutputQuantity <= 0 || Math.abs(savedOutputQuantity - savedSuggestedYield) < 0.000001)
+        ? 'auto'
+        : 'manual',
+    )
+    setTechnicalSheetDiscardBaseline(
+      buildTechnicalSheetDiscardSnapshot({
+        form: nextForm,
+        sectorInput: '',
+        sharedCompanyInput: '',
+        productionCenterInput: '',
+        ingredients: [...savedIngredients, nextIngredient],
+        garnishIngredients: [...savedGarnishIngredients, nextGarnishIngredient],
+        serviceItems: [...savedServiceItems, nextServiceItem],
+        packages: linkedTechnicalSheetProduct?.packages ?? [],
+        editingId: null,
+      }),
+    )
+  }
+
+  async function beginTechnicalSheetCopy() {
+    if (!technicalSheetCopyState || currentCompanyId === null) {
+      return
+    }
+
+    const sourceSheet = technicalSheets.find((sheet) => sheet.id === technicalSheetCopyState.sourceSheetId) ?? null
+    const normalizedName = normalizeRegistrationText(technicalSheetCopyState.newName.trim())
+    const targetCompanyId =
+      typeof technicalSheetCopyState.destinationCompanyId === 'number' ? technicalSheetCopyState.destinationCompanyId : null
+    const allowedDestinationCompanyIds = technicalSheetCopyDestinationCompanies.map((company) => company.id)
+
+    if (!sourceSheet || !targetCompanyId || !allowedDestinationCompanyIds.includes(targetCompanyId)) {
+      setTechnicalSheetCopyState((current) =>
+        current
+          ? {
+              ...current,
+              errorMessage: 'Selecione uma empresa destino valida para a copia.',
+            }
+          : current,
+      )
+      return
+    }
+
+    if (!normalizedName) {
+      setTechnicalSheetCopyState((current) =>
+        current
+          ? {
+              ...current,
+              errorMessage: 'Informe um novo nome para a ficha copiada.',
+            }
+          : current,
+      )
+      return
+    }
+
+    if (
+      buildNormalizedRegistrationNameKey(normalizedName) === buildNormalizedRegistrationNameKey(technicalSheetCopyState.sourceSheetName)
+    ) {
+      setTechnicalSheetCopyState((current) =>
+        current
+          ? {
+              ...current,
+              errorMessage: 'A copia precisa ter um nome diferente da ficha original.',
+            }
+          : current,
+      )
+      return
+    }
+
+    const duplicateTechnicalSheet = technicalSheets.find(
+      (sheet) =>
+        isTechnicalSheetVisibleForCompany(sheet, targetCompanyId) &&
+        buildNormalizedRegistrationNameKey(sheet.name) === buildNormalizedRegistrationNameKey(normalizedName),
+    )
+    if (duplicateTechnicalSheet) {
+      setTechnicalSheetCopyState((current) =>
+        current
+          ? {
+              ...current,
+              errorMessage: `Ja existe uma ficha tecnica cadastrada com o nome ${normalizedName} na empresa destino.`,
+            }
+          : current,
+      )
+      return
+    }
+
+    const fullSourceSheet = await fetchTechnicalSheetRecordFromApi(sourceSheet.id).catch(() => sourceSheet)
+    const targetCompany = companies.find((company) => company.id === targetCompanyId) ?? null
+    if (!targetCompany) {
+      setTechnicalSheetCopyState((current) =>
+        current
+          ? {
+              ...current,
+              errorMessage: 'Nao foi possivel identificar a empresa destino da copia.',
+            }
+          : current,
+      )
+      return
+    }
+
+    const copyCascadeAnalysis = collectTechnicalSheetDependencies(
+      [targetCompanyId],
+      fullSourceSheet.ingredients,
+      fullSourceSheet.garnishIngredients,
+      fullSourceSheet.id,
+      fullSourceSheet.kind === 'PREPARO' && typeof fullSourceSheet.yieldDifferenceByproductTechnicalSheetId === 'number'
+        ? [fullSourceSheet.yieldDifferenceByproductTechnicalSheetId]
+        : [],
+    )
+
+    if (copyCascadeAnalysis.blockedProducts || copyCascadeAnalysis.blockedSheets.length > 0) {
+      const blockedParts = [
+        ...(copyCascadeAnalysis.blockedProducts
+          ? ['existem produtos da composicao que nao estao visiveis para a empresa destino']
+          : []),
+        ...copyCascadeAnalysis.blockedSheets.map(
+          (sheet) =>
+            `${sheet.name} nao pode ser compartilhada com ${sheet.targetCompanyIds.map((companyId) => getCompanyTradeName(companyId)).join(', ')}`,
+        ),
+      ]
+      setTechnicalSheetCopyState((current) =>
+        current
+          ? {
+              ...current,
+              errorMessage: `Erro: existem dependencias da ficha que nao podem ser disponibilizadas para a empresa destino. ${blockedParts.join('; ')}.`,
+            }
+          : current,
+      )
+      return
+    }
+
+    if (targetCompanyId === currentCompanyId) {
+      openCopiedTechnicalSheetForm(fullSourceSheet, normalizedName)
+      return
+    }
+
+    const dependencySheets = copyCascadeAnalysis.dependencySheets
+      .flatMap((sheet) => {
+        const alreadyShared = getTechnicalSheetSharedCompanyIds(sheet).includes(targetCompanyId)
+        return [
+          {
+            id: sheet.id,
+            name: sheet.name,
+            status: alreadyShared ? ('already_shared' as const) : ('share_now' as const),
+            targetCompanyLabels: [getCompanyTradeName(targetCompanyId)],
+          },
+        ]
+      })
+      .sort((left, right) => left.name.localeCompare(right.name, 'pt-BR'))
+
+    setTechnicalSheetCopyState((current) =>
+      current
+        ? {
+            ...current,
+            errorMessage: '',
+          }
+        : current,
+    )
+    setTechnicalSheetCopyPreviewState({
+      sourceSheet: fullSourceSheet,
+      targetCompanyId,
+      targetCompanyLabel: targetCompany.tradeName,
+      newName: normalizedName,
+      dependencySheets,
+      willResetProductionCenters: fullSourceSheet.kind === 'PREPARO',
+    })
+  }
+
+  async function confirmTechnicalSheetCopyToLinkedCompany() {
+    if (!technicalSheetCopyPreviewState) {
+      return
+    }
+
+    const { sourceSheet, targetCompanyId, targetCompanyLabel, newName, dependencySheets, willResetProductionCenters } =
+      technicalSheetCopyPreviewState
+    const technicalSheetId = technicalSheets.length > 0 ? Math.max(...technicalSheets.map((item) => item.id)) + 1 : 1
+    const generatedProductId = buildTechnicalSheetProductId(newName, sourceSheet.kind)
+    const nextCopiedTechnicalSheet: TechnicalSheetRecord = {
+      ...sourceSheet,
+      id: technicalSheetId,
+      companyId: targetCompanyId,
+      ownerCompanyId: targetCompanyId,
+      sharedCompanyIds: [],
+      productId: generatedProductId,
+      companyProductId: '',
+      name: newName,
+      productionCenters: willResetProductionCenters ? [] : sourceSheet.productionCenters,
+    }
+    const baseTechnicalSheets = [nextCopiedTechnicalSheet, ...technicalSheets]
+    const dependencyIdsToShare = new Set(
+      dependencySheets.filter((sheet) => sheet.status === 'share_now').map((sheet) => sheet.id),
+    )
+    const nextTechnicalSheets = baseTechnicalSheets.map((sheet) =>
+      dependencyIdsToShare.has(sheet.id)
+        ? {
+            ...sheet,
+            sharedCompanyIds: Array.from(
+              new Set([...getTechnicalSheetExplicitSharedCompanyIds(sheet), targetCompanyId]),
+            ),
+          }
+        : sheet,
+    )
+    const copiedTechnicalProduct: ProductRecord = {
+      companyId: targetCompanyId,
+      ownerCompanyId: targetCompanyId,
+      id: generatedProductId,
+      companyProductId: '',
+      name: newName,
+      controlUnit: sourceSheet.outputUnit,
+      family: sourceSheet.family,
+      subfamily: sourceSheet.subfamily,
+      sectors: [...sourceSheet.sectors],
+      alcoholPercentage:
+        sourceSheet.kind === 'PREPARO'
+          ? formatDecimal(calculateTechnicalSheetAlcoholPercentage(nextCopiedTechnicalSheet, nextTechnicalSheets, products))
+          : '',
+      densitySampleVolume: isCommercialTechnicalSheetKind(sourceSheet.kind) ? '' : sourceSheet.densitySampleVolume,
+      densitySampleWeight: isCommercialTechnicalSheetKind(sourceSheet.kind) ? '' : sourceSheet.densitySampleWeight,
+      ignoreStock: false,
+      isActive: true,
+      packages: [],
+      technicalSheetId: technicalSheetId,
+    }
+    const nextProducts = [copiedTechnicalProduct, ...products]
+
+    setIsSavingTechnicalSheet(true)
+    setSaveProgressState({
+      title: 'Copiando ficha tecnica',
+      message: 'Registrando, aguarde. Nao feche a tela nem clique novamente em confirmar.',
+    })
+    try {
+      await persistChangedTechnicalSheetsOnApi(technicalSheets, nextTechnicalSheets)
+      await upsertProductRecordOnApi(copiedTechnicalProduct, null)
+    } catch (error) {
+      console.error(error)
+      setSaveProgressState(null)
+      setSaveFeedback({
+        status: 'error',
+        title: 'Falha ao copiar ficha tecnica',
+        message: error instanceof Error ? error.message : 'Erro ao copiar a ficha tecnica no servidor.',
+      })
+      return
+    } finally {
+      setIsSavingTechnicalSheet(false)
+      setSaveProgressState(null)
+    }
+
+    setTechnicalSheetCopyPreviewState(null)
+    setTechnicalSheetCopyDiscardState(false)
+    setTechnicalSheetCopyState(null)
+    setTechnicalSheets(nextTechnicalSheets)
+    setProducts(nextProducts)
+    setSaveFeedback({
+      status: 'success',
+      title: 'Ficha tecnica copiada com sucesso',
+      message:
+        dependencyIdsToShare.size > 0
+          ? `A ficha tecnica ${newName} foi registrada em ${targetCompanyLabel} e as dependencias tecnicas necessarias tambem foram compartilhadas automaticamente.`
+          : `A ficha tecnica ${newName} foi registrada em ${targetCompanyLabel}.`,
+    })
+  }
+
   function updateTechnicalSheetForm<K extends keyof TechnicalSheetFormState>(
     field: K,
     value: TechnicalSheetFormState[K],
@@ -21743,6 +22241,9 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
       normalizedIngredients,
       normalizedGarnishIngredients,
       editingTechnicalSheetId,
+      technicalSheetForm.kind === 'PREPARO' && typeof technicalSheetForm.yieldDifferenceByproductTechnicalSheetId === 'number'
+        ? [technicalSheetForm.yieldDifferenceByproductTechnicalSheetId]
+        : [],
     )
 
     if (shareCascadeAnalysis.blockedProducts || shareCascadeAnalysis.blockedSheets.length > 0) {
@@ -26098,6 +26599,15 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                                 onClick={() => openEditTechnicalSheetForm(sheet.id)}
                               >
                                 <span aria-hidden="true">✎</span>
+                              </button>
+                              <button
+                                className="icon-button"
+                                type="button"
+                                aria-label="Copiar ficha tecnica"
+                                title="Copiar ficha tecnica"
+                                onClick={() => openTechnicalSheetCopyModal(sheet.id)}
+                              >
+                                <span aria-hidden="true">⧉</span>
                               </button>
                               <button
                                 className="icon-button icon-disable"
@@ -32309,6 +32819,176 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
           onConfirm={confirmTechnicalSheetDiscard}
           bringToFront
         />
+      ) : null}
+
+      {technicalSheetCopyDiscardState ? (
+        <ConfirmationModal
+          title="Cancelar copia da ficha"
+          message="Deseja cancelar esta copia? O progresso informado ate aqui nao sera aproveitado."
+          actionClass="danger-button"
+          actionLabel="Cancelar copia"
+          onCancel={() => setTechnicalSheetCopyDiscardState(false)}
+          onConfirm={confirmTechnicalSheetCopyDiscard}
+          bringToFront
+        />
+      ) : null}
+
+      {technicalSheetCopyState ? (
+        <div
+          className="modal-backdrop modal-backdrop-front"
+          role="presentation"
+          onClick={requestTechnicalSheetCopyDiscard}
+        >
+          <section
+            className="modal-card"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="technical-sheet-copy-title"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="section-heading">
+              <div>
+                <p className="kicker">Copiar ficha tecnica</p>
+                <h2 id="technical-sheet-copy-title">Nova copia de {technicalSheetCopyState.sourceSheetName}</h2>
+              </div>
+            </div>
+
+            <p className="confirm-copy">
+              A copia cria uma nova ficha com a mesma composicao da original, sem substituir nem compartilhar a ficha de origem.
+            </p>
+
+            <div className="form-grid company-form-grid">
+              {technicalSheetCopyDestinationCompanies.length > 1 ? (
+                <label className="field company-field-wide">
+                  <span>Empresa destino</span>
+                  <SingleValueAutocomplete
+                    value={technicalSheetCopyState.destinationCompanyInput}
+                    suggestions={technicalSheetCopyDestinationLabels}
+                    onChange={(value) =>
+                      setTechnicalSheetCopyState((current) =>
+                        current
+                          ? {
+                              ...current,
+                              destinationCompanyInput: value,
+                              destinationCompanyId:
+                                technicalSheetCopyDestinationIdByLabel.get(normalizeRegistrationText(value)) ?? null,
+                              errorMessage: '',
+                            }
+                          : current,
+                      )
+                    }
+                    placeholder="Selecione a empresa destino"
+                    allowCreate={false}
+                  />
+                </label>
+              ) : (
+                <label className="field company-field-wide">
+                  <span>Empresa destino</span>
+                  <input value={technicalSheetCopyState.destinationCompanyInput} disabled />
+                </label>
+              )}
+
+              <label className="field company-field-wide">
+                <span>Novo nome da ficha</span>
+                <input
+                  value={technicalSheetCopyState.newName}
+                  onChange={(event) =>
+                    setTechnicalSheetCopyState((current) =>
+                      current
+                        ? {
+                            ...current,
+                            newName: normalizeRegistrationText(event.target.value),
+                            errorMessage: '',
+                          }
+                        : current,
+                    )
+                  }
+                  placeholder="INFORME UM NOVO NOME"
+                />
+              </label>
+            </div>
+
+            {technicalSheetCopyState.sourceSheetKind === 'PREPARO' &&
+            technicalSheetCopyState.destinationCompanyId !== null &&
+            technicalSheetCopyState.destinationCompanyId !== currentCompanyId ? (
+              <p className="confirm-copy">
+                Para copias de pre-preparo em outra empresa, os centros produtores nao sao copiados. A nova ficha sera registrada sem centros produtores configurados.
+              </p>
+            ) : null}
+
+            {technicalSheetCopyState.errorMessage ? (
+              <p className="confirm-copy confirmation-error-copy">{technicalSheetCopyState.errorMessage}</p>
+            ) : null}
+
+            <div className="modal-actions">
+              <button className="ghost-button" type="button" onClick={requestTechnicalSheetCopyDiscard}>
+                Cancelar
+              </button>
+              <button className="primary-button" type="button" onClick={() => void beginTechnicalSheetCopy()}>
+                Continuar copia
+              </button>
+            </div>
+          </section>
+        </div>
+      ) : null}
+
+      {technicalSheetCopyPreviewState ? (
+        <div
+          className="modal-backdrop modal-backdrop-front"
+          role="presentation"
+          onClick={() => setTechnicalSheetCopyPreviewState(null)}
+        >
+          <section
+            className="modal-card modal-card-full"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="technical-sheet-copy-preview-title"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="section-heading">
+              <div>
+                <p className="kicker">Confirmacao da copia</p>
+                <h2 id="technical-sheet-copy-preview-title">Registrar copia em empresa vinculada</h2>
+              </div>
+            </div>
+
+            <p className="confirm-copy">
+              A ficha {technicalSheetCopyPreviewState.newName} sera registrada no painel de fichas tecnicas da empresa {technicalSheetCopyPreviewState.targetCompanyLabel}. A ficha original nao sera alterada.
+            </p>
+
+            {technicalSheetCopyPreviewState.willResetProductionCenters ? (
+              <p className="confirm-copy">
+                Os centros produtores da ficha original nao serao copiados para esta empresa. A nova ficha nascera sem centros produtores configurados.
+              </p>
+            ) : null}
+
+            <div className="confirmation-details">
+              <strong>Fichas tecnicas dependentes ({technicalSheetCopyPreviewState.dependencySheets.length})</strong>
+              {technicalSheetCopyPreviewState.dependencySheets.length > 0 ? (
+                <ul className="sector-impact-list">
+                  {technicalSheetCopyPreviewState.dependencySheets.map((sheet) => (
+                    <li key={`technical-sheet-copy-preview-${sheet.id}-${sheet.status}`}>
+                      {sheet.name}
+                      {sheet.targetCompanyLabels.length > 0 ? ` -> ${sheet.targetCompanyLabels.join(', ')}` : ''}
+                      {sheet.status === 'already_shared' ? ' | Ja disponivel na empresa destino' : ' | Sera compartilhada agora'}
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p>Nenhuma ficha tecnica filha precisa de compartilhamento adicional para esta copia.</p>
+              )}
+            </div>
+
+            <div className="modal-actions">
+              <button className="ghost-button" type="button" onClick={() => setTechnicalSheetCopyPreviewState(null)}>
+                Cancelar
+              </button>
+              <button className="primary-button" type="button" onClick={() => void confirmTechnicalSheetCopyToLinkedCompany()}>
+                Confirmar copia
+              </button>
+            </div>
+          </section>
+        </div>
       ) : null}
 
       {renderCompanyModal()}
