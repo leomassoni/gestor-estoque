@@ -32821,18 +32821,6 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
         />
       ) : null}
 
-      {technicalSheetCopyDiscardState ? (
-        <ConfirmationModal
-          title="Cancelar copia da ficha"
-          message="Deseja cancelar esta copia? O progresso informado ate aqui nao sera aproveitado."
-          actionClass="danger-button"
-          actionLabel="Cancelar copia"
-          onCancel={() => setTechnicalSheetCopyDiscardState(false)}
-          onConfirm={confirmTechnicalSheetCopyDiscard}
-          bringToFront
-        />
-      ) : null}
-
       {technicalSheetCopyState ? (
         <div
           className="modal-backdrop modal-backdrop-front"
@@ -32930,6 +32918,18 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
             </div>
           </section>
         </div>
+      ) : null}
+
+      {technicalSheetCopyDiscardState ? (
+        <ConfirmationModal
+          title="Cancelar copia da ficha"
+          message="Deseja cancelar esta copia? O progresso informado ate aqui nao sera aproveitado."
+          actionClass="danger-button"
+          actionLabel="Cancelar copia"
+          onCancel={() => setTechnicalSheetCopyDiscardState(false)}
+          onConfirm={confirmTechnicalSheetCopyDiscard}
+          bringToFront
+        />
       ) : null}
 
       {technicalSheetCopyPreviewState ? (

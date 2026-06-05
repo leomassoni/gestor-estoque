@@ -2459,6 +2459,16 @@ h3 {
   overflow: visible;
 }
 
+.modal-card-allow-overflow .single-autocomplete,
+.modal-card-allow-overflow .multi-select {
+  z-index: 5;
+}
+
+.modal-card-allow-overflow .single-autocomplete-menu,
+.modal-card-allow-overflow .multi-select-menu {
+  z-index: 60;
+}
+
 .modal-card-full .form-grid,
 .modal-card-full .field,
 .modal-card-full .field > *,
