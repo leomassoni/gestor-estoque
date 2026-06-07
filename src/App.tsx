@@ -23010,7 +23010,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
 
               <div className="receituario-summary-grid receituario-summary-grid-metrics">
                 <article className="receituario-metric-card">
-                  <span>Rendimento base</span>
+                  <span>Entrada bruta</span>
                   <strong>{formatDecimal(exportBaseQuantity)} {getTechnicalSheetYieldUnitLabel(sheet, technicalSheets, products)}</strong>
                 </article>
                 <article className="receituario-metric-card">
@@ -23369,7 +23369,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
         subfamilia: data.sheet.subfamily,
         setores: data.sheet.sectors.join(', '),
         empresas_vinculadas: getTechnicalSheetExportSharedCompanyLabels(data.sheet).join(', ') || '-',
-        rendimento_base: `${formatDecimal(getTechnicalSheetExportBaseQuantity(data))} ${getTechnicalSheetYieldUnitLabel(data.sheet, technicalSheets, products)}`,
+        entrada_bruta: `${formatDecimal(getTechnicalSheetExportBaseQuantity(data))} ${getTechnicalSheetYieldUnitLabel(data.sheet, technicalSheets, products)}`,
         rendimento_final: `${formatDecimal(data.desiredYield)} ${getTechnicalSheetYieldUnitLabel(data.sheet, technicalSheets, products)}`,
         diferenca_negativa: `${formatDecimal(getTechnicalSheetExportNegativeDifference(data))} ${getTechnicalSheetYieldUnitLabel(data.sheet, technicalSheets, products)}`,
         custo_total: formatMoney(data.totalRecipeCost),
@@ -23430,7 +23430,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
           ['Status', sheet.isActive ? 'Ativa' : 'Inativa'],
           [],
           ['Resumo tecnico e de custo'],
-          ['Rendimento base', `${formatDecimal(exportBaseQuantity)} ${getTechnicalSheetYieldUnitLabel(sheet, technicalSheets, products)}`],
+          ['Entrada bruta', `${formatDecimal(exportBaseQuantity)} ${getTechnicalSheetYieldUnitLabel(sheet, technicalSheets, products)}`],
           ['Rendimento final', `${formatDecimal(data.desiredYield)} ${getTechnicalSheetYieldUnitLabel(sheet, technicalSheets, products)}`],
           ['Diferenca negativa', `${formatDecimal(negativeDifferenceQuantity)} ${getTechnicalSheetYieldUnitLabel(sheet, technicalSheets, products)}`],
           ['Custo total', `R$ ${formatMoney(data.totalRecipeCost)}`],
