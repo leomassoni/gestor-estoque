@@ -810,6 +810,13 @@ type RecipeExportState = {
   scope: 'current' | 'all'
 }
 
+type TechnicalSheetExportState = {
+  kind: TechnicalSheetKind
+  format: 'pdf' | 'xlsx'
+  scope: 'current' | 'all'
+  technicalSheetId: number | null
+}
+
 type RequisitionExportState = {
   requisitionId: number
   format: 'pdf' | 'xlsx'
@@ -1036,6 +1043,12 @@ type RecipePanelComputedData = {
   suggestedSalePrice: number
   finalSalePrice: number
   finalCmvPercentage: number
+}
+
+type TechnicalSheetExportRenderState = {
+  technicalSheets: RecipePanelComputedData[]
+  kind: TechnicalSheetKind
+  scope: TechnicalSheetExportState['scope']
 }
 
 type PreparationModeMetricPart =
@@ -3048,9 +3061,11 @@ export default function App() {
   const [isSavingTechnicalSheet, setIsSavingTechnicalSheet] = useState(false)
   const [productExportState, setProductExportState] = useState<ProductExportState | null>(null)
   const [recipeExportState, setRecipeExportState] = useState<RecipeExportState | null>(null)
+  const [technicalSheetExportState, setTechnicalSheetExportState] = useState<TechnicalSheetExportState | null>(null)
   const [requisitionExportState, setRequisitionExportState] = useState<RequisitionExportState | null>(null)
   const [stockReportExportState, setStockReportExportState] = useState<StockReportExportState | null>(null)
   const [recipeExportRenderState, setRecipeExportRenderState] = useState<RecipeExportRenderState | null>(null)
+  const [technicalSheetExportRenderState, setTechnicalSheetExportRenderState] = useState<TechnicalSheetExportRenderState | null>(null)
   const [sectorHideState, setSectorHideState] = useState<SectorHideState | null>(null)
   const [taxonomyDeleteState, setTaxonomyDeleteState] = useState<TaxonomyDeleteState | null>(null)
   const [inventoryStorageLocationDeleteState, setInventoryStorageLocationDeleteState] =
@@ -3326,6 +3341,7 @@ export default function App() {
   const [technicalSheetServiceItemDiscardBaseline, setTechnicalSheetServiceItemDiscardBaseline] = useState('')
   const [packageDiscardBaseline, setPackageDiscardBaseline] = useState('')
   const recipeExportContainerRef = useRef<HTMLDivElement | null>(null)
+  const technicalSheetExportContainerRef = useRef<HTMLDivElement | null>(null)
   const [userForm, setUserForm] = useState<UserFormState>(emptyUserForm())
   const [accessProfileForm, setAccessProfileForm] = useState<AccessProfileFormState>(emptyAccessProfileForm())
   const [editingAccessProfileId, setEditingAccessProfileId] = useState<number | null>(null)
@@ -3935,20 +3951,6 @@ export default function App() {
         : companies.filter((company) => getCompanyLinkScopeIds(currentCompanyId).includes(company.id))
       ).sort((left, right) => left.tradeName.localeCompare(right.tradeName, 'pt-BR')),
     [companies, currentCompanyId],
-  )
-  const technicalSheetCopyDestinationLabels = useMemo(
-    () => technicalSheetCopyDestinationCompanies.map((company) => buildCompanySelectionLabel(company)),
-    [technicalSheetCopyDestinationCompanies],
-  )
-  const technicalSheetCopyDestinationIdByLabel = useMemo(
-    () =>
-      new Map(
-        technicalSheetCopyDestinationCompanies.map((company) => [
-          normalizeRegistrationText(buildCompanySelectionLabel(company)),
-          company.id,
-        ] as const),
-      ),
-    [technicalSheetCopyDestinationCompanies],
   )
   const userBelongsToCompany = (user: AppUserRecord, companyId: number | null) =>
     companyId !== null &&
@@ -10767,6 +10769,20 @@ export default function App() {
     selectedRecipePanelSheet && selectedRecipePanelSheet.kind === 'EXECUCAO'
       ? technicalSheetImageCache[selectedRecipePanelSheet.id] ?? selectedRecipePanelSheet.imageDataUrl ?? ''
       : selectedRecipePanelSheet?.imageDataUrl ?? ''
+  const exportableTechnicalSheetsByKind = useMemo<Record<TechnicalSheetKind, TechnicalSheetRecord[]>>(
+    () => ({
+      PREPARO: technicalSheets
+        .filter((sheet) => sheet.kind === 'PREPARO' && isTechnicalSheetVisibleForCompany(sheet, currentCompanyId))
+        .sort((left, right) => left.name.localeCompare(right.name, 'pt-BR')),
+      EXECUCAO: technicalSheets
+        .filter((sheet) => sheet.kind === 'EXECUCAO' && isTechnicalSheetVisibleForCompany(sheet, currentCompanyId))
+        .sort((left, right) => left.name.localeCompare(right.name, 'pt-BR')),
+      VENDA: technicalSheets
+        .filter((sheet) => sheet.kind === 'VENDA' && isTechnicalSheetVisibleForCompany(sheet, currentCompanyId))
+        .sort((left, right) => left.name.localeCompare(right.name, 'pt-BR')),
+    }),
+    [currentCompanyId, technicalSheets],
+  )
   useEffect(() => {
     if (!selectedRecipePanelSheet || selectedRecipePanelSheet.kind !== 'EXECUCAO') {
       return
@@ -22872,6 +22888,612 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
     })
   }
 
+  function openTechnicalSheetExportModal() {
+    const defaultKind: TechnicalSheetKind =
+      exportableTechnicalSheetsByKind.PREPARO.length > 0
+        ? 'PREPARO'
+        : exportableTechnicalSheetsByKind.EXECUCAO.length > 0
+          ? 'EXECUCAO'
+          : 'VENDA'
+    const firstSheetId = exportableTechnicalSheetsByKind[defaultKind][0]?.id ?? null
+    setTechnicalSheetExportState({
+      kind: defaultKind,
+      format: 'pdf',
+      scope: 'current',
+      technicalSheetId: firstSheetId,
+    })
+  }
+
+  function getTechnicalSheetKindLabel(kind: TechnicalSheetKind) {
+    if (kind === 'PREPARO') {
+      return 'Pre-preparo'
+    }
+    if (kind === 'EXECUCAO') {
+      return 'Execucao'
+    }
+    return 'Venda'
+  }
+
+  function buildTechnicalSheetExportFileName(
+    kind: TechnicalSheetKind,
+    scope: TechnicalSheetExportState['scope'],
+    extension: 'pdf' | 'xlsx',
+  ) {
+    const companyLabel = currentCompany?.tradeName || 'EMPRESA'
+    const normalizedCompanyLabel = companyLabel
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/[^A-Z0-9]+/gi, '-')
+      .replace(/^-+|-+$/g, '')
+      .toUpperCase()
+    const kindLabel = kind === 'PREPARO' ? 'PRE-PREPARO' : kind === 'EXECUCAO' ? 'EXECUCAO' : 'VENDA'
+    const scopeLabel = scope === 'current' ? 'FICHA-ATUAL' : 'TODAS-AS-FICHAS'
+
+    return `FICHAS-TECNICAS-${kindLabel}-${scopeLabel}-${normalizedCompanyLabel || 'EMPRESA'}.${extension}`
+  }
+
+  function buildTechnicalSheetExportSheetName(value: string) {
+    return buildRecipeExportSheetName(value)
+  }
+
+  function renderTechnicalSheetExportPreview(data: RecipePanelComputedData) {
+    const sheet = data.sheet
+    const preparationParts = buildPreparationModeMetricParts(sheet.preparationMode, data.ingredientMetrics)
+    const productionCenterLabels =
+      sheet.kind === 'PREPARO'
+        ? sheet.productionCenters
+            .map((assignment) => stockCenters.find((center) => center.id === assignment.stockCenterId)?.name ?? null)
+            .filter((value): value is string => Boolean(value))
+        : []
+
+    return (
+      <article className="recipe-export-page" key={`technical-sheet-export-${sheet.id}`}>
+        <section className="inner-panel">
+          <div className={sheet.kind === 'EXECUCAO' ? 'receituario-hero' : undefined}>
+            <div className="receituario-hero-copy">
+              <div className="section-heading">
+                <div>
+                  <p className="kicker">Ficha tecnica de {getTechnicalSheetKindLabel(sheet.kind).toLowerCase()}</p>
+                  <h2>{sheet.name}</h2>
+                </div>
+              </div>
+
+              <div className="receituario-summary-grid">
+                <article className="receituario-metric-card">
+                  <span>ID interno</span>
+                  <strong>{sheet.productId}</strong>
+                </article>
+                <article className="receituario-metric-card">
+                  <span>ID empresa</span>
+                  <strong>{sheet.companyProductId || '-'}</strong>
+                </article>
+                <article className="receituario-metric-card">
+                  <span>Familia</span>
+                  <strong>{sheet.family}</strong>
+                </article>
+                <article className="receituario-metric-card">
+                  <span>Subfamilia</span>
+                  <strong>{sheet.subfamily}</strong>
+                </article>
+                <article className="receituario-metric-card">
+                  <span>Setores</span>
+                  <strong>{sheet.sectors.join(', ') || '-'}</strong>
+                </article>
+                <article className="receituario-metric-card">
+                  <span>Status</span>
+                  <strong>{sheet.isActive ? 'Ativa' : 'Inativa'}</strong>
+                </article>
+              </div>
+
+              <div className="receituario-summary-grid receituario-summary-grid-metrics">
+                <article className="receituario-metric-card">
+                  <span>Rendimento base</span>
+                  <strong>{formatDecimal(data.baseYield)} {getTechnicalSheetYieldUnitLabel(sheet, technicalSheets, products)}</strong>
+                </article>
+                <article className="receituario-metric-card">
+                  <span>Rendimento final</span>
+                  <strong>{formatDecimal(data.desiredYield)} {getTechnicalSheetYieldUnitLabel(sheet, technicalSheets, products)}</strong>
+                </article>
+                <article className="receituario-metric-card">
+                  <span>Custo total</span>
+                  <strong>R$ {formatMoney(data.totalRecipeCost)}</strong>
+                </article>
+                <article className="receituario-metric-card">
+                  <span>% alcool final</span>
+                  <strong>{formatDecimal(data.finalAlcoholPercentage)}%</strong>
+                </article>
+                <article className="receituario-metric-card">
+                  <span>Rendimento em porcoes</span>
+                  <strong>{formatDecimal(data.portionsYield)}</strong>
+                </article>
+                <article className="receituario-metric-card">
+                  <span>Custo por porcao</span>
+                  <strong>R$ {formatMoney(data.costPerPortion)}</strong>
+                </article>
+                {isCommercialTechnicalSheetKind(sheet.kind) ? (
+                  <>
+                    <article className="receituario-metric-card">
+                      <span>CMV desejado</span>
+                      <strong>{formatDecimal(data.desiredCmvPercentage)}%</strong>
+                    </article>
+                    <article className="receituario-metric-card">
+                      <span>Preco sugerido</span>
+                      <strong>R$ {formatMoney(data.suggestedSalePrice)}</strong>
+                    </article>
+                    <article className="receituario-metric-card">
+                      <span>CMV final</span>
+                      <strong>{formatDecimal(data.finalCmvPercentage)}%</strong>
+                    </article>
+                    <article className="receituario-metric-card">
+                      <span>Valor final de venda</span>
+                      <strong>R$ {formatMoney(data.finalSalePrice)}</strong>
+                    </article>
+                  </>
+                ) : null}
+                {sheet.kind === 'PREPARO' ? (
+                  <>
+                    <article className="receituario-metric-card">
+                      <span>Meta de PH</span>
+                      <strong>{sheet.targetPh || '-'}</strong>
+                    </article>
+                    <article className="receituario-metric-card">
+                      <span>Meta de Brix</span>
+                      <strong>{sheet.targetBrix || '-'}</strong>
+                    </article>
+                  </>
+                ) : null}
+              </div>
+            </div>
+
+            {sheet.kind === 'EXECUCAO' && sheet.imageDataUrl ? (
+              <aside className="receituario-hero-media receituario-hero-media-execucao" aria-label="Apresentacao visual do produto">
+                <div className="receituario-hero-image-frame">
+                  <img src={sheet.imageDataUrl} alt={`Foto de ${sheet.name}`} className="receituario-hero-image" />
+                </div>
+              </aside>
+            ) : null}
+          </div>
+        </section>
+
+        <section className="inner-panel">
+          <div className="section-heading">
+            <div>
+              <p className="kicker">Composicao</p>
+              <h2>Insumos</h2>
+            </div>
+          </div>
+          {data.ingredientMetrics.length > 0 ? (
+            <div className="table-wrap">
+              <table className="product-table">
+                <thead>
+                  <tr>
+                    <th>Insumo</th>
+                    <th>Entrada</th>
+                    <th>Rendimento</th>
+                    <th>% alcool</th>
+                    <th>Custo</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {data.ingredientMetrics.map((ingredient) => (
+                    <tr key={ingredient.id}>
+                      <td><strong>{ingredient.label}</strong></td>
+                      <td>{formatDecimal(ingredient.scaledInputQuantity)} {ingredient.unitLabel}</td>
+                      <td>{formatDecimal(ingredient.scaledYieldQuantity)} {ingredient.unitLabel}</td>
+                      <td>{formatDecimal(ingredient.alcoholPercentage)}%</td>
+                      <td>R$ {formatMoney(ingredient.scaledCost)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <div className="empty-state empty-state-inline">
+              <strong>Nenhum insumo ativo cadastrado.</strong>
+            </div>
+          )}
+        </section>
+
+        {data.garnishMetrics.length > 0 ? (
+          <section className="inner-panel">
+            <div className="section-heading">
+              <div>
+                <p className="kicker">Composicao complementar</p>
+                <h2>Guarnicoes</h2>
+              </div>
+            </div>
+            <div className="table-wrap">
+              <table className="product-table">
+                <thead>
+                  <tr>
+                    <th>Guarnicao</th>
+                    <th>Entrada</th>
+                    <th>Rendimento</th>
+                    <th>% alcool</th>
+                    <th>Custo</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {data.garnishMetrics.map((ingredient) => (
+                    <tr key={ingredient.id}>
+                      <td><strong>{ingredient.label}</strong></td>
+                      <td>{formatDecimal(ingredient.scaledInputQuantity)} {ingredient.unitLabel}</td>
+                      <td>{formatDecimal(ingredient.scaledYieldQuantity)} {ingredient.unitLabel}</td>
+                      <td>{formatDecimal(ingredient.alcoholPercentage)}%</td>
+                      <td>R$ {formatMoney(ingredient.scaledCost)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </section>
+        ) : null}
+
+        {data.serviceItemMetrics.length > 0 ? (
+          <section className="inner-panel">
+            <div className="section-heading">
+              <div>
+                <p className="kicker">Composicao de recipientes</p>
+                <h2>{sheet.kind === 'PREPARO' ? 'Recipientes de armazenamento' : 'Recipientes de servico'}</h2>
+              </div>
+            </div>
+            <div className="table-wrap">
+              <table className="product-table">
+                <thead>
+                  <tr>
+                    <th>Recipiente</th>
+                    <th>Entrada</th>
+                    <th>Tipo</th>
+                    <th>Material</th>
+                    <th>Tamanho/capacidade</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {data.serviceItemMetrics.map((serviceItem) => (
+                    <tr key={serviceItem.id}>
+                      <td><strong>{serviceItem.label}</strong></td>
+                      <td>{formatDecimal(serviceItem.scaledQuantity)} UN</td>
+                      <td>{serviceItem.family || '-'}</td>
+                      <td>{serviceItem.subfamily || '-'}</td>
+                      <td>{serviceItem.sizeLabel || '-'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </section>
+        ) : null}
+
+        <section className="inner-panel">
+          <div className="section-heading">
+            <div>
+              <p className="kicker">Modo de preparo</p>
+              <h2>{sheet.kind === 'EXECUCAO' ? 'Execucao do servico' : 'Execucao da receita'}</h2>
+            </div>
+          </div>
+          <p className="recipe-copy-block">
+            {preparationParts.length > 0
+              ? preparationParts.map((part, index) =>
+                  part.type === 'ingredient' ? (
+                    <span key={`${part.text}-${index}`} className="recipe-copy-ingredient-group">
+                      <span className="recipe-copy-ingredient-quantity">{part.quantityLabel}</span>
+                      <span className="recipe-highlight-token">{part.text}</span>
+                    </span>
+                  ) : (
+                    <span key={`${part.text}-${index}`}>{part.text}</span>
+                  ),
+                )
+              : 'Modo de preparo nao informado.'}
+          </p>
+        </section>
+
+        {sheet.kind === 'PREPARO' ? (
+          <>
+            <section className="inner-panel">
+              <div className="section-heading">
+                <div>
+                  <p className="kicker">Validade</p>
+                  <h2>Conservacao</h2>
+                </div>
+              </div>
+              <div className="receituario-summary-grid">
+                <article className="receituario-metric-card"><span>In natura</span><strong>{sheet.shelfLifeRoom || '-'}</strong></article>
+                <article className="receituario-metric-card"><span>Refrigerado</span><strong>{sheet.shelfLifeRefrigerated || '-'}</strong></article>
+                <article className="receituario-metric-card"><span>Congelado</span><strong>{sheet.shelfLifeFrozen || '-'}</strong></article>
+              </div>
+            </section>
+
+            <section className="inner-panel">
+              <div className="section-heading">
+                <div>
+                  <p className="kicker">Centros produtores</p>
+                  <h2>Configuracao operacional</h2>
+                </div>
+              </div>
+              <div className="receituario-summary-grid">
+                <article className="receituario-metric-card">
+                  <span>Centros</span>
+                  <strong>{productionCenterLabels.join(', ') || '-'}</strong>
+                </article>
+                <article className="receituario-metric-card">
+                  <span>Destino da diferenca</span>
+                  <strong>
+                    {sheet.yieldDifferenceDestination === 'WASTE'
+                      ? 'Desperdicio'
+                      : sheet.yieldDifferenceDestination === 'BYPRODUCT'
+                        ? `Subproduto${sheet.yieldDifferenceByproductName ? `: ${sheet.yieldDifferenceByproductName}` : ''}`
+                        : '-'}
+                  </strong>
+                </article>
+              </div>
+            </section>
+          </>
+        ) : null}
+
+        {sheet.kind === 'EXECUCAO' ? (
+          <>
+            <section className="inner-panel">
+              <div className="section-heading">
+                <div>
+                  <p className="kicker">Perfil sensorial</p>
+                  <h2>Notas de sabor</h2>
+                </div>
+              </div>
+              <div className="receituario-summary-grid receituario-flavor-grid">
+                <article className="receituario-metric-card"><span>Doce</span><strong>{sheet.flavorSweet || '0'}</strong></article>
+                <article className="receituario-metric-card"><span>Azedo</span><strong>{sheet.flavorSour || '0'}</strong></article>
+                <article className="receituario-metric-card"><span>Amargo</span><strong>{sheet.flavorBitter || '0'}</strong></article>
+                <article className="receituario-metric-card"><span>Salgado</span><strong>{sheet.flavorSalty || '0'}</strong></article>
+                <article className="receituario-metric-card"><span>Umami</span><strong>{sheet.flavorUmami || '0'}</strong></article>
+              </div>
+            </section>
+
+            <section className="inner-panel">
+              <div className="section-heading">
+                <div>
+                  <p className="kicker">Narrativa</p>
+                  <h2>Storytelling</h2>
+                </div>
+              </div>
+              <p className="recipe-copy-block">{sheet.storytelling || 'Storytelling nao informado.'}</p>
+            </section>
+          </>
+        ) : null}
+      </article>
+    )
+  }
+
+  async function buildTechnicalSheetExportDataSet(
+    kind: TechnicalSheetKind,
+    scope: TechnicalSheetExportState['scope'],
+    technicalSheetId: number | null,
+  ) {
+    const scopedSheets =
+      scope === 'current'
+        ? technicalSheetId === null
+          ? []
+          : exportableTechnicalSheetsByKind[kind].filter((sheet) => sheet.id === technicalSheetId)
+        : exportableTechnicalSheetsByKind[kind]
+
+    if (scopedSheets.length === 0) {
+      return []
+    }
+
+    const fullSheets = await Promise.all(
+      scopedSheets.map(async (sheet) => {
+        const fullSheet = await fetchTechnicalSheetRecordFromApi(sheet.id).catch(() => sheet)
+        if (fullSheet.imageDataUrl.trim() !== '') {
+          setTechnicalSheetImageCache((current) => ({
+            ...current,
+            [fullSheet.id]: fullSheet.imageDataUrl,
+          }))
+        }
+        return fullSheet
+      }),
+    )
+
+    return fullSheets.map((sheet) => buildRecipePanelDataForSheet(sheet, getTechnicalSheetBaseYield(sheet), 1))
+  }
+
+  async function confirmTechnicalSheetExport() {
+    if (!technicalSheetExportState) {
+      return
+    }
+
+    const exportedSheets = await buildTechnicalSheetExportDataSet(
+      technicalSheetExportState.kind,
+      technicalSheetExportState.scope,
+      technicalSheetExportState.technicalSheetId,
+    )
+    if (exportedSheets.length === 0) {
+      setTechnicalSheetExportState(null)
+      setSaveFeedback({
+        status: 'error',
+        title: 'Falha ao exportar fichas tecnicas',
+        message:
+          technicalSheetExportState.scope === 'current'
+            ? 'Erro: selecione uma ficha tecnica antes de exportar uma ficha especifica.'
+            : `Erro: nao existem fichas tecnicas do tipo ${getTechnicalSheetKindLabel(technicalSheetExportState.kind)} disponiveis para exportacao.`,
+      })
+      return
+    }
+
+    const kindLabel = getTechnicalSheetKindLabel(technicalSheetExportState.kind)
+
+    if (technicalSheetExportState.format === 'xlsx') {
+      const workbook = XLSX.utils.book_new()
+      const summaryRows = exportedSheets.map((data) => ({
+        ficha: data.sheet.name,
+        tipo: kindLabel,
+        status: data.sheet.isActive ? 'Ativa' : 'Inativa',
+        familia: data.sheet.family,
+        subfamilia: data.sheet.subfamily,
+        setores: data.sheet.sectors.join(', '),
+        rendimento_base: `${formatDecimal(data.baseYield)} ${getTechnicalSheetYieldUnitLabel(data.sheet, technicalSheets, products)}`,
+        rendimento_final: `${formatDecimal(data.desiredYield)} ${getTechnicalSheetYieldUnitLabel(data.sheet, technicalSheets, products)}`,
+        custo_total: formatMoney(data.totalRecipeCost),
+        alcool_final: `${formatDecimal(data.finalAlcoholPercentage)}%`,
+        porcoes: formatDecimal(data.portionsYield),
+        custo_por_porcao: formatMoney(data.costPerPortion),
+        cmv_desejado: isCommercialTechnicalSheetKind(data.sheet.kind) ? `${formatDecimal(data.desiredCmvPercentage)}%` : '-',
+        preco_sugerido: isCommercialTechnicalSheetKind(data.sheet.kind) ? formatMoney(data.suggestedSalePrice) : '-',
+        cmv_final: isCommercialTechnicalSheetKind(data.sheet.kind) ? `${formatDecimal(data.finalCmvPercentage)}%` : '-',
+        valor_final_venda: isCommercialTechnicalSheetKind(data.sheet.kind) ? formatMoney(data.finalSalePrice) : '-',
+      }))
+      const summarySheet = XLSX.utils.json_to_sheet(summaryRows)
+      summarySheet['!cols'] = [
+        { wch: 28 },
+        { wch: 14 },
+        { wch: 10 },
+        { wch: 18 },
+        { wch: 18 },
+        { wch: 24 },
+        { wch: 20 },
+        { wch: 20 },
+        { wch: 14 },
+        { wch: 14 },
+        { wch: 12 },
+        { wch: 16 },
+        { wch: 14 },
+        { wch: 14 },
+        { wch: 12 },
+        { wch: 16 },
+      ]
+      XLSX.utils.book_append_sheet(workbook, summarySheet, 'Resumo')
+
+      exportedSheets.forEach((data, index) => {
+        const sheet = data.sheet
+        const rows: (string | number)[][] = [
+          ['Ficha tecnica', sheet.name],
+          ['Tipo', getTechnicalSheetKindLabel(sheet.kind)],
+          ['ID interno', sheet.productId],
+          ['ID empresa', sheet.companyProductId || '-'],
+          ['Familia', sheet.family],
+          ['Subfamilia', sheet.subfamily],
+          ['Setores', sheet.sectors.join(', ') || '-'],
+          ['Status', sheet.isActive ? 'Ativa' : 'Inativa'],
+          [],
+          ['Resumo tecnico e de custo'],
+          ['Rendimento base', `${formatDecimal(data.baseYield)} ${getTechnicalSheetYieldUnitLabel(sheet, technicalSheets, products)}`],
+          ['Rendimento final', `${formatDecimal(data.desiredYield)} ${getTechnicalSheetYieldUnitLabel(sheet, technicalSheets, products)}`],
+          ['Custo total', `R$ ${formatMoney(data.totalRecipeCost)}`],
+          ['% alcool final', `${formatDecimal(data.finalAlcoholPercentage)}%`],
+          ['Rendimento em porcoes', formatDecimal(data.portionsYield)],
+          ['Custo por porcao', `R$ ${formatMoney(data.costPerPortion)}`],
+        ]
+
+        if (isCommercialTechnicalSheetKind(sheet.kind)) {
+          rows.push(['CMV desejado', `${formatDecimal(data.desiredCmvPercentage)}%`])
+          rows.push(['Preco sugerido', `R$ ${formatMoney(data.suggestedSalePrice)}`])
+          rows.push(['CMV final', `${formatDecimal(data.finalCmvPercentage)}%`])
+          rows.push(['Valor final de venda', `R$ ${formatMoney(data.finalSalePrice)}`])
+        } else {
+          rows.push(['Meta de PH', sheet.targetPh || '-'])
+          rows.push(['Meta de Brix', sheet.targetBrix || '-'])
+        }
+
+        rows.push([])
+        rows.push(['Composicao de insumos'])
+        rows.push(['Insumo', 'Entrada', 'Rendimento', '% alcool', 'Custo'])
+        data.ingredientMetrics.forEach((ingredient) => {
+          rows.push([
+            ingredient.label,
+            `${formatDecimal(ingredient.scaledInputQuantity)} ${ingredient.unitLabel}`,
+            `${formatDecimal(ingredient.scaledYieldQuantity)} ${ingredient.unitLabel}`,
+            `${formatDecimal(ingredient.alcoholPercentage)}%`,
+            `R$ ${formatMoney(ingredient.scaledCost)}`,
+          ])
+        })
+
+        if (data.garnishMetrics.length > 0) {
+          rows.push([])
+          rows.push(['Guarnicoes'])
+          rows.push(['Guarnicao', 'Entrada', 'Rendimento', '% alcool', 'Custo'])
+          data.garnishMetrics.forEach((ingredient) => {
+            rows.push([
+              ingredient.label,
+              `${formatDecimal(ingredient.scaledInputQuantity)} ${ingredient.unitLabel}`,
+              `${formatDecimal(ingredient.scaledYieldQuantity)} ${ingredient.unitLabel}`,
+              `${formatDecimal(ingredient.alcoholPercentage)}%`,
+              `R$ ${formatMoney(ingredient.scaledCost)}`,
+            ])
+          })
+        }
+
+        if (data.serviceItemMetrics.length > 0) {
+          rows.push([])
+          rows.push([sheet.kind === 'PREPARO' ? 'Recipientes de armazenamento' : 'Recipientes de servico'])
+          rows.push(['Recipiente', 'Entrada', 'Tipo', 'Material', 'Tamanho/capacidade'])
+          data.serviceItemMetrics.forEach((serviceItem) => {
+            rows.push([
+              serviceItem.label,
+              `${formatDecimal(serviceItem.scaledQuantity)} UN`,
+              serviceItem.family || '-',
+              serviceItem.subfamily || '-',
+              serviceItem.sizeLabel || '-',
+            ])
+          })
+        }
+
+        rows.push([])
+        rows.push(['Modo de preparo'])
+        rows.push([buildRecipePreparationText(data) || 'Modo de preparo nao informado.'])
+
+        if (sheet.kind === 'PREPARO') {
+          rows.push([])
+          rows.push(['Conservacao'])
+          rows.push(['In natura', sheet.shelfLifeRoom || '-'])
+          rows.push(['Refrigerado', sheet.shelfLifeRefrigerated || '-'])
+          rows.push(['Congelado', sheet.shelfLifeFrozen || '-'])
+          rows.push([])
+          rows.push(['Centros produtores'])
+          rows.push([
+            sheet.productionCenters
+              .map((assignment) => stockCenters.find((center) => center.id === assignment.stockCenterId)?.name ?? `CENTRO ${assignment.stockCenterId}`)
+              .join(', ') || '-',
+          ])
+        }
+
+        if (sheet.kind === 'EXECUCAO') {
+          rows.push([])
+          rows.push(['Perfil sensorial'])
+          rows.push(['Doce', sheet.flavorSweet || '0'])
+          rows.push(['Azedo', sheet.flavorSour || '0'])
+          rows.push(['Amargo', sheet.flavorBitter || '0'])
+          rows.push(['Salgado', sheet.flavorSalty || '0'])
+          rows.push(['Umami', sheet.flavorUmami || '0'])
+          rows.push([])
+          rows.push(['Storytelling'])
+          rows.push([sheet.storytelling || 'Storytelling nao informado.'])
+        }
+
+        const worksheet = XLSX.utils.aoa_to_sheet(rows)
+        worksheet['!cols'] = [{ wch: 30 }, { wch: 24 }, { wch: 18 }, { wch: 18 }, { wch: 22 }]
+        XLSX.utils.book_append_sheet(workbook, worksheet, buildTechnicalSheetExportSheetName(`${index + 1}-${sheet.name}`))
+      })
+
+      XLSX.writeFile(
+        workbook,
+        buildTechnicalSheetExportFileName(technicalSheetExportState.kind, technicalSheetExportState.scope, 'xlsx'),
+      )
+    } else {
+      setTechnicalSheetExportState(null)
+      setTechnicalSheetExportRenderState({
+        technicalSheets: exportedSheets,
+        kind: technicalSheetExportState.kind,
+        scope: technicalSheetExportState.scope,
+      })
+      return
+    }
+
+    setTechnicalSheetExportState(null)
+    setSaveFeedback({
+      status: 'success',
+      title: 'Exportacao concluida',
+      message: `As fichas tecnicas de ${kindLabel} foram exportadas em ${technicalSheetExportState.format.toUpperCase()}.`,
+    })
+  }
+
   function buildRecipeExportFileName(
     tab: RecipePanelTab,
     scope: RecipeExportState['scope'],
@@ -23631,6 +24253,111 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
       cancelled = true
     }
   }, [recipeExportRenderState, technicalSheets, products, currentCompany?.tradeName])
+
+  useEffect(() => {
+    if (!technicalSheetExportRenderState) {
+      return
+    }
+
+    let cancelled = false
+
+    const exportPdf = async () => {
+      try {
+        await new Promise((resolve) => window.setTimeout(resolve, 80))
+        if (cancelled) {
+          return
+        }
+
+        const container = technicalSheetExportContainerRef.current
+        if (!container) {
+          throw new Error('container indisponivel')
+        }
+
+        const pages = Array.from(container.querySelectorAll<HTMLElement>('[data-technical-sheet-export-page="true"]'))
+        if (pages.length === 0) {
+          throw new Error('nenhuma pagina para exportar')
+        }
+
+        const doc = new jsPDF({
+          orientation: 'portrait',
+          unit: 'pt',
+          format: 'a4',
+        })
+
+        const pdfWidth = doc.internal.pageSize.getWidth()
+        const pdfHeight = doc.internal.pageSize.getHeight()
+        const margin = 24
+        const targetWidth = pdfWidth - margin * 2
+        const targetHeight = pdfHeight - margin * 2
+
+        for (let pageIndex = 0; pageIndex < pages.length; pageIndex += 1) {
+          const page = pages[pageIndex]
+          const canvas = await html2canvas(page, {
+            scale: 2,
+            backgroundColor: '#f4f6fb',
+            useCORS: true,
+            logging: false,
+          })
+
+          const canvasScale = Math.min(targetWidth / canvas.width, targetHeight / canvas.height)
+          const renderedWidth = canvas.width * canvasScale
+          const renderedHeight = canvas.height * canvasScale
+          const offsetX = margin + (targetWidth - renderedWidth) / 2
+          const offsetY = margin
+
+          if (pageIndex > 0) {
+            doc.addPage()
+          }
+
+          doc.addImage(
+            canvas.toDataURL('image/png'),
+            'PNG',
+            offsetX,
+            offsetY,
+            renderedWidth,
+            renderedHeight,
+            undefined,
+            'FAST',
+          )
+        }
+
+        if (cancelled) {
+          return
+        }
+
+        doc.save(
+          buildTechnicalSheetExportFileName(
+            technicalSheetExportRenderState.kind,
+            technicalSheetExportRenderState.scope,
+            'pdf',
+          ),
+        )
+        setSaveFeedback({
+          status: 'success',
+          title: 'Exportacao concluida',
+          message: `As fichas tecnicas de ${getTechnicalSheetKindLabel(technicalSheetExportRenderState.kind)} foram exportadas em PDF.`,
+        })
+      } catch {
+        if (!cancelled) {
+          setSaveFeedback({
+            status: 'error',
+            title: 'Falha ao exportar fichas tecnicas',
+            message: 'Erro: nao foi possivel gerar o PDF das fichas tecnicas.',
+          })
+        }
+      } finally {
+        if (!cancelled) {
+          setTechnicalSheetExportRenderState(null)
+        }
+      }
+    }
+
+    void exportPdf()
+
+    return () => {
+      cancelled = true
+    }
+  }, [technicalSheetExportRenderState, currentCompany?.tradeName])
 
   function openPackageModal(context: PackageEditorContext = 'product') {
     const sourcePackages =
@@ -26361,6 +27088,9 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                 <h2>Fichas cadastradas</h2>
               </div>
               <div className="toolbar-actions">
+                <button className="ghost-button" type="button" onClick={openTechnicalSheetExportModal}>
+                  Exportar
+                </button>
                 <button className="primary-button" type="button" onClick={() => openNewTechnicalSheetForm('PREPARO')}>
                   Nova ficha
                 </button>
@@ -32849,25 +33579,30 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
               {technicalSheetCopyDestinationCompanies.length > 1 ? (
                 <label className="field company-field-wide">
                   <span>Empresa destino</span>
-                  <SingleValueAutocomplete
-                    value={technicalSheetCopyState.destinationCompanyInput}
-                    suggestions={technicalSheetCopyDestinationLabels}
-                    onChange={(value) =>
+                  <select
+                    value={technicalSheetCopyState.destinationCompanyId ?? ''}
+                    onChange={(event) => {
+                      const nextCompanyId = Number(event.target.value)
+                      const nextCompany =
+                        technicalSheetCopyDestinationCompanies.find((company) => company.id === nextCompanyId) ?? null
                       setTechnicalSheetCopyState((current) =>
                         current
                           ? {
                               ...current,
-                              destinationCompanyInput: value,
-                              destinationCompanyId:
-                                technicalSheetCopyDestinationIdByLabel.get(normalizeRegistrationText(value)) ?? null,
+                              destinationCompanyId: Number.isFinite(nextCompanyId) ? nextCompanyId : null,
+                              destinationCompanyInput: nextCompany ? buildCompanySelectionLabel(nextCompany) : '',
                               errorMessage: '',
                             }
                           : current,
                       )
-                    }
-                    placeholder="Selecione a empresa destino"
-                    allowCreate={false}
-                  />
+                    }}
+                  >
+                    {technicalSheetCopyDestinationCompanies.map((company) => (
+                      <option key={company.id} value={company.id}>
+                        {buildCompanySelectionLabel(company)}
+                      </option>
+                    ))}
+                  </select>
                 </label>
               ) : (
                 <label className="field company-field-wide">
@@ -34876,6 +35611,131 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
         </div>
       ) : null}
 
+      {technicalSheetExportState ? (
+        <div className="modal-backdrop" role="presentation" onClick={() => setTechnicalSheetExportState(null)}>
+          <section
+            className="modal-card modal-card-compact"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="technical-sheet-export-title"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="section-heading">
+              <div>
+                <p className="kicker">Exportacao</p>
+                <h2 id="technical-sheet-export-title">Exportar fichas tecnicas</h2>
+              </div>
+            </div>
+
+            <div className="confirmation-details">
+              <label className="field">
+                <span>Tipo de ficha</span>
+                <select
+                  value={technicalSheetExportState.kind}
+                  onChange={(event) => {
+                    const nextKind = event.target.value as TechnicalSheetKind
+                    const nextSheets = exportableTechnicalSheetsByKind[nextKind]
+                    setTechnicalSheetExportState((current) =>
+                      current
+                        ? {
+                            ...current,
+                            kind: nextKind,
+                            technicalSheetId: nextSheets[0]?.id ?? null,
+                          }
+                        : current,
+                    )
+                  }}
+                >
+                  <option value="PREPARO">Pre-preparo</option>
+                  <option value="EXECUCAO">Execucao</option>
+                  <option value="VENDA">Venda</option>
+                </select>
+              </label>
+
+              <label className="field">
+                <span>Escopo</span>
+                <select
+                  value={technicalSheetExportState.scope}
+                  onChange={(event) =>
+                    setTechnicalSheetExportState((current) =>
+                      current
+                        ? {
+                            ...current,
+                            scope: event.target.value as TechnicalSheetExportState['scope'],
+                          }
+                        : current,
+                    )
+                  }
+                >
+                  <option value="current">Uma ficha</option>
+                  <option value="all">Todas as fichas do tipo</option>
+                </select>
+              </label>
+
+              {technicalSheetExportState.scope === 'current' ? (
+                <label className="field">
+                  <span>Ficha tecnica</span>
+                  <select
+                    value={technicalSheetExportState.technicalSheetId ?? ''}
+                    onChange={(event) =>
+                      setTechnicalSheetExportState((current) =>
+                        current
+                          ? {
+                              ...current,
+                              technicalSheetId: event.target.value ? Number(event.target.value) : null,
+                            }
+                          : current,
+                      )
+                    }
+                  >
+                    <option value="">Selecione uma ficha</option>
+                    {exportableTechnicalSheetsByKind[technicalSheetExportState.kind].map((sheet) => (
+                      <option key={sheet.id} value={sheet.id}>
+                        {sheet.name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              ) : null}
+
+              <label className="field">
+                <span>Formato do arquivo</span>
+                <select
+                  value={technicalSheetExportState.format}
+                  onChange={(event) =>
+                    setTechnicalSheetExportState((current) =>
+                      current
+                        ? {
+                            ...current,
+                            format: event.target.value as TechnicalSheetExportState['format'],
+                          }
+                        : current,
+                    )
+                  }
+                >
+                  <option value="pdf">PDF</option>
+                  <option value="xlsx">XLSX</option>
+                </select>
+              </label>
+
+              <p className="confirm-copy">
+                O PDF tenta preservar a mesma organizacao visual do formulario desktop da ficha. No XLSX, cada ficha
+                exportada ganha sua propria aba e o arquivo inclui uma aba inicial de resumo tecnico e de custo.
+              </p>
+            </div>
+
+            <div className="modal-actions">
+              <button className="ghost-button" type="button" onClick={() => setTechnicalSheetExportState(null)}>
+                Cancelar
+              </button>
+              <button className="primary-button" type="button" onClick={confirmTechnicalSheetExport}>
+                Exportar
+              </button>
+            </div>
+          </section>
+        </div>
+      ) : null}
+
       {productExportState ? (
         <div className="modal-backdrop" role="presentation" onClick={() => setProductExportState(null)}>
           <section
@@ -35064,6 +35924,21 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
             {recipeExportRenderState.recipes.map((data) => (
               <div key={`${recipeExportRenderState.tab}-${data.sheet.id}`} data-recipe-export-page="true">
                 {renderRecipeExportPreview(data, recipeExportRenderState.tab)}
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : null}
+
+      {technicalSheetExportRenderState ? (
+        <div className="recipe-export-stage" aria-hidden="true">
+          <div ref={technicalSheetExportContainerRef} className="recipe-export-stage-inner">
+            {technicalSheetExportRenderState.technicalSheets.map((data) => (
+              <div
+                key={`${technicalSheetExportRenderState.kind}-${data.sheet.id}`}
+                data-technical-sheet-export-page="true"
+              >
+                {renderTechnicalSheetExportPreview(data)}
               </div>
             ))}
           </div>
