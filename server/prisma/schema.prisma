@@ -349,8 +349,110 @@ model AppStockModuleSettingsRecord {
   inventorySummaryDeleteProfileIds   Int[]
   closedInventoryReopenProfileIds    Int[]
   closedInventoryDeleteProfileIds    Int[]
+  salesImportDefaultHistoryMode      String @default("ROLLING_MONTHS")
+  salesImportDefaultHistoryMonths    Int    @default(3)
+  salesImportDefaultCoverageDays     Int    @default(7)
+  salesImportDefaultSafetyMarginPercent String @default("20")
+  salesImportAutoApplySuggestedMinimum Boolean @default(true)
+  salesImportAllowManualMinimumOverride Boolean @default(true)
+  salesImportUnmatchedRowPolicy      String @default("BLOCK")
+  salesImportDuplicateRowPolicy      String @default("BLOCK")
   createdAt                          DateTime @default(now())
   updatedAt                          DateTime @updatedAt
+}
+
+model AppSalesImportTemplateRecord {
+  id             Int      @id
+  companyId      Int
+  stockCenterId  Int?
+  name           String
+  sheetName      String
+  headerRow      Int
+  dataStartRow   Int
+  dateMode       String
+  dateColumn     String
+  dateCell       String
+  codeColumn     String
+  quantityColumn String
+  isActive       Boolean  @default(true)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@index([companyId])
+  @@index([stockCenterId])
+}
+
+model AppSalesImportBatchRecord {
+  id                  Int      @id
+  companyId           Int
+  stockCenterId       Int
+  templateId          Int?
+  uploadedByUserId    Int?
+  uploadedByUserName  String
+  fileName            String
+  historyMode         String
+  historyMonths       Int?
+  coverageDays        Int
+  safetyMarginPercent String
+  postingMode         String   @default("ANALYTICAL_ONLY")
+  status              String
+  importedAt          String
+  summary             Json
+  createdAtRecord     DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  @@index([companyId])
+  @@index([stockCenterId])
+  @@index([templateId])
+  @@index([status])
+}
+
+model AppSalesImportRowRecord {
+  id                    Int      @id
+  batchId               Int
+  companyId             Int
+  stockCenterId         Int
+  sourceRowKey          String
+  consumedAt            String
+  companyProductId      String
+  quantity              String
+  matchedTechnicalSheetId Int?
+  matchedKind           String
+  status                String
+  errorMessage          String
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  @@index([batchId])
+  @@index([companyId])
+  @@index([stockCenterId])
+  @@index([matchedTechnicalSheetId])
+  @@index([status])
+}
+
+model AppSalesConsumptionRecord {
+  id                    Int      @id
+  companyId             Int
+  stockCenterId         Int
+  consumedAt            String
+  sourceBatchId         Int
+  sourceTechnicalSheetId Int
+  sourceTechnicalSheetKind String
+  ingredientProductId   String
+  quantityConsumed      String
+  unit                  String
+  stockPostingStatus    String
+  stockMovementId       Int?
+  postedAt              String
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  @@index([companyId])
+  @@index([stockCenterId])
+  @@index([sourceBatchId])
+  @@index([sourceTechnicalSheetId])
+  @@index([ingredientProductId])
+  @@index([stockPostingStatus])
 }
 
 model AppStockCenterRecord {
@@ -690,6 +792,7 @@ model AppTechnicalSheetRecord {
   flavorUmami           String
   storytelling          String
   preparationMode       String
+  preparationLeadTimeDays String
   shelfLifeRoom         String
   shelfLifeRefrigerated String
   shelfLifeFrozen       String

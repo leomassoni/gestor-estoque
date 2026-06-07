@@ -270,6 +270,10 @@ app.delete('/api/companies/:id', async (request, response) => {
     await transaction.appAccessProfileRecord.deleteMany({ where: { companyId } })
     await transaction.appStockModuleSettingsRecord.deleteMany({ where: { companyId } })
     await transaction.appStockCenterRecord.deleteMany({ where: { companyId } })
+    await transaction.appSalesImportTemplateRecord.deleteMany({ where: { companyId } })
+    await transaction.appSalesImportBatchRecord.deleteMany({ where: { companyId } })
+    await transaction.appSalesImportRowRecord.deleteMany({ where: { companyId } })
+    await transaction.appSalesConsumptionRecord.deleteMany({ where: { companyId } })
     await transaction.appRequisitionNotificationRecord.deleteMany({ where: { companyId } })
     await transaction.appUserCompanyMembershipRecord.deleteMany({ where: { companyId } })
     await transaction.appRequisitionRecord.deleteMany({ where: { companyId } })
@@ -490,6 +494,177 @@ app.get('/api/stock-centers', async (request, response) => {
     orderBy: [{ name: 'asc' }, { id: 'asc' }],
   })
   response.json({ stockCenters })
+})
+
+app.get('/api/sales-import-templates', async (request, response) => {
+  const companyId = parseIntegerParam(request.query.companyId)
+  const templates = await prisma.appSalesImportTemplateRecord.findMany({
+    where: companyId === null ? undefined : { companyId },
+    orderBy: [{ name: 'asc' }, { id: 'asc' }],
+  })
+  response.json({ templates })
+})
+
+app.post('/api/sales-import-templates', async (request, response) => {
+  const template = normalizeSalesImportTemplatePayload(request.body)
+  if (!template) {
+    response.status(400).json({ error: 'Payload de template de importacao invalido.' })
+    return
+  }
+
+  const saved = await prisma.appSalesImportTemplateRecord.upsert({
+    where: { id: template.id },
+    create: template,
+    update: template,
+  })
+  response.json({ template: saved })
+})
+
+app.put('/api/sales-import-templates/:id', async (request, response) => {
+  const templateId = parseIntegerParam(request.params.id)
+  const template = normalizeSalesImportTemplatePayload({ ...request.body, id: templateId })
+  if (templateId === null || !template) {
+    response.status(400).json({ error: 'Payload de template de importacao invalido.' })
+    return
+  }
+
+  const saved = await prisma.appSalesImportTemplateRecord.upsert({
+    where: { id: templateId },
+    create: template,
+    update: template,
+  })
+  response.json({ template: saved })
+})
+
+app.delete('/api/sales-import-templates/:id', async (request, response) => {
+  const templateId = parseIntegerParam(request.params.id)
+  if (templateId === null) {
+    response.status(400).json({ error: 'Template de importacao invalido.' })
+    return
+  }
+
+  await prisma.appSalesImportTemplateRecord.deleteMany({ where: { id: templateId } })
+  response.json({ ok: true })
+})
+
+app.get('/api/sales-import-batches', async (request, response) => {
+  const companyId = parseIntegerParam(request.query.companyId)
+  const batches = await prisma.appSalesImportBatchRecord.findMany({
+    where: companyId === null ? undefined : { companyId },
+    orderBy: [{ createdAtRecord: 'desc' }, { id: 'desc' }],
+  })
+  response.json({ batches })
+})
+
+app.post('/api/sales-import-batches', async (request, response) => {
+  const batch = normalizeSalesImportBatchPayload(request.body)
+  if (!batch) {
+    response.status(400).json({ error: 'Payload de lote de importacao invalido.' })
+    return
+  }
+
+  const saved = await prisma.appSalesImportBatchRecord.upsert({
+    where: { id: batch.id },
+    create: batch,
+    update: batch,
+  })
+  response.json({ batch: saved })
+})
+
+app.put('/api/sales-import-batches/:id', async (request, response) => {
+  const batchId = parseIntegerParam(request.params.id)
+  const batch = normalizeSalesImportBatchPayload({ ...request.body, id: batchId })
+  if (batchId === null || !batch) {
+    response.status(400).json({ error: 'Payload de lote de importacao invalido.' })
+    return
+  }
+
+  const saved = await prisma.appSalesImportBatchRecord.upsert({
+    where: { id: batchId },
+    create: batch,
+    update: batch,
+  })
+  response.json({ batch: saved })
+})
+
+app.get('/api/sales-import-rows', async (request, response) => {
+  const batchId = parseIntegerParam(request.query.batchId)
+  const rows = await prisma.appSalesImportRowRecord.findMany({
+    where: batchId === null ? undefined : { batchId },
+    orderBy: [{ id: 'asc' }],
+  })
+  response.json({ rows })
+})
+
+app.post('/api/sales-import-rows', async (request, response) => {
+  const row = normalizeSalesImportRowPayload(request.body)
+  if (!row) {
+    response.status(400).json({ error: 'Payload de linha de importacao invalido.' })
+    return
+  }
+
+  const saved = await prisma.appSalesImportRowRecord.upsert({
+    where: { id: row.id },
+    create: row,
+    update: row,
+  })
+  response.json({ row: saved })
+})
+
+app.put('/api/sales-import-rows/:id', async (request, response) => {
+  const rowId = parseIntegerParam(request.params.id)
+  const row = normalizeSalesImportRowPayload({ ...request.body, id: rowId })
+  if (rowId === null || !row) {
+    response.status(400).json({ error: 'Payload de linha de importacao invalido.' })
+    return
+  }
+
+  const saved = await prisma.appSalesImportRowRecord.upsert({
+    where: { id: rowId },
+    create: row,
+    update: row,
+  })
+  response.json({ row: saved })
+})
+
+app.get('/api/sales-consumptions', async (request, response) => {
+  const companyId = parseIntegerParam(request.query.companyId)
+  const consumptions = await prisma.appSalesConsumptionRecord.findMany({
+    where: companyId === null ? undefined : { companyId },
+    orderBy: [{ consumedAt: 'desc' }, { id: 'desc' }],
+  })
+  response.json({ consumptions })
+})
+
+app.post('/api/sales-consumptions', async (request, response) => {
+  const consumption = normalizeSalesConsumptionPayload(request.body)
+  if (!consumption) {
+    response.status(400).json({ error: 'Payload de consumo importado invalido.' })
+    return
+  }
+
+  const saved = await prisma.appSalesConsumptionRecord.upsert({
+    where: { id: consumption.id },
+    create: consumption,
+    update: consumption,
+  })
+  response.json({ consumption: saved })
+})
+
+app.put('/api/sales-consumptions/:id', async (request, response) => {
+  const consumptionId = parseIntegerParam(request.params.id)
+  const consumption = normalizeSalesConsumptionPayload({ ...request.body, id: consumptionId })
+  if (consumptionId === null || !consumption) {
+    response.status(400).json({ error: 'Payload de consumo importado invalido.' })
+    return
+  }
+
+  const saved = await prisma.appSalesConsumptionRecord.upsert({
+    where: { id: consumptionId },
+    create: consumption,
+    update: consumption,
+  })
+  response.json({ consumption: saved })
 })
 
 app.post('/api/stock-centers', async (request, response) => {
@@ -1890,6 +2065,205 @@ function normalizeStockModuleSettingsPayload(value) {
     inventorySummaryDeleteProfileIds: normalizeIntegerArray(record.inventorySummaryDeleteProfileIds),
     closedInventoryReopenProfileIds: normalizeIntegerArray(record.closedInventoryReopenProfileIds),
     closedInventoryDeleteProfileIds: normalizeIntegerArray(record.closedInventoryDeleteProfileIds),
+    salesImportDefaultHistoryMode:
+      typeof record.salesImportDefaultHistoryMode === 'string' && record.salesImportDefaultHistoryMode.trim() !== ''
+        ? record.salesImportDefaultHistoryMode.trim()
+        : 'ROLLING_MONTHS',
+    salesImportDefaultHistoryMonths: parseIntegerParam(record.salesImportDefaultHistoryMonths) ?? 3,
+    salesImportDefaultCoverageDays: parseIntegerParam(record.salesImportDefaultCoverageDays) ?? 7,
+    salesImportDefaultSafetyMarginPercent:
+      typeof record.salesImportDefaultSafetyMarginPercent === 'string' && record.salesImportDefaultSafetyMarginPercent.trim() !== ''
+        ? record.salesImportDefaultSafetyMarginPercent.trim()
+        : '20',
+    salesImportAutoApplySuggestedMinimum: record.salesImportAutoApplySuggestedMinimum !== false,
+    salesImportAllowManualMinimumOverride: record.salesImportAllowManualMinimumOverride !== false,
+    salesImportUnmatchedRowPolicy:
+      typeof record.salesImportUnmatchedRowPolicy === 'string' && record.salesImportUnmatchedRowPolicy.trim() !== ''
+        ? record.salesImportUnmatchedRowPolicy.trim()
+        : 'BLOCK',
+    salesImportDuplicateRowPolicy:
+      typeof record.salesImportDuplicateRowPolicy === 'string' && record.salesImportDuplicateRowPolicy.trim() !== ''
+        ? record.salesImportDuplicateRowPolicy.trim()
+        : 'BLOCK',
+  }
+}
+
+function normalizeSalesImportTemplatePayload(value) {
+  if (!value || typeof value !== 'object') {
+    return null
+  }
+
+  const record = value
+  const id = parseIntegerParam(record.id)
+  const companyId = parseIntegerParam(record.companyId)
+  const stockCenterId = record.stockCenterId === null ? null : parseIntegerParam(record.stockCenterId)
+
+  if (
+    id === null ||
+    companyId === null ||
+    typeof record.name !== 'string' ||
+    typeof record.sheetName !== 'string' ||
+    typeof record.dateMode !== 'string' ||
+    typeof record.dateColumn !== 'string' ||
+    typeof record.dateCell !== 'string' ||
+    typeof record.codeColumn !== 'string' ||
+    typeof record.quantityColumn !== 'string'
+  ) {
+    return null
+  }
+
+  return {
+    id,
+    companyId,
+    stockCenterId,
+    name: record.name.trim(),
+    sheetName: record.sheetName.trim(),
+    headerRow: parseIntegerParam(record.headerRow) ?? 1,
+    dataStartRow: parseIntegerParam(record.dataStartRow) ?? 2,
+    dateMode: record.dateMode.trim(),
+    dateColumn: record.dateColumn.trim(),
+    dateCell: record.dateCell.trim(),
+    codeColumn: record.codeColumn.trim(),
+    quantityColumn: record.quantityColumn.trim(),
+    isActive: record.isActive !== false,
+  }
+}
+
+function normalizeSalesImportBatchPayload(value) {
+  if (!value || typeof value !== 'object') {
+    return null
+  }
+
+  const record = value
+  const id = parseIntegerParam(record.id)
+  const companyId = parseIntegerParam(record.companyId)
+  const stockCenterId = parseIntegerParam(record.stockCenterId)
+  const templateId = record.templateId === null ? null : parseIntegerParam(record.templateId)
+  const uploadedByUserId = record.uploadedByUserId === null ? null : parseIntegerParam(record.uploadedByUserId)
+
+  if (
+    id === null ||
+    companyId === null ||
+    stockCenterId === null ||
+    typeof record.uploadedByUserName !== 'string' ||
+    typeof record.fileName !== 'string' ||
+    typeof record.historyMode !== 'string' ||
+    typeof record.safetyMarginPercent !== 'string' ||
+    typeof record.status !== 'string' ||
+    typeof record.importedAt !== 'string'
+  ) {
+    return null
+  }
+
+  const summary = record.summary && typeof record.summary === 'object' && !Array.isArray(record.summary) ? record.summary : {}
+
+  return {
+    id,
+    companyId,
+    stockCenterId,
+    templateId,
+    uploadedByUserId,
+    uploadedByUserName: record.uploadedByUserName.trim(),
+    fileName: record.fileName.trim(),
+    historyMode: record.historyMode.trim(),
+    historyMonths: record.historyMonths === null ? null : parseIntegerParam(record.historyMonths),
+    coverageDays: parseIntegerParam(record.coverageDays) ?? 7,
+    safetyMarginPercent: record.safetyMarginPercent.trim(),
+    postingMode: typeof record.postingMode === 'string' && record.postingMode.trim() !== '' ? record.postingMode.trim() : 'ANALYTICAL_ONLY',
+    status: record.status.trim(),
+    importedAt: record.importedAt,
+    summary,
+  }
+}
+
+function normalizeSalesImportRowPayload(value) {
+  if (!value || typeof value !== 'object') {
+    return null
+  }
+
+  const record = value
+  const id = parseIntegerParam(record.id)
+  const batchId = parseIntegerParam(record.batchId)
+  const companyId = parseIntegerParam(record.companyId)
+  const stockCenterId = parseIntegerParam(record.stockCenterId)
+  const matchedTechnicalSheetId = record.matchedTechnicalSheetId === null ? null : parseIntegerParam(record.matchedTechnicalSheetId)
+
+  if (
+    id === null ||
+    batchId === null ||
+    companyId === null ||
+    stockCenterId === null ||
+    typeof record.sourceRowKey !== 'string' ||
+    typeof record.consumedAt !== 'string' ||
+    typeof record.companyProductId !== 'string' ||
+    typeof record.quantity !== 'string' ||
+    typeof record.matchedKind !== 'string' ||
+    typeof record.status !== 'string' ||
+    typeof record.errorMessage !== 'string'
+  ) {
+    return null
+  }
+
+  return {
+    id,
+    batchId,
+    companyId,
+    stockCenterId,
+    sourceRowKey: record.sourceRowKey,
+    consumedAt: record.consumedAt,
+    companyProductId: record.companyProductId.trim(),
+    quantity: record.quantity.trim(),
+    matchedTechnicalSheetId,
+    matchedKind: record.matchedKind.trim(),
+    status: record.status.trim(),
+    errorMessage: record.errorMessage.trim(),
+  }
+}
+
+function normalizeSalesConsumptionPayload(value) {
+  if (!value || typeof value !== 'object') {
+    return null
+  }
+
+  const record = value
+  const id = parseIntegerParam(record.id)
+  const companyId = parseIntegerParam(record.companyId)
+  const stockCenterId = parseIntegerParam(record.stockCenterId)
+  const sourceBatchId = parseIntegerParam(record.sourceBatchId)
+  const sourceTechnicalSheetId = parseIntegerParam(record.sourceTechnicalSheetId)
+  const stockMovementId = record.stockMovementId === null ? null : parseIntegerParam(record.stockMovementId)
+
+  if (
+    id === null ||
+    companyId === null ||
+    stockCenterId === null ||
+    sourceBatchId === null ||
+    sourceTechnicalSheetId === null ||
+    typeof record.consumedAt !== 'string' ||
+    typeof record.sourceTechnicalSheetKind !== 'string' ||
+    typeof record.ingredientProductId !== 'string' ||
+    typeof record.quantityConsumed !== 'string' ||
+    typeof record.unit !== 'string' ||
+    typeof record.stockPostingStatus !== 'string' ||
+    typeof record.postedAt !== 'string'
+  ) {
+    return null
+  }
+
+  return {
+    id,
+    companyId,
+    stockCenterId,
+    consumedAt: record.consumedAt,
+    sourceBatchId,
+    sourceTechnicalSheetId,
+    sourceTechnicalSheetKind: record.sourceTechnicalSheetKind.trim(),
+    ingredientProductId: record.ingredientProductId.trim(),
+    quantityConsumed: record.quantityConsumed.trim(),
+    unit: record.unit.trim(),
+    stockPostingStatus: record.stockPostingStatus.trim(),
+    stockMovementId,
+    postedAt: record.postedAt,
   }
 }
 
@@ -1920,6 +2294,12 @@ function normalizeStockCenterPayload(value) {
           serviceItemId: typeof item.serviceItemId === 'string' ? item.serviceItemId : '',
           packageId: parseIntegerParam(item.packageId),
           minimumQuantity: typeof item.minimumQuantity === 'string' ? item.minimumQuantity.trim() : '',
+          suggestedMinimumQuantity:
+            typeof item.suggestedMinimumQuantity === 'string' ? item.suggestedMinimumQuantity.trim() : undefined,
+          minimumSource:
+            item.minimumSource === 'SUGERIDO_VENDAS' || item.minimumSource === 'MANUAL' ? item.minimumSource : undefined,
+          suggestedAt: typeof item.suggestedAt === 'string' ? item.suggestedAt : undefined,
+          overriddenAt: typeof item.overriddenAt === 'string' ? item.overriddenAt : undefined,
         }))
         .filter((item) => item.minimumQuantity !== '')
     : []
@@ -2667,6 +3047,7 @@ function normalizeTechnicalSheetPayload(value) {
     flavorUmami: sheet.flavorUmami,
     storytelling: sheet.storytelling,
     preparationMode: sheet.preparationMode,
+    preparationLeadTimeDays: sheet.preparationLeadTimeDays,
     shelfLifeRoom: sheet.shelfLifeRoom,
     shelfLifeRefrigerated: sheet.shelfLifeRefrigerated,
     shelfLifeFrozen: sheet.shelfLifeFrozen,
