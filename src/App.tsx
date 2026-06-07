@@ -22914,6 +22914,20 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
     return 'Venda'
   }
 
+  function getTechnicalSheetExportBaseQuantity(data: RecipePanelComputedData) {
+    return data.ingredientMetrics.reduce((sum, ingredient) => sum + ingredient.scaledInputQuantity, 0)
+  }
+
+  function getTechnicalSheetExportNegativeDifference(data: RecipePanelComputedData) {
+    return Math.max(getTechnicalSheetExportBaseQuantity(data) - data.desiredYield, 0)
+  }
+
+  function getTechnicalSheetExportSharedCompanyLabels(sheet: TechnicalSheetRecord) {
+    return getTechnicalSheetExplicitSharedCompanyIds(sheet)
+      .map((companyId) => companies.find((company) => company.id === companyId)?.tradeName ?? null)
+      .filter((value): value is string => Boolean(value))
+  }
+
   function buildTechnicalSheetExportFileName(
     kind: TechnicalSheetKind,
     scope: TechnicalSheetExportState['scope'],
@@ -22939,12 +22953,17 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
   function renderTechnicalSheetExportPreview(data: RecipePanelComputedData) {
     const sheet = data.sheet
     const preparationParts = buildPreparationModeMetricParts(sheet.preparationMode, data.ingredientMetrics)
-    const productionCenterLabels =
+    const sharedCompanyLabels = getTechnicalSheetExportSharedCompanyLabels(sheet)
+    const exportBaseQuantity = getTechnicalSheetExportBaseQuantity(data)
+    const negativeDifferenceQuantity = getTechnicalSheetExportNegativeDifference(data)
+    const productionCenters =
       sheet.kind === 'PREPARO'
         ? sheet.productionCenters
-            .map((assignment) => stockCenters.find((center) => center.id === assignment.stockCenterId)?.name ?? null)
-            .filter((value): value is string => Boolean(value))
+            .map((assignment) => stockCenters.find((center) => center.id === assignment.stockCenterId) ?? null)
+            .filter((value): value is StockCenterRecord => Boolean(value))
         : []
+    const productionCenterLabels = productionCenters.map((center) => center.name)
+    const producerSectorLabels = Array.from(new Set(productionCenters.map((center) => center.sector).filter(Boolean)))
 
     return (
       <article className="recipe-export-page" key={`technical-sheet-export-${sheet.id}`}>
@@ -22983,16 +23002,24 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                   <span>Status</span>
                   <strong>{sheet.isActive ? 'Ativa' : 'Inativa'}</strong>
                 </article>
+                <article className="receituario-metric-card">
+                  <span>Empresas vinculadas</span>
+                  <strong>{sharedCompanyLabels.join(', ') || '-'}</strong>
+                </article>
               </div>
 
               <div className="receituario-summary-grid receituario-summary-grid-metrics">
                 <article className="receituario-metric-card">
                   <span>Rendimento base</span>
-                  <strong>{formatDecimal(data.baseYield)} {getTechnicalSheetYieldUnitLabel(sheet, technicalSheets, products)}</strong>
+                  <strong>{formatDecimal(exportBaseQuantity)} {getTechnicalSheetYieldUnitLabel(sheet, technicalSheets, products)}</strong>
                 </article>
                 <article className="receituario-metric-card">
                   <span>Rendimento final</span>
                   <strong>{formatDecimal(data.desiredYield)} {getTechnicalSheetYieldUnitLabel(sheet, technicalSheets, products)}</strong>
+                </article>
+                <article className="receituario-metric-card">
+                  <span>Diferenca negativa</span>
+                  <strong>{formatDecimal(negativeDifferenceQuantity)} {getTechnicalSheetYieldUnitLabel(sheet, technicalSheets, products)}</strong>
                 </article>
                 <article className="receituario-metric-card">
                   <span>Custo total</span>
@@ -23003,7 +23030,11 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                   <strong>{formatDecimal(data.finalAlcoholPercentage)}%</strong>
                 </article>
                 <article className="receituario-metric-card">
-                  <span>Rendimento em porcoes</span>
+                  <span>Porcao base</span>
+                  <strong>{formatDecimal(data.portionSize)} {getTechnicalSheetYieldUnitLabel(sheet, technicalSheets, products)}</strong>
+                </article>
+                <article className="receituario-metric-card">
+                  <span>Porcoes</span>
                   <strong>{formatDecimal(data.portionsYield)}</strong>
                 </article>
                 <article className="receituario-metric-card">
@@ -23216,14 +23247,22 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                   <strong>{productionCenterLabels.join(', ') || '-'}</strong>
                 </article>
                 <article className="receituario-metric-card">
+                  <span>Setores produtores</span>
+                  <strong>{producerSectorLabels.join(', ') || '-'}</strong>
+                </article>
+                <article className="receituario-metric-card">
                   <span>Destino da diferenca</span>
                   <strong>
                     {sheet.yieldDifferenceDestination === 'WASTE'
                       ? 'Desperdicio'
                       : sheet.yieldDifferenceDestination === 'BYPRODUCT'
                         ? `Subproduto${sheet.yieldDifferenceByproductName ? `: ${sheet.yieldDifferenceByproductName}` : ''}`
-                        : '-'}
+                      : '-'}
                   </strong>
+                </article>
+                <article className="receituario-metric-card">
+                  <span>Diferenca negativa</span>
+                  <strong>{formatDecimal(negativeDifferenceQuantity)} {getTechnicalSheetYieldUnitLabel(sheet, technicalSheets, products)}</strong>
                 </article>
               </div>
             </section>
@@ -23329,10 +23368,13 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
         familia: data.sheet.family,
         subfamilia: data.sheet.subfamily,
         setores: data.sheet.sectors.join(', '),
-        rendimento_base: `${formatDecimal(data.baseYield)} ${getTechnicalSheetYieldUnitLabel(data.sheet, technicalSheets, products)}`,
+        empresas_vinculadas: getTechnicalSheetExportSharedCompanyLabels(data.sheet).join(', ') || '-',
+        rendimento_base: `${formatDecimal(getTechnicalSheetExportBaseQuantity(data))} ${getTechnicalSheetYieldUnitLabel(data.sheet, technicalSheets, products)}`,
         rendimento_final: `${formatDecimal(data.desiredYield)} ${getTechnicalSheetYieldUnitLabel(data.sheet, technicalSheets, products)}`,
+        diferenca_negativa: `${formatDecimal(getTechnicalSheetExportNegativeDifference(data))} ${getTechnicalSheetYieldUnitLabel(data.sheet, technicalSheets, products)}`,
         custo_total: formatMoney(data.totalRecipeCost),
         alcool_final: `${formatDecimal(data.finalAlcoholPercentage)}%`,
+        porcao_base: `${formatDecimal(data.portionSize)} ${getTechnicalSheetYieldUnitLabel(data.sheet, technicalSheets, products)}`,
         porcoes: formatDecimal(data.portionsYield),
         custo_por_porcao: formatMoney(data.costPerPortion),
         cmv_desejado: isCommercialTechnicalSheetKind(data.sheet.kind) ? `${formatDecimal(data.desiredCmvPercentage)}%` : '-',
@@ -23348,10 +23390,13 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
         { wch: 18 },
         { wch: 18 },
         { wch: 24 },
+        { wch: 24 },
+        { wch: 20 },
         { wch: 20 },
         { wch: 20 },
         { wch: 14 },
         { wch: 14 },
+        { wch: 18 },
         { wch: 12 },
         { wch: 16 },
         { wch: 14 },
@@ -23363,6 +23408,16 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
 
       exportedSheets.forEach((data, index) => {
         const sheet = data.sheet
+        const sharedCompanyLabels = getTechnicalSheetExportSharedCompanyLabels(sheet)
+        const exportBaseQuantity = getTechnicalSheetExportBaseQuantity(data)
+        const negativeDifferenceQuantity = getTechnicalSheetExportNegativeDifference(data)
+        const productionCenters =
+          sheet.kind === 'PREPARO'
+            ? sheet.productionCenters
+                .map((assignment) => stockCenters.find((center) => center.id === assignment.stockCenterId) ?? null)
+                .filter((value): value is StockCenterRecord => Boolean(value))
+            : []
+        const producerSectorLabels = Array.from(new Set(productionCenters.map((center) => center.sector).filter(Boolean)))
         const rows: (string | number)[][] = [
           ['Ficha tecnica', sheet.name],
           ['Tipo', getTechnicalSheetKindLabel(sheet.kind)],
@@ -23371,14 +23426,17 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
           ['Familia', sheet.family],
           ['Subfamilia', sheet.subfamily],
           ['Setores', sheet.sectors.join(', ') || '-'],
+          ['Empresas vinculadas', sharedCompanyLabels.join(', ') || '-'],
           ['Status', sheet.isActive ? 'Ativa' : 'Inativa'],
           [],
           ['Resumo tecnico e de custo'],
-          ['Rendimento base', `${formatDecimal(data.baseYield)} ${getTechnicalSheetYieldUnitLabel(sheet, technicalSheets, products)}`],
+          ['Rendimento base', `${formatDecimal(exportBaseQuantity)} ${getTechnicalSheetYieldUnitLabel(sheet, technicalSheets, products)}`],
           ['Rendimento final', `${formatDecimal(data.desiredYield)} ${getTechnicalSheetYieldUnitLabel(sheet, technicalSheets, products)}`],
+          ['Diferenca negativa', `${formatDecimal(negativeDifferenceQuantity)} ${getTechnicalSheetYieldUnitLabel(sheet, technicalSheets, products)}`],
           ['Custo total', `R$ ${formatMoney(data.totalRecipeCost)}`],
           ['% alcool final', `${formatDecimal(data.finalAlcoholPercentage)}%`],
-          ['Rendimento em porcoes', formatDecimal(data.portionsYield)],
+          ['Porcao base', `${formatDecimal(data.portionSize)} ${getTechnicalSheetYieldUnitLabel(sheet, technicalSheets, products)}`],
+          ['Porcoes', formatDecimal(data.portionsYield)],
           ['Custo por porcao', `R$ ${formatMoney(data.costPerPortion)}`],
         ]
 
@@ -23447,10 +23505,15 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
           rows.push(['Congelado', sheet.shelfLifeFrozen || '-'])
           rows.push([])
           rows.push(['Centros produtores'])
+          rows.push([productionCenters.map((center) => center.name).join(', ') || '-'])
+          rows.push(['Setores produtores', producerSectorLabels.join(', ') || '-'])
           rows.push([
-            sheet.productionCenters
-              .map((assignment) => stockCenters.find((center) => center.id === assignment.stockCenterId)?.name ?? `CENTRO ${assignment.stockCenterId}`)
-              .join(', ') || '-',
+            'Destino da diferenca',
+            sheet.yieldDifferenceDestination === 'WASTE'
+              ? 'Desperdicio'
+              : sheet.yieldDifferenceDestination === 'BYPRODUCT'
+                ? `Subproduto${sheet.yieldDifferenceByproductName ? `: ${sheet.yieldDifferenceByproductName}` : ''}`
+                : '-',
           ])
         }
 
