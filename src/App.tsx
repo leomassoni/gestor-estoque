@@ -33212,7 +33212,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                 </section>
               </div>
             ) : (
-              <form className="form-grid company-form-grid" onSubmit={(event) => event.preventDefault()}>
+              <form className="form-grid stock-import-settings-grid" onSubmit={(event) => event.preventDefault()}>
                 <label className="field stock-import-settings-history-field">
                   <span>Base historica padrao</span>
                   <select

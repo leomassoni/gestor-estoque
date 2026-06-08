@@ -1272,6 +1272,15 @@ h3 {
   min-height: 44px;
 }
 
+.stock-import-settings-grid {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  align-items: start;
+}
+
+.stock-import-settings-grid .field span {
+  min-height: 44px;
+}
+
 .company-field-wide {
   grid-column: span 6;
 }
@@ -2641,6 +2650,10 @@ h3 {
   }
 
   .sales-import-form-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .stock-import-settings-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
