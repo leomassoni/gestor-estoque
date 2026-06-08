@@ -20319,7 +20319,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
             </select>
           </label>
 
-          <label className="field">
+          <label className="field stock-import-settings-months-field">
             <span>Janela em meses</span>
             <input
               value={String(stockCenterForm.salesImportSettings.historyMonths)}
@@ -20359,7 +20359,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
             />
           </label>
 
-          <label className="field company-field-wide">
+          <label className="field company-field-wide stock-import-settings-consumption-field">
             <span>Metodo de consumo</span>
             <select
               value={stockCenterForm.salesImportSettings.consumptionMethod}
@@ -33766,7 +33766,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                   </select>
                 </label>
 
-                <label className="field">
+                <label className="field stock-import-settings-months-field">
                   <span>Janela em meses</span>
                   <input
                     value={String(selectedStockImportSettingsCenter.salesImportSettings.historyMonths)}
@@ -33814,7 +33814,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                   />
                 </label>
 
-                <label className="field company-field-wide">
+                <label className="field company-field-wide stock-import-settings-consumption-field">
                   <span>Metodo de consumo</span>
                   <select
                     value={selectedStockImportSettingsCenter.salesImportSettings.consumptionMethod}

@@ -2109,10 +2109,26 @@ h3 {
 
 .stock-import-settings-history-field {
   max-width: 360px;
+  margin-right: 10px;
 }
 
 .stock-import-settings-history-field select {
   min-width: 320px;
+}
+
+.stock-import-settings-months-field {
+  max-width: 220px;
+  margin-left: 6px;
+}
+
+.stock-import-settings-consumption-field {
+  max-width: 420px;
+}
+
+.stock-import-settings-consumption-field select {
+  width: auto;
+  min-width: 320px;
+  max-width: 100%;
 }
 
 .sales-import-defaults-card {
@@ -2807,9 +2823,24 @@ h3 {
 
   .stock-import-settings-history-field {
     max-width: none;
+    margin-right: 0;
   }
 
   .stock-import-settings-history-field select {
+    min-width: 0;
+  }
+
+  .stock-import-settings-months-field {
+    max-width: none;
+    margin-left: 0;
+  }
+
+  .stock-import-settings-consumption-field {
+    max-width: none;
+  }
+
+  .stock-import-settings-consumption-field select {
+    width: 100%;
     min-width: 0;
   }
 
