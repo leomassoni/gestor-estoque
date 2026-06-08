@@ -1345,6 +1345,41 @@ h3 {
   min-height: 44px;
 }
 
+.stock-import-settings-panel-grid {
+  grid-template-columns: repeat(12, minmax(0, 1fr));
+  align-items: start;
+}
+
+.stock-import-settings-panel-grid > .field,
+.stock-import-settings-panel-grid > .checkbox-row {
+  grid-column: span 3;
+}
+
+.stock-import-settings-panel-grid > .company-field-wide,
+.stock-import-settings-panel-grid > .field-span-all {
+  grid-column: 1 / -1;
+}
+
+.stock-import-settings-panel-history-field {
+  grid-column: span 4;
+  max-width: none;
+  margin-right: 0;
+}
+
+.stock-import-settings-panel-months-field {
+  grid-column: span 2;
+  max-width: none;
+  margin-left: 0;
+}
+
+.stock-import-settings-panel-coverage-field {
+  grid-column: span 3;
+}
+
+.stock-import-settings-panel-margin-field {
+  grid-column: span 3;
+}
+
 .company-field-wide {
   grid-column: span 6;
 }
@@ -2800,6 +2835,17 @@ h3 {
 
   .stock-import-settings-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .stock-import-settings-panel-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .stock-import-settings-panel-history-field,
+  .stock-import-settings-panel-months-field,
+  .stock-import-settings-panel-coverage-field,
+  .stock-import-settings-panel-margin-field {
+    grid-column: span 1;
   }
 
   .stock-report-builder-field {

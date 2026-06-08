@@ -33728,7 +33728,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                 </section>
               </div>
             ) : (
-              <form className="form-grid stock-import-settings-grid" onSubmit={(event) => event.preventDefault()}>
+              <form className="form-grid stock-import-settings-grid stock-import-settings-panel-grid" onSubmit={(event) => event.preventDefault()}>
                 <label className="field company-field-wide">
                   <span>Centro configurado</span>
                   <SingleValueAutocomplete
@@ -33749,7 +33749,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
 
                 {selectedStockImportSettingsCenter ? (
                   <>
-                <label className="field stock-import-settings-history-field">
+                <label className="field stock-import-settings-history-field stock-import-settings-panel-history-field">
                   <span>Base historica</span>
                   <select
                     value={selectedStockImportSettingsCenter.salesImportSettings.historyMode}
@@ -33766,7 +33766,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                   </select>
                 </label>
 
-                <label className="field stock-import-settings-months-field">
+                <label className="field stock-import-settings-months-field stock-import-settings-panel-months-field">
                   <span>Janela em meses</span>
                   <input
                     value={String(selectedStockImportSettingsCenter.salesImportSettings.historyMonths)}
@@ -33786,7 +33786,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                   </p>
                 </label>
 
-                <label className="field">
+                <label className="field stock-import-settings-panel-coverage-field">
                   <span>Periodo de cobertura (dias)</span>
                   <input
                     value={String(selectedStockImportSettingsCenter.salesImportSettings.coverageDays)}
@@ -33800,7 +33800,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                   />
                 </label>
 
-                <label className="field">
+                <label className="field stock-import-settings-panel-margin-field">
                   <span>Margem de seguranca (%)</span>
                   <input
                     value={selectedStockImportSettingsCenter.salesImportSettings.safetyMarginPercent}
