@@ -20359,7 +20359,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
             />
           </label>
 
-          <label className="field company-field-wide stock-import-settings-consumption-field">
+          <label className="field company-field-wide stock-import-settings-consumption-field stock-center-import-consumption-field">
             <span>Metodo de consumo</span>
             <select
               value={stockCenterForm.salesImportSettings.consumptionMethod}
@@ -33779,11 +33779,6 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                     placeholder="3"
                     disabled={!salesImportSettingsUseRollingMonths}
                   />
-                  <p className="helper-text">
-                    {salesImportSettingsUseRollingMonths
-                      ? 'Usada apenas quando a base historica padrao for Ultimos meses.'
-                      : 'Ignorada enquanto a base historica padrao estiver em Todo o periodo importado ou Mesmo periodo do ano anterior.'}
-                  </p>
                 </label>
 
                 <label className="field stock-import-settings-panel-coverage-field">
@@ -33813,6 +33808,14 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                     placeholder="20"
                   />
                 </label>
+
+                <div className="field field-span-all">
+                  <p className="helper-text stock-import-settings-inline-note">
+                    {salesImportSettingsUseRollingMonths
+                      ? 'A janela em meses so e usada quando a base historica estiver em Ultimos meses.'
+                      : 'A janela em meses fica ignorada enquanto a base historica estiver em Todo o periodo importado ou Mesmo periodo do ano anterior.'}
+                  </p>
+                </div>
 
                 <label className="field company-field-wide stock-import-settings-consumption-field">
                   <span>Metodo de consumo</span>
