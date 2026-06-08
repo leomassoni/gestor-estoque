@@ -3253,6 +3253,7 @@ export default function App() {
   const [salesImportCoverageDays, setSalesImportCoverageDays] = useState('7')
   const [salesImportSafetyMarginPercent, setSalesImportSafetyMarginPercent] = useState('20')
   const [salesImportPostingMode, setSalesImportPostingMode] = useState<SalesImportBatchRecord['postingMode']>('ANALYTICAL_ONLY')
+  const [salesImportShouldSaveTemplate, setSalesImportShouldSaveTemplate] = useState(false)
   const [salesImportPreviewFilter, setSalesImportPreviewFilter] = useState<'ALL' | 'MATCHED' | 'UNMATCHED' | 'ERROR'>('ALL')
   const [selectedSalesImportBatchId, setSelectedSalesImportBatchId] = useState<number | null>(null)
   const isLocalhostEnvironment =
@@ -24568,6 +24569,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
     setSalesImportCoverageDays('7')
     setSalesImportSafetyMarginPercent('20')
     setSalesImportPostingMode('ANALYTICAL_ONLY')
+    setSalesImportShouldSaveTemplate(false)
     }
   }
 
@@ -24605,6 +24607,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
       setSalesImportCodeColumn('')
       setSalesImportQuantityColumn('')
       setSalesImportPostingMode('ANALYTICAL_ONLY')
+      setSalesImportShouldSaveTemplate(false)
     } catch (error) {
       console.error(error)
       setSaveFeedback({
@@ -24633,6 +24636,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
     setSalesImportCodeColumn(template.codeColumn)
     setSalesImportQuantityColumn(template.quantityColumn)
     setSalesImportPostingMode('ANALYTICAL_ONLY')
+    setSalesImportShouldSaveTemplate(true)
   }
 
   async function saveSalesImportDraft() {
@@ -24678,6 +24682,14 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
         status: 'error',
         title: 'Importacao incompleta',
         message: 'Erro: informe onde o sistema deve localizar data, ID empresa e quantidade no arquivo.',
+      })
+      return
+    }
+    if (salesImportShouldSaveTemplate && !templateName) {
+      setSaveFeedback({
+        status: 'error',
+        title: 'Template incompleto',
+        message: 'Erro: informe um nome para salvar ou atualizar o template deste mapeamento.',
       })
       return
     }
@@ -24755,24 +24767,30 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
     const coverageDays = Math.max(1, Number.parseInt(salesImportCoverageDays || '0', 10) || 1)
     const nextTemplateId = getNextPersistedIntId(salesImportTemplates.map((template) => template.id))
     const templateId =
-      salesImportSelectedTemplateId && currentCompanySalesImportTemplates.some((template) => String(template.id) === salesImportSelectedTemplateId)
-        ? Number(salesImportSelectedTemplateId)
-        : nextTemplateId
-    const templateToSave: SalesImportTemplateRecord = {
-      id: templateId,
-      companyId: currentCompanyId,
-      stockCenterId: targetCenter.id,
-      name: templateName || `IMPORTACAO ${targetCenter.name}`,
-      sheetName: salesImportCurrentSheet.name,
-      headerRow: Math.max(1, Number.parseInt(salesImportHeaderRow || '0', 10) || 1),
-      dataStartRow: Math.max(1, Number.parseInt(salesImportDataStartRow || '0', 10) || 1),
-      dateMode: salesImportDateMode,
-      dateColumn: salesImportDateColumn,
-      dateCell: salesImportDateCell.trim(),
-      codeColumn: salesImportCodeColumn,
-      quantityColumn: salesImportQuantityColumn,
-      isActive: true,
-    }
+      salesImportShouldSaveTemplate
+        ? salesImportSelectedTemplateId && currentCompanySalesImportTemplates.some((template) => String(template.id) === salesImportSelectedTemplateId)
+          ? Number(salesImportSelectedTemplateId)
+          : nextTemplateId
+        : salesImportSelectedTemplateId && currentCompanySalesImportTemplates.some((template) => String(template.id) === salesImportSelectedTemplateId)
+          ? Number(salesImportSelectedTemplateId)
+          : null
+    const templateToSave: SalesImportTemplateRecord | null = salesImportShouldSaveTemplate
+      ? {
+          id: templateId ?? nextTemplateId,
+          companyId: currentCompanyId,
+          stockCenterId: targetCenter.id,
+          name: templateName || `IMPORTACAO ${targetCenter.name}`,
+          sheetName: salesImportCurrentSheet.name,
+          headerRow: Math.max(1, Number.parseInt(salesImportHeaderRow || '0', 10) || 1),
+          dataStartRow: Math.max(1, Number.parseInt(salesImportDataStartRow || '0', 10) || 1),
+          dateMode: salesImportDateMode,
+          dateColumn: salesImportDateColumn,
+          dateCell: salesImportDateCell.trim(),
+          codeColumn: salesImportCodeColumn,
+          quantityColumn: salesImportQuantityColumn,
+          isActive: true,
+        }
+      : null
     const nextBatchId = getNextPersistedIntId(salesImportBatches.map((batch) => batch.id))
     const importedAt = new Date().toISOString()
     const postingMode = salesImportPostingMode
@@ -24867,13 +24885,15 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
     const normalizedConsumptionsToSave = consumptionsToSave
 
     try {
-      const templateResponse = await fetch('/api/sales-import-templates', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(templateToSave),
-      })
-      if (!templateResponse.ok) {
-        throw new Error('Nao foi possivel salvar o template da importacao no servidor.')
+      if (templateToSave) {
+        const templateResponse = await fetch('/api/sales-import-templates', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(templateToSave),
+        })
+        if (!templateResponse.ok) {
+          throw new Error('Nao foi possivel salvar o template da importacao no servidor.')
+        }
       }
 
       const batchResponse = await fetch('/api/sales-import-batches', {
@@ -32552,7 +32572,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                     Cada importacao deve considerar idealmente um unico centro de estoque. O arquivo em XLSX sera lido a
                     partir de um template de mapeamento com data, `ID empresa` do item vendido e quantidade consumida.
                   </p>
-                  <form className="form-grid company-form-grid" onSubmit={(event) => event.preventDefault()}>
+                  <form className="form-grid sales-import-form-grid" onSubmit={(event) => event.preventDefault()}>
                     <label className="field company-field-wide">
                       <span>Template salvo</span>
                       <select
@@ -32575,6 +32595,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                         onChange={(event) => setSalesImportTemplateName(normalizeRegistrationText(event.target.value))}
                         placeholder="EX.: VENDAS BAR SALAO"
                       />
+                      <p className="helper-text">So e salvo se voce marcar a opcao de salvar/atualizar template abaixo.</p>
                     </label>
 
                     <label className="field">
@@ -32725,6 +32746,20 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                       <p className="helper-text">
                         Use a saida oficial apenas quando o arquivo representar consumo real de um unico centro.
                       </p>
+                    </label>
+
+                    <label className="checkbox-row field-span-all">
+                      <input
+                        type="checkbox"
+                        checked={salesImportShouldSaveTemplate}
+                        onChange={(event) => setSalesImportShouldSaveTemplate(event.target.checked)}
+                      />
+                      <span>
+                        Salvar/atualizar este template ao registrar a importacao.
+                        {salesImportSelectedTemplateId
+                          ? ' Se marcado, o template selecionado acima sera atualizado com este mapeamento.'
+                          : ' Se desmarcado, este mapeamento sera usado so neste lote.'}
+                      </span>
                     </label>
 
                     <div className="field field-span-all">
@@ -33178,7 +33213,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
               </div>
             ) : (
               <form className="form-grid company-form-grid" onSubmit={(event) => event.preventDefault()}>
-                <label className="field">
+                <label className="field stock-import-settings-history-field">
                   <span>Base historica padrao</span>
                   <select
                     value={selectedStockModuleSettings?.salesImportDefaultHistoryMode ?? 'ROLLING_MONTHS'}
