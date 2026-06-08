@@ -406,6 +406,20 @@ const catalogEntityPollingIntervalMs = 60000
 const remoteSnapshotSyncEnabled = false
 
 type StockCountableKind = 'PREPARO' | 'PRODUTO' | 'ITEM'
+type SalesImportHistoryMode = 'ROLLING_MONTHS' | 'FULL_PERIOD' | 'SAME_PERIOD_LAST_YEAR'
+type SalesImportConsumptionMethod = 'SIMPLE_AVERAGE' | 'MEDIAN_DAILY'
+
+type StockCenterSalesImportSettings = {
+  historyMode: SalesImportHistoryMode
+  historyMonths: number
+  coverageDays: number
+  safetyMarginPercent: string
+  consumptionMethod: SalesImportConsumptionMethod
+  autoApplySuggestedMinimum: boolean
+  allowManualMinimumOverride: boolean
+  unmatchedRowPolicy: 'BLOCK' | 'SKIP'
+  duplicateRowPolicy: 'BLOCK' | 'SKIP'
+}
 
 type StockCenterMinimumStock = {
   kind: StockCountableKind
@@ -465,6 +479,7 @@ type StockCenterRecord = {
   isProducer: boolean
   producedTechnicalSheetIds: number[]
   minimumStocks: StockCenterMinimumStock[]
+  salesImportSettings: StockCenterSalesImportSettings
   isActive: boolean
 }
 
@@ -477,6 +492,7 @@ type StockCenterFormState = {
   isProducer: boolean
   producedTechnicalSheetIds: string[]
   minimumStocks: StockCenterMinimumStock[]
+  salesImportSettings: StockCenterSalesImportSettings
 }
 
 type InventoryStorageLocationRecord = {
@@ -2478,6 +2494,17 @@ const emptyStockCenterForm = (): StockCenterFormState => ({
   isProducer: false,
   producedTechnicalSheetIds: [],
   minimumStocks: [],
+  salesImportSettings: {
+    historyMode: 'ROLLING_MONTHS',
+    historyMonths: 3,
+    coverageDays: 7,
+    safetyMarginPercent: '20',
+    consumptionMethod: 'SIMPLE_AVERAGE',
+    autoApplySuggestedMinimum: true,
+    allowManualMinimumOverride: true,
+    unmatchedRowPolicy: 'BLOCK',
+    duplicateRowPolicy: 'BLOCK',
+  },
 })
 
 const emptyRequisitionForm = (): RequisitionFormState => ({
@@ -3044,6 +3071,45 @@ function syncStockCentersForTechnicalSheetChange(
   })
 }
 
+function normalizeStockCenterSalesImportSettings(value: unknown): StockCenterSalesImportSettings {
+  if (!value || typeof value !== 'object') {
+    return emptyStockCenterForm().salesImportSettings
+  }
+
+  const record = value as Partial<StockCenterSalesImportSettings>
+  return {
+    historyMode:
+      record.historyMode === 'FULL_PERIOD' || record.historyMode === 'SAME_PERIOD_LAST_YEAR'
+        ? record.historyMode
+        : 'ROLLING_MONTHS',
+    historyMonths:
+      typeof record.historyMonths === 'number' && Number.isFinite(record.historyMonths)
+        ? Math.max(1, Math.trunc(record.historyMonths))
+        : 3,
+    coverageDays:
+      typeof record.coverageDays === 'number' && Number.isFinite(record.coverageDays)
+        ? Math.max(1, Math.trunc(record.coverageDays))
+        : 7,
+    safetyMarginPercent:
+      typeof record.safetyMarginPercent === 'string' && record.safetyMarginPercent.trim()
+        ? record.safetyMarginPercent.trim()
+        : '20',
+    consumptionMethod: record.consumptionMethod === 'MEDIAN_DAILY' ? 'MEDIAN_DAILY' : 'SIMPLE_AVERAGE',
+    autoApplySuggestedMinimum: record.autoApplySuggestedMinimum !== false,
+    allowManualMinimumOverride: record.allowManualMinimumOverride !== false,
+    unmatchedRowPolicy: record.unmatchedRowPolicy === 'SKIP' ? 'SKIP' : 'BLOCK',
+    duplicateRowPolicy: record.duplicateRowPolicy === 'SKIP' ? 'SKIP' : 'BLOCK',
+  }
+}
+
+function getSalesImportConsumptionMethodLabel(method: SalesImportConsumptionMethod) {
+  return method === 'MEDIAN_DAILY' ? 'Mediana diaria' : 'Media diaria simples'
+}
+
+function getStockCenterSelectionLabel(center: Pick<StockCenterRecord, 'name' | 'code'>) {
+  return center.code ? `${center.name} • ${center.code}` : center.name
+}
+
 function getTechnicalSheetYieldDifferenceQuantity(referenceQuantity: number, totalYield: number) {
   return referenceQuantity > totalYield ? referenceQuantity - totalYield : 0
 }
@@ -3256,6 +3322,9 @@ export default function App() {
   const [salesImportShouldSaveTemplate, setSalesImportShouldSaveTemplate] = useState(false)
   const [salesImportPreviewFilter, setSalesImportPreviewFilter] = useState<'ALL' | 'MATCHED' | 'UNMATCHED' | 'ERROR'>('ALL')
   const [selectedSalesImportBatchId, setSelectedSalesImportBatchId] = useState<number | null>(null)
+  const [isSalesImportConfirmationOpen, setIsSalesImportConfirmationOpen] = useState(false)
+  const [stockImportSettingsCenterId, setStockImportSettingsCenterId] = useState<string>('')
+  const [stockImportSettingsCenterInput, setStockImportSettingsCenterInput] = useState('')
   const isLocalhostEnvironment =
     typeof window !== 'undefined' &&
     (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')
@@ -6671,6 +6740,15 @@ export default function App() {
     () => salesImportRows.filter((row) => row.companyId === currentCompanyId),
     [currentCompanyId, salesImportRows],
   )
+  const currentCompanySalesImportBatchesSorted = useMemo(
+    () =>
+      [...currentCompanySalesImportBatches].sort((a, b) => {
+        const dateCompare = b.importedAt.localeCompare(a.importedAt)
+        if (dateCompare !== 0) return dateCompare
+        return b.id - a.id
+      }),
+    [currentCompanySalesImportBatches],
+  )
   const currentCompanySalesConsumptions = useMemo(
     () => salesConsumptions.filter((consumption) => consumption.companyId === currentCompanyId),
     [currentCompanyId, salesConsumptions],
@@ -6805,6 +6883,138 @@ export default function App() {
       distinctSheets: distinctSheetIds.size,
     }
   }, [salesImportPreviewRows])
+  const selectedSalesImportCenter = useMemo(
+    () =>
+      salesImportStockCenterId
+        ? stockCenters.find((center) => String(center.id) === salesImportStockCenterId && center.companyId === currentCompanyId) ?? null
+        : null,
+    [currentCompanyId, salesImportStockCenterId, stockCenters],
+  )
+  const currentCompanyStockCenters = useMemo(
+    () =>
+      stockCenters
+        .filter((center) => center.companyId === currentCompanyId && center.isActive)
+        .sort((a, b) => a.name.localeCompare(b.name, 'pt-BR')),
+    [currentCompanyId, stockCenters],
+  )
+  const stockImportSettingsCenterSuggestions = useMemo(
+    () => currentCompanyStockCenters.map((center) => getStockCenterSelectionLabel(center)),
+    [currentCompanyStockCenters],
+  )
+  const stockImportSettingsCenterIdByLabel = useMemo(
+    () =>
+      new Map(
+        currentCompanyStockCenters.map((center) => [normalizeRegistrationText(getStockCenterSelectionLabel(center)), center.id] as const),
+      ),
+    [currentCompanyStockCenters],
+  )
+  const selectedStockImportSettingsCenter = useMemo(
+    () =>
+      stockImportSettingsCenterId
+        ? currentCompanyStockCenters.find((center) => String(center.id) === stockImportSettingsCenterId) ?? null
+        : null,
+    [currentCompanyStockCenters, stockImportSettingsCenterId],
+  )
+  const salesImportUsesRollingMonths = salesImportHistoryMode === 'ROLLING_MONTHS'
+  const salesImportSettingsUseRollingMonths =
+    (selectedStockImportSettingsCenter?.salesImportSettings.historyMode ?? 'ROLLING_MONTHS') === 'ROLLING_MONTHS'
+  const salesImportDraftStepStatus = useMemo(
+    () => [
+      {
+        id: 'file',
+        label: '1. Arquivo',
+        description: salesImportWorkbookName ? salesImportWorkbookName : 'Selecione o XLSX e a aba da planilha.',
+        isComplete: Boolean(salesImportWorkbookName && salesImportSheetName),
+      },
+      {
+        id: 'mapping',
+        label: '2. Mapeamento',
+        description:
+          salesImportCodeColumn && salesImportQuantityColumn && ((salesImportDateMode === 'COLUMN' && salesImportDateColumn) || (salesImportDateMode === 'FIXED_CELL' && salesImportDateCell.trim()))
+            ? `Data, ID empresa e quantidade mapeados.`
+            : 'Mapeie data, ID empresa e quantidade.',
+        isComplete:
+          Boolean(salesImportCodeColumn && salesImportQuantityColumn) &&
+          ((salesImportDateMode === 'COLUMN' && Boolean(salesImportDateColumn)) ||
+            (salesImportDateMode === 'FIXED_CELL' && Boolean(salesImportDateCell.trim()))),
+      },
+      {
+        id: 'rules',
+        label: '3. Regras do lote',
+        description:
+          selectedSalesImportCenter !== null
+            ? `${selectedSalesImportCenter.name} • ${getSalesImportHistoryModeLabel(salesImportHistoryMode, salesImportUsesRollingMonths ? Math.max(1, Number.parseInt(salesImportHistoryMonths || '0', 10) || 1) : null)}`
+            : 'Defina centro, historico, cobertura e modo de saida.',
+        isComplete: Boolean(selectedSalesImportCenter && salesImportCoverageDays.trim() && salesImportSafetyMarginPercent.trim()),
+      },
+      {
+        id: 'preview',
+        label: '4. Preview',
+        description:
+          salesImportPreviewRows.length > 0
+            ? `${salesImportPreviewSummary.matchedRows} linha(s) validas prontas para importar.`
+            : 'Revise o preview antes de registrar o lote.',
+        isComplete: salesImportPreviewRows.length > 0,
+      },
+      {
+        id: 'confirm',
+        label: '5. Confirmacao',
+        description: 'Confirme o lote e registre o impacto no consumo, nos minimos e no estoque.',
+        isComplete: false,
+      },
+    ],
+    [
+      salesImportWorkbookName,
+      salesImportSheetName,
+      salesImportCodeColumn,
+      salesImportQuantityColumn,
+      salesImportDateMode,
+      salesImportDateColumn,
+      salesImportDateCell,
+      selectedSalesImportCenter,
+      salesImportHistoryMode,
+      salesImportUsesRollingMonths,
+      salesImportHistoryMonths,
+      salesImportCoverageDays,
+      salesImportSafetyMarginPercent,
+      salesImportPreviewRows.length,
+      salesImportPreviewSummary.matchedRows,
+    ],
+  )
+  const salesImportDraftSummary = useMemo(
+    () => ({
+      fileName: salesImportWorkbookName || 'Nao selecionado',
+      centerName: selectedSalesImportCenter?.name ?? 'Nao selecionado',
+      historyLabel: getSalesImportHistoryModeLabel(
+        salesImportHistoryMode,
+        salesImportUsesRollingMonths ? Math.max(1, Number.parseInt(salesImportHistoryMonths || '0', 10) || 1) : null,
+      ),
+      coverageLabel: `${Math.max(1, Number.parseInt(salesImportCoverageDays || '0', 10) || 1)} dias`,
+      marginLabel: `${salesImportSafetyMarginPercent.trim() || '20'}%`,
+      consumptionMethodLabel: selectedSalesImportCenter
+        ? getSalesImportConsumptionMethodLabel(selectedSalesImportCenter.salesImportSettings.consumptionMethod)
+        : getSalesImportConsumptionMethodLabel('SIMPLE_AVERAGE'),
+      postingLabel: getSalesImportPostingModeLabel(salesImportPostingMode),
+      templateModeLabel: salesImportShouldSaveTemplate
+        ? salesImportSelectedTemplateId
+          ? 'Atualizar template salvo ao registrar'
+          : 'Criar template ao registrar'
+        : 'Usar mapeamento so neste lote',
+    }),
+    [
+      salesImportWorkbookName,
+      selectedSalesImportCenter,
+      salesImportHistoryMode,
+      salesImportUsesRollingMonths,
+      salesImportHistoryMonths,
+      salesImportCoverageDays,
+      salesImportSafetyMarginPercent,
+      selectedSalesImportCenter,
+      salesImportPostingMode,
+      salesImportShouldSaveTemplate,
+      salesImportSelectedTemplateId,
+    ],
+  )
   const visibleSalesImportPreviewRows = useMemo(
     () =>
       salesImportPreviewFilter === 'ALL'
@@ -12595,15 +12805,45 @@ export default function App() {
   }, [accessProfiles])
 
   useEffect(() => {
-    if (!selectedStockModuleSettings) {
+    if (!selectedSalesImportCenter) {
       return
     }
 
-    setSalesImportHistoryMode(selectedStockModuleSettings.salesImportDefaultHistoryMode)
-    setSalesImportHistoryMonths(String(selectedStockModuleSettings.salesImportDefaultHistoryMonths))
-    setSalesImportCoverageDays(String(selectedStockModuleSettings.salesImportDefaultCoverageDays))
-    setSalesImportSafetyMarginPercent(selectedStockModuleSettings.salesImportDefaultSafetyMarginPercent)
-  }, [selectedStockModuleSettings])
+    setSalesImportHistoryMode(selectedSalesImportCenter.salesImportSettings.historyMode)
+    setSalesImportHistoryMonths(String(selectedSalesImportCenter.salesImportSettings.historyMonths))
+    setSalesImportCoverageDays(String(selectedSalesImportCenter.salesImportSettings.coverageDays))
+    setSalesImportSafetyMarginPercent(selectedSalesImportCenter.salesImportSettings.safetyMarginPercent)
+  }, [selectedSalesImportCenter])
+
+  useEffect(() => {
+    if (currentCompanyStockCenters.length === 0) {
+      setStockImportSettingsCenterId('')
+      setStockImportSettingsCenterInput('')
+      return
+    }
+
+    if (
+      stockImportSettingsCenterId &&
+      currentCompanyStockCenters.some((center) => String(center.id) === stockImportSettingsCenterId)
+    ) {
+      return
+    }
+
+    const firstCenter = currentCompanyStockCenters[0]
+    setStockImportSettingsCenterId(String(firstCenter.id))
+    setStockImportSettingsCenterInput(getStockCenterSelectionLabel(firstCenter))
+  }, [currentCompanyStockCenters, stockImportSettingsCenterId])
+
+  useEffect(() => {
+    if (!selectedStockImportSettingsCenter) {
+      return
+    }
+
+    const nextLabel = getStockCenterSelectionLabel(selectedStockImportSettingsCenter)
+    if (stockImportSettingsCenterInput !== nextLabel) {
+      setStockImportSettingsCenterInput(nextLabel)
+    }
+  }, [selectedStockImportSettingsCenter, stockImportSettingsCenterInput])
 
   useEffect(() => {
     if (
@@ -14984,6 +15224,19 @@ export default function App() {
     }))
   }
 
+  function updateStockCenterSalesImportSettingsField<K extends keyof StockCenterSalesImportSettings>(
+    field: K,
+    value: StockCenterSalesImportSettings[K],
+  ) {
+    setStockCenterForm((current) => ({
+      ...current,
+      salesImportSettings: {
+        ...current.salesImportSettings,
+        [field]: value,
+      },
+    }))
+  }
+
   function updateStockCenterMinimumStock(row: StockCenterMinimumRow, minimumQuantity: string) {
     setStockCenterForm((current) => {
       const normalizedValue = minimumQuantity.trim()
@@ -15925,6 +16178,7 @@ export default function App() {
         ...stockCenterForm,
         userIds: [...stockCenterForm.userIds],
         minimumStocks: stockCenterForm.minimumStocks.map((item) => ({ ...item })),
+        salesImportSettings: { ...stockCenterForm.salesImportSettings },
       },
       stockCenterMinimumSearch,
     })
@@ -15938,6 +16192,7 @@ export default function App() {
       isProducer: targetStockCenter.isProducer,
       producedTechnicalSheetIds: targetStockCenter.producedTechnicalSheetIds.map((sheetId) => String(sheetId)),
       minimumStocks: targetStockCenter.minimumStocks,
+      salesImportSettings: { ...targetStockCenter.salesImportSettings },
     })
     setStockCenterMinimumSearch('')
     setStockCenterUserInput('')
@@ -16037,6 +16292,12 @@ export default function App() {
           suggestedAt: item.suggestedAt,
           overriddenAt: item.overriddenAt,
         })),
+      salesImportSettings: {
+        ...stockCenterForm.salesImportSettings,
+        historyMonths: Math.max(1, stockCenterForm.salesImportSettings.historyMonths),
+        coverageDays: Math.max(1, stockCenterForm.salesImportSettings.coverageDays),
+        safetyMarginPercent: stockCenterForm.salesImportSettings.safetyMarginPercent.trim() || '20',
+      },
       isActive: editingStockCenterId === null ? true : stockCenters.find((center) => center.id === editingStockCenterId)?.isActive ?? true,
     }
     const nextStockCenters =
@@ -20058,6 +20319,146 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
 
         <div className="section-heading section-heading-inline stock-center-subheading">
           <div>
+            <p className="kicker">Importar vendas</p>
+            <h2>Configuracao de sugestao por centro</h2>
+          </div>
+        </div>
+
+        <form className="form-grid stock-import-settings-grid" onSubmit={(event) => event.preventDefault()}>
+          <label className="field stock-import-settings-history-field">
+            <span>Base historica</span>
+            <select
+              value={stockCenterForm.salesImportSettings.historyMode}
+              onChange={(event) =>
+                updateStockCenterSalesImportSettingsField(
+                  'historyMode',
+                  event.target.value as StockCenterSalesImportSettings['historyMode'],
+                )
+              }
+            >
+              <option value="ROLLING_MONTHS">Ultimos meses</option>
+              <option value="FULL_PERIOD">Todo o periodo importado</option>
+              <option value="SAME_PERIOD_LAST_YEAR">Mesmo periodo do ano anterior</option>
+            </select>
+          </label>
+
+          <label className="field">
+            <span>Janela em meses</span>
+            <input
+              value={String(stockCenterForm.salesImportSettings.historyMonths)}
+              onChange={(event) =>
+                updateStockCenterSalesImportSettingsField(
+                  'historyMonths',
+                  Math.max(1, Number.parseInt(event.target.value || '0', 10) || 1),
+                )
+              }
+              placeholder="3"
+              disabled={stockCenterForm.salesImportSettings.historyMode !== 'ROLLING_MONTHS'}
+            />
+          </label>
+
+          <label className="field">
+            <span>Periodo de cobertura (dias)</span>
+            <input
+              value={String(stockCenterForm.salesImportSettings.coverageDays)}
+              onChange={(event) =>
+                updateStockCenterSalesImportSettingsField(
+                  'coverageDays',
+                  Math.max(1, Number.parseInt(event.target.value || '0', 10) || 1),
+                )
+              }
+              placeholder="7"
+            />
+          </label>
+
+          <label className="field">
+            <span>Margem de seguranca (%)</span>
+            <input
+              value={stockCenterForm.salesImportSettings.safetyMarginPercent}
+              onChange={(event) =>
+                updateStockCenterSalesImportSettingsField('safetyMarginPercent', event.target.value)
+              }
+              placeholder="20"
+            />
+          </label>
+
+          <label className="field company-field-wide">
+            <span>Metodo de consumo</span>
+            <select
+              value={stockCenterForm.salesImportSettings.consumptionMethod}
+              onChange={(event) =>
+                updateStockCenterSalesImportSettingsField(
+                  'consumptionMethod',
+                  event.target.value as StockCenterSalesImportSettings['consumptionMethod'],
+                )
+              }
+            >
+              <option value="SIMPLE_AVERAGE">Media diaria simples</option>
+              <option value="MEDIAN_DAILY">Mediana diaria</option>
+            </select>
+            <p className="helper-text">
+              Media diaria simples soma o consumo total e divide pelos dias do periodo. Mediana diaria usa o valor central
+              dos dias e reduz a influencia de picos. Exemplo: 2, 2, 2, 2, 2, 2, 20 gera media 4,57 e mediana 2.
+            </p>
+          </label>
+
+          <label className="field">
+            <span>Linhas sem de/para</span>
+            <select
+              value={stockCenterForm.salesImportSettings.unmatchedRowPolicy}
+              onChange={(event) =>
+                updateStockCenterSalesImportSettingsField(
+                  'unmatchedRowPolicy',
+                  event.target.value as StockCenterSalesImportSettings['unmatchedRowPolicy'],
+                )
+              }
+            >
+              <option value="BLOCK">Bloquear importacao</option>
+              <option value="SKIP">Ignorar linhas sem match</option>
+            </select>
+          </label>
+
+          <label className="field">
+            <span>Linhas duplicadas</span>
+            <select
+              value={stockCenterForm.salesImportSettings.duplicateRowPolicy}
+              onChange={(event) =>
+                updateStockCenterSalesImportSettingsField(
+                  'duplicateRowPolicy',
+                  event.target.value as StockCenterSalesImportSettings['duplicateRowPolicy'],
+                )
+              }
+            >
+              <option value="BLOCK">Bloquear importacao</option>
+              <option value="SKIP">Importar so a primeira linha valida</option>
+            </select>
+          </label>
+
+          <label className="checkbox-row field-span-all">
+            <input
+              type="checkbox"
+              checked={stockCenterForm.salesImportSettings.autoApplySuggestedMinimum}
+              onChange={(event) =>
+                updateStockCenterSalesImportSettingsField('autoApplySuggestedMinimum', event.target.checked)
+              }
+            />
+            <span>Aplicar automaticamente o minimo sugerido ao centro quando houver importacao valida.</span>
+          </label>
+
+          <label className="checkbox-row field-span-all">
+            <input
+              type="checkbox"
+              checked={stockCenterForm.salesImportSettings.allowManualMinimumOverride}
+              onChange={(event) =>
+                updateStockCenterSalesImportSettingsField('allowManualMinimumOverride', event.target.checked)
+              }
+            />
+            <span>Permitir que o minimo manual deste centro sobreponha a sugestao baseada no historico.</span>
+          </label>
+        </form>
+
+        <div className="section-heading section-heading-inline stock-center-subheading">
+          <div>
             <p className="kicker">Controle minimo</p>
             <h2>Estoque minimo</h2>
           </div>
@@ -20315,63 +20716,55 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
     })
   }
 
-  function updateSelectedStockModuleSettings(
-    updater: (current: StockModuleSettingsRecord) => StockModuleSettingsRecord,
+  function updateSelectedStockImportSettingsCenter(
+    updater: (current: StockCenterSalesImportSettings) => StockCenterSalesImportSettings,
   ) {
-    if (currentCompanyId === null) {
+    if (!selectedStockImportSettingsCenter) {
       return
     }
 
-    setStockModuleSettings((current) => {
-      const existing =
-        current.find((record) => record.companyId === currentCompanyId) ?? {
-          companyId: currentCompanyId,
-          inventorySummaryEditProfileIds: resolveStockModuleProfileIdsByRoles(currentCompanyId, accessProfiles, ['Administrativo', 'Gestor']),
-          inventorySummaryDeleteProfileIds: resolveStockModuleProfileIdsByRoles(currentCompanyId, accessProfiles, ['Administrativo', 'Gestor']),
-          closedInventoryReopenProfileIds: resolveStockModuleProfileIdsByRoles(currentCompanyId, accessProfiles, ['Administrativo', 'Gestor']),
-          closedInventoryDeleteProfileIds: resolveStockModuleProfileIdsByRoles(currentCompanyId, accessProfiles, ['Administrativo', 'Gestor']),
-          salesImportDefaultHistoryMode: 'ROLLING_MONTHS' as const,
-          salesImportDefaultHistoryMonths: 3,
-          salesImportDefaultCoverageDays: 7,
-          salesImportDefaultSafetyMarginPercent: '20',
-          salesImportAutoApplySuggestedMinimum: true,
-          salesImportAllowManualMinimumOverride: true,
-          salesImportUnmatchedRowPolicy: 'BLOCK' as const,
-          salesImportDuplicateRowPolicy: 'BLOCK' as const,
-        }
-
-      const nextRecord = updater(existing)
-      return current.some((record) => record.companyId === currentCompanyId)
-        ? current.map((record) => (record.companyId === currentCompanyId ? nextRecord : record))
-        : [...current, nextRecord]
-    })
+    setStockCenters((current) =>
+      current.map((center) =>
+        center.id === selectedStockImportSettingsCenter.id
+          ? {
+              ...center,
+              salesImportSettings: updater(center.salesImportSettings),
+            }
+          : center,
+      ),
+    )
   }
 
   async function saveStockOperationalSettings() {
-    if (currentCompanyId === null || selectedStockModuleSettings === null) {
+    if (currentCompanyId === null || selectedStockImportSettingsCenter === null) {
       setSaveFeedback({
         status: 'error',
         title: 'Falha ao salvar configuracoes de estoque',
-        message: 'Erro: selecione uma empresa antes de salvar as configuracoes operacionais do estoque.',
+        message: 'Erro: selecione um centro de estoque antes de salvar as configuracoes de importar vendas.',
+      })
+      return
+    }
+
+    const centerToSave =
+      stockCenters.find((center) => center.id === selectedStockImportSettingsCenter.id && center.companyId === currentCompanyId) ?? null
+    if (!centerToSave) {
+      setSaveFeedback({
+        status: 'error',
+        title: 'Falha ao salvar configuracoes de estoque',
+        message: 'Erro: nao foi possivel localizar o centro selecionado para salvar as configuracoes.',
       })
       return
     }
 
     try {
-      const response = await fetch(`/api/stock-module-settings/${currentCompanyId}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(selectedStockModuleSettings),
-      })
-      if (!response.ok) {
-        throw new Error('Nao foi possivel salvar as configuracoes operacionais de estoque no servidor.')
-      }
+      await upsertStockCenterRecordOnApi(centerToSave)
+      await refreshAppStockCenterRecordsFromApi()
     } catch (error) {
       console.error(error)
       setSaveFeedback({
         status: 'error',
         title: 'Falha ao salvar configuracoes de estoque',
-        message: error instanceof Error ? error.message : 'Erro ao salvar configuracoes operacionais de estoque.',
+        message: error instanceof Error ? error.message : 'Erro ao salvar configuracoes de importar vendas do centro.',
       })
       return
     }
@@ -20379,7 +20772,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
     setSaveFeedback({
       status: 'success',
       title: 'Configuracoes salvas',
-      message: 'As regras operacionais de estoque foram atualizadas.',
+      message: `As configuracoes de importar vendas do centro ${centerToSave.name} foram atualizadas.`,
     })
   }
 
@@ -23825,6 +24218,17 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
     return nextDate.toISOString().slice(0, 10)
   }
 
+  function addSalesImportDateKeyDays(dateKey: string, days: number) {
+    const timestamp = Date.parse(`${dateKey}T00:00:00Z`)
+    if (Number.isNaN(timestamp)) {
+      return dateKey
+    }
+
+    const nextDate = new Date(timestamp)
+    nextDate.setUTCDate(nextDate.getUTCDate() + days)
+    return nextDate.toISOString().slice(0, 10)
+  }
+
   function getInclusiveSalesImportDateRangeDays(startDateKey: string, endDateKey: string) {
     const startTimestamp = Date.parse(`${startDateKey}T00:00:00Z`)
     const endTimestamp = Date.parse(`${endDateKey}T00:00:00Z`)
@@ -24452,6 +24856,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
     const analysisDays = getInclusiveSalesImportDateRangeDays(windowStartDateKey, windowEndDateKey)
     const safetyMultiplier = 1 + Math.max(0, parseDecimal(safetyMarginPercent) ?? 0) / 100
     const directDemandBySheetId = new Map<number, number>()
+    const directDailyDemandBySheetId = new Map<number, Map<string, number>>()
 
     relevantConsumptions.forEach(({ record }) => {
       const linkedPrepSheet = prepSheetsByProductId.get(record.ingredientProductId) ?? null
@@ -24468,6 +24873,13 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
         linkedPrepSheet.id,
         (directDemandBySheetId.get(linkedPrepSheet.id) ?? 0) + quantityConsumed,
       )
+      const dateKey = normalizeSalesImportDateKey(record.consumedAt)
+      if (!dateKey) {
+        return
+      }
+      const perDay = directDailyDemandBySheetId.get(linkedPrepSheet.id) ?? new Map<string, number>()
+      perDay.set(dateKey, (perDay.get(dateKey) ?? 0) + quantityConsumed)
+      directDailyDemandBySheetId.set(linkedPrepSheet.id, perDay)
     })
 
     if (directDemandBySheetId.size === 0) {
@@ -24493,7 +24905,24 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
           return
         }
 
-        const averageDailyDemand = totalQuantityConsumed / analysisDays
+        const dailyDemandValues =
+          Array.from({ length: analysisDays }, (_, offset) => {
+            const currentDate = addSalesImportDateKeyDays(windowStartDateKey, offset)
+            return directDailyDemandBySheetId.get(sheetId)?.get(currentDate) ?? 0
+          }).sort((left, right) => left - right)
+        const simpleAverageDailyDemand = totalQuantityConsumed / analysisDays
+        const medianDailyDemand =
+          dailyDemandValues.length === 0
+            ? 0
+            : dailyDemandValues.length % 2 === 1
+              ? dailyDemandValues[(dailyDemandValues.length - 1) / 2] ?? 0
+              : ((dailyDemandValues[dailyDemandValues.length / 2 - 1] ?? 0) +
+                  (dailyDemandValues[dailyDemandValues.length / 2] ?? 0)) /
+                2
+        const averageDailyDemand =
+          targetCenter.salesImportSettings.consumptionMethod === 'MEDIAN_DAILY'
+            ? medianDailyDemand
+            : simpleAverageDailyDemand
         const horizonDays = Math.max(1, coverageDays) + getTechnicalSheetPreparationLeadTimeDays(targetSheet)
         const suggestedOutputQuantity = averageDailyDemand * horizonDays * safetyMultiplier
         const suggestedMinimumQuantity = formatDecimal(suggestedOutputQuantity / baseQuantity)
@@ -24509,10 +24938,10 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
         )
         const existingEntry = existingIndex >= 0 ? nextMinimumStocks[existingIndex] : null
         const shouldPreserveManualValue =
-          selectedStockModuleSettings?.salesImportAllowManualMinimumOverride !== false &&
+          targetCenter.salesImportSettings.allowManualMinimumOverride !== false &&
           existingEntry?.minimumSource === 'MANUAL' &&
           existingEntry.minimumQuantity.trim() !== ''
-        const shouldAutoApply = selectedStockModuleSettings?.salesImportAutoApplySuggestedMinimum !== false
+        const shouldAutoApply = targetCenter.salesImportSettings.autoApplySuggestedMinimum !== false
         const nextEntry: StockCenterMinimumStock = {
           kind: 'PREPARO',
           technicalSheetId: sheetId,
@@ -24639,7 +25068,72 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
     setSalesImportShouldSaveTemplate(true)
   }
 
+  function applyLastSalesImportBatchAsDraft() {
+    const lastBatch = currentCompanySalesImportBatchesSorted[0] ?? null
+    if (!lastBatch) {
+      setSaveFeedback({
+        status: 'error',
+        title: 'Nenhum lote anterior',
+        message: 'Erro: nao existe lote anterior para copiar a configuracao nesta empresa.',
+      })
+      return
+    }
+
+    setSalesImportStockCenterId(String(lastBatch.stockCenterId))
+    setSalesImportHistoryMode(lastBatch.historyMode)
+    setSalesImportHistoryMonths(String(lastBatch.historyMonths ?? 3))
+    setSalesImportCoverageDays(String(lastBatch.coverageDays))
+    setSalesImportSafetyMarginPercent(lastBatch.safetyMarginPercent)
+    setSalesImportPostingMode(lastBatch.postingMode)
+    setSaveFeedback({
+      status: 'success',
+      title: 'Configuracao reaplicada',
+      message: `Os parametros operacionais do lote ${lastBatch.fileName} foram reaplicados neste rascunho. Revise o arquivo e o mapeamento antes de registrar.`,
+    })
+  }
+
+  function downloadSalesImportTemplateWorkbook() {
+    const worksheet = XLSX.utils.aoa_to_sheet([
+      ['DATA', 'ID_EMPRESA', 'QUANTIDADE'],
+      ['2026-06-01', 'DRINK-001', '12'],
+      ['2026-06-01', 'DRINK-002', '7'],
+    ])
+    const workbook = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(workbook, worksheet, 'Vendas')
+    XLSX.writeFile(workbook, 'modelo-importacao-vendas.xlsx')
+  }
+
+  function requestSalesImportSave() {
+    if (!salesImportWorkbookName.trim()) {
+      setSaveFeedback({
+        status: 'error',
+        title: 'Importacao incompleta',
+        message: 'Erro: selecione um arquivo XLSX antes de continuar.',
+      })
+      return
+    }
+    if (!selectedSalesImportCenter) {
+      setSaveFeedback({
+        status: 'error',
+        title: 'Importacao incompleta',
+        message: 'Erro: selecione o centro de estoque desta importacao.',
+      })
+      return
+    }
+    if (salesImportPreviewRows.length === 0) {
+      setSaveFeedback({
+        status: 'error',
+        title: 'Importacao vazia',
+        message: 'Erro: gere um preview valido antes de confirmar o lote.',
+      })
+      return
+    }
+
+    setIsSalesImportConfirmationOpen(true)
+  }
+
   async function saveSalesImportDraft() {
+    setIsSalesImportConfirmationOpen(false)
     if (currentCompanyId === null) {
       setSaveFeedback({
         status: 'error',
@@ -24713,7 +25207,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
     }
 
     const unmatchedRows = salesImportPreviewRows.filter((row) => row.status === 'UNMATCHED')
-    const unmatchedPolicy = selectedStockModuleSettings?.salesImportUnmatchedRowPolicy ?? 'BLOCK'
+    const unmatchedPolicy = targetCenter.salesImportSettings.unmatchedRowPolicy
     if (unmatchedRows.length > 0 && unmatchedPolicy === 'BLOCK') {
       setSaveFeedback({
         status: 'error',
@@ -24728,7 +25222,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
       const duplicateKey = buildSalesImportDuplicateKey(row)
       duplicateCounts.set(duplicateKey, (duplicateCounts.get(duplicateKey) ?? 0) + 1)
     })
-    const duplicatePolicy = selectedStockModuleSettings?.salesImportDuplicateRowPolicy ?? 'BLOCK'
+    const duplicatePolicy = targetCenter.salesImportSettings.duplicateRowPolicy
     const duplicatedRows = salesImportPreviewRows.filter((row) => (duplicateCounts.get(buildSalesImportDuplicateKey(row)) ?? 0) > 1)
     if (duplicatedRows.length > 0 && duplicatePolicy === 'BLOCK') {
       setSaveFeedback({
@@ -24805,7 +25299,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
       historyMode: salesImportHistoryMode,
       historyMonths: historyMonthsValue,
       coverageDays,
-      safetyMarginPercent: salesImportSafetyMarginPercent.trim() || (selectedStockModuleSettings?.salesImportDefaultSafetyMarginPercent ?? '20'),
+      safetyMarginPercent: salesImportSafetyMarginPercent.trim() || '20',
       postingMode,
       status:
         postingMode === 'ANALYTICAL_ONLY'
@@ -32572,9 +33066,63 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                     Cada importacao deve considerar idealmente um unico centro de estoque. O arquivo em XLSX sera lido a
                     partir de um template de mapeamento com data, `ID empresa` do item vendido e quantidade consumida.
                   </p>
+                  <div className="sales-import-step-grid">
+                    {salesImportDraftStepStatus.map((step) => (
+                      <article
+                        key={step.id}
+                        className={`sales-import-step-card ${step.isComplete ? 'is-complete' : 'is-pending'}`}
+                      >
+                        <strong>{step.label}</strong>
+                        <p>{step.description}</p>
+                      </article>
+                    ))}
+                  </div>
+                  <div className="sales-import-summary-bar" role="status" aria-label="Resumo do lote em edicao">
+                    <article className="sales-import-summary-chip">
+                      <span>Arquivo</span>
+                      <strong>{salesImportDraftSummary.fileName}</strong>
+                    </article>
+                    <article className="sales-import-summary-chip">
+                      <span>Centro</span>
+                      <strong>{salesImportDraftSummary.centerName}</strong>
+                    </article>
+                    <article className="sales-import-summary-chip">
+                      <span>Historico</span>
+                      <strong>{salesImportDraftSummary.historyLabel}</strong>
+                    </article>
+                    <article className="sales-import-summary-chip">
+                      <span>Cobertura</span>
+                      <strong>{salesImportDraftSummary.coverageLabel}</strong>
+                    </article>
+                    <article className="sales-import-summary-chip">
+                      <span>Margem</span>
+                      <strong>{salesImportDraftSummary.marginLabel}</strong>
+                    </article>
+                    <article className="sales-import-summary-chip">
+                      <span>Metodo</span>
+                      <strong>{salesImportDraftSummary.consumptionMethodLabel}</strong>
+                    </article>
+                    <article className="sales-import-summary-chip">
+                      <span>Saida</span>
+                      <strong>{salesImportDraftSummary.postingLabel}</strong>
+                    </article>
+                  </div>
+                  <div className="list-toolbar sales-import-toolbar">
+                    <button type="button" className="secondary-button" onClick={downloadSalesImportTemplateWorkbook}>
+                      Baixar modelo de planilha
+                    </button>
+                    <button
+                      type="button"
+                      className="secondary-button"
+                      onClick={applyLastSalesImportBatchAsDraft}
+                      disabled={currentCompanySalesImportBatchesSorted.length === 0}
+                    >
+                      Duplicar configuracao do ultimo lote
+                    </button>
+                  </div>
                   <form className="form-grid sales-import-form-grid" onSubmit={(event) => event.preventDefault()}>
                     <label className="field company-field-wide">
-                      <span>Template salvo</span>
+                      <span>Usar template existente</span>
                       <select
                         value={salesImportSelectedTemplateId}
                         onChange={(event) => applySalesImportTemplate(event.target.value)}
@@ -32686,8 +33234,9 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                           <option key={column.value} value={column.value}>
                             {column.label}
                           </option>
-                        ))}
+                          ))}
                       </select>
+                      <p className="helper-text">Identificador da ficha de Execucao ou Venda usado no de/para da importacao.</p>
                     </label>
 
                     <label className="field">
@@ -32719,6 +33268,11 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                         placeholder="3"
                         disabled={salesImportHistoryMode !== 'ROLLING_MONTHS'}
                       />
+                      <p className="helper-text">
+                        {salesImportUsesRollingMonths
+                          ? 'Usada apenas quando a base historica for Ultimos meses.'
+                          : 'Ignorada neste lote porque a base historica nao usa janela movel em meses.'}
+                      </p>
                     </label>
 
                     <label className="field">
@@ -32755,12 +33309,29 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                         onChange={(event) => setSalesImportShouldSaveTemplate(event.target.checked)}
                       />
                       <span>
-                        Salvar/atualizar este template ao registrar a importacao.
+                        Salvar este mapeamento como template ao registrar a importacao.
                         {salesImportSelectedTemplateId
                           ? ' Se marcado, o template selecionado acima sera atualizado com este mapeamento.'
                           : ' Se desmarcado, este mapeamento sera usado so neste lote.'}
                       </span>
                     </label>
+
+                    <div className="field field-span-all">
+                      <div className="empty-state empty-state-inline sales-import-defaults-card">
+                        <strong>Este lote comeca com as configuracoes do centro selecionado.</strong>
+                        <p>
+                          Base historica, cobertura, margem, metodo de consumo e politicas do import sao carregados do
+                          centro escolhido, mas podem ser ajustados so para este lote.
+                        </p>
+                        <button
+                          type="button"
+                          className="ghost-button"
+                          onClick={() => setStockConfigurationTab('minimum')}
+                        >
+                          Ver/editar configuracoes
+                        </button>
+                      </div>
+                    </div>
 
                     <div className="field field-span-all">
                       <div className="empty-state empty-state-inline">
@@ -32776,7 +33347,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                       <button type="button" className="ghost-button" onClick={() => resetSalesImportDraft()}>
                         Limpar rascunho
                       </button>
-                      <button type="button" className="primary-button" onClick={saveSalesImportDraft}>
+                      <button type="button" className="primary-button" onClick={requestSalesImportSave}>
                         Registrar importacao
                       </button>
                     </div>
@@ -32793,22 +33364,22 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                   {salesImportPreviewRows.length > 0 ? (
                     <>
                       <div className="receituario-summary-grid">
-                        <article className="receituario-metric-card">
+                        <button type="button" className={`receituario-metric-card sales-import-metric-button ${salesImportPreviewFilter === 'ALL' ? 'active' : ''}`} onClick={() => setSalesImportPreviewFilter('ALL')}>
                           <span>Total de linhas</span>
                           <strong>{salesImportPreviewSummary.totalRows}</strong>
-                        </article>
-                        <article className="receituario-metric-card">
+                        </button>
+                        <button type="button" className={`receituario-metric-card sales-import-metric-button ${salesImportPreviewFilter === 'MATCHED' ? 'active' : ''}`} onClick={() => setSalesImportPreviewFilter('MATCHED')}>
                           <span>Linhas validas</span>
                           <strong>{salesImportPreviewSummary.matchedRows}</strong>
-                        </article>
-                        <article className="receituario-metric-card">
+                        </button>
+                        <button type="button" className={`receituario-metric-card sales-import-metric-button ${salesImportPreviewFilter === 'UNMATCHED' ? 'active' : ''}`} onClick={() => setSalesImportPreviewFilter('UNMATCHED')}>
                           <span>Sem de/para</span>
                           <strong>{salesImportPreviewSummary.unmatchedRows}</strong>
-                        </article>
-                        <article className="receituario-metric-card">
+                        </button>
+                        <button type="button" className={`receituario-metric-card sales-import-metric-button ${salesImportPreviewFilter === 'ERROR' ? 'active' : ''}`} onClick={() => setSalesImportPreviewFilter('ERROR')}>
                           <span>Com erro</span>
                           <strong>{salesImportPreviewSummary.errorRows}</strong>
-                        </article>
+                        </button>
                         <article className="receituario-metric-card">
                           <span>Quantidade valida</span>
                           <strong>{formatDecimal(salesImportPreviewSummary.totalQuantity)}</strong>
@@ -32965,7 +33536,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                             </tr>
                           </thead>
                           <tbody>
-                            {currentCompanySalesImportBatches.map((batch) => (
+                            {currentCompanySalesImportBatchesSorted.map((batch) => (
                               <tr key={batch.id}>
                                 <td>{batch.fileName}</td>
                                 <td>{stockCenters.find((center) => center.id === batch.stockCenterId)?.name ?? `CENTRO ${batch.stockCenterId}`}</td>
@@ -32974,7 +33545,21 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                                 <td>{batch.coverageDays} dias</td>
                                 <td>{batch.safetyMarginPercent}%</td>
                                 <td>{formatDateForDisplay(batch.importedAt.slice(0, 10))}</td>
-                                <td>{batch.status}</td>
+                                <td>
+                                  <span className={`status-badge status-badge-${String(batch.status).toLowerCase()}`}>
+                                    {batch.status === 'IMPORTED'
+                                      ? 'Apenas analise'
+                                      : batch.status === 'READY_TO_POST'
+                                        ? 'Pronto para lancar'
+                                        : batch.status === 'POSTED'
+                                          ? 'Saida lancada'
+                                          : batch.status === 'POST_QUEUED'
+                                            ? 'Em fila por inventario'
+                                            : batch.status === 'CANCELLED'
+                                              ? 'Cancelado'
+                                              : batch.status}
+                                  </span>
+                                </td>
                                 <td className="sticky-actions-cell">
                                   <div className="table-actions">
                                     <button
@@ -33213,14 +33798,34 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
               </div>
             ) : (
               <form className="form-grid stock-import-settings-grid" onSubmit={(event) => event.preventDefault()}>
+                <label className="field company-field-wide">
+                  <span>Centro configurado</span>
+                  <SingleValueAutocomplete
+                    value={stockImportSettingsCenterInput}
+                    suggestions={stockImportSettingsCenterSuggestions}
+                    onChange={(value) => {
+                      setStockImportSettingsCenterInput(value)
+                      const centerId = stockImportSettingsCenterIdByLabel.get(normalizeRegistrationText(value)) ?? null
+                      setStockImportSettingsCenterId(centerId === null ? '' : String(centerId))
+                    }}
+                    placeholder="Pesquise um centro de estoque por nome"
+                    allowCreate={false}
+                  />
+                  <p className="helper-text">
+                    Esta tela edita a mesma configuracao que aparece no cadastro e na edicao do centro de estoque.
+                  </p>
+                </label>
+
+                {selectedStockImportSettingsCenter ? (
+                  <>
                 <label className="field stock-import-settings-history-field">
-                  <span>Base historica padrao</span>
+                  <span>Base historica</span>
                   <select
-                    value={selectedStockModuleSettings?.salesImportDefaultHistoryMode ?? 'ROLLING_MONTHS'}
+                    value={selectedStockImportSettingsCenter.salesImportSettings.historyMode}
                     onChange={(event) =>
-                      updateSelectedStockModuleSettings((current) => ({
+                      updateSelectedStockImportSettingsCenter((current) => ({
                         ...current,
-                        salesImportDefaultHistoryMode: event.target.value as StockModuleSettingsRecord['salesImportDefaultHistoryMode'],
+                        historyMode: event.target.value as StockCenterSalesImportSettings['historyMode'],
                       }))
                     }
                   >
@@ -33231,27 +33836,33 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                 </label>
 
                 <label className="field">
-                  <span>Janela padrao em meses</span>
+                  <span>Janela em meses</span>
                   <input
-                    value={String(selectedStockModuleSettings?.salesImportDefaultHistoryMonths ?? 3)}
+                    value={String(selectedStockImportSettingsCenter.salesImportSettings.historyMonths)}
                     onChange={(event) =>
-                      updateSelectedStockModuleSettings((current) => ({
+                      updateSelectedStockImportSettingsCenter((current) => ({
                         ...current,
-                        salesImportDefaultHistoryMonths: Math.max(1, Number.parseInt(event.target.value || '0', 10) || 1),
+                        historyMonths: Math.max(1, Number.parseInt(event.target.value || '0', 10) || 1),
                       }))
                     }
                     placeholder="3"
+                    disabled={!salesImportSettingsUseRollingMonths}
                   />
+                  <p className="helper-text">
+                    {salesImportSettingsUseRollingMonths
+                      ? 'Usada apenas quando a base historica padrao for Ultimos meses.'
+                      : 'Ignorada enquanto a base historica padrao estiver em Todo o periodo importado ou Mesmo periodo do ano anterior.'}
+                  </p>
                 </label>
 
                 <label className="field">
                   <span>Periodo de cobertura (dias)</span>
                   <input
-                    value={String(selectedStockModuleSettings?.salesImportDefaultCoverageDays ?? 7)}
+                    value={String(selectedStockImportSettingsCenter.salesImportSettings.coverageDays)}
                     onChange={(event) =>
-                      updateSelectedStockModuleSettings((current) => ({
+                      updateSelectedStockImportSettingsCenter((current) => ({
                         ...current,
-                        salesImportDefaultCoverageDays: Math.max(1, Number.parseInt(event.target.value || '0', 10) || 1),
+                        coverageDays: Math.max(1, Number.parseInt(event.target.value || '0', 10) || 1),
                       }))
                     }
                     placeholder="7"
@@ -33261,25 +33872,77 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                 <label className="field">
                   <span>Margem de seguranca (%)</span>
                   <input
-                    value={selectedStockModuleSettings?.salesImportDefaultSafetyMarginPercent ?? '20'}
+                    value={selectedStockImportSettingsCenter.salesImportSettings.safetyMarginPercent}
                     onChange={(event) =>
-                      updateSelectedStockModuleSettings((current) => ({
+                      updateSelectedStockImportSettingsCenter((current) => ({
                         ...current,
-                        salesImportDefaultSafetyMarginPercent: event.target.value,
+                        safetyMarginPercent: event.target.value,
                       }))
                     }
                     placeholder="20"
                   />
                 </label>
 
+                <label className="field company-field-wide">
+                  <span>Metodo de consumo</span>
+                  <select
+                    value={selectedStockImportSettingsCenter.salesImportSettings.consumptionMethod}
+                    onChange={(event) =>
+                      updateSelectedStockImportSettingsCenter((current) => ({
+                        ...current,
+                        consumptionMethod: event.target.value as StockCenterSalesImportSettings['consumptionMethod'],
+                      }))
+                    }
+                  >
+                    <option value="SIMPLE_AVERAGE">Media diaria simples</option>
+                    <option value="MEDIAN_DAILY">Mediana diaria</option>
+                  </select>
+                  <p className="helper-text">
+                    Media diaria simples soma o consumo total e divide pelos dias do periodo. Mediana diaria usa o valor central
+                    dos dias e reduz a influencia de picos. Exemplo: 2, 2, 2, 2, 2, 2, 20 gera media 4,57 e mediana 2.
+                  </p>
+                </label>
+
+                <label className="field">
+                  <span>Linhas sem de/para</span>
+                  <select
+                    value={selectedStockImportSettingsCenter.salesImportSettings.unmatchedRowPolicy}
+                    onChange={(event) =>
+                      updateSelectedStockImportSettingsCenter((current) => ({
+                        ...current,
+                        unmatchedRowPolicy: event.target.value as StockCenterSalesImportSettings['unmatchedRowPolicy'],
+                      }))
+                    }
+                  >
+                    <option value="BLOCK">Bloquear importacao</option>
+                    <option value="SKIP">Ignorar linhas sem match</option>
+                  </select>
+                </label>
+
+                <label className="field">
+                  <span>Linhas duplicadas</span>
+                  <select
+                    value={selectedStockImportSettingsCenter.salesImportSettings.duplicateRowPolicy}
+                    onChange={(event) =>
+                      updateSelectedStockImportSettingsCenter((current) => ({
+                        ...current,
+                        duplicateRowPolicy: event.target.value as StockCenterSalesImportSettings['duplicateRowPolicy'],
+                      }))
+                    }
+                  >
+                    <option value="BLOCK">Bloquear importacao</option>
+                    <option value="SKIP">Importar so a primeira linha valida</option>
+                  </select>
+                </label>
+
                 <label className="checkbox-row field-span-all">
                   <input
                     type="checkbox"
-                    checked={selectedStockModuleSettings?.salesImportAutoApplySuggestedMinimum ?? true}
+                    checked={selectedStockImportSettingsCenter.salesImportSettings.autoApplySuggestedMinimum}
                     onChange={(event) =>
-                      updateSelectedStockModuleSettings((current) => ({
+                      updateSelectedStockImportSettingsCenter((current) => ({
                         ...current,
-                        salesImportAutoApplySuggestedMinimum: event.target.checked,
+                        autoApplySuggestedMinimum: event.target.checked,
                       }))
                     }
                   />
@@ -33289,11 +33952,11 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                 <label className="checkbox-row field-span-all">
                   <input
                     type="checkbox"
-                    checked={selectedStockModuleSettings?.salesImportAllowManualMinimumOverride ?? true}
+                    checked={selectedStockImportSettingsCenter.salesImportSettings.allowManualMinimumOverride}
                     onChange={(event) =>
-                      updateSelectedStockModuleSettings((current) => ({
+                      updateSelectedStockImportSettingsCenter((current) => ({
                         ...current,
-                        salesImportAllowManualMinimumOverride: event.target.checked,
+                        allowManualMinimumOverride: event.target.checked,
                       }))
                     }
                   />
@@ -33315,6 +33978,15 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                     Salvar configuracoes
                   </button>
                 </div>
+                  </>
+                ) : (
+                  <div className="field field-span-all">
+                    <div className="empty-state empty-state-inline">
+                      <strong>Selecione um centro de estoque para configurar este fluxo.</strong>
+                      <p>As regras de base historica, cobertura, margem e metodo de consumo pertencem ao centro.</p>
+                    </div>
+                  </div>
+                )}
               </form>
             )}
           </section>
@@ -38899,6 +39571,57 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
         </div>
       ) : null}
 
+      {isSalesImportConfirmationOpen ? (
+        <div
+          className="modal-backdrop modal-backdrop-front"
+          role="presentation"
+          onClick={() => setIsSalesImportConfirmationOpen(false)}
+        >
+          <section
+            className="modal-card modal-card-compact"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="sales-import-confirm-title"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="section-heading">
+              <div>
+                <p className="kicker">Confirmacao</p>
+                <h2 id="sales-import-confirm-title">Registrar importacao de vendas</h2>
+              </div>
+            </div>
+
+            <p className="confirm-copy">
+              Revise o resumo abaixo. O lote sera registrado usando a data de consumo do arquivo e podera recalcular
+              minimos e, quando escolhido, gerar ou preparar saida oficial de estoque.
+            </p>
+
+            <div className="confirmation-details">
+              <p><strong>Arquivo:</strong> {salesImportDraftSummary.fileName}</p>
+              <p><strong>Centro:</strong> {salesImportDraftSummary.centerName}</p>
+              <p><strong>Base historica:</strong> {salesImportDraftSummary.historyLabel}</p>
+              <p><strong>Cobertura:</strong> {salesImportDraftSummary.coverageLabel}</p>
+              <p><strong>Margem:</strong> {salesImportDraftSummary.marginLabel}</p>
+              <p><strong>Metodo de consumo:</strong> {salesImportDraftSummary.consumptionMethodLabel}</p>
+              <p><strong>Tratamento no estoque:</strong> {salesImportDraftSummary.postingLabel}</p>
+              <p><strong>Template:</strong> {salesImportDraftSummary.templateModeLabel}</p>
+              <p><strong>Linhas validas:</strong> {salesImportPreviewSummary.matchedRows}</p>
+              <p><strong>Sem de/para:</strong> {salesImportPreviewSummary.unmatchedRows}</p>
+              <p><strong>Com erro:</strong> {salesImportPreviewSummary.errorRows}</p>
+            </div>
+
+            <div className="modal-actions">
+              <button className="ghost-button" type="button" onClick={() => setIsSalesImportConfirmationOpen(false)}>
+                Cancelar
+              </button>
+              <button className="primary-button" type="button" onClick={() => void saveSalesImportDraft()}>
+                Confirmar importacao
+              </button>
+            </div>
+          </section>
+        </div>
+      ) : null}
+
       {requisitionExportState ? (
         <div className="modal-backdrop modal-backdrop-front" role="presentation" onClick={() => setRequisitionExportState(null)}>
           <section
@@ -44114,6 +44837,7 @@ function normalizeStockCenterRecord(value: unknown): StockCenterRecord | null {
         overriddenAt: typeof item.overriddenAt === 'string' ? item.overriddenAt : undefined,
       }))
       .filter((item) => item.minimumQuantity !== ''),
+    salesImportSettings: normalizeStockCenterSalesImportSettings(record.salesImportSettings),
     isActive: record.isActive,
   }
 }

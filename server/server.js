@@ -2303,6 +2303,38 @@ function normalizeStockCenterPayload(value) {
         }))
         .filter((item) => item.minimumQuantity !== '')
     : []
+  const salesImportSettings =
+    record.salesImportSettings && typeof record.salesImportSettings === 'object'
+      ? {
+          historyMode:
+            record.salesImportSettings.historyMode === 'FULL_PERIOD' ||
+            record.salesImportSettings.historyMode === 'SAME_PERIOD_LAST_YEAR'
+              ? record.salesImportSettings.historyMode
+              : 'ROLLING_MONTHS',
+          historyMonths: Math.max(1, parseIntegerParam(record.salesImportSettings.historyMonths) ?? 3),
+          coverageDays: Math.max(1, parseIntegerParam(record.salesImportSettings.coverageDays) ?? 7),
+          safetyMarginPercent:
+            typeof record.salesImportSettings.safetyMarginPercent === 'string'
+              ? record.salesImportSettings.safetyMarginPercent.trim() || '20'
+              : '20',
+          consumptionMethod:
+            record.salesImportSettings.consumptionMethod === 'MEDIAN_DAILY' ? 'MEDIAN_DAILY' : 'SIMPLE_AVERAGE',
+          autoApplySuggestedMinimum: record.salesImportSettings.autoApplySuggestedMinimum !== false,
+          allowManualMinimumOverride: record.salesImportSettings.allowManualMinimumOverride !== false,
+          unmatchedRowPolicy: record.salesImportSettings.unmatchedRowPolicy === 'SKIP' ? 'SKIP' : 'BLOCK',
+          duplicateRowPolicy: record.salesImportSettings.duplicateRowPolicy === 'SKIP' ? 'SKIP' : 'BLOCK',
+        }
+      : {
+          historyMode: 'ROLLING_MONTHS',
+          historyMonths: 3,
+          coverageDays: 7,
+          safetyMarginPercent: '20',
+          consumptionMethod: 'SIMPLE_AVERAGE',
+          autoApplySuggestedMinimum: true,
+          allowManualMinimumOverride: true,
+          unmatchedRowPolicy: 'BLOCK',
+          duplicateRowPolicy: 'BLOCK',
+        }
 
   if (
     id === null ||
@@ -2327,6 +2359,7 @@ function normalizeStockCenterPayload(value) {
     isProducer: record.isProducer,
     producedTechnicalSheetIds,
     minimumStocks,
+    salesImportSettings,
     isActive: record.isActive,
   }
 }
