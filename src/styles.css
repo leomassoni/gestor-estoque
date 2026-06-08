@@ -1341,6 +1341,13 @@ h3 {
   align-items: start;
 }
 
+.stock-import-settings-grid,
+.stock-center-import-settings-grid,
+.stock-import-settings-panel-grid {
+  column-gap: 20px;
+  row-gap: 18px;
+}
+
 .stock-import-settings-grid .field span {
   min-height: 44px;
 }
@@ -1366,23 +1373,6 @@ h3 {
 .stock-import-settings-panel-grid > .field-span-all,
 .stock-center-import-settings-grid > .field-span-all {
   grid-column: 1 / -1;
-}
-
-.stock-import-primary-fields {
-  display: grid;
-  grid-template-columns: 1.25fr 1.05fr 0.95fr 0.95fr;
-  gap: 22px;
-  align-items: start;
-  padding: 0;
-  margin: 0;
-}
-
-.stock-import-primary-fields > .field {
-  margin: 0;
-}
-
-.stock-import-primary-fields > .field span {
-  min-height: 44px;
 }
 
 .company-field-wide {
@@ -2148,17 +2138,27 @@ h3 {
 }
 
 .stock-import-settings-history-field {
+  grid-column: span 4;
   max-width: 360px;
-  margin-right: 10px;
 }
 
 .stock-import-settings-history-field select {
-  min-width: 320px;
+  min-width: 0;
 }
 
 .stock-import-settings-months-field {
+  grid-column: span 2;
   max-width: 220px;
-  margin-left: 6px;
+}
+
+.stock-import-settings-panel-coverage-field {
+  grid-column: span 3;
+  max-width: 220px;
+}
+
+.stock-import-settings-panel-margin-field {
+  grid-column: span 3;
+  max-width: 220px;
 }
 
 .stock-import-settings-consumption-field {
@@ -2167,18 +2167,18 @@ h3 {
 
 .stock-import-settings-consumption-field select {
   width: auto;
-  min-width: 320px;
+  min-width: 280px;
   max-width: 100%;
 }
 
 .stock-center-import-consumption-field {
-  grid-column: span 5;
+  grid-column: span 6;
   max-width: 420px;
 }
 
 .stock-center-import-consumption-field select {
   width: auto;
-  min-width: 320px;
+  min-width: 280px;
   max-width: 100%;
 }
 
@@ -2858,11 +2858,6 @@ h3 {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
-  .stock-import-primary-fields {
-    grid-template-columns: 1fr;
-    gap: 16px;
-  }
-
   .stock-import-settings-inline-note {
     margin-top: 0;
   }
@@ -2888,7 +2883,6 @@ h3 {
 
   .stock-import-settings-history-field {
     max-width: none;
-    margin-right: 0;
   }
 
   .stock-import-settings-history-field select {
@@ -2897,7 +2891,11 @@ h3 {
 
   .stock-import-settings-months-field {
     max-width: none;
-    margin-left: 0;
+  }
+
+  .stock-import-settings-panel-coverage-field,
+  .stock-import-settings-panel-margin-field {
+    max-width: none;
   }
 
   .stock-import-settings-consumption-field {

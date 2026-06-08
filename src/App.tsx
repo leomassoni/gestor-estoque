@@ -20302,66 +20302,72 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
         </div>
 
         <form className="form-grid stock-import-settings-grid stock-center-import-settings-grid" onSubmit={(event) => event.preventDefault()}>
-          <div className="field field-span-all stock-import-primary-fields">
-            <label className="field">
-              <span>Base historica</span>
-              <select
-                value={stockCenterForm.salesImportSettings.historyMode}
-                onChange={(event) =>
-                  updateStockCenterSalesImportSettingsField(
-                    'historyMode',
-                    event.target.value as StockCenterSalesImportSettings['historyMode'],
-                  )
-                }
-              >
-                <option value="ROLLING_MONTHS">Ultimos meses</option>
-                <option value="FULL_PERIOD">Todo o periodo importado</option>
-                <option value="SAME_PERIOD_LAST_YEAR">Mesmo periodo do ano anterior</option>
-              </select>
-            </label>
+          <label className="field stock-import-settings-history-field stock-import-settings-panel-history-field">
+            <span>Base historica</span>
+            <select
+              value={stockCenterForm.salesImportSettings.historyMode}
+              onChange={(event) =>
+                updateStockCenterSalesImportSettingsField(
+                  'historyMode',
+                  event.target.value as StockCenterSalesImportSettings['historyMode'],
+                )
+              }
+            >
+              <option value="ROLLING_MONTHS">Ultimos meses</option>
+              <option value="FULL_PERIOD">Todo o periodo importado</option>
+              <option value="SAME_PERIOD_LAST_YEAR">Mesmo periodo do ano anterior</option>
+            </select>
+          </label>
 
-            <label className="field">
-              <span>Janela em meses</span>
-              <input
-                value={String(stockCenterForm.salesImportSettings.historyMonths)}
-                onChange={(event) =>
-                  updateStockCenterSalesImportSettingsField(
-                    'historyMonths',
-                    Math.max(1, Number.parseInt(event.target.value || '0', 10) || 1),
-                  )
-                }
-                placeholder="3"
-                disabled={stockCenterForm.salesImportSettings.historyMode !== 'ROLLING_MONTHS'}
-              />
-            </label>
+          <label className="field stock-import-settings-months-field stock-import-settings-panel-months-field">
+            <span>Janela em meses</span>
+            <input
+              value={String(stockCenterForm.salesImportSettings.historyMonths)}
+              onChange={(event) =>
+                updateStockCenterSalesImportSettingsField(
+                  'historyMonths',
+                  Math.max(1, Number.parseInt(event.target.value || '0', 10) || 1),
+                )
+              }
+              placeholder="3"
+              disabled={stockCenterForm.salesImportSettings.historyMode !== 'ROLLING_MONTHS'}
+            />
+          </label>
 
-            <label className="field">
-              <span>Periodo de cobertura (dias)</span>
-              <input
-                value={String(stockCenterForm.salesImportSettings.coverageDays)}
-                onChange={(event) =>
-                  updateStockCenterSalesImportSettingsField(
-                    'coverageDays',
-                    Math.max(1, Number.parseInt(event.target.value || '0', 10) || 1),
-                  )
-                }
-                placeholder="7"
-              />
-            </label>
+          <label className="field stock-import-settings-panel-coverage-field">
+            <span>Periodo de cobertura (dias)</span>
+            <input
+              value={String(stockCenterForm.salesImportSettings.coverageDays)}
+              onChange={(event) =>
+                updateStockCenterSalesImportSettingsField(
+                  'coverageDays',
+                  Math.max(1, Number.parseInt(event.target.value || '0', 10) || 1),
+                )
+              }
+              placeholder="7"
+            />
+          </label>
 
-            <label className="field">
-              <span>Margem de seguranca (%)</span>
-              <input
-                value={stockCenterForm.salesImportSettings.safetyMarginPercent}
-                onChange={(event) =>
-                  updateStockCenterSalesImportSettingsField('safetyMarginPercent', event.target.value)
-                }
-                placeholder="20"
-              />
-            </label>
+          <label className="field stock-import-settings-panel-margin-field">
+            <span>Margem de seguranca (%)</span>
+            <input
+              value={stockCenterForm.salesImportSettings.safetyMarginPercent}
+              onChange={(event) =>
+                updateStockCenterSalesImportSettingsField('safetyMarginPercent', event.target.value)
+              }
+              placeholder="20"
+            />
+          </label>
+
+          <div className="field field-span-all">
+            <p className="helper-text stock-import-settings-inline-note">
+              {stockCenterForm.salesImportSettings.historyMode === 'ROLLING_MONTHS'
+                ? 'A janela em meses so e usada quando a base historica estiver em Ultimos meses.'
+                : 'A janela em meses fica ignorada enquanto a base historica estiver em Todo o periodo importado ou Mesmo periodo do ano anterior.'}
+            </p>
           </div>
 
-          <label className="field stock-center-import-consumption-field">
+          <label className="field company-field-wide stock-import-settings-consumption-field stock-center-import-consumption-field">
             <span>Metodo de consumo</span>
             <select
               value={stockCenterForm.salesImportSettings.consumptionMethod}
@@ -33751,67 +33757,65 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
 
                 {selectedStockImportSettingsCenter ? (
                   <>
-                <div className="field field-span-all stock-import-primary-fields">
-                  <label className="field">
-                    <span>Base historica</span>
-                    <select
-                      value={selectedStockImportSettingsCenter.salesImportSettings.historyMode}
-                      onChange={(event) =>
-                        updateSelectedStockImportSettingsCenter((current) => ({
-                          ...current,
-                          historyMode: event.target.value as StockCenterSalesImportSettings['historyMode'],
-                        }))
-                      }
-                    >
-                      <option value="ROLLING_MONTHS">Ultimos meses</option>
-                      <option value="FULL_PERIOD">Todo o periodo importado</option>
-                      <option value="SAME_PERIOD_LAST_YEAR">Mesmo periodo do ano anterior</option>
-                    </select>
-                  </label>
+                <label className="field stock-import-settings-history-field stock-import-settings-panel-history-field">
+                  <span>Base historica</span>
+                  <select
+                    value={selectedStockImportSettingsCenter.salesImportSettings.historyMode}
+                    onChange={(event) =>
+                      updateSelectedStockImportSettingsCenter((current) => ({
+                        ...current,
+                        historyMode: event.target.value as StockCenterSalesImportSettings['historyMode'],
+                      }))
+                    }
+                  >
+                    <option value="ROLLING_MONTHS">Ultimos meses</option>
+                    <option value="FULL_PERIOD">Todo o periodo importado</option>
+                    <option value="SAME_PERIOD_LAST_YEAR">Mesmo periodo do ano anterior</option>
+                  </select>
+                </label>
 
-                  <label className="field">
-                    <span>Janela em meses</span>
-                    <input
-                      value={String(selectedStockImportSettingsCenter.salesImportSettings.historyMonths)}
-                      onChange={(event) =>
-                        updateSelectedStockImportSettingsCenter((current) => ({
-                          ...current,
-                          historyMonths: Math.max(1, Number.parseInt(event.target.value || '0', 10) || 1),
-                        }))
-                      }
-                      placeholder="3"
-                      disabled={!salesImportSettingsUseRollingMonths}
-                    />
-                  </label>
+                <label className="field stock-import-settings-months-field stock-import-settings-panel-months-field">
+                  <span>Janela em meses</span>
+                  <input
+                    value={String(selectedStockImportSettingsCenter.salesImportSettings.historyMonths)}
+                    onChange={(event) =>
+                      updateSelectedStockImportSettingsCenter((current) => ({
+                        ...current,
+                        historyMonths: Math.max(1, Number.parseInt(event.target.value || '0', 10) || 1),
+                      }))
+                    }
+                    placeholder="3"
+                    disabled={!salesImportSettingsUseRollingMonths}
+                  />
+                </label>
 
-                  <label className="field">
-                    <span>Periodo de cobertura (dias)</span>
-                    <input
-                      value={String(selectedStockImportSettingsCenter.salesImportSettings.coverageDays)}
-                      onChange={(event) =>
-                        updateSelectedStockImportSettingsCenter((current) => ({
-                          ...current,
-                          coverageDays: Math.max(1, Number.parseInt(event.target.value || '0', 10) || 1),
-                        }))
-                      }
-                      placeholder="7"
-                    />
-                  </label>
+                <label className="field stock-import-settings-panel-coverage-field">
+                  <span>Periodo de cobertura (dias)</span>
+                  <input
+                    value={String(selectedStockImportSettingsCenter.salesImportSettings.coverageDays)}
+                    onChange={(event) =>
+                      updateSelectedStockImportSettingsCenter((current) => ({
+                        ...current,
+                        coverageDays: Math.max(1, Number.parseInt(event.target.value || '0', 10) || 1),
+                      }))
+                    }
+                    placeholder="7"
+                  />
+                </label>
 
-                  <label className="field">
-                    <span>Margem de seguranca (%)</span>
-                    <input
-                      value={selectedStockImportSettingsCenter.salesImportSettings.safetyMarginPercent}
-                      onChange={(event) =>
-                        updateSelectedStockImportSettingsCenter((current) => ({
-                          ...current,
-                          safetyMarginPercent: event.target.value,
-                        }))
-                      }
-                      placeholder="20"
-                    />
-                  </label>
-                </div>
+                <label className="field stock-import-settings-panel-margin-field">
+                  <span>Margem de seguranca (%)</span>
+                  <input
+                    value={selectedStockImportSettingsCenter.salesImportSettings.safetyMarginPercent}
+                    onChange={(event) =>
+                      updateSelectedStockImportSettingsCenter((current) => ({
+                        ...current,
+                        safetyMarginPercent: event.target.value,
+                      }))
+                    }
+                    placeholder="20"
+                  />
+                </label>
 
                 <div className="field field-span-all">
                   <p className="helper-text stock-import-settings-inline-note">
