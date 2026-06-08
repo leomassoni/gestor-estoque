@@ -1345,43 +1345,44 @@ h3 {
   min-height: 44px;
 }
 
+.stock-import-settings-inline-note {
+  margin-top: -6px;
+}
+
+.stock-center-import-settings-grid,
 .stock-import-settings-panel-grid {
   grid-template-columns: repeat(12, minmax(0, 1fr));
   align-items: start;
 }
 
+.stock-center-import-settings-grid > .field,
+.stock-center-import-settings-grid > .checkbox-row,
 .stock-import-settings-panel-grid > .field,
 .stock-import-settings-panel-grid > .checkbox-row {
   grid-column: span 3;
 }
 
 .stock-import-settings-panel-grid > .company-field-wide,
-.stock-import-settings-panel-grid > .field-span-all {
+.stock-import-settings-panel-grid > .field-span-all,
+.stock-center-import-settings-grid > .field-span-all {
   grid-column: 1 / -1;
 }
 
-.stock-import-settings-panel-history-field {
-  grid-column: span 4;
-  max-width: none;
-  margin-right: 0;
+.stock-import-primary-fields {
+  display: grid;
+  grid-template-columns: 1.25fr 1.05fr 0.95fr 0.95fr;
+  gap: 22px;
+  align-items: start;
+  padding: 0;
+  margin: 0;
 }
 
-.stock-import-settings-panel-months-field {
-  grid-column: span 2;
-  max-width: none;
-  margin-left: 0;
+.stock-import-primary-fields > .field {
+  margin: 0;
 }
 
-.stock-import-settings-panel-coverage-field {
-  grid-column: span 3;
-}
-
-.stock-import-settings-panel-margin-field {
-  grid-column: span 3;
-}
-
-.stock-import-settings-inline-note {
-  margin-top: -6px;
+.stock-import-primary-fields > .field span {
+  min-height: 44px;
 }
 
 .company-field-wide {
@@ -2171,6 +2172,7 @@ h3 {
 }
 
 .stock-center-import-consumption-field {
+  grid-column: span 5;
   max-width: 420px;
 }
 
@@ -2851,15 +2853,14 @@ h3 {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
+  .stock-center-import-settings-grid,
   .stock-import-settings-panel-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
-  .stock-import-settings-panel-history-field,
-  .stock-import-settings-panel-months-field,
-  .stock-import-settings-panel-coverage-field,
-  .stock-import-settings-panel-margin-field {
-    grid-column: span 1;
+  .stock-import-primary-fields {
+    grid-template-columns: 1fr;
+    gap: 16px;
   }
 
   .stock-import-settings-inline-note {
