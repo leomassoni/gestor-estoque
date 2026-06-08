@@ -3307,17 +3307,11 @@ export default function App() {
   const [salesImportSelectedTemplateId, setSalesImportSelectedTemplateId] = useState<string>('')
   const [salesImportStockCenterId, setSalesImportStockCenterId] = useState<string>('')
   const [salesImportSheetName, setSalesImportSheetName] = useState('')
-  const [salesImportHeaderRow, setSalesImportHeaderRow] = useState('1')
-  const [salesImportDataStartRow, setSalesImportDataStartRow] = useState('2')
   const [salesImportDateMode, setSalesImportDateMode] = useState<'COLUMN' | 'FIXED_CELL'>('COLUMN')
   const [salesImportDateColumn, setSalesImportDateColumn] = useState('')
   const [salesImportDateCell, setSalesImportDateCell] = useState('')
   const [salesImportCodeColumn, setSalesImportCodeColumn] = useState('')
   const [salesImportQuantityColumn, setSalesImportQuantityColumn] = useState('')
-  const [salesImportHistoryMode, setSalesImportHistoryMode] = useState<StockModuleSettingsRecord['salesImportDefaultHistoryMode']>('ROLLING_MONTHS')
-  const [salesImportHistoryMonths, setSalesImportHistoryMonths] = useState('3')
-  const [salesImportCoverageDays, setSalesImportCoverageDays] = useState('7')
-  const [salesImportSafetyMarginPercent, setSalesImportSafetyMarginPercent] = useState('20')
   const [salesImportPostingMode, setSalesImportPostingMode] = useState<SalesImportBatchRecord['postingMode']>('ANALYTICAL_ONLY')
   const [salesImportShouldSaveTemplate, setSalesImportShouldSaveTemplate] = useState(false)
   const [salesImportPreviewFilter, setSalesImportPreviewFilter] = useState<'ALL' | 'MATCHED' | 'UNMATCHED' | 'ERROR'>('ALL')
@@ -6757,8 +6751,8 @@ export default function App() {
     () => salesImportWorkbookSheets.find((sheet) => sheet.name === salesImportSheetName) ?? null,
     [salesImportSheetName, salesImportWorkbookSheets],
   )
-  const salesImportHeaderRowIndex = Math.max(0, (Number.parseInt(salesImportHeaderRow, 10) || 1) - 1)
-  const salesImportDataStartRowIndex = Math.max(0, (Number.parseInt(salesImportDataStartRow, 10) || 2) - 1)
+  const salesImportHeaderRowIndex = 0
+  const salesImportDataStartRowIndex = 1
   const salesImportColumnOptions = useMemo(() => {
     const rows = salesImportCurrentSheet?.rows ?? []
     const maxColumns = rows.reduce((max, row) => Math.max(max, row.length), 0)
@@ -6915,7 +6909,8 @@ export default function App() {
         : null,
     [currentCompanyStockCenters, stockImportSettingsCenterId],
   )
-  const salesImportUsesRollingMonths = salesImportHistoryMode === 'ROLLING_MONTHS'
+  const salesImportUsesRollingMonths =
+    (selectedSalesImportCenter?.salesImportSettings.historyMode ?? 'ROLLING_MONTHS') === 'ROLLING_MONTHS'
   const salesImportSettingsUseRollingMonths =
     (selectedStockImportSettingsCenter?.salesImportSettings.historyMode ?? 'ROLLING_MONTHS') === 'ROLLING_MONTHS'
   const salesImportDraftStepStatus = useMemo(
@@ -6943,9 +6938,9 @@ export default function App() {
         label: '3. Regras do lote',
         description:
           selectedSalesImportCenter !== null
-            ? `${selectedSalesImportCenter.name} • ${getSalesImportHistoryModeLabel(salesImportHistoryMode, salesImportUsesRollingMonths ? Math.max(1, Number.parseInt(salesImportHistoryMonths || '0', 10) || 1) : null)}`
-            : 'Defina centro, historico, cobertura e modo de saida.',
-        isComplete: Boolean(selectedSalesImportCenter && salesImportCoverageDays.trim() && salesImportSafetyMarginPercent.trim()),
+            ? `${selectedSalesImportCenter.name} • ${getSalesImportHistoryModeLabel(selectedSalesImportCenter.salesImportSettings.historyMode, salesImportUsesRollingMonths ? selectedSalesImportCenter.salesImportSettings.historyMonths : null)}`
+            : 'Selecione o centro e revise as regras herdadas dele.',
+        isComplete: Boolean(selectedSalesImportCenter),
       },
       {
         id: 'preview',
@@ -6972,13 +6967,10 @@ export default function App() {
       salesImportDateColumn,
       salesImportDateCell,
       selectedSalesImportCenter,
-      salesImportHistoryMode,
       salesImportUsesRollingMonths,
-      salesImportHistoryMonths,
-      salesImportCoverageDays,
-      salesImportSafetyMarginPercent,
       salesImportPreviewRows.length,
       salesImportPreviewSummary.matchedRows,
+      selectedSalesImportCenter,
     ],
   )
   const salesImportDraftSummary = useMemo(
@@ -6986,11 +6978,11 @@ export default function App() {
       fileName: salesImportWorkbookName || 'Nao selecionado',
       centerName: selectedSalesImportCenter?.name ?? 'Nao selecionado',
       historyLabel: getSalesImportHistoryModeLabel(
-        salesImportHistoryMode,
-        salesImportUsesRollingMonths ? Math.max(1, Number.parseInt(salesImportHistoryMonths || '0', 10) || 1) : null,
+        selectedSalesImportCenter?.salesImportSettings.historyMode ?? 'ROLLING_MONTHS',
+        salesImportUsesRollingMonths ? (selectedSalesImportCenter?.salesImportSettings.historyMonths ?? 3) : null,
       ),
-      coverageLabel: `${Math.max(1, Number.parseInt(salesImportCoverageDays || '0', 10) || 1)} dias`,
-      marginLabel: `${salesImportSafetyMarginPercent.trim() || '20'}%`,
+      coverageLabel: `${selectedSalesImportCenter?.salesImportSettings.coverageDays ?? 7} dias`,
+      marginLabel: `${selectedSalesImportCenter?.salesImportSettings.safetyMarginPercent ?? '20'}%`,
       consumptionMethodLabel: selectedSalesImportCenter
         ? getSalesImportConsumptionMethodLabel(selectedSalesImportCenter.salesImportSettings.consumptionMethod)
         : getSalesImportConsumptionMethodLabel('SIMPLE_AVERAGE'),
@@ -7004,11 +6996,7 @@ export default function App() {
     [
       salesImportWorkbookName,
       selectedSalesImportCenter,
-      salesImportHistoryMode,
       salesImportUsesRollingMonths,
-      salesImportHistoryMonths,
-      salesImportCoverageDays,
-      salesImportSafetyMarginPercent,
       selectedSalesImportCenter,
       salesImportPostingMode,
       salesImportShouldSaveTemplate,
@@ -12803,17 +12791,6 @@ export default function App() {
       return didChange ? next : current
     })
   }, [accessProfiles])
-
-  useEffect(() => {
-    if (!selectedSalesImportCenter) {
-      return
-    }
-
-    setSalesImportHistoryMode(selectedSalesImportCenter.salesImportSettings.historyMode)
-    setSalesImportHistoryMonths(String(selectedSalesImportCenter.salesImportSettings.historyMonths))
-    setSalesImportCoverageDays(String(selectedSalesImportCenter.salesImportSettings.coverageDays))
-    setSalesImportSafetyMarginPercent(selectedSalesImportCenter.salesImportSettings.safetyMarginPercent)
-  }, [selectedSalesImportCenter])
 
   useEffect(() => {
     if (currentCompanyStockCenters.length === 0) {
@@ -24984,8 +24961,6 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
     setSalesImportSelectedTemplateId('')
     setSalesImportStockCenterId('')
     setSalesImportSheetName('')
-    setSalesImportHeaderRow('1')
-    setSalesImportDataStartRow('2')
     setSalesImportDateMode('COLUMN')
     setSalesImportDateColumn('')
     setSalesImportDateCell('')
@@ -24993,10 +24968,6 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
     setSalesImportQuantityColumn('')
     setSalesImportPreviewFilter('ALL')
     if (!preserveDefaults) {
-    setSalesImportHistoryMode('ROLLING_MONTHS')
-    setSalesImportHistoryMonths('3')
-    setSalesImportCoverageDays('7')
-    setSalesImportSafetyMarginPercent('20')
     setSalesImportPostingMode('ANALYTICAL_ONLY')
     setSalesImportShouldSaveTemplate(false)
     }
@@ -25028,8 +24999,6 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
       setSalesImportWorkbookName(file.name)
       setSalesImportWorkbookSheets(workbookSheets)
       setSalesImportSheetName(workbookSheets[0]?.name ?? '')
-      setSalesImportHeaderRow('1')
-      setSalesImportDataStartRow('2')
       setSalesImportDateMode('COLUMN')
       setSalesImportDateColumn('')
       setSalesImportDateCell('')
@@ -25057,8 +25026,6 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
     setSalesImportTemplateName(template.name)
     setSalesImportStockCenterId(template.stockCenterId === null ? '' : String(template.stockCenterId))
     setSalesImportSheetName(template.sheetName)
-    setSalesImportHeaderRow(String(template.headerRow))
-    setSalesImportDataStartRow(String(template.dataStartRow))
     setSalesImportDateMode(template.dateMode)
     setSalesImportDateColumn(template.dateColumn)
     setSalesImportDateCell(template.dateCell)
@@ -25080,10 +25047,6 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
     }
 
     setSalesImportStockCenterId(String(lastBatch.stockCenterId))
-    setSalesImportHistoryMode(lastBatch.historyMode)
-    setSalesImportHistoryMonths(String(lastBatch.historyMonths ?? 3))
-    setSalesImportCoverageDays(String(lastBatch.coverageDays))
-    setSalesImportSafetyMarginPercent(lastBatch.safetyMarginPercent)
     setSalesImportPostingMode(lastBatch.postingMode)
     setSaveFeedback({
       status: 'success',
@@ -25256,9 +25219,11 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
       return
     }
 
+    const historyMode = targetCenter.salesImportSettings.historyMode
     const historyMonthsValue =
-      salesImportHistoryMode === 'ROLLING_MONTHS' ? Math.max(1, Number.parseInt(salesImportHistoryMonths || '0', 10) || 1) : null
-    const coverageDays = Math.max(1, Number.parseInt(salesImportCoverageDays || '0', 10) || 1)
+      historyMode === 'ROLLING_MONTHS' ? Math.max(1, targetCenter.salesImportSettings.historyMonths) : null
+    const coverageDays = Math.max(1, targetCenter.salesImportSettings.coverageDays)
+    const safetyMarginPercent = targetCenter.salesImportSettings.safetyMarginPercent.trim() || '20'
     const nextTemplateId = getNextPersistedIntId(salesImportTemplates.map((template) => template.id))
     const templateId =
       salesImportShouldSaveTemplate
@@ -25275,8 +25240,8 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
           stockCenterId: targetCenter.id,
           name: templateName || `IMPORTACAO ${targetCenter.name}`,
           sheetName: salesImportCurrentSheet.name,
-          headerRow: Math.max(1, Number.parseInt(salesImportHeaderRow || '0', 10) || 1),
-          dataStartRow: Math.max(1, Number.parseInt(salesImportDataStartRow || '0', 10) || 1),
+          headerRow: 1,
+          dataStartRow: 2,
           dateMode: salesImportDateMode,
           dateColumn: salesImportDateColumn,
           dateCell: salesImportDateCell.trim(),
@@ -25296,10 +25261,10 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
       uploadedByUserId: currentAppUser?.id ?? null,
       uploadedByUserName: currentAppUser?.fullName ?? 'Administrador do sistema',
       fileName: salesImportWorkbookName,
-      historyMode: salesImportHistoryMode,
+      historyMode,
       historyMonths: historyMonthsValue,
       coverageDays,
-      safetyMarginPercent: salesImportSafetyMarginPercent.trim() || '20',
+      safetyMarginPercent,
       postingMode,
       status:
         postingMode === 'ANALYTICAL_ONLY'
@@ -33190,16 +33155,6 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                     </label>
 
                     <label className="field">
-                      <span>Linha do cabecalho</span>
-                      <input value={salesImportHeaderRow} onChange={(event) => setSalesImportHeaderRow(event.target.value)} placeholder="1" />
-                    </label>
-
-                    <label className="field">
-                      <span>Primeira linha de dados</span>
-                      <input value={salesImportDataStartRow} onChange={(event) => setSalesImportDataStartRow(event.target.value)} placeholder="2" />
-                    </label>
-
-                    <label className="field">
                       <span>Modo da data</span>
                       <select value={salesImportDateMode} onChange={(event) => setSalesImportDateMode(event.target.value as 'COLUMN' | 'FIXED_CELL')}>
                         <option value="COLUMN">Data em coluna</option>
@@ -33251,39 +33206,15 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                       </select>
                     </label>
 
-                    <label className="field">
-                      <span>Base historica</span>
-                      <select value={salesImportHistoryMode} onChange={(event) => setSalesImportHistoryMode(event.target.value as StockModuleSettingsRecord['salesImportDefaultHistoryMode'])}>
-                        <option value="ROLLING_MONTHS">Ultimos meses</option>
-                        <option value="FULL_PERIOD">Todo o periodo importado</option>
-                        <option value="SAME_PERIOD_LAST_YEAR">Mesmo periodo do ano anterior</option>
-                      </select>
-                    </label>
-
-                    <label className="field">
-                      <span>Janela historica (meses)</span>
-                      <input
-                        value={salesImportHistoryMonths}
-                        onChange={(event) => setSalesImportHistoryMonths(event.target.value)}
-                        placeholder="3"
-                        disabled={salesImportHistoryMode !== 'ROLLING_MONTHS'}
-                      />
-                      <p className="helper-text">
-                        {salesImportUsesRollingMonths
-                          ? 'Usada apenas quando a base historica for Ultimos meses.'
-                          : 'Ignorada neste lote porque a base historica nao usa janela movel em meses.'}
-                      </p>
-                    </label>
-
-                    <label className="field">
-                      <span>Cobertura desejada (dias)</span>
-                      <input value={salesImportCoverageDays} onChange={(event) => setSalesImportCoverageDays(event.target.value)} placeholder="7" />
-                    </label>
-
-                    <label className="field">
-                      <span>Margem de seguranca (%)</span>
-                      <input value={salesImportSafetyMarginPercent} onChange={(event) => setSalesImportSafetyMarginPercent(event.target.value)} placeholder="20" />
-                    </label>
+                    <div className="field field-span-all">
+                      <div className="empty-state empty-state-inline">
+                        <strong>As regras de estoque minimo deste lote pertencem ao centro selecionado.</strong>
+                        <p>
+                          Base historica, janela, cobertura, margem e metodo de consumo nao sao definidos por importacao.
+                          O sistema usa a configuracao do centro escolhido e voce pode alterá-la em `Configuracoes`.
+                        </p>
+                      </div>
+                    </div>
 
                     <label className="field company-field-wide">
                       <span>Tratamento no estoque</span>
