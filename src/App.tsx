@@ -1823,6 +1823,7 @@ const estoqueAccessSectionOptions: Array<{ key: AppSection; label: string }> = [
   { key: 'Suprimentos', label: 'Suprimentos' },
   { key: 'Inventario', label: 'Inventario' },
   { key: 'CentrosEstoque', label: 'Centros de estoque' },
+  { key: 'ConfiguracoesEstoque', label: 'Importar vendas' },
   { key: 'RelatoriosEstoque', label: 'Relatorios' },
 ]
 const standaloneAccessSectionOptions: Array<{ key: AppSection; label: string }> = [
@@ -3790,7 +3791,7 @@ export default function App() {
         'Usuarios',
       ]
     }
-    if (session?.kind === 'appUser') {
+    if (effectiveSessionAppUser) {
       return ([
         'Produtos',
         'Itens',
@@ -3807,11 +3808,11 @@ export default function App() {
         'Empresa',
         'Usuarios',
       ] as const).filter(
-        (section) => session.user.sectionAccess[section],
+        (section) => effectiveSessionAppUser.sectionAccess[section],
       )
     }
     return []
-  }, [isSystemAdmin, session])
+  }, [effectiveSessionAppUser, isSystemAdmin])
   const cadastroSections = useMemo<AppSection[]>(
     () => ['FichasTecnicas', 'Produtos', 'Itens', 'Configuracoes'],
     [],
