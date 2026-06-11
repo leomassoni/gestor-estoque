@@ -29861,6 +29861,18 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
           </div>
 
           <nav className="sidebar-nav" aria-label="Navegacao principal">
+            {(['PainelMaster'] as const)
+              .filter((section) => allowedSections.includes(section))
+              .map((section) => (
+                <button
+                  key={section}
+                  type="button"
+                  className={activeSection === section ? 'nav-item active' : 'nav-item'}
+                  onClick={() => handleSectionNavigation(section)}
+                >
+                  {getSectionDisplayLabel(section)}
+                </button>
+              ))}
             {(['Receituarios'] as const)
               .filter((section) => allowedSections.includes(section))
               .map((section) => (
@@ -29942,7 +29954,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                 ) : null}
               </div>
             ) : null}
-            {(['PainelMaster', 'Empresa', 'Usuarios'] as const)
+            {(['Empresa', 'Usuarios'] as const)
               .filter((section) => allowedSections.includes(section))
               .map((section) => (
                 <button
