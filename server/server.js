@@ -1650,6 +1650,9 @@ async function sanitizeLegacyEntitySnapshotIds() {
       stockCenters.map((record) => ({
         ...record,
         id: remapSafeInt32Id(record?.id, stockCenterIdMap),
+        suppliedCenterIds: Array.isArray(record?.suppliedCenterIds)
+          ? record.suppliedCenterIds.map((centerId) => remapSafeInt32Id(centerId, stockCenterIdMap))
+          : [],
       })),
     ),
     [technicalSheetsStorageKey]: JSON.stringify(
@@ -1659,6 +1662,13 @@ async function sanitizeLegacyEntitySnapshotIds() {
           ? record.productionCenters.map((assignment) => ({
               ...assignment,
               stockCenterId: remapSafeInt32Id(assignment?.stockCenterId, stockCenterIdMap),
+            }))
+          : [],
+        supplyRoutes: Array.isArray(record?.supplyRoutes)
+          ? record.supplyRoutes.map((route) => ({
+              ...route,
+              consumerCenterId: remapSafeInt32Id(route?.consumerCenterId, stockCenterIdMap),
+              supplierCenterId: remapSafeInt32Id(route?.supplierCenterId, stockCenterIdMap),
             }))
           : [],
       })),
@@ -1675,6 +1685,8 @@ async function sanitizeLegacyEntitySnapshotIds() {
               ...line,
               destinationCenterId:
                 line?.destinationCenterId === null ? null : remapSafeInt32Id(line?.destinationCenterId, stockCenterIdMap),
+              supplierCenterId:
+                line?.supplierCenterId === null ? null : remapSafeInt32Id(line?.supplierCenterId, stockCenterIdMap),
             }))
           : [],
       })),
@@ -1778,10 +1790,21 @@ async function sanitizeLegacyEntitySnapshotIds() {
               : assignment,
           )
         : []
+      const supplyRoutes = Array.isArray(record.supplyRoutes)
+        ? record.supplyRoutes.map((route) =>
+            route && typeof route === 'object'
+              ? {
+                  ...route,
+                  consumerCenterId: remapSafeInt32Id(route.consumerCenterId, stockCenterIdMap),
+                  supplierCenterId: remapSafeInt32Id(route.supplierCenterId, stockCenterIdMap),
+                }
+              : route,
+          )
+        : []
 
       await prisma.appTechnicalSheetRecord.update({
         where: { id: record.id },
-        data: { productionCenters },
+        data: { productionCenters, supplyRoutes },
       })
     }
   }
@@ -2284,6 +2307,19 @@ function normalizeStockCenterPayload(value) {
   const producedTechnicalSheetIds = Array.isArray(record.producedTechnicalSheetIds)
     ? Array.from(new Set(record.producedTechnicalSheetIds.map((item) => parseIntegerParam(item)).filter((item) => item !== null)))
     : []
+  const distributedProductIds = Array.isArray(record.distributedProductIds)
+    ? Array.from(
+        new Set(
+          record.distributedProductIds
+            .filter((item) => typeof item === 'string')
+            .map((item) => item.trim())
+            .filter(Boolean),
+        ),
+      )
+    : []
+  const suppliedCenterIds = Array.isArray(record.suppliedCenterIds)
+    ? Array.from(new Set(record.suppliedCenterIds.map((item) => parseIntegerParam(item)).filter((item) => item !== null)))
+    : []
   const minimumStocks = Array.isArray(record.minimumStocks)
     ? record.minimumStocks
         .filter((item) => item && typeof item === 'object')
@@ -2358,6 +2394,10 @@ function normalizeStockCenterPayload(value) {
     responsibleUserIds,
     isProducer: record.isProducer,
     producedTechnicalSheetIds,
+    isDistributor: record.isDistributor === true,
+    distributesAllProducts: record.distributesAllProducts === true,
+    distributedProductIds,
+    suppliedCenterIds,
     minimumStocks,
     salesImportSettings,
     isActive: record.isActive,
@@ -2375,6 +2415,7 @@ function normalizeRequisitionPayload(value) {
   const requisitionGroupId = parseIntegerParam(record.requisitionGroupId)
   const stockCenterId = parseIntegerParam(record.stockCenterId)
   const supplyCenterId = record.supplyCenterId === null ? null : parseIntegerParam(record.supplyCenterId)
+  const supplyCompanyId = record.supplyCompanyId === null ? null : parseIntegerParam(record.supplyCompanyId)
   const createdByUserId = record.createdByUserId === null ? null : parseIntegerParam(record.createdByUserId)
   const approvedByUserId = record.approvedByUserId === null ? null : parseIntegerParam(record.approvedByUserId)
   const sentByUserId = record.sentByUserId === null ? null : parseIntegerParam(record.sentByUserId)
@@ -2417,6 +2458,8 @@ function normalizeRequisitionPayload(value) {
     stockCenterName: record.stockCenterName,
     supplyCenterId,
     supplyCenterName: record.supplyCenterName,
+    supplyCompanyId,
+    supplyCompanyName: typeof record.supplyCompanyName === 'string' ? record.supplyCompanyName : '',
     sector: record.sector,
     countedAt: record.countedAt,
     status: record.status,
@@ -3080,11 +3123,21 @@ function normalizeTechnicalSheetPayload(value) {
     flavorUmami: sheet.flavorUmami,
     storytelling: sheet.storytelling,
     preparationMode: sheet.preparationMode,
-    preparationLeadTimeDays: sheet.preparationLeadTimeDays,
+    preparationLeadTimeDays: typeof sheet.preparationLeadTimeDays === 'string' ? sheet.preparationLeadTimeDays : '',
     shelfLifeRoom: sheet.shelfLifeRoom,
     shelfLifeRefrigerated: sheet.shelfLifeRefrigerated,
     shelfLifeFrozen: sheet.shelfLifeFrozen,
     productionCenters: sheet.productionCenters,
+    supplyRoutes: (Array.isArray(sheet.supplyRoutes) ? sheet.supplyRoutes : []).filter(
+      (route) =>
+        Boolean(route) &&
+        typeof route === 'object' &&
+        typeof route.consumerCenterId === 'number' &&
+        route.consumerCenterId > 0 &&
+        typeof route.supplierCenterId === 'number' &&
+        route.supplierCenterId > 0 &&
+        route.consumerCenterId !== route.supplierCenterId,
+    ),
     ingredients: sheet.ingredients,
     garnishIngredients: sheet.garnishIngredients,
     serviceItems: sheet.serviceItems,

@@ -465,7 +465,12 @@ model AppStockCenterRecord {
   responsibleUserIds      Int[]
   isProducer              Boolean  @default(false)
   producedTechnicalSheetIds Int[]
+  isDistributor          Boolean  @default(false)
+  distributesAllProducts Boolean  @default(false)
+  distributedProductIds  String[]
+  suppliedCenterIds      Int[]
   minimumStocks           Json
+  salesImportSettings    Json
   isActive                Boolean  @default(true)
   createdAt               DateTime @default(now())
   updatedAt               DateTime @updatedAt
@@ -481,6 +486,8 @@ model AppRequisitionRecord {
   stockCenterName     String
   supplyCenterId      Int?
   supplyCenterName    String
+  supplyCompanyId     Int?
+  supplyCompanyName   String
   sector              String
   countedAt           String
   status              String
@@ -797,6 +804,7 @@ model AppTechnicalSheetRecord {
   shelfLifeRefrigerated String
   shelfLifeFrozen       String
   productionCenters     Json
+  supplyRoutes          Json
   ingredients           Json
   garnishIngredients    Json
   serviceItems          Json

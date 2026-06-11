@@ -187,6 +187,11 @@ type TechnicalSheetProductionCenter = {
   minimumQuantity: string
 }
 
+type TechnicalSheetSupplyRoute = {
+  consumerCenterId: number
+  supplierCenterId: number
+}
+
 type TechnicalSheetRecord = {
   id: number
   companyId: number
@@ -227,6 +232,7 @@ type TechnicalSheetRecord = {
   shelfLifeRefrigerated: string
   shelfLifeFrozen: string
   productionCenters: TechnicalSheetProductionCenter[]
+  supplyRoutes: TechnicalSheetSupplyRoute[]
   ingredients: TechnicalSheetIngredient[]
   garnishIngredients: TechnicalSheetIngredient[]
   serviceItems: TechnicalSheetServiceItem[]
@@ -269,6 +275,7 @@ type TechnicalSheetFormState = {
   shelfLifeRefrigerated: string
   shelfLifeFrozen: string
   productionCenters: TechnicalSheetProductionCenter[]
+  supplyRoutes: TechnicalSheetSupplyRoute[]
 }
 
 type TechnicalSheetConfigurationFieldKey =
@@ -478,6 +485,10 @@ type StockCenterRecord = {
   responsibleUserIds: number[]
   isProducer: boolean
   producedTechnicalSheetIds: number[]
+  isDistributor: boolean
+  distributesAllProducts: boolean
+  distributedProductIds: string[]
+  suppliedCenterIds: number[]
   minimumStocks: StockCenterMinimumStock[]
   salesImportSettings: StockCenterSalesImportSettings
   isActive: boolean
@@ -491,6 +502,10 @@ type StockCenterFormState = {
   responsibleUserIds: string[]
   isProducer: boolean
   producedTechnicalSheetIds: string[]
+  isDistributor: boolean
+  distributesAllProducts: boolean
+  distributedProductIds: string[]
+  suppliedCenterIds: string[]
   minimumStocks: StockCenterMinimumStock[]
   salesImportSettings: StockCenterSalesImportSettings
 }
@@ -654,10 +669,14 @@ type RequisitionLineRecord = {
   currentQuantity: string
   currentUnitLabel: string
   minimumDefinitionLabel: string
-  destinationType: 'DISTRIBUICAO' | 'PRODUCOES'
+  destinationType: 'COMPRAS' | 'SUPRIMENTOS' | 'PRODUCOES'
   destinationCenterId: number | null
   destinationCenterName: string
   destinationLabel: string
+  supplierCenterId?: number | null
+  supplierCenterName?: string
+  supplierCompanyId?: number | null
+  supplierCompanyName?: string
   receiptStatus?: 'PENDING' | 'RECEIVED' | 'NOT_RECEIVED'
   receiptResolvedAt?: string
   receiptResolvedByUserId?: number | null
@@ -673,6 +692,8 @@ type RequisitionRecord = {
   stockCenterName: string
   supplyCenterId: number | null
   supplyCenterName: string
+  supplyCompanyId: number | null
+  supplyCompanyName: string
   sector: string
   countedAt: string
   status: RequisitionStatus
@@ -1442,7 +1463,7 @@ function normalizeFreeText(value: string) {
 }
 
 function normalizePreparationModeEditingValue(value: string) {
-  return value.toLocaleUpperCase('pt-BR')
+  return value
 }
 
 function normalizePreparationModeComparableValue(value: string) {
@@ -2493,6 +2514,10 @@ const emptyStockCenterForm = (): StockCenterFormState => ({
   responsibleUserIds: [],
   isProducer: false,
   producedTechnicalSheetIds: [],
+  isDistributor: false,
+  distributesAllProducts: false,
+  distributedProductIds: [],
+  suppliedCenterIds: [],
   minimumStocks: [],
   salesImportSettings: {
     historyMode: 'ROLLING_MONTHS',
@@ -2784,6 +2809,7 @@ const emptyTechnicalSheetForm = (): TechnicalSheetFormState => ({
   shelfLifeRefrigerated: '',
   shelfLifeFrozen: '',
   productionCenters: [],
+  supplyRoutes: [],
 })
 
 const emptyTechnicalSheetIngredient = (): TechnicalSheetIngredient => ({
@@ -2965,6 +2991,24 @@ function logRemoteAppStateMessage(message: string) {
   console.info(`[remote-app-state] ${message}`)
 }
 
+function normalizeTechnicalSheetSupplyRoutes(
+  routes: TechnicalSheetSupplyRoute[] | unknown,
+): TechnicalSheetSupplyRoute[] {
+  return Array.isArray(routes)
+    ? routes.filter(
+        (route): route is TechnicalSheetSupplyRoute =>
+          Boolean(route) &&
+          typeof route === 'object' &&
+          typeof (route as TechnicalSheetSupplyRoute).consumerCenterId === 'number' &&
+          (route as TechnicalSheetSupplyRoute).consumerCenterId > 0 &&
+          typeof (route as TechnicalSheetSupplyRoute).supplierCenterId === 'number' &&
+          (route as TechnicalSheetSupplyRoute).supplierCenterId > 0 &&
+          (route as TechnicalSheetSupplyRoute).consumerCenterId !==
+            (route as TechnicalSheetSupplyRoute).supplierCenterId,
+      )
+    : []
+}
+
 function buildTechnicalSheetDiscardSnapshot(state: {
   form: TechnicalSheetFormState
   sectorInput: string
@@ -3003,6 +3047,9 @@ function syncTechnicalSheetsForStockCenterChange(
     const remainingProductionCenters = (sheet.productionCenters ?? []).filter(
       (assignment) => assignment.stockCenterId !== centerToSave.id,
     )
+    const remainingSupplyRoutes = normalizeTechnicalSheetSupplyRoutes(sheet.supplyRoutes).filter(
+      (route) => route.consumerCenterId !== centerToSave.id && route.supplierCenterId !== centerToSave.id,
+    )
     const prepMinimumQuantity =
       centerToSave.minimumStocks.find(
         (item) => item.kind === 'PREPARO' && item.technicalSheetId === sheet.id,
@@ -3012,11 +3059,13 @@ function syncTechnicalSheetsForStockCenterChange(
       return {
         ...sheet,
         productionCenters: remainingProductionCenters,
+        supplyRoutes: remainingSupplyRoutes,
       }
     }
 
     return {
       ...sheet,
+      supplyRoutes: remainingSupplyRoutes,
       productionCenters: [
         ...remainingProductionCenters,
         {
@@ -3358,6 +3407,8 @@ export default function App() {
   const [stockCenterUserInput, setStockCenterUserInput] = useState('')
   const [stockCenterResponsibleInput, setStockCenterResponsibleInput] = useState('')
   const [stockCenterProducedSheetInput, setStockCenterProducedSheetInput] = useState('')
+  const [stockCenterDistributedProductInput, setStockCenterDistributedProductInput] = useState('')
+  const [stockCenterSuppliedCenterInput, setStockCenterSuppliedCenterInput] = useState('')
   const [stockCenterTab, setStockCenterTab] = useState<'center' | 'registered'>('center')
   const [stockConfigurationTab, setStockConfigurationTab] = useState<'minimum' | 'salesImport'>('salesImport')
   const [isStockCenterModalOpen, setIsStockCenterModalOpen] = useState(false)
@@ -3518,6 +3569,8 @@ export default function App() {
   const [technicalSheetSectorInput, setTechnicalSheetSectorInput] = useState('')
   const [technicalSheetSharedCompanyInput, setTechnicalSheetSharedCompanyInput] = useState('')
   const [technicalSheetProductionCenterInput, setTechnicalSheetProductionCenterInput] = useState('')
+  const [technicalSheetSupplyRouteConsumerCenterId, setTechnicalSheetSupplyRouteConsumerCenterId] = useState('')
+  const [technicalSheetSupplyRouteSupplierCenterId, setTechnicalSheetSupplyRouteSupplierCenterId] = useState('')
   const [technicalSheetIngredients, setTechnicalSheetIngredients] = useState<TechnicalSheetIngredient[]>([
     emptyTechnicalSheetIngredient(),
   ])
@@ -3550,6 +3603,7 @@ export default function App() {
   const [accessProfileForm, setAccessProfileForm] = useState<AccessProfileFormState>(emptyAccessProfileForm())
   const [editingAccessProfileId, setEditingAccessProfileId] = useState<number | null>(null)
   const [technicalSheetSettingsTab, setTechnicalSheetSettingsTab] = useState<TechnicalSheetSettingsTab>('PREPARO')
+  const defaultTechnicalSheetFormSettings = useMemo(() => buildDefaultTechnicalSheetFormSettings(), [])
   const [technicalSheetSettingsDraft, setTechnicalSheetSettingsDraft] = useState<TechnicalSheetFormSettings>(
     buildDefaultTechnicalSheetFormSettings(),
   )
@@ -3832,6 +3886,153 @@ export default function App() {
       new Set([getTechnicalSheetOwnerCompanyId(sheet), ...getTechnicalSheetExplicitSharedCompanyIds(sheet)]),
     )
   }
+  function getTechnicalSheetSupplyRoutes(sheet: TechnicalSheetRecord) {
+    return normalizeTechnicalSheetSupplyRoutes(sheet.supplyRoutes)
+  }
+  function getTechnicalSheetProducerCenterCandidates(sheet: TechnicalSheetRecord, consumerCenter: StockCenterRecord) {
+    const allowedCompanyIds = new Set(getCompanyLinkScopeIds(consumerCenter.companyId))
+    const producerCenterIds = new Set((sheet.productionCenters ?? []).map((assignment) => assignment.stockCenterId))
+    return stockCenters
+      .filter(
+        (center) =>
+          center.isActive &&
+          producerCenterIds.has(center.id) &&
+          allowedCompanyIds.has(center.companyId) &&
+          isTechnicalSheetVisibleForCompany(sheet, center.companyId),
+      )
+      .sort((left, right) => {
+        if (left.companyId !== right.companyId) {
+          return getCompanyTradeName(left.companyId).localeCompare(getCompanyTradeName(right.companyId), 'pt-BR')
+        }
+        return left.name.localeCompare(right.name, 'pt-BR')
+      })
+  }
+  function resolveTechnicalSheetSupplyRoute(sheet: TechnicalSheetRecord, consumerCenter: StockCenterRecord) {
+    const producerCandidates = getTechnicalSheetProducerCenterCandidates(sheet, consumerCenter)
+    const explicitRoute = getTechnicalSheetSupplyRoutes(sheet).find((route) => route.consumerCenterId === consumerCenter.id) ?? null
+    const explicitSupplierCenter =
+      explicitRoute
+        ? producerCandidates.find(
+            (center) => center.id === explicitRoute.supplierCenterId && center.id !== consumerCenter.id,
+          ) ?? null
+        : null
+
+    if (explicitSupplierCenter) {
+      return {
+        status: 'resolved' as const,
+        supplierCenter: explicitSupplierCenter,
+        producerCandidates,
+        resolutionSource: 'route' as const,
+      }
+    }
+
+    const internalCandidates = producerCandidates.filter(
+      (center) => center.companyId === consumerCenter.companyId && center.id !== consumerCenter.id,
+    )
+    if (internalCandidates.length === 1) {
+      return {
+        status: 'resolved' as const,
+        supplierCenter: internalCandidates[0],
+        producerCandidates,
+        resolutionSource: 'internal' as const,
+      }
+    }
+    if (internalCandidates.length > 1) {
+      return {
+        status: 'ambiguous' as const,
+        supplierCenter: null,
+        producerCandidates: internalCandidates,
+        resolutionSource: 'internal' as const,
+      }
+    }
+
+    const externalCandidates = producerCandidates.filter((center) => center.companyId !== consumerCenter.companyId)
+    if (externalCandidates.length === 1) {
+      return {
+        status: 'resolved' as const,
+        supplierCenter: externalCandidates[0],
+        producerCandidates,
+        resolutionSource: 'external' as const,
+      }
+    }
+    if (externalCandidates.length > 1) {
+      return {
+        status: 'ambiguous' as const,
+        supplierCenter: null,
+        producerCandidates: externalCandidates,
+        resolutionSource: 'external' as const,
+      }
+    }
+
+    return {
+      status: 'missing' as const,
+      supplierCenter: null,
+      producerCandidates,
+      resolutionSource: 'none' as const,
+    }
+  }
+  function getTechnicalSheetExternalUseMinimumQuantityForCenter(
+    sheet: TechnicalSheetRecord,
+    supplierCenter: StockCenterRecord,
+  ) {
+    const supplierIsProducer = (sheet.productionCenters ?? []).some(
+      (assignment) => assignment.stockCenterId === supplierCenter.id,
+    )
+    if (!supplierIsProducer) {
+      return 0
+    }
+
+    return stockCenters.reduce((sum, consumerCenter) => {
+      if (!consumerCenter.isActive || consumerCenter.id === supplierCenter.id) {
+        return sum
+      }
+      if (!isTechnicalSheetVisibleForCompany(sheet, consumerCenter.companyId)) {
+        return sum
+      }
+
+      const configuredMinimum =
+        parseDecimal(
+          findStockCenterMinimumQuantity(consumerCenter.minimumStocks, {
+            kind: 'PREPARO',
+            technicalSheetId: sheet.id,
+            productId: '',
+            serviceItemId: '',
+            packageId: null,
+          }),
+        ) ?? 0
+      if (configuredMinimum <= 0) {
+        return sum
+      }
+
+      const supplyResolution = resolveTechnicalSheetSupplyRoute(sheet, consumerCenter)
+      if (supplyResolution.status !== 'resolved' || supplyResolution.supplierCenter?.id !== supplierCenter.id) {
+        return sum
+      }
+
+      return sum + configuredMinimum * getStockCenterBaseQuantity(sheet)
+    }, 0)
+  }
+  function buildPendingRequisitionDemandBySheetIdForSupplierCenter(supplierCenter: StockCenterRecord) {
+    const pendingDemandBySheetId = new Map<number, number>()
+    requisitions
+      .filter(
+        (record) =>
+          record.supplyCenterId === supplierCenter.id &&
+          (record.status === 'SENT_TO_SUPPLIES' || record.status === 'READY_TO_RECEIVE'),
+      )
+      .forEach((record) => {
+        record.lines.forEach((line) => {
+          if (line.kind !== 'PREPARO' || typeof line.technicalSheetId !== 'number') {
+            return
+          }
+          pendingDemandBySheetId.set(
+            line.technicalSheetId,
+            (pendingDemandBySheetId.get(line.technicalSheetId) ?? 0) + (parseDecimal(line.requestedQuantity) ?? 0),
+          )
+        })
+      })
+    return pendingDemandBySheetId
+  }
   function getUserMembershipForCompany(user: AppUserRecord, companyId: number | null) {
     if (companyId === null) {
       return null
@@ -3910,6 +4111,9 @@ export default function App() {
   }
   function getCompanyTradeName(companyId: number) {
     return companies.find((item) => item.id === companyId)?.tradeName ?? `EMPRESA ${companyId}`
+  }
+  function getRequisitionRequestingCenterDisplayLabelForUi(record: RequisitionRecord) {
+    return `${record.stockCenterName} • ${getCompanyTradeName(record.companyId)}`
   }
   function buildCompanySelectionLabel(company: CompanyRecord) {
     return `${company.tradeName} (${company.city}/${company.state || 'UF'})`
@@ -4472,59 +4676,12 @@ export default function App() {
     )
     const externalUseMinimumBySheetId = new Map<number, number>()
     producedSheets.forEach((sheet) => {
-      const selectedCenterIsProducer = (sheet.productionCenters ?? []).some(
-        (assignment) => assignment.stockCenterId === selectedProductionCenter.id,
+      externalUseMinimumBySheetId.set(
+        sheet.id,
+        getTechnicalSheetExternalUseMinimumQuantityForCenter(sheet, selectedProductionCenter),
       )
-      if (!selectedCenterIsProducer) {
-        externalUseMinimumBySheetId.set(sheet.id, 0)
-        return
-      }
-
-      const totalExternalUseMinimum = stockCenters.reduce((sum, center) => {
-        if (
-          center.companyId !== currentCompanyId ||
-          !center.isActive ||
-          center.id === selectedProductionCenter.id ||
-          center.producedTechnicalSheetIds.includes(sheet.id)
-        ) {
-          return sum
-        }
-
-        const configuredMinimum =
-          parseDecimal(
-            findStockCenterMinimumQuantity(center.minimumStocks, {
-              kind: 'PREPARO',
-              technicalSheetId: sheet.id,
-              productId: '',
-              serviceItemId: '',
-              packageId: null,
-            }),
-          ) ?? 0
-
-        return sum + configuredMinimum * getStockCenterBaseQuantity(sheet)
-      }, 0)
-
-      externalUseMinimumBySheetId.set(sheet.id, totalExternalUseMinimum)
     })
-    const pendingSupplyDemandBySheetId = new Map<number, number>()
-    requisitions
-      .filter(
-        (record) =>
-          record.companyId === currentCompanyId &&
-          (record.status === 'SENT_TO_SUPPLIES' || record.status === 'READY_TO_RECEIVE') &&
-          record.supplyCenterId === selectedProductionCenter.id,
-      )
-      .forEach((record) => {
-        record.lines.forEach((line) => {
-          if (line.kind !== 'PREPARO' || typeof line.technicalSheetId !== 'number') {
-            return
-          }
-          pendingSupplyDemandBySheetId.set(
-            line.technicalSheetId,
-            (pendingSupplyDemandBySheetId.get(line.technicalSheetId) ?? 0) + (parseDecimal(line.requestedQuantity) ?? 0),
-          )
-        })
-      })
+    const pendingSupplyDemandBySheetId = buildPendingRequisitionDemandBySheetIdForSupplierCenter(selectedProductionCenter)
     producedSheets.forEach((sheet) => {
       currentQuantityBySheetId.set(
         sheet.id,
@@ -6189,7 +6346,10 @@ export default function App() {
     }
   }, [stockPositionReportScope])
   useEffect(() => {
-    setStockReportSelectedCenters((current) => current.filter((centerName) => stockReportCenterSuggestions.includes(centerName)))
+    setStockReportSelectedCenters((current) => {
+      const nextSelectedCenters = current.filter((centerName) => stockReportCenterSuggestions.includes(centerName))
+      return nextSelectedCenters.join('|') === current.join('|') ? current : nextSelectedCenters
+    })
   }, [stockReportCenterSuggestions])
   const inventoryAggregationMetadataByKey = useMemo(() => {
     const metadata = new Map<string, StockReportAggregationMetadata>()
@@ -6410,13 +6570,22 @@ export default function App() {
   )
   const visibleSupplyRequisitions = useMemo(
     () =>
-      companyRequisitions.filter(
-        (record) =>
-          record.supplyCenterId !== null &&
-          (record.status === 'SENT_TO_SUPPLIES' || record.status === 'READY_TO_RECEIVE') &&
-          (isSystemAdmin || supplyResponsibleCenters.some((center) => center.id === record.supplyCenterId)),
-      ),
-    [companyRequisitions, isSystemAdmin, supplyResponsibleCenters],
+      requisitions
+        .filter((record) => {
+          if (record.supplyCenterId === null) {
+            return false
+          }
+          if (record.status !== 'SENT_TO_SUPPLIES' && record.status !== 'READY_TO_RECEIVE') {
+            return false
+          }
+          const supplierCenter = stockCenters.find((center) => center.id === record.supplyCenterId) ?? null
+          if (!supplierCenter || supplierCenter.companyId !== currentCompanyId) {
+            return false
+          }
+          return isSystemAdmin || supplyResponsibleCenters.some((center) => center.id === record.supplyCenterId)
+        })
+        .sort((left, right) => right.createdAt.localeCompare(left.createdAt)),
+    [currentCompanyId, isSystemAdmin, requisitions, stockCenters, supplyResponsibleCenters],
   )
   const visibleReceiveRequisitions = useMemo(
     () =>
@@ -7137,6 +7306,55 @@ export default function App() {
         )
         .sort((a, b) => a.name.localeCompare(b.name, 'pt-BR')),
     [currentCompanyId, isProductVisibleForCompany, products],
+  )
+  const stockCenterDistributableProductSuggestions = useMemo(
+    () => inventoryCountableProducts.map((product) => `${product.name} (${product.id})`),
+    [inventoryCountableProducts],
+  )
+  const stockCenterDistributableProductIdByLabel = useMemo(
+    () =>
+      new Map(
+        inventoryCountableProducts.map((product) => [normalizeRegistrationText(`${product.name} (${product.id})`), product.id] as const),
+      ),
+    [inventoryCountableProducts],
+  )
+  const stockCenterSelectedDistributedProductLabels = useMemo(
+    () =>
+      stockCenterForm.distributedProductIds
+        .map((productId) => {
+          const product = inventoryCountableProducts.find((candidate) => candidate.id === productId) ?? null
+          return product ? `${product.name} (${product.id})` : null
+        })
+        .filter((value): value is string => Boolean(value)),
+    [inventoryCountableProducts, stockCenterForm.distributedProductIds],
+  )
+  const stockCenterSuppliableCenters = useMemo(
+    () =>
+      stockCenters
+        .filter((center) => center.companyId === currentCompanyId && center.isActive && center.id !== editingStockCenterId)
+        .sort((a, b) => a.name.localeCompare(b.name, 'pt-BR')),
+    [currentCompanyId, editingStockCenterId, stockCenters],
+  )
+  const stockCenterSuppliedCenterSuggestions = useMemo(
+    () => stockCenterSuppliableCenters.map((center) => `${center.name} (${center.code})`),
+    [stockCenterSuppliableCenters],
+  )
+  const stockCenterSuppliedCenterIdByLabel = useMemo(
+    () =>
+      new Map(
+        stockCenterSuppliableCenters.map((center) => [normalizeRegistrationText(`${center.name} (${center.code})`), center.id] as const),
+      ),
+    [stockCenterSuppliableCenters],
+  )
+  const stockCenterSelectedSuppliedCenterLabels = useMemo(
+    () =>
+      stockCenterForm.suppliedCenterIds
+        .map((centerId) => {
+          const center = stockCenterSuppliableCenters.find((candidate) => candidate.id === Number(centerId)) ?? null
+          return center ? `${center.name} (${center.code})` : null
+        })
+        .filter((value): value is string => Boolean(value)),
+    [stockCenterForm.suppliedCenterIds, stockCenterSuppliableCenters],
   )
   const inventoryCountableServiceItems = useMemo(
     () =>
@@ -7946,6 +8164,36 @@ export default function App() {
         .filter((value): value is string => Boolean(value)),
     [activeProducerStockCenters, technicalSheetForm.productionCenters],
   )
+  const technicalSheetSupplyRouteConsumerCenters = useMemo(
+    () =>
+      stockCenters
+        .filter(
+          (center) =>
+            center.isActive &&
+            (center.companyId === currentCompanyId ||
+              (technicalSheetForm.kind === 'PREPARO' && technicalSheetForm.sharedCompanyIds.includes(center.companyId))),
+        )
+        .sort((left, right) => {
+          if (left.companyId !== right.companyId) {
+            return getCompanyTradeName(left.companyId).localeCompare(getCompanyTradeName(right.companyId), 'pt-BR')
+          }
+          return left.name.localeCompare(right.name, 'pt-BR')
+        }),
+    [currentCompanyId, stockCenters, technicalSheetForm.kind, technicalSheetForm.sharedCompanyIds],
+  )
+  const technicalSheetSupplyRouteSupplierCenters = useMemo(
+    () =>
+      (technicalSheetForm.productionCenters ?? [])
+        .map((assignment) => stockCenters.find((center) => center.id === assignment.stockCenterId) ?? null)
+        .filter((center): center is StockCenterRecord => center !== null && center.isActive)
+        .sort((left, right) => {
+          if (left.companyId !== right.companyId) {
+            return getCompanyTradeName(left.companyId).localeCompare(getCompanyTradeName(right.companyId), 'pt-BR')
+          }
+          return left.name.localeCompare(right.name, 'pt-BR')
+        }),
+    [stockCenters, technicalSheetForm.productionCenters],
+  )
   const stockCenterMinimumRows = useMemo(
     () =>
       [
@@ -8110,13 +8358,21 @@ export default function App() {
             requestUnitLabel,
             currentUnitLabel: requestUnitLabel,
             minimumDefinitionLabel: '-',
-            destinationType: row.kind === 'PREPARO' ? 'PRODUCOES' : 'DISTRIBUICAO',
+            destinationType: row.kind === 'PREPARO' ? 'PRODUCOES' : 'SUPRIMENTOS',
             destinationLabel:
               row.kind === 'PREPARO'
                 ? manualSupplyTargetCenter?.name ?? ''
-                : 'ESTOQUE CENTRAL DE DISTRIBUICAO',
+                : manualSupplyTargetCenter?.name ?? '',
             destinationCenterId: row.kind === 'PREPARO' ? manualSupplyTargetCenter?.id ?? null : null,
             destinationCenterName: row.kind === 'PREPARO' ? manualSupplyTargetCenter?.name ?? '' : '',
+            supplierCenterId: row.kind === 'PRODUTO' || row.kind === 'ITEM' ? manualSupplySourceCenter?.id ?? null : null,
+            supplierCenterName: row.kind === 'PRODUTO' || row.kind === 'ITEM' ? manualSupplySourceCenter?.name ?? '' : '',
+            supplierCompanyId:
+              row.kind === 'PRODUTO' || row.kind === 'ITEM' ? manualSupplySourceCenter?.companyId ?? null : null,
+            supplierCompanyName:
+              (row.kind === 'PRODUTO' || row.kind === 'ITEM') && manualSupplySourceCenter
+                ? getCompanyTradeName(manualSupplySourceCenter.companyId)
+                : '',
           }
 
           return {
@@ -8557,58 +8813,13 @@ export default function App() {
 
         const externalUseMinimumBySheetId = new Map<number, number>()
         producedSheets.forEach((sheet) => {
-          const centerProducesSheet = (sheet.productionCenters ?? []).some((assignment) => assignment.stockCenterId === center.id)
-          if (!centerProducesSheet) {
-            externalUseMinimumBySheetId.set(sheet.id, 0)
-            return
-          }
-
-          const totalExternalUseMinimum = stockCenters.reduce((sum, consumerCenter) => {
-            if (
-              consumerCenter.companyId !== currentCompanyId ||
-              !consumerCenter.isActive ||
-              consumerCenter.id === center.id ||
-              consumerCenter.producedTechnicalSheetIds.includes(sheet.id)
-            ) {
-              return sum
-            }
-
-            const configuredMinimum =
-              parseDecimal(
-                findStockCenterMinimumQuantity(consumerCenter.minimumStocks, {
-                  kind: 'PREPARO',
-                  technicalSheetId: sheet.id,
-                  productId: '',
-                  serviceItemId: '',
-                  packageId: null,
-                }),
-              ) ?? 0
-
-            return sum + configuredMinimum * getStockCenterBaseQuantity(sheet)
-          }, 0)
-
-          externalUseMinimumBySheetId.set(sheet.id, totalExternalUseMinimum)
+          externalUseMinimumBySheetId.set(
+            sheet.id,
+            getTechnicalSheetExternalUseMinimumQuantityForCenter(sheet, center),
+          )
         })
 
-        const pendingSupplyDemandBySheetId = new Map<number, number>()
-        requisitions
-          .filter(
-            (record) =>
-              record.companyId === currentCompanyId &&
-              (record.status === 'SENT_TO_SUPPLIES' || record.status === 'READY_TO_RECEIVE') &&
-              record.supplyCenterId === center.id,
-          )
-          .forEach((record) => {
-            record.lines.forEach((line) => {
-              if (line.kind !== 'PREPARO' || typeof line.technicalSheetId !== 'number') {
-                return
-              }
-              pendingSupplyDemandBySheetId.set(
-                line.technicalSheetId,
-                (pendingSupplyDemandBySheetId.get(line.technicalSheetId) ?? 0) + (parseDecimal(line.requestedQuantity) ?? 0),
-              )
-            })
-          })
+        const pendingSupplyDemandBySheetId = buildPendingRequisitionDemandBySheetIdForSupplierCenter(center)
 
         producedSheets.forEach((sheet) => {
           currentQuantityBySheetId.set(
@@ -10350,9 +10561,16 @@ export default function App() {
                 center.producedTechnicalSheetIds.includes(sheet.id),
             )
             .flatMap((sheet) =>
-              reportEligibleStockCenters
-                .filter((consumerCenter) => consumerCenter.id !== center.id && !consumerCenter.producedTechnicalSheetIds.includes(sheet.id))
+              stockCenters
+                .filter((consumerCenter) => consumerCenter.isActive && consumerCenter.id !== center.id)
                 .map((consumerCenter) => {
+                  if (!isTechnicalSheetVisibleForCompany(sheet, consumerCenter.companyId)) {
+                    return null
+                  }
+                  const supplyResolution = resolveTechnicalSheetSupplyRoute(sheet, consumerCenter)
+                  if (supplyResolution.status !== 'resolved' || supplyResolution.supplierCenter?.id !== center.id) {
+                    return null
+                  }
                   const configuredMinimum =
                     parseDecimal(
                       findStockCenterMinimumQuantity(consumerCenter.minimumStocks, {
@@ -10372,7 +10590,7 @@ export default function App() {
                   return {
                     id: `coverage-${center.id}-${consumerCenter.id}-${sheet.id}`,
                     main: sheet.name,
-                    secondary: consumerCenter.name,
+                    secondary: `${consumerCenter.name} • ${getCompanyTradeName(consumerCenter.companyId)}`,
                     internalId: sheet.productId,
                     companyId: sheet.companyProductId,
                     packageId: '',
@@ -10380,7 +10598,10 @@ export default function App() {
                     family: sheet.family,
                     center: center.name,
                     date: '',
-                    status: 'Abastece outro centro',
+                    status:
+                      consumerCenter.companyId === center.companyId
+                        ? 'Abastece outro centro'
+                        : 'Abastece outra empresa',
                     quantity: formatDecimal(minimumQuantity),
                     unitCost: formatCurrencyLabel(
                       stockUnitCostByAggregationKey.get(
@@ -10434,7 +10655,7 @@ export default function App() {
             ),
         )
         .sort((a, b) => a.center.localeCompare(b.center, 'pt-BR') || a.secondary.localeCompare(b.secondary, 'pt-BR') || a.main.localeCompare(b.main, 'pt-BR')),
-    [currentCompanyId, reportEligibleStockCenters, stockUnitCostByAggregationKey, technicalSheets],
+    [currentCompanyId, isTechnicalSheetVisibleForCompany, reportEligibleStockCenters, stockCenters, stockUnitCostByAggregationKey, technicalSheets],
   )
   const stockCommittedReportRows = useMemo(() => {
     const rows: StockReportRow[] = []
@@ -10740,14 +10961,14 @@ export default function App() {
   )
   const currentCompanyTechnicalSheetSettings = useMemo(() => {
     if (currentCompanyId === null) {
-      return buildDefaultTechnicalSheetFormSettings()
+      return defaultTechnicalSheetFormSettings
     }
 
     return (
       technicalSheetSettingsRecords.find((item) => item.companyId === currentCompanyId)?.settings ??
-      buildDefaultTechnicalSheetFormSettings()
+      defaultTechnicalSheetFormSettings
     )
-  }, [currentCompanyId, technicalSheetSettingsRecords])
+  }, [currentCompanyId, defaultTechnicalSheetFormSettings, technicalSheetSettingsRecords])
   const technicalSheetConfigurationFieldsForTab = useMemo(
     () =>
       technicalSheetConfigurationFieldDefinitions.filter((definition) =>
@@ -13353,7 +13574,11 @@ export default function App() {
   }, [isRemoteAppStateReady])
 
   useEffect(() => {
-    setTechnicalSheetSettingsDraft(currentCompanyTechnicalSheetSettings)
+    setTechnicalSheetSettingsDraft((current) =>
+      JSON.stringify(current) === JSON.stringify(currentCompanyTechnicalSheetSettings)
+        ? current
+        : currentCompanyTechnicalSheetSettings,
+    )
   }, [currentCompanyTechnicalSheetSettings])
 
   useEffect(() => {
@@ -13495,7 +13720,7 @@ export default function App() {
         }
       })
       const primaryMembership = nextMemberships[0] ?? null
-      return {
+      const nextForm = {
         ...current,
         role: primaryMembership?.role ?? current.role,
         accessProfileId: primaryMembership?.accessProfileId ?? '',
@@ -13504,6 +13729,14 @@ export default function App() {
         catalogAccess: primaryMembership?.catalogAccess ?? current.catalogAccess,
         memberships: nextMemberships,
       }
+      const hasChanged =
+        nextForm.role !== current.role ||
+        nextForm.accessProfileId !== current.accessProfileId ||
+        nextForm.sectors.join('|') !== current.sectors.join('|') ||
+        JSON.stringify(nextForm.sectionAccess) !== JSON.stringify(current.sectionAccess) ||
+        JSON.stringify(nextForm.catalogAccess) !== JSON.stringify(current.catalogAccess) ||
+        JSON.stringify(nextForm.memberships) !== JSON.stringify(current.memberships)
+      return hasChanged ? nextForm : current
     })
   }, [assignableAccessProfilesByCompanyId, editingUserId, singleAllowedUserSector])
 
@@ -14150,6 +14383,8 @@ export default function App() {
     setTechnicalSheetSectorInput(draft.sectorInput)
     setTechnicalSheetSharedCompanyInput(draft.sharedCompanyInput)
     setTechnicalSheetProductionCenterInput(draft.productionCenterInput)
+    setTechnicalSheetSupplyRouteConsumerCenterId('')
+    setTechnicalSheetSupplyRouteSupplierCenterId('')
     setTechnicalSheetIngredients(nextIngredients)
     setEditingTechnicalSheetIngredientId(draft.editingIngredientId)
     setTechnicalSheetGarnishIngredients(nextGarnishIngredients)
@@ -14258,6 +14493,8 @@ export default function App() {
     setTechnicalSheetOutputQuantityMode('auto')
     setEditingTechnicalSheetId(null)
     setTechnicalSheetForm(nextForm)
+    setTechnicalSheetSupplyRouteConsumerCenterId('')
+    setTechnicalSheetSupplyRouteSupplierCenterId('')
     setTechnicalSheetIngredients([nextIngredient])
     setEditingTechnicalSheetIngredientId(nextIngredient.id)
     setTechnicalSheetGarnishIngredients([nextGarnishIngredient])
@@ -14339,6 +14576,8 @@ export default function App() {
     setTechnicalSheetSectorInput('')
     setTechnicalSheetSharedCompanyInput('')
     setTechnicalSheetProductionCenterInput('')
+    setTechnicalSheetSupplyRouteConsumerCenterId('')
+    setTechnicalSheetSupplyRouteSupplierCenterId('')
     setTechnicalSheetIngredients([nextIngredient])
     setEditingTechnicalSheetIngredientId(nextIngredient.id)
     setTechnicalSheetGarnishIngredients([nextGarnishIngredient])
@@ -15278,6 +15517,8 @@ export default function App() {
     setStockCenterUserInput('')
     setStockCenterResponsibleInput('')
     setStockCenterProducedSheetInput('')
+    setStockCenterDistributedProductInput('')
+    setStockCenterSuppliedCenterInput('')
     setStockCenterDraftBeforeEdit(null)
   }
 
@@ -16154,6 +16395,8 @@ export default function App() {
       form: {
         ...stockCenterForm,
         userIds: [...stockCenterForm.userIds],
+        distributedProductIds: [...stockCenterForm.distributedProductIds],
+        suppliedCenterIds: [...stockCenterForm.suppliedCenterIds],
         minimumStocks: stockCenterForm.minimumStocks.map((item) => ({ ...item })),
         salesImportSettings: { ...stockCenterForm.salesImportSettings },
       },
@@ -16168,6 +16411,10 @@ export default function App() {
       responsibleUserIds: targetStockCenter.responsibleUserIds.map((userId) => String(userId)),
       isProducer: targetStockCenter.isProducer,
       producedTechnicalSheetIds: targetStockCenter.producedTechnicalSheetIds.map((sheetId) => String(sheetId)),
+      isDistributor: targetStockCenter.isDistributor,
+      distributesAllProducts: targetStockCenter.distributesAllProducts,
+      distributedProductIds: [...targetStockCenter.distributedProductIds],
+      suppliedCenterIds: targetStockCenter.suppliedCenterIds.map((centerId) => String(centerId)),
       minimumStocks: targetStockCenter.minimumStocks,
       salesImportSettings: { ...targetStockCenter.salesImportSettings },
     })
@@ -16175,6 +16422,8 @@ export default function App() {
     setStockCenterUserInput('')
     setStockCenterResponsibleInput('')
     setStockCenterProducedSheetInput('')
+    setStockCenterDistributedProductInput('')
+    setStockCenterSuppliedCenterInput('')
     setIsStockCenterModalOpen(true)
   }
 
@@ -16242,6 +16491,34 @@ export default function App() {
         Number.isFinite(sheetId) &&
         producerTechnicalSheets.some((sheet) => sheet.id === sheetId),
     )
+    const validDistributedProductIds = Array.from(new Set(stockCenterForm.distributedProductIds)).filter((productId) =>
+      inventoryCountableProducts.some((product) => product.id === productId),
+    )
+    const validSuppliedCenterIds = Array.from(new Set(stockCenterForm.suppliedCenterIds.map((value) => Number(value)))).filter(
+      (centerId) =>
+        Number.isFinite(centerId) &&
+        stockCenters.some(
+          (center) => center.companyId === currentCompanyId && center.isActive && center.id === centerId && center.id !== editingStockCenterId,
+        ),
+    )
+
+    if (stockCenterForm.isDistributor && validSuppliedCenterIds.length === 0) {
+      setSaveFeedback({
+        status: 'error',
+        title: 'Centro distribuidor incompleto',
+        message: 'Selecione ao menos um centro abastecido por este distribuidor.',
+      })
+      return
+    }
+
+    if (stockCenterForm.isDistributor && !stockCenterForm.distributesAllProducts && validDistributedProductIds.length === 0) {
+      setSaveFeedback({
+        status: 'error',
+        title: 'Centro distribuidor incompleto',
+        message: 'Selecione ao menos um produto ou marque que este centro distribui todos os produtos.',
+      })
+      return
+    }
 
     const normalizedCode = normalizeRegistrationText(generatedStockCenterCode)
 
@@ -16255,6 +16532,11 @@ export default function App() {
       responsibleUserIds,
       isProducer: stockCenterForm.isProducer,
       producedTechnicalSheetIds: stockCenterForm.isProducer ? validProducedTechnicalSheetIds : [],
+      isDistributor: stockCenterForm.isDistributor,
+      distributesAllProducts: stockCenterForm.isDistributor ? stockCenterForm.distributesAllProducts : false,
+      distributedProductIds:
+        stockCenterForm.isDistributor && !stockCenterForm.distributesAllProducts ? validDistributedProductIds : [],
+      suppliedCenterIds: stockCenterForm.isDistributor ? validSuppliedCenterIds : [],
       minimumStocks: stockCenterForm.minimumStocks
         .filter((item) => item.minimumQuantity.trim() !== '')
         .map((item) => ({
@@ -16309,6 +16591,8 @@ export default function App() {
       setStockCenterUserInput('')
       setStockCenterResponsibleInput('')
       setStockCenterProducedSheetInput('')
+      setStockCenterDistributedProductInput('')
+      setStockCenterSuppliedCenterInput('')
       setStockCenterMinimumSearch('')
     } else {
       setIsStockCenterModalOpen(false)
@@ -16318,6 +16602,8 @@ export default function App() {
       setStockCenterUserInput('')
       setStockCenterResponsibleInput('')
       setStockCenterProducedSheetInput('')
+      setStockCenterDistributedProductInput('')
+      setStockCenterSuppliedCenterInput('')
       setStockCenterDraftBeforeEdit(null)
     }
     setSaveFeedback({
@@ -16369,20 +16655,44 @@ export default function App() {
           ) ?? 0
         const shortageBaseQuantity = Math.max(requiredBaseQuantity - currentBaseQuantity, 0)
         const suggestedQuantity = row.baseQuantity > 0 ? shortageBaseQuantity / row.baseQuantity : 0
-        const destinationType = row.kind === 'PREPARO' ? 'PRODUCOES' : 'DISTRIBUICAO'
-        const producerAssignments =
+        const distributorCenter = findDistributorCenterForRequisitionLine(center, {
+          kind: row.kind,
+          productId: row.productId,
+        })
+        const targetPreparationSheet =
           row.kind === 'PREPARO' && row.technicalSheetId !== null
-            ? (
-                technicalSheets.find((sheet) => sheet.id === row.technicalSheetId && sheet.kind === 'PREPARO')?.productionCenters ??
-                []
-              )
-                .filter((assignment) => assignment.stockCenterId !== center.id)
-            : []
-        const producerCenters = producerAssignments
-          .map((assignment) => stockCenters.find((candidateCenter) => candidateCenter.id === assignment.stockCenterId)?.name ?? null)
-          .filter((value): value is string => Boolean(value))
-        const destinationCenterId = destinationType === 'PRODUCOES' && producerAssignments.length === 1 ? producerAssignments[0].stockCenterId : null
-        const destinationCenterName = destinationType === 'PRODUCOES' && producerCenters.length === 1 ? producerCenters[0] : ''
+            ? technicalSheets.find((sheet) => sheet.id === row.technicalSheetId && sheet.kind === 'PREPARO') ?? null
+            : null
+        const preparationSupplyResolution =
+          row.kind === 'PREPARO' && targetPreparationSheet
+            ? resolveTechnicalSheetSupplyRoute(targetPreparationSheet, center)
+            : null
+        const destinationType =
+          row.kind === 'PREPARO'
+            ? 'PRODUCOES'
+            : distributorCenter
+              ? 'SUPRIMENTOS'
+              : 'COMPRAS'
+        const producerCandidates = preparationSupplyResolution?.producerCandidates ?? []
+        const producerCenters = producerCandidates.map(
+          (candidateCenter) => `${candidateCenter.name} • ${getCompanyTradeName(candidateCenter.companyId)}`,
+        )
+        const resolvedProducerCenter =
+          destinationType === 'PRODUCOES' && preparationSupplyResolution?.status === 'resolved'
+            ? preparationSupplyResolution.supplierCenter
+            : null
+        const destinationCenterId = destinationType === 'PRODUCOES' ? resolvedProducerCenter?.id ?? null : null
+        const destinationCenterName = destinationType === 'PRODUCOES' ? resolvedProducerCenter?.name ?? '' : ''
+        const supplierCenterId = destinationType === 'SUPRIMENTOS' ? distributorCenter?.id ?? null : null
+        const supplierCenterName = destinationType === 'SUPRIMENTOS' ? distributorCenter?.name ?? '' : ''
+        const supplierCompanyId =
+          destinationType === 'SUPRIMENTOS'
+            ? distributorCenter?.companyId ?? null
+            : destinationType === 'PRODUCOES'
+              ? resolvedProducerCenter?.companyId ?? null
+              : null
+        const supplierCompanyName =
+          supplierCompanyId !== null ? getCompanyTradeName(supplierCompanyId) : ''
 
         return {
           key: row.key,
@@ -16403,12 +16713,24 @@ export default function App() {
           destinationType,
           destinationCenterId,
           destinationCenterName,
+          supplierCenterId,
+          supplierCenterName,
+          supplierCompanyId,
+          supplierCompanyName,
           destinationLabel:
             destinationType === 'PRODUCOES'
-              ? producerCenters.length > 0
-                ? `CENTRO(S) PRODUTOR(ES): ${producerCenters.join(', ')}`
-                : 'CENTRO PRODUTOR NAO DEFINIDO'
-              : 'ESTOQUE CENTRAL DE DISTRIBUICAO',
+              ? preparationSupplyResolution?.status === 'resolved' && resolvedProducerCenter
+                ? `CENTRO PRODUTOR: ${resolvedProducerCenter.name} • ${getCompanyTradeName(resolvedProducerCenter.companyId)}`
+                : preparationSupplyResolution?.status === 'ambiguous'
+                  ? `ESCOLHA ROTA DE ABASTECIMENTO: ${producerCenters.join(', ')}`
+                  : producerCenters.length > 0
+                    ? `CENTRO(S) PRODUTOR(ES): ${producerCenters.join(', ')}`
+                    : 'CENTRO PRODUTOR NAO DEFINIDO'
+              : destinationType === 'SUPRIMENTOS'
+                ? supplierCenterName
+                  ? `CENTRO DISTRIBUIDOR: ${supplierCenterName}`
+                  : 'CENTRO DISTRIBUIDOR NAO DEFINIDO'
+                : 'COMPRAS',
           receiptStatus: 'PENDING',
         } satisfies RequisitionDraftLine
       })
@@ -16477,6 +16799,8 @@ export default function App() {
         stockCenterName: selectedRequisitionStockCenter.name,
         supplyCenterId: null,
         supplyCenterName: '',
+        supplyCompanyId: null,
+        supplyCompanyName: '',
         sector: selectedRequisitionStockCenter.sector,
         countedAt: requisitionReferenceDate,
         status: 'PENDING_APPROVAL',
@@ -16656,16 +16980,40 @@ export default function App() {
 
     return stockCenters.find(
       (center) =>
-        center.companyId === currentCompanyId &&
         center.isActive &&
         center.id === line.destinationCenterId,
     ) ?? null
   }
 
+  function findDistributorCenterForRequisitionLine(
+    requesterCenter: StockCenterRecord,
+    line: Pick<RequisitionLineRecord, 'kind' | 'productId'>,
+  ) {
+    if (line.kind !== 'PRODUTO') {
+      return null
+    }
+
+    return (
+      stockCenters
+        .filter(
+          (center) =>
+            center.companyId === requesterCenter.companyId &&
+            center.isActive &&
+            center.id !== requesterCenter.id &&
+            center.isDistributor &&
+            center.suppliedCenterIds.includes(requesterCenter.id) &&
+            (center.distributesAllProducts || center.distributedProductIds.includes(line.productId)),
+        )
+        .sort((a, b) => a.name.localeCompare(b.name, 'pt-BR'))[0] ?? null
+    )
+  }
+
   function buildSplitRequisitionsForSending(record: RequisitionRecord) {
     const productionLines = record.lines.filter((line) => line.destinationType === 'PRODUCOES')
-    const distributionLines = record.lines.filter((line) => line.destinationType === 'DISTRIBUICAO')
+    const supplyLines = record.lines.filter((line) => line.destinationType === 'SUPRIMENTOS')
+    const purchaseLines = record.lines.filter((line) => line.destinationType === 'COMPRAS')
     const unresolvedProductionLines = productionLines.filter((line) => getLineDestinationCenter(line) === null)
+    const unresolvedSupplyLines = supplyLines.filter((line) => line.supplierCenterId === null || typeof line.supplierCenterId !== 'number')
 
     if (unresolvedProductionLines.length > 0) {
       return {
@@ -16673,7 +17021,17 @@ export default function App() {
           .map((line) => line.itemName)
           .join(', ')}.`,
         requisitions: [] as RequisitionRecord[],
-        remainingDistributionLines: distributionLines,
+        remainingPurchaseLines: purchaseLines,
+      }
+    }
+
+    if (unresolvedSupplyLines.length > 0) {
+      return {
+        error: `Existem produtos sem centro distribuidor valido: ${unresolvedSupplyLines
+          .map((line) => line.itemName)
+          .join(', ')}.`,
+        requisitions: [] as RequisitionRecord[],
+        remainingPurchaseLines: purchaseLines,
       }
     }
 
@@ -16681,6 +17039,12 @@ export default function App() {
     productionLines.forEach((line) => {
       const centerId = line.destinationCenterId!
       linesByDestination.set(centerId, [...(linesByDestination.get(centerId) ?? []), line])
+    })
+    supplyLines.forEach((line) => {
+      if (line.supplierCenterId === null || typeof line.supplierCenterId !== 'number') {
+        return
+      }
+      linesByDestination.set(line.supplierCenterId, [...(linesByDestination.get(line.supplierCenterId) ?? []), line])
     })
 
     const now = new Date().toISOString()
@@ -16690,12 +17054,14 @@ export default function App() {
     ])
     const splitRequisitions = Array.from(linesByDestination.entries()).map(([centerId, lines], index) => {
       const center = stockCenters.find((item) => item.id === centerId) ?? null
-      const shouldReuseOriginalRecord = linesByDestination.size === 1 && distributionLines.length === 0
+      const shouldReuseOriginalRecord = linesByDestination.size === 1 && purchaseLines.length === 0
       return {
         ...record,
         id: shouldReuseOriginalRecord ? record.id : nextSplitRequisitionId + index,
         supplyCenterId: centerId,
         supplyCenterName: center?.name ?? '',
+        supplyCompanyId: center?.companyId ?? null,
+        supplyCompanyName: center ? getCompanyTradeName(center.companyId) : '',
         status: 'SENT_TO_SUPPLIES' as const,
         editScope: 'LINES_ONLY' as const,
         lines,
@@ -16711,7 +17077,7 @@ export default function App() {
     return {
       error: '',
       requisitions: splitRequisitions,
-      remainingDistributionLines: distributionLines,
+      remainingPurchaseLines: purchaseLines,
     }
   }
 
@@ -16783,11 +17149,11 @@ export default function App() {
       })
       return
     }
-    if (splitResult.requisitions.length === 0 && splitResult.remainingDistributionLines.length === 0) {
+    if (splitResult.requisitions.length === 0 && splitResult.remainingPurchaseLines.length === 0) {
       setSaveFeedback({
         status: 'error',
         title: 'Nenhum pre-preparo para enviar',
-        message: 'Esta requisicao nao possui pre-preparos com destino a centros produtores.',
+        message: 'Esta requisicao nao possui itens com destino a centros produtores, distribuidores ou compras.',
       })
       return
     }
@@ -16851,14 +17217,16 @@ export default function App() {
       const remainingRecords = current.filter((record) => record.id !== targetRequisition.id)
       const nextRecords = [...splitResult.requisitions]
 
-      if (splitResult.remainingDistributionLines.length > 0) {
+      if (splitResult.remainingPurchaseLines.length > 0) {
         nextRecords.push({
           ...targetRequisition,
-          lines: splitResult.remainingDistributionLines,
+          lines: splitResult.remainingPurchaseLines,
           status: 'READY_TO_RECEIVE',
           editScope: 'LINES_ONLY',
           supplyCenterId: null,
           supplyCenterName: '',
+          supplyCompanyId: null,
+          supplyCompanyName: '',
           sentAt: now,
           sentByUserId: currentAppUser?.id ?? null,
           sentByUserName: currentAppUser?.fullName ?? 'Administrador do sistema',
@@ -16877,17 +17245,17 @@ export default function App() {
     setSaveFeedback({
       status: 'success',
       title:
-        splitResult.requisitions.length > 0 && splitResult.remainingDistributionLines.length > 0
+        splitResult.requisitions.length > 0 && splitResult.remainingPurchaseLines.length > 0
           ? 'Requisicao desdobrada e enviada'
           : splitResult.requisitions.length > 0
             ? 'Requisicao enviada'
             : 'Requisicao enviada para receber',
       message:
-        splitResult.requisitions.length > 0 && splitResult.remainingDistributionLines.length > 0
-          ? 'Os pre-preparos foram enviados aos centros produtores e os itens de distribuicao permaneceram separados na requisicao.'
+        splitResult.requisitions.length > 0 && splitResult.remainingPurchaseLines.length > 0
+          ? 'Os itens internos foram enviados aos centros de suprimentos ou producao e os itens de compras seguiram direto para receber.'
           : splitResult.requisitions.length > 0
-            ? 'Os pre-preparos foram enviados automaticamente aos centros produtores correspondentes.'
-            : 'Os itens de distribuicao foram enviados diretamente para receber, enquanto a integracao com o estoque central de distribuicao nao existe.',
+            ? 'Os itens internos foram enviados automaticamente aos centros de suprimentos ou producao correspondentes.'
+            : 'Os itens de compras foram enviados diretamente para receber.',
     })
   }
 
@@ -17016,6 +17384,8 @@ export default function App() {
               editScope: 'FULL',
               supplyCenterId: null,
               supplyCenterName: '',
+              supplyCompanyId: null,
+              supplyCompanyName: '',
               approvedAt: '',
               approvedByUserId: null,
               approvedByUserName: '',
@@ -18580,6 +18950,12 @@ export default function App() {
       existingLine: RequisitionLineRecord | null,
       lineKey: string,
     ) => {
+      const requesterCenter =
+        stockCenters.find((center) => center.companyId === currentCompanyId && center.id === stockCenter.id) ?? null
+      const distributorCenter =
+        requesterCenter
+          ? findDistributorCenterForRequisitionLine(requesterCenter, { kind: 'PRODUTO', productId: linkedProduct.id })
+          : null
       const selectedPackage = linkedProduct.packages.find((item) => item.isActive) ?? null
       const packageQuantity =
         selectedPackage ? calculateNormalizedPackageQuantity(selectedPackage, linkedProduct.controlUnit) : 1
@@ -18605,10 +18981,14 @@ export default function App() {
           ? `${formatDecimal(parseDecimal(selectedPackage.packageQuantity) ?? 0)} ${formatUnit(selectedPackage.packageUnit)}`
           : formatControlUnitShort(linkedProduct.controlUnit),
         minimumDefinitionLabel: '-',
-        destinationType: 'DISTRIBUICAO',
+        destinationType: distributorCenter ? 'SUPRIMENTOS' : 'COMPRAS',
         destinationCenterId: null,
         destinationCenterName: '',
-        destinationLabel: 'ESTOQUE CENTRAL DE DISTRIBUICAO',
+        destinationLabel: distributorCenter ? `CENTRO DISTRIBUIDOR: ${distributorCenter.name}` : 'COMPRAS',
+        supplierCenterId: distributorCenter?.id ?? null,
+        supplierCenterName: distributorCenter?.name ?? '',
+        supplierCompanyId: distributorCenter?.companyId ?? null,
+        supplierCompanyName: distributorCenter ? getCompanyTradeName(distributorCenter.companyId) : '',
         receiptStatus: 'PENDING',
       })
     }
@@ -18812,6 +19192,8 @@ export default function App() {
         stockCenterName: manualProductionPreviewState.centerName,
         supplyCenterId: null,
         supplyCenterName: '',
+        supplyCompanyId: null,
+        supplyCompanyName: '',
         sector: stockCenters.find((center) => center.id === manualProductionPreviewState.centerId)?.sector ?? '',
         countedAt: getTodayDateInputValue(),
         status: 'PENDING_APPROVAL',
@@ -18942,6 +19324,8 @@ export default function App() {
       stockCenterName: manualSupplyTargetCenter.name,
       supplyCenterId: manualSupplySourceCenter.id,
       supplyCenterName: manualSupplySourceCenter.name,
+      supplyCompanyId: manualSupplySourceCenter.companyId,
+      supplyCompanyName: getCompanyTradeName(manualSupplySourceCenter.companyId),
       sector: manualSupplyTargetCenter.sector,
       countedAt: latestInventoryDateByCenterId.get(manualSupplySourceCenter.id) ?? getTodayDateInputValue(),
       status: 'SENT_TO_SUPPLIES',
@@ -19335,7 +19719,7 @@ export default function App() {
         ['Setor', requisition.sector],
         ['Data do ultimo inventario', formatDateForDisplay(requisition.countedAt)],
         ['Status', getRequisitionHistoryStatusLabel(requisition.status)],
-        ['Centro de suprimentos', requisition.supplyCenterName || '-'],
+        ['Centro de suprimentos', getRequisitionSupplyDisplayLabel(requisition)],
         [],
         ['Item', 'Tipo', 'Atual', 'Minimo', 'Sugestao', 'Solicitado', 'Destino'],
         ...requisition.lines.map((line) => [
@@ -19358,7 +19742,7 @@ export default function App() {
       doc.text(`Setor: ${requisition.sector}`, 14, 24)
       doc.text(`Data do ultimo inventario: ${formatDateForDisplay(requisition.countedAt)}`, 14, 30)
       doc.text(`Status: ${getRequisitionHistoryStatusLabel(requisition.status)}`, 14, 36)
-      doc.text(`Centro de suprimentos: ${requisition.supplyCenterName || '-'}`, 14, 42)
+      doc.text(`Centro de suprimentos: ${getRequisitionSupplyDisplayLabel(requisition)}`, 14, 42)
       autoTable(doc, {
         startY: 48,
         head: [['Item', 'Tipo', 'Atual', 'Minimo', 'Sugestao', 'Solicitado', 'Destino']],
@@ -19766,7 +20150,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
 
     const quantity = parseDecimal(quantityValue) ?? 0
     const config = getRequisitionEffectiveQuantityConfig(line)
-    return formatDecimal(quantity * config.multiplier)
+    return formatEditableDecimal(quantity * config.multiplier)
   }
 
   function convertEffectiveQuantityToRequestedQuantity(line: RequisitionLineRecord, effectiveQuantityValue: string) {
@@ -19784,7 +20168,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
       return effectiveQuantityValue
     }
 
-    return formatDecimal(effectiveQuantity / config.multiplier)
+    return formatEditableDecimal(effectiveQuantity / config.multiplier)
   }
 
   function getManualSupplyQuantityUnitLabel(line: RequisitionLineRecord) {
@@ -20050,8 +20434,8 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
     return (
       <div className="requisition-draft-shell">
         <div className="requisition-draft-overview">
-          <div className="pill requisition-overview-pill">Centro solicitante: {requisition.stockCenterName}</div>
-          <div className="pill requisition-overview-pill">Suprimentos: {requisition.supplyCenterName || '-'}</div>
+          <div className="pill requisition-overview-pill">Centro solicitante: {getRequisitionRequestingCenterDisplayLabelForUi(requisition)}</div>
+          <div className="pill requisition-overview-pill">Suprimentos: {getRequisitionSupplyDisplayLabel(requisition)}</div>
           <div className="pill requisition-overview-pill">Itens: {String(requisition.lines.length)}</div>
         </div>
         <label className="field search-field">
@@ -20279,6 +20663,87 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                     allowCreate={false}
                   />
                 </div>
+              ) : null}
+              <label className="checkbox-row field-span-all">
+                <input
+                  type="checkbox"
+                  checked={stockCenterForm.isDistributor}
+                  onChange={(event) =>
+                    setStockCenterForm((current) => ({
+                      ...current,
+                      isDistributor: event.target.checked,
+                      distributesAllProducts: event.target.checked ? current.distributesAllProducts : false,
+                      distributedProductIds: event.target.checked ? current.distributedProductIds : [],
+                      suppliedCenterIds: event.target.checked ? current.suppliedCenterIds : [],
+                    }))
+                  }
+                />
+                <span>DISTRIBUIDOR DE MATERIA-PRIMA</span>
+              </label>
+              {stockCenterForm.isDistributor ? (
+                <>
+                  <div className="field field-span-all">
+                    <span>Centros abastecidos por este distribuidor</span>
+                    <MultiSelectChips
+                      selectedValues={stockCenterSelectedSuppliedCenterLabels}
+                      suggestions={stockCenterSuppliedCenterSuggestions}
+                      inputValue={stockCenterSuppliedCenterInput}
+                      onInputChange={setStockCenterSuppliedCenterInput}
+                      onChange={(labels) =>
+                        setStockCenterForm((current) => ({
+                          ...current,
+                          suppliedCenterIds: labels
+                            .map((label) => stockCenterSuppliedCenterIdByLabel.get(normalizeRegistrationText(label)) ?? null)
+                            .filter((value): value is number => typeof value === 'number')
+                            .map((centerId) => String(centerId)),
+                        }))
+                      }
+                      placeholder="Busque e selecione os centros atendidos"
+                      allowCreate={false}
+                    />
+                  </div>
+                  <label className="checkbox-row field-span-all">
+                    <input
+                      type="checkbox"
+                      checked={stockCenterForm.distributesAllProducts}
+                      onChange={(event) =>
+                        setStockCenterForm((current) => ({
+                          ...current,
+                          distributesAllProducts: event.target.checked,
+                          distributedProductIds: event.target.checked ? [] : current.distributedProductIds,
+                        }))
+                      }
+                    />
+                    <span>Distribui todos os produtos da empresa para os centros selecionados.</span>
+                  </label>
+                  {!stockCenterForm.distributesAllProducts ? (
+                    <div className="field field-span-all">
+                      <span>Produtos distribuidos por este centro</span>
+                      <MultiSelectChips
+                        selectedValues={stockCenterSelectedDistributedProductLabels}
+                        suggestions={stockCenterDistributableProductSuggestions}
+                        inputValue={stockCenterDistributedProductInput}
+                        onInputChange={setStockCenterDistributedProductInput}
+                        onChange={(labels) =>
+                          setStockCenterForm((current) => ({
+                            ...current,
+                            distributedProductIds: labels
+                              .map((label) => stockCenterDistributableProductIdByLabel.get(normalizeRegistrationText(label)) ?? '')
+                              .filter(Boolean),
+                          }))
+                        }
+                        placeholder="Busque e selecione os produtos atendidos"
+                        allowCreate={false}
+                      />
+                    </div>
+                  ) : null}
+                  <div className="field field-span-all">
+                    <p className="helper-text">
+                      Produtos sem centro distribuidor configurado seguem automaticamente para Compras e continuam indo
+                      direto para a aba Receber.
+                    </p>
+                  </div>
+                </>
               ) : null}
             </>
           ) : (
@@ -22107,6 +22572,9 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
     setTechnicalSheetSectorInput('')
     setTechnicalSheetSharedCompanyInput('')
     setTechnicalSheetSharedCompanyInput('')
+    setTechnicalSheetProductionCenterInput('')
+    setTechnicalSheetSupplyRouteConsumerCenterId('')
+    setTechnicalSheetSupplyRouteSupplierCenterId('')
     setTechnicalSheetIngredients([nextIngredient])
     setEditingTechnicalSheetIngredientId(nextIngredient.id)
     setTechnicalSheetGarnishIngredients([nextGarnishIngredient])
@@ -22179,6 +22647,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
       shelfLifeRefrigerated: technicalSheet.shelfLifeRefrigerated,
       shelfLifeFrozen: technicalSheet.shelfLifeFrozen,
       productionCenters: technicalSheet.productionCenters ?? [],
+      supplyRoutes: getTechnicalSheetSupplyRoutes(technicalSheet),
     } satisfies TechnicalSheetFormState
     setActiveSection('FichasTecnicas')
     setTechnicalSheetScreenMode('form')
@@ -22191,6 +22660,8 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
     setTechnicalSheetSharedCompanyInput('')
     setTechnicalSheetSharedCompanyInput('')
     setTechnicalSheetForm(nextForm)
+    setTechnicalSheetSupplyRouteConsumerCenterId('')
+    setTechnicalSheetSupplyRouteSupplierCenterId('')
     const savedIngredients =
       technicalSheet.ingredients.length > 0
         ? technicalSheet.ingredients.map((ingredient) => ({
@@ -22382,6 +22853,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
       shelfLifeRefrigerated: sourceSheet.shelfLifeRefrigerated,
       shelfLifeFrozen: sourceSheet.shelfLifeFrozen,
       productionCenters: filteredProductionCenters,
+      supplyRoutes: [],
     } satisfies TechnicalSheetFormState
     const savedIngredients = sourceSheet.ingredients.map((ingredient) => ({
       ...ingredient,
@@ -22421,6 +22893,8 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
     setTechnicalSheetSharedCompanyInput('')
     setTechnicalSheetProductionCenterInput('')
     setTechnicalSheetForm(nextForm)
+    setTechnicalSheetSupplyRouteConsumerCenterId('')
+    setTechnicalSheetSupplyRouteSupplierCenterId('')
     setTechnicalSheetIngredients([...savedIngredients, nextIngredient])
     setEditingTechnicalSheetIngredientId(nextIngredient.id)
     setTechnicalSheetGarnishIngredients([...savedGarnishIngredients, nextGarnishIngredient])
@@ -22617,6 +23091,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
       name: newName,
       preparationLeadTimeDays: sourceSheet.kind === 'PREPARO' ? sourceSheet.preparationLeadTimeDays : '',
       productionCenters: willResetProductionCenters ? [] : sourceSheet.productionCenters,
+      supplyRoutes: [],
     }
     const baseTechnicalSheets = [nextCopiedTechnicalSheet, ...technicalSheets]
     const dependencyIdsToShare = new Set(
@@ -22815,7 +23290,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
         ...current,
         [field]:
           (field === 'preparationMode' || field === 'storytelling'
-            ? normalizeFreeText(String(value))
+            ? String(value)
             : normalizeRegistrationText(String(value))) as TechnicalSheetFormState[K],
       }))
       return
@@ -23321,6 +23796,30 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
               minimumQuantity: item.minimumQuantity.trim(),
             }))
         : []
+    const normalizedSupplyRoutes =
+      technicalSheetForm.kind === 'PREPARO'
+        ? Array.from(
+            new Map(
+              (technicalSheetForm.supplyRoutes ?? [])
+                .filter(
+                  (route) =>
+                    typeof route.consumerCenterId === 'number' &&
+                    route.consumerCenterId > 0 &&
+                    typeof route.supplierCenterId === 'number' &&
+                    route.supplierCenterId > 0 &&
+                    route.consumerCenterId !== route.supplierCenterId &&
+                    normalizedProductionCenters.some((center) => center.stockCenterId === route.supplierCenterId) &&
+                    stockCenters.some(
+                      (center) =>
+                        center.id === route.consumerCenterId &&
+                        center.isActive &&
+                        (center.companyId === currentCompanyId || technicalSheetForm.sharedCompanyIds.includes(center.companyId)),
+                    ),
+                )
+                .map((route) => [route.consumerCenterId, route] as const),
+            ).values(),
+          ).sort((left, right) => left.consumerCenterId - right.consumerCenterId)
+        : []
 
     const errors: string[] = []
 
@@ -23644,6 +24143,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
         isCommercialTechnicalSheetKind(technicalSheetForm.kind) ? '' : normalizeRegistrationText(technicalSheetForm.shelfLifeRefrigerated.trim()),
       shelfLifeFrozen: isCommercialTechnicalSheetKind(technicalSheetForm.kind) ? '' : normalizeRegistrationText(technicalSheetForm.shelfLifeFrozen.trim()),
       productionCenters: normalizedProductionCenters,
+      supplyRoutes: normalizedSupplyRoutes,
       ingredients: normalizedIngredients,
       garnishIngredients: normalizedGarnishIngredients,
       serviceItems: normalizedServiceItems,
@@ -23811,6 +24311,9 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
     setTechnicalSheetForm(emptyTechnicalSheetForm())
     setTechnicalSheetSectorInput('')
     setTechnicalSheetSharedCompanyInput('')
+    setTechnicalSheetProductionCenterInput('')
+    setTechnicalSheetSupplyRouteConsumerCenterId('')
+    setTechnicalSheetSupplyRouteSupplierCenterId('')
     setTechnicalSheetIngredients([emptyTechnicalSheetIngredient()])
     setTechnicalSheetGarnishIngredients([emptyTechnicalSheetIngredient()])
     setEditingTechnicalSheetGarnishIngredientId(null)
@@ -27952,6 +28455,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                         minimumQuantity: existing?.minimumQuantity ?? '',
                       }
                     }),
+                    supplyRoutes: (current.supplyRoutes ?? []).filter((route) => nextCenterIds.includes(route.supplierCenterId)),
                   }
                 })
               }
@@ -28002,6 +28506,139 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                     </tr>
                   )
                 })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      ) : null}
+      {(technicalSheetForm.productionCenters ?? []).length > 0 ? (
+        <div className="field field-span-all">
+          <div className="section-heading section-heading-inline stock-center-subheading">
+            <div>
+              <p className="kicker">Abastecimento</p>
+              <h2>Rotas de abastecimento deste pre-preparo</h2>
+            </div>
+          </div>
+          <div className="form-grid stock-import-primary-fields">
+            <label className="field">
+              <span>Centro consumidor</span>
+              <select
+                value={technicalSheetSupplyRouteConsumerCenterId}
+                onChange={(event) => setTechnicalSheetSupplyRouteConsumerCenterId(event.target.value)}
+              >
+                <option value="">Selecione</option>
+                {technicalSheetSupplyRouteConsumerCenters.map((center) => (
+                  <option key={`consumer-${center.id}`} value={String(center.id)}>
+                    {center.name} • {getCompanyTradeName(center.companyId)}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="field">
+              <span>Centro fornecedor</span>
+              <select
+                value={technicalSheetSupplyRouteSupplierCenterId}
+                onChange={(event) => setTechnicalSheetSupplyRouteSupplierCenterId(event.target.value)}
+              >
+                <option value="">Selecione</option>
+                {technicalSheetSupplyRouteSupplierCenters.map((center) => (
+                  <option key={`supplier-${center.id}`} value={String(center.id)}>
+                    {center.name} • {getCompanyTradeName(center.companyId)}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <div className="field field-actions-inline">
+              <span>Salvar rota</span>
+              <button
+                type="button"
+                className="ghost-button"
+                onClick={() => {
+                  const consumerCenterId = Number.parseInt(technicalSheetSupplyRouteConsumerCenterId, 10)
+                  const supplierCenterId = Number.parseInt(technicalSheetSupplyRouteSupplierCenterId, 10)
+                  if (!Number.isFinite(consumerCenterId) || !Number.isFinite(supplierCenterId) || consumerCenterId === supplierCenterId) {
+                    return
+                  }
+                  setTechnicalSheetForm((current) => ({
+                    ...current,
+                    supplyRoutes: [
+                      ...(current.supplyRoutes ?? []).filter((route) => route.consumerCenterId !== consumerCenterId),
+                      {
+                        consumerCenterId,
+                        supplierCenterId,
+                      },
+                    ].sort((left, right) => left.consumerCenterId - right.consumerCenterId),
+                  }))
+                  setTechnicalSheetSupplyRouteConsumerCenterId('')
+                  setTechnicalSheetSupplyRouteSupplierCenterId('')
+                }}
+                disabled={
+                  !technicalSheetSupplyRouteConsumerCenterId ||
+                  !technicalSheetSupplyRouteSupplierCenterId ||
+                  technicalSheetSupplyRouteConsumerCenterId === technicalSheetSupplyRouteSupplierCenterId
+                }
+              >
+                Salvar rota
+              </button>
+            </div>
+          </div>
+          <p className="field-helper">
+            O sistema tenta resolver o fornecedor sozinho. Use rotas quando houver mais de um centro produtor possivel ou quando quiser fixar um fornecedor especifico por centro consumidor.
+          </p>
+          <div className="table-wrap">
+            <table className="product-table">
+              <thead>
+                <tr>
+                  <th className="sticky-product">Centro consumidor</th>
+                  <th>Centro fornecedor</th>
+                  <th>Acao</th>
+                </tr>
+              </thead>
+              <tbody>
+                {(technicalSheetForm.supplyRoutes ?? []).length > 0 ? (
+                  (technicalSheetForm.supplyRoutes ?? []).map((route) => {
+                    const consumerCenter =
+                      technicalSheetSupplyRouteConsumerCenters.find((center) => center.id === route.consumerCenterId) ?? null
+                    const supplierCenter =
+                      technicalSheetSupplyRouteSupplierCenters.find((center) => center.id === route.supplierCenterId) ?? null
+                    return (
+                      <tr key={`route-${route.consumerCenterId}-${route.supplierCenterId}`}>
+                        <td className="sticky-product-cell">
+                          <strong>
+                            {consumerCenter
+                              ? `${consumerCenter.name} • ${getCompanyTradeName(consumerCenter.companyId)}`
+                              : `Centro ${route.consumerCenterId}`}
+                          </strong>
+                        </td>
+                        <td>
+                          {supplierCenter
+                            ? `${supplierCenter.name} • ${getCompanyTradeName(supplierCenter.companyId)}`
+                            : `Centro ${route.supplierCenterId}`}
+                        </td>
+                        <td>
+                          <button
+                            type="button"
+                            className="ghost-button danger"
+                            onClick={() =>
+                              setTechnicalSheetForm((current) => ({
+                                ...current,
+                                supplyRoutes: (current.supplyRoutes ?? []).filter(
+                                  (currentRoute) => currentRoute.consumerCenterId !== route.consumerCenterId,
+                                ),
+                              }))
+                            }
+                          >
+                            Remover
+                          </button>
+                        </td>
+                      </tr>
+                    )
+                  })
+                ) : (
+                  <tr>
+                    <td colSpan={3}>Nenhuma rota salva. Quando houver apenas um produtor interno ou externo possivel, o sistema resolve automaticamente.</td>
+                  </tr>
+                )}
               </tbody>
             </table>
           </div>
@@ -34181,7 +34818,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                               {requisitionHistoryColumnVisibility.createdBy ? <td>{record.createdByUserName}</td> : null}
                               {requisitionHistoryColumnVisibility.updatedAt ? <td>{formatDateForDisplay(record.lastUpdatedAt.slice(0, 10))}</td> : null}
                               {requisitionHistoryColumnVisibility.updatedBy ? <td>{record.lastUpdatedByUserName || '-'}</td> : null}
-                              {requisitionHistoryColumnVisibility.destinations ? <td>{record.supplyCenterName || Array.from(new Set(record.lines.map((line) => line.destinationLabel))).join(', ')}</td> : null}
+                              {requisitionHistoryColumnVisibility.destinations ? <td>{getRequisitionDestinationSummary(record)}</td> : null}
                               <td className="sticky-actions-cell">
                                 <div className="table-actions requisition-history-actions">
                                   {record.status === 'PENDING_APPROVAL' && canApproveRequisition(record) ? (
@@ -34308,7 +34945,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                               {receiveColumnVisibility.status ? <td>{getRequisitionHistoryStatusLabel(record.status)}</td> : null}
                               {receiveColumnVisibility.date ? <td>{formatDateForDisplay(record.countedAt)}</td> : null}
                               {receiveColumnVisibility.items ? <td>{String(record.lines.length)}</td> : null}
-                              {receiveColumnVisibility.supply ? <td>{record.supplyCenterName || '-'}</td> : null}
+                              {receiveColumnVisibility.supply ? <td>{getRequisitionSupplyDisplayLabel(record)}</td> : null}
                               {receiveColumnVisibility.createdBy ? <td>{record.createdByUserName}</td> : null}
                               <td className="sticky-actions-cell">
                                 <div className="table-actions">
@@ -34332,7 +34969,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                 ) : (
                   <div className="empty-state">
                     <strong>Nenhuma requisicao pronta para receber.</strong>
-                    <p>Quando suprimentos marcar uma requisicao como mover para, ela aparecera aqui.</p>
+                    <p>Quando suprimentos mover uma requisicao ou um pedido seguir direto para Compras, ele aparecera aqui.</p>
                   </div>
                 )}
               </>
@@ -34403,11 +35040,11 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                       {visibleSupplyRows.map((record) => {
                         return (
                         <tr key={record.id}>
-                          {supplyColumnVisibility.center ? <td className="sticky-product-cell"><strong>{record.stockCenterName}</strong></td> : null}
+                          {supplyColumnVisibility.center ? <td className="sticky-product-cell"><strong>{getRequisitionRequestingCenterDisplayLabelForUi(record)}</strong></td> : null}
                           {supplyColumnVisibility.status ? <td>{getRequisitionHistoryStatusLabel(record.status)}</td> : null}
                           {supplyColumnVisibility.date ? <td>{formatDateForDisplay(record.countedAt)}</td> : null}
                           {supplyColumnVisibility.items ? <td>{String(record.lines.length)}</td> : null}
-                          {supplyColumnVisibility.supply ? <td>{record.supplyCenterName || '-'}</td> : null}
+                          {supplyColumnVisibility.supply ? <td>{getRequisitionSupplyDisplayLabel(record)}</td> : null}
                           {supplyColumnVisibility.createdBy ? <td>{record.createdByUserName}</td> : null}
                           <td className="sticky-actions-cell">
                             <div className="table-actions">
@@ -41896,10 +42533,40 @@ function getRequisitionFlowColumnSortLabels(key: RequisitionFlowColumnKey) {
   return getSortLabels(isNumericRequisitionFlowColumn(key))
 }
 
+function getRequisitionSupplyDisplayLabel(record: RequisitionRecord) {
+  if (record.supplyCenterName.trim()) {
+    return record.supplyCompanyName.trim()
+      ? `${record.supplyCenterName} • ${record.supplyCompanyName}`
+      : record.supplyCenterName
+  }
+
+  return record.lines.some((line) => line.destinationType === 'COMPRAS')
+    ? 'COMPRAS'
+    : '-'
+}
+
+function getRequisitionDestinationSummary(record: RequisitionRecord) {
+  if (record.supplyCenterName.trim()) {
+    return record.supplyCompanyName.trim()
+      ? `${record.supplyCenterName} • ${record.supplyCompanyName}`
+      : record.supplyCenterName
+  }
+
+  if (record.lines.some((line) => line.destinationType === 'COMPRAS')) {
+    return 'COMPRAS'
+  }
+
+  return Array.from(new Set(record.lines.map((line) => line.destinationLabel))).join(', ')
+}
+
+function getRequisitionRequestingCenterDisplayLabel(record: RequisitionRecord) {
+  return `${record.stockCenterName} • EMPRESA ${record.companyId}`
+}
+
 function getRequisitionFlowColumnValue(record: RequisitionRecord, key: RequisitionFlowColumnKey) {
   switch (key) {
     case 'center':
-      return record.stockCenterName
+      return getRequisitionRequestingCenterDisplayLabel(record)
     case 'status':
       return getRequisitionHistoryStatusLabel(record.status)
     case 'date':
@@ -41907,7 +42574,7 @@ function getRequisitionFlowColumnValue(record: RequisitionRecord, key: Requisiti
     case 'items':
       return String(record.lines.length)
     case 'supply':
-      return record.supplyCenterName || '-'
+      return getRequisitionSupplyDisplayLabel(record)
     case 'createdBy':
       return record.createdByUserName
   }
@@ -44370,6 +45037,7 @@ function recoverTechnicalSheetsFromProductsStorage() {
         shelfLifeRefrigerated: '',
         shelfLifeFrozen: '',
         productionCenters: [],
+        supplyRoutes: [],
         ingredients: [],
         garnishIngredients: [],
         serviceItems: [],
@@ -44749,6 +45417,17 @@ function normalizeStockCenterRecord(value: unknown): StockCenterRecord | null {
     producedTechnicalSheetIds: Array.isArray(record.producedTechnicalSheetIds)
       ? record.producedTechnicalSheetIds.filter((item): item is number => isSafePersistedIntId(item))
       : [],
+    isDistributor: record.isDistributor === true,
+    distributesAllProducts: record.distributesAllProducts === true,
+    distributedProductIds: Array.isArray(record.distributedProductIds)
+      ? record.distributedProductIds
+          .filter((item): item is string => typeof item === 'string')
+          .map((item) => normalizeRegistrationText(item))
+          .filter(Boolean)
+      : [],
+    suppliedCenterIds: Array.isArray(record.suppliedCenterIds)
+      ? record.suppliedCenterIds.filter((item): item is number => isSafePersistedIntId(item))
+      : [],
     minimumStocks: record.minimumStocks
       .filter(
         (item): item is StockCenterMinimumStock =>
@@ -44827,12 +45506,27 @@ function normalizeRequisitionRecord(value: unknown): RequisitionRecord | null {
         typeof line.currentQuantity === 'string' &&
         typeof line.currentUnitLabel === 'string' &&
         typeof line.minimumDefinitionLabel === 'string' &&
-        (line.destinationType === 'DISTRIBUICAO' || line.destinationType === 'PRODUCOES') &&
+        (((line.destinationType as string) === 'DISTRIBUICAO') ||
+          line.destinationType === 'COMPRAS' ||
+          line.destinationType === 'SUPRIMENTOS' ||
+          line.destinationType === 'PRODUCOES') &&
         (line.destinationCenterId === null || typeof line.destinationCenterId === 'number') &&
         (line.destinationCenterName === undefined || typeof line.destinationCenterName === 'string') &&
-        typeof line.destinationLabel === 'string',
+        typeof line.destinationLabel === 'string' &&
+        (line.supplierCenterId === undefined || line.supplierCenterId === null || typeof line.supplierCenterId === 'number') &&
+        (line.supplierCenterName === undefined || typeof line.supplierCenterName === 'string') &&
+        (line.supplierCompanyId === undefined || line.supplierCompanyId === null || typeof line.supplierCompanyId === 'number') &&
+        (line.supplierCompanyName === undefined || typeof line.supplierCompanyName === 'string'),
     )
-    .map((line) => ({
+    .map((line) => {
+      const normalizedDestinationType: RequisitionLineRecord['destinationType'] =
+        (line.destinationType as string) === 'DISTRIBUICAO'
+          ? 'COMPRAS'
+          : line.destinationType === 'SUPRIMENTOS' || line.destinationType === 'COMPRAS'
+            ? line.destinationType
+            : 'PRODUCOES'
+
+      return {
       ...line,
       technicalSheetId: isSafePersistedIntId(line.technicalSheetId) ? line.technicalSheetId : null,
       productId: typeof line.productId === 'string' ? normalizeRegistrationText(line.productId) : '',
@@ -44847,9 +45541,15 @@ function normalizeRequisitionRecord(value: unknown): RequisitionRecord | null {
       currentQuantity: line.currentQuantity.trim(),
       currentUnitLabel: normalizeRegistrationText(line.currentUnitLabel),
       minimumDefinitionLabel: normalizeRegistrationText(line.minimumDefinitionLabel),
+      destinationType: normalizedDestinationType,
       destinationCenterId: isSafePersistedIntId(line.destinationCenterId) ? line.destinationCenterId : null,
       destinationCenterName: typeof line.destinationCenterName === 'string' ? normalizeRegistrationText(line.destinationCenterName) : '',
       destinationLabel: normalizeRegistrationText(line.destinationLabel),
+      supplierCenterId: isSafePersistedIntId(line.supplierCenterId) ? line.supplierCenterId : null,
+      supplierCenterName: typeof line.supplierCenterName === 'string' ? normalizeRegistrationText(line.supplierCenterName) : '',
+      supplierCompanyId: isSafePersistedIntId(line.supplierCompanyId) ? line.supplierCompanyId : null,
+      supplierCompanyName:
+        typeof line.supplierCompanyName === 'string' ? normalizeRegistrationText(line.supplierCompanyName) : '',
       receiptStatus: (
         line.receiptStatus === 'RECEIVED' || line.receiptStatus === 'NOT_RECEIVED'
           ? line.receiptStatus
@@ -44860,7 +45560,7 @@ function normalizeRequisitionRecord(value: unknown): RequisitionRecord | null {
       receiptResolvedByUserName:
         typeof line.receiptResolvedByUserName === 'string' ? normalizeRegistrationText(line.receiptResolvedByUserName) : '',
       receiptSessionId: isSafePersistedIntId(line.receiptSessionId) ? line.receiptSessionId : null,
-    }))
+    }})
 
   return {
     id: record.id,
@@ -44870,6 +45570,8 @@ function normalizeRequisitionRecord(value: unknown): RequisitionRecord | null {
     stockCenterName: normalizeRegistrationText(record.stockCenterName),
     supplyCenterId: isSafePersistedIntId(record.supplyCenterId) ? record.supplyCenterId : null,
     supplyCenterName: typeof record.supplyCenterName === 'string' ? normalizeRegistrationText(record.supplyCenterName) : '',
+    supplyCompanyId: isSafePersistedIntId(record.supplyCompanyId) ? record.supplyCompanyId : null,
+    supplyCompanyName: typeof record.supplyCompanyName === 'string' ? normalizeRegistrationText(record.supplyCompanyName) : '',
     sector: normalizeRegistrationText(record.sector),
     countedAt: record.countedAt,
     status: record.status,
@@ -45564,6 +46266,23 @@ function normalizeTechnicalSheetRecord(value: unknown): TechnicalSheetRecord | n
             minimumQuantity: assignment.minimumQuantity.trim(),
           }))
       : [],
+    supplyRoutes: Array.isArray(item.supplyRoutes)
+      ? item.supplyRoutes
+          .filter(
+            (route): route is TechnicalSheetSupplyRoute =>
+              Boolean(route) &&
+              typeof route === 'object' &&
+              typeof route.consumerCenterId === 'number' &&
+              route.consumerCenterId > 0 &&
+              typeof route.supplierCenterId === 'number' &&
+              route.supplierCenterId > 0 &&
+              route.consumerCenterId !== route.supplierCenterId,
+          )
+          .map((route) => ({
+            consumerCenterId: route.consumerCenterId,
+            supplierCenterId: route.supplierCenterId,
+          }))
+      : [],
     ingredients: normalizedIngredients,
     garnishIngredients: normalizedGarnishIngredients,
     serviceItems: Array.isArray(item.serviceItems)
@@ -46246,6 +46965,14 @@ function formatDecimal(value: number) {
   return value.toLocaleString('pt-BR', {
     minimumFractionDigits: value % 1 === 0 ? 0 : 2,
     maximumFractionDigits: 2,
+  })
+}
+
+function formatEditableDecimal(value: number) {
+  return value.toLocaleString('pt-BR', {
+    useGrouping: false,
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 4,
   })
 }
 
