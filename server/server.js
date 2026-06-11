@@ -269,6 +269,7 @@ app.delete('/api/companies/:id', async (request, response) => {
 
     await transaction.appAccessProfileRecord.deleteMany({ where: { companyId } })
     await transaction.appStockModuleSettingsRecord.deleteMany({ where: { companyId } })
+    await transaction.appAuditLogRecord.deleteMany({ where: { companyId } })
     await transaction.appStockCenterRecord.deleteMany({ where: { companyId } })
     await transaction.appSalesImportTemplateRecord.deleteMany({ where: { companyId } })
     await transaction.appSalesImportBatchRecord.deleteMany({ where: { companyId } })
@@ -484,6 +485,26 @@ app.put('/api/stock-module-settings/:companyId', async (request, response) => {
     update: stockModuleSettings,
   })
   response.json({ stockModuleSettings: saved })
+})
+
+app.get('/api/audit-logs', async (_request, response) => {
+  const auditLogs = await prisma.appAuditLogRecord.findMany({
+    orderBy: [{ occurredAt: 'desc' }, { id: 'desc' }],
+  })
+  response.json({ auditLogs })
+})
+
+app.post('/api/audit-logs', async (request, response) => {
+  const auditLog = normalizeAuditLogPayload(request.body)
+  if (!auditLog) {
+    response.status(400).json({ error: 'Payload de auditoria invalido.' })
+    return
+  }
+
+  const saved = await prisma.appAuditLogRecord.create({
+    data: auditLog,
+  })
+  response.json({ auditLog: saved })
 })
 
 app.get('/api/stock-centers', async (request, response) => {
@@ -2108,6 +2129,65 @@ function normalizeStockModuleSettingsPayload(value) {
       typeof record.salesImportDuplicateRowPolicy === 'string' && record.salesImportDuplicateRowPolicy.trim() !== ''
         ? record.salesImportDuplicateRowPolicy.trim()
         : 'BLOCK',
+  }
+}
+
+function normalizeAuditLogPayload(value) {
+  if (!value || typeof value !== 'object') {
+    return null
+  }
+
+  const record = value
+  const id = parseIntegerParam(record.id)
+  const companyId = parseIntegerParam(record.companyId)
+  const actorUserId = record.actorUserId === null ? null : parseIntegerParam(record.actorUserId)
+  const relatedCompanyIds = Array.isArray(record.relatedCompanyIds)
+    ? Array.from(new Set(record.relatedCompanyIds.map((item) => parseIntegerParam(item)).filter((item) => item !== null)))
+    : []
+
+  if (
+    id === null ||
+    companyId === null ||
+    typeof record.actorUserName !== 'string' ||
+    typeof record.actorUsername !== 'string' ||
+    typeof record.actorRole !== 'string' ||
+    typeof record.actorKind !== 'string' ||
+    typeof record.module !== 'string' ||
+    typeof record.actionKey !== 'string' ||
+    typeof record.actionLabel !== 'string' ||
+    typeof record.targetType !== 'string' ||
+    typeof record.targetId !== 'string' ||
+    typeof record.targetLabel !== 'string' ||
+    typeof record.summary !== 'string' ||
+    typeof record.impactSummary !== 'string' ||
+    typeof record.severity !== 'string' ||
+    typeof record.result !== 'string' ||
+    typeof record.occurredAt !== 'string'
+  ) {
+    return null
+  }
+
+  return {
+    id,
+    companyId,
+    actorUserId,
+    actorUserName: record.actorUserName.trim(),
+    actorUsername: record.actorUsername.trim(),
+    actorRole: record.actorRole.trim(),
+    actorKind: record.actorKind.trim(),
+    module: record.module.trim(),
+    actionKey: record.actionKey.trim(),
+    actionLabel: record.actionLabel.trim(),
+    targetType: record.targetType.trim(),
+    targetId: record.targetId.trim(),
+    targetLabel: record.targetLabel.trim(),
+    summary: record.summary.trim(),
+    impactSummary: record.impactSummary.trim(),
+    severity: record.severity.trim(),
+    result: record.result.trim(),
+    relatedCompanyIds,
+    details: record.details && typeof record.details === 'object' ? record.details : {},
+    occurredAt: record.occurredAt,
   }
 }
 

@@ -361,6 +361,31 @@ model AppStockModuleSettingsRecord {
   updatedAt                          DateTime @updatedAt
 }
 
+model AppAuditLogRecord {
+  id                Int      @id
+  companyId         Int
+  actorUserId       Int?
+  actorUserName     String
+  actorUsername     String
+  actorRole         String
+  actorKind         String
+  module            String
+  actionKey         String
+  actionLabel       String
+  targetType        String
+  targetId          String
+  targetLabel       String
+  summary           String
+  impactSummary     String
+  severity          String
+  result            String
+  relatedCompanyIds Int[]
+  details           Json
+  occurredAt        String
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+}
+
 model AppSalesImportTemplateRecord {
   id             Int      @id
   companyId      Int

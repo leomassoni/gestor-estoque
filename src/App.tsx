@@ -36,6 +36,7 @@ type AppSection =
   | 'RelatoriosEstoque'
   | 'Empresa'
   | 'Usuarios'
+  | 'PainelMaster'
 type TechnicalSheetKind = 'PREPARO' | 'EXECUCAO' | 'VENDA'
 type ServiceItemKind = 'UTENSILIO_ELETRONICO' | 'RECIPIENTE_SERVICO'
 type ServiceItemSizeUnit = 'MILLILITER' | 'GRAM' | 'CENTIMETER'
@@ -868,6 +869,34 @@ type RequisitionExportState = {
 
 type StockReportExportState = {
   format: 'pdf' | 'xlsx'
+}
+
+type AuditSeverity = 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL'
+type AuditResult = 'SUCCESS' | 'WARNING' | 'ERROR'
+type AuditActorKind = 'SYSTEM_ADMIN' | 'APP_USER' | 'SYSTEM'
+type AuditPanelTab = 'AUDITORIA' | 'ALERTAS' | 'IMPACTOS'
+
+type AuditLogRecord = {
+  id: number
+  companyId: number
+  actorUserId: number | null
+  actorUserName: string
+  actorUsername: string
+  actorRole: string
+  actorKind: AuditActorKind
+  module: string
+  actionKey: string
+  actionLabel: string
+  targetType: string
+  targetId: string
+  targetLabel: string
+  summary: string
+  impactSummary: string
+  severity: AuditSeverity
+  result: AuditResult
+  relatedCompanyIds: number[]
+  details: Record<string, unknown>
+  occurredAt: string
 }
 
 type StockReportTab =
@@ -1798,6 +1827,7 @@ const estoqueAccessSectionOptions: Array<{ key: AppSection; label: string }> = [
 ]
 const standaloneAccessSectionOptions: Array<{ key: AppSection; label: string }> = [
   { key: 'Receituarios', label: 'Receituarios' },
+  { key: 'PainelMaster', label: 'Painel master' },
   { key: 'Empresa', label: 'Empresa' },
   { key: 'Usuarios', label: 'Usuarios' },
 ]
@@ -2865,6 +2895,7 @@ const requisitionsStorageKey = 'gestor-estoque:requisitions'
 const requisitionNotificationsStorageKey = 'gestor-estoque:requisition-notifications'
 const manualProductionRequestsStorageKey = 'gestor-estoque:manual-production-requests'
 const productionInProgressDraftsStorageKey = 'gestor-estoque:production-in-progress-drafts'
+const auditLogsStorageKey = 'gestor-estoque:audit-logs'
 const stockReportColumnOrderStorageKey = 'gestor-estoque:stock-report-column-order'
 const stockReportModelsStorageKey = 'gestor-estoque:stock-report-models'
 const syncedAppStorageKeys = [
@@ -3346,6 +3377,12 @@ export default function App() {
     () => loadInventoryStorageLocationsState(),
   )
   const [stockModuleSettings, setStockModuleSettings] = useState<StockModuleSettingsRecord[]>(() => loadStockModuleSettingsState())
+  const [auditLogs, setAuditLogs] = useState<AuditLogRecord[]>(() => loadAuditLogsState())
+  const [auditPanelTab, setAuditPanelTab] = useState<AuditPanelTab>('AUDITORIA')
+  const [auditLogSearch, setAuditLogSearch] = useState('')
+  const [auditSeverityFilter, setAuditSeverityFilter] = useState<'ALL' | AuditSeverity>('ALL')
+  const [auditModuleFilter, setAuditModuleFilter] = useState('ALL')
+  const [selectedAuditLogId, setSelectedAuditLogId] = useState<number | null>(null)
   const [salesImportTemplates, setSalesImportTemplates] = useState<SalesImportTemplateRecord[]>([])
   const [salesImportBatches, setSalesImportBatches] = useState<SalesImportBatchRecord[]>([])
   const [salesImportRows, setSalesImportRows] = useState<SalesImportRowRecord[]>([])
@@ -3744,6 +3781,7 @@ export default function App() {
         'Inventario',
         'CentrosEstoque',
         'RelatoriosEstoque',
+        'PainelMaster',
         'Empresa',
         'Usuarios',
       ]
@@ -3798,6 +3836,7 @@ export default function App() {
     if (section === 'Requisicoes') return 'Requisicao'
     if (section === 'RelatoriosEstoque') return 'Relatorios'
     if (section === 'EntradaProducoes') return 'Entrada de producoes'
+    if (section === 'PainelMaster') return 'Painel master'
     return section
   }
   const handleSectionNavigation = (section: AppSection) => {
@@ -3850,6 +3889,71 @@ export default function App() {
   )
   const currentCompany =
     currentCompanyId === null ? null : companies.find((item) => item.id === currentCompanyId) ?? null
+  const currentCompanyAuditLogs = useMemo(
+    () =>
+      currentCompanyId === null
+        ? []
+        : auditLogs.filter(
+            (record) => record.companyId === currentCompanyId || record.relatedCompanyIds.includes(currentCompanyId),
+          ),
+    [auditLogs, currentCompanyId],
+  )
+  const auditModuleSuggestions = useMemo(
+    () => Array.from(new Set(currentCompanyAuditLogs.map((record) => record.module))).sort((a, b) => a.localeCompare(b, 'pt-BR')),
+    [currentCompanyAuditLogs],
+  )
+  const filteredAuditLogs = useMemo(() => {
+    const normalizedSearch = normalizeFreeText(auditLogSearch)
+    return currentCompanyAuditLogs.filter((record) => {
+      const matchesSearch =
+        normalizedSearch === '' ||
+        [
+          record.actorUserName,
+          record.actorUsername,
+          record.module,
+          record.actionLabel,
+          record.targetLabel,
+          record.summary,
+          record.impactSummary,
+        ].some((value) => normalizeFreeText(value).includes(normalizedSearch))
+      const matchesSeverity = auditSeverityFilter === 'ALL' || record.severity === auditSeverityFilter
+      const matchesModule = auditModuleFilter === 'ALL' || record.module === auditModuleFilter
+      const matchesTab =
+        auditPanelTab === 'AUDITORIA'
+          ? true
+          : auditPanelTab === 'ALERTAS'
+            ? record.severity === 'HIGH' || record.severity === 'CRITICAL' || record.result !== 'SUCCESS'
+            : record.impactSummary.trim() !== '' || record.relatedCompanyIds.length > 0
+      return matchesSearch && matchesSeverity && matchesModule && matchesTab
+    })
+  }, [auditLogSearch, auditModuleFilter, auditPanelTab, auditSeverityFilter, currentCompanyAuditLogs])
+  const selectedAuditLog =
+    selectedAuditLogId === null ? null : filteredAuditLogs.find((record) => record.id === selectedAuditLogId) ?? null
+  const auditOverview = useMemo(() => {
+    const today = getTodayDateInputValue()
+    return {
+      total: currentCompanyAuditLogs.length,
+      today: currentCompanyAuditLogs.filter((record) => record.occurredAt.slice(0, 10) === today).length,
+      alerts: currentCompanyAuditLogs.filter(
+        (record) => record.severity === 'HIGH' || record.severity === 'CRITICAL' || record.result !== 'SUCCESS',
+      ).length,
+      impacts: currentCompanyAuditLogs.filter(
+        (record) => record.impactSummary.trim() !== '' || record.relatedCompanyIds.length > 0,
+      ).length,
+      actors: new Set(currentCompanyAuditLogs.map((record) => `${record.actorKind}:${record.actorUsername}`)).size,
+    }
+  }, [currentCompanyAuditLogs])
+  const auditResultLabelByValue: Record<AuditResult, string> = {
+    SUCCESS: 'Sucesso',
+    WARNING: 'Alerta',
+    ERROR: 'Erro',
+  }
+  const auditSeverityLabelByValue: Record<AuditSeverity, string> = {
+    LOW: 'Baixa',
+    MEDIUM: 'Media',
+    HIGH: 'Alta',
+    CRITICAL: 'Critica',
+  }
   function getCompanyLinkScopeIds(companyId: number | null) {
     if (companyId === null) {
       return [] as number[]
@@ -4111,6 +4215,107 @@ export default function App() {
   }
   function getCompanyTradeName(companyId: number) {
     return companies.find((item) => item.id === companyId)?.tradeName ?? `EMPRESA ${companyId}`
+  }
+  function getAuditActorSnapshot() {
+    if (session?.kind === 'systemAdmin') {
+      return {
+        actorUserId: null,
+        actorUserName: session.user.fullName,
+        actorUsername: session.user.username,
+        actorRole: 'MASTER',
+        actorKind: 'SYSTEM_ADMIN' as const,
+      }
+    }
+
+    if (session?.kind === 'appUser') {
+      return {
+        actorUserId: session.user.id,
+        actorUserName: session.user.fullName,
+        actorUsername: session.user.username,
+        actorRole: session.user.role,
+        actorKind: 'APP_USER' as const,
+      }
+    }
+
+    return {
+      actorUserId: null,
+      actorUserName: 'SISTEMA',
+      actorUsername: 'sistema',
+      actorRole: 'SYSTEM',
+      actorKind: 'SYSTEM' as const,
+    }
+  }
+  async function createAuditLogOnApi(record: AuditLogRecord) {
+    const response = await fetch('/api/audit-logs', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(record),
+    })
+    if (!response.ok) {
+      throw new Error('Falha ao registrar evento de auditoria.')
+    }
+  }
+  function registerAuditEvent({
+    companyId = currentCompanyId,
+    module,
+    actionKey,
+    actionLabel,
+    targetType,
+    targetId,
+    targetLabel,
+    summary,
+    impactSummary = '',
+    severity = 'LOW',
+    result = 'SUCCESS',
+    relatedCompanyIds = [],
+    details = {},
+  }: {
+    companyId?: number | null
+    module: string
+    actionKey: string
+    actionLabel: string
+    targetType: string
+    targetId: string
+    targetLabel: string
+    summary: string
+    impactSummary?: string
+    severity?: AuditSeverity
+    result?: AuditResult
+    relatedCompanyIds?: number[]
+    details?: Record<string, unknown>
+  }) {
+    if (companyId === null) {
+      return
+    }
+
+    const actor = getAuditActorSnapshot()
+    const nextRecord: AuditLogRecord = {
+      id: getNextPersistedIntId(auditLogs.map((record) => record.id)),
+      companyId,
+      actorUserId: actor.actorUserId,
+      actorUserName: actor.actorUserName,
+      actorUsername: actor.actorUsername,
+      actorRole: actor.actorRole,
+      actorKind: actor.actorKind,
+      module,
+      actionKey,
+      actionLabel,
+      targetType,
+      targetId,
+      targetLabel,
+      summary,
+      impactSummary,
+      severity,
+      result,
+      relatedCompanyIds: Array.from(new Set(relatedCompanyIds.filter((item) => item !== companyId))),
+      details,
+      occurredAt: new Date().toISOString(),
+    }
+
+    setAuditLogs((current) => [nextRecord, ...current].sort((left, right) => right.occurredAt.localeCompare(left.occurredAt) || right.id - left.id))
+    void createAuditLogOnApi(nextRecord).catch((error) => {
+      console.error(error)
+    })
   }
   function getRequisitionRequestingCenterDisplayLabelForUi(record: RequisitionRecord) {
     return `${record.stockCenterName} • ${getCompanyTradeName(record.companyId)}`
@@ -4939,6 +5144,7 @@ export default function App() {
     setPendingInventoryMovements(loadPendingInventoryMovementsState())
     setInventoryStorageLocations(loadInventoryStorageLocationsState())
     setStockModuleSettings(loadStockModuleSettingsState())
+    setAuditLogs(loadAuditLogsState())
   }
 
   async function importRemoteAppStateSnapshot() {
@@ -5038,6 +5244,20 @@ export default function App() {
     setUsers(nextUsers)
     setAccessProfiles(nextAccessProfiles)
     setStockModuleSettings(nextStockModuleSettings)
+  }
+
+  async function refreshAppAuditLogRecordsFromApi() {
+    const response = await fetch('/api/audit-logs', { cache: 'no-store' })
+    if (!response.ok) {
+      throw new Error('Falha ao carregar trilha de auditoria pelo backend.')
+    }
+
+    const data = await response.json()
+    const nextAuditLogs = Array.isArray(data?.auditLogs)
+      ? (data.auditLogs as unknown[]).map(normalizeAuditLogRecord).filter((item): item is AuditLogRecord => item !== null)
+      : []
+
+    setAuditLogs(nextAuditLogs)
   }
 
   async function refreshAppStockCenterRecordsFromApi() {
@@ -6235,6 +6455,32 @@ export default function App() {
     return () => {
       isCancelled = true
       window.clearInterval(intervalId)
+      window.removeEventListener('focus', handleFocus)
+    }
+  }, [])
+
+  useEffect(() => {
+    let isCancelled = false
+
+    const load = async () => {
+      try {
+        await refreshAppAuditLogRecordsFromApi()
+      } catch (error) {
+        console.error(error)
+        if (!isCancelled) {
+          logRemoteAppStateMessage('Falha ao carregar trilha de auditoria pelo backend.')
+        }
+      }
+    }
+
+    void load()
+    const handleFocus = () => {
+      void load()
+    }
+    window.addEventListener('focus', handleFocus)
+
+    return () => {
+      isCancelled = true
       window.removeEventListener('focus', handleFocus)
     }
   }, [])
@@ -12453,6 +12699,20 @@ export default function App() {
   }, [companies])
 
   useEffect(() => {
+    saveAuditLogsState(auditLogs)
+  }, [auditLogs])
+
+  useEffect(() => {
+    if (selectedAuditLogId === null) {
+      return
+    }
+
+    if (!filteredAuditLogs.some((record) => record.id === selectedAuditLogId)) {
+      setSelectedAuditLogId(filteredAuditLogs[0]?.id ?? null)
+    }
+  }, [filteredAuditLogs, selectedAuditLogId])
+
+  useEffect(() => {
     saveProductsState(products)
   }, [products])
 
@@ -16606,6 +16866,34 @@ export default function App() {
       setStockCenterSuppliedCenterInput('')
       setStockCenterDraftBeforeEdit(null)
     }
+    registerAuditEvent({
+      companyId: centerToSave.companyId,
+      module: 'ESTOQUE',
+      actionKey: editingStockCenterId === null ? 'CREATE_STOCK_CENTER' : 'UPDATE_STOCK_CENTER',
+      actionLabel: editingStockCenterId === null ? 'Cadastro de centro de estoque' : 'Atualizacao de centro de estoque',
+      targetType: 'STOCK_CENTER',
+      targetId: String(centerToSave.id),
+      targetLabel: centerToSave.name,
+      summary:
+        editingStockCenterId === null
+          ? `Centro de estoque ${centerToSave.name} foi cadastrado.`
+          : `Centro de estoque ${centerToSave.name} foi atualizado.`,
+      impactSummary:
+        centerToSave.isDistributor || centerToSave.isProducer
+          ? `${centerToSave.isProducer ? 'Centro produtor' : ''}${centerToSave.isProducer && centerToSave.isDistributor ? ' e ' : ''}${centerToSave.isDistributor ? 'centro distribuidor' : ''} configurado.`
+          : 'Configuracoes operacionais do centro foram alteradas.',
+      severity: 'MEDIUM',
+      result: 'SUCCESS',
+      details: {
+        sector: centerToSave.sector,
+        isProducer: centerToSave.isProducer,
+        producedTechnicalSheetIds: centerToSave.producedTechnicalSheetIds,
+        isDistributor: centerToSave.isDistributor,
+        distributesAllProducts: centerToSave.distributesAllProducts,
+        distributedProductIds: centerToSave.distributedProductIds,
+        suppliedCenterIds: centerToSave.suppliedCenterIds,
+      },
+    })
     setSaveFeedback({
       status: 'success',
       title: editingStockCenterId === null ? 'Centro de estoque salvo com sucesso' : 'Centro de estoque atualizado com sucesso',
@@ -16826,6 +17114,31 @@ export default function App() {
         lastUpdatedByUserName: currentAppUser?.fullName ?? 'Administrador do sistema',
       }
       setRequisitions((current) => [nextRequisition, ...current])
+      registerAuditEvent({
+        companyId: nextRequisition.companyId,
+        module: 'REQUISICOES',
+        actionKey: 'CREATE_REQUISITION',
+        actionLabel: 'Cadastro de requisicao',
+        targetType: 'REQUISITION',
+        targetId: String(nextRequisition.id),
+        targetLabel: `${nextRequisition.stockCenterName} • ${formatDateForDisplay(nextRequisition.countedAt)}`,
+        summary: `Requisicao criada para o centro ${nextRequisition.stockCenterName}.`,
+        impactSummary: `${linesToSave.length} item(ns) registrado(s) para abastecimento.`,
+        severity: 'MEDIUM',
+        result: 'SUCCESS',
+        relatedCompanyIds: Array.from(
+          new Set(
+            linesToSave
+              .map((line) => line.supplierCompanyId)
+              .filter((companyId): companyId is number => typeof companyId === 'number' && companyId !== nextRequisition.companyId),
+          ),
+        ),
+        details: {
+          stockCenterId: nextRequisition.stockCenterId,
+          lineCount: linesToSave.length,
+          destinations: Array.from(new Set(linesToSave.map((line) => line.destinationType))),
+        },
+      })
       setSaveFeedback({
         status: 'success',
         title: 'Requisicao criada com sucesso',
@@ -16864,6 +17177,31 @@ export default function App() {
           `A REQUISICAO DO CENTRO ${currentRecord.stockCenterName} FOI EDITADA PELO RESPONSAVEL DO CENTRO.`,
         )
       }
+      registerAuditEvent({
+        companyId: currentRecord.companyId,
+        module: 'REQUISICOES',
+        actionKey: 'UPDATE_REQUISITION',
+        actionLabel: 'Atualizacao de requisicao',
+        targetType: 'REQUISITION',
+        targetId: String(currentRecord.id),
+        targetLabel: `${currentRecord.stockCenterName} • ${formatDateForDisplay(currentRecord.countedAt)}`,
+        summary: `Requisicao do centro ${currentRecord.stockCenterName} foi atualizada.`,
+        impactSummary: `${linesToSave.length} item(ns) com quantidade revisada.`,
+        severity: 'MEDIUM',
+        result: 'SUCCESS',
+        relatedCompanyIds: Array.from(
+          new Set(
+            linesToSave
+              .map((line) => line.supplierCompanyId)
+              .filter((companyId): companyId is number => typeof companyId === 'number' && companyId !== currentRecord.companyId),
+          ),
+        ),
+        details: {
+          requisitionId: currentRecord.id,
+          lineCount: linesToSave.length,
+          editedByResponsible,
+        },
+      })
 
       setSaveFeedback({
         status: 'success',
@@ -17566,6 +17904,32 @@ export default function App() {
           : 'A requisicao foi movida para receber no centro solicitante.',
       })
     }
+    registerAuditEvent({
+      companyId: targetRequisition.companyId,
+      module: 'REQUISICOES',
+      actionKey: 'SEND_REQUISITION_TO_RECEIVE',
+      actionLabel: 'Envio de requisicao para receber',
+      targetType: 'REQUISITION',
+      targetId: String(targetRequisition.id),
+      targetLabel: `${targetRequisition.stockCenterName} • ${formatDateForDisplay(targetRequisition.countedAt)}`,
+      summary: `Requisicao do centro ${targetRequisition.stockCenterName} foi preparada para recebimento.`,
+      impactSummary: shouldDeductSourceInventory
+        ? `Estoque do centro ${sourceCenterName} baixado para abastecer a requisicao.`
+        : 'Fluxo tratado como compras, sem baixa previa em centro de origem.',
+      severity: 'HIGH',
+      result: 'SUCCESS',
+      relatedCompanyIds:
+        typeof targetRequisition.supplyCompanyId === 'number' && targetRequisition.supplyCompanyId !== targetRequisition.companyId
+          ? [targetRequisition.supplyCompanyId]
+          : [],
+      details: {
+        sourceCenterId,
+        sourceCenterName,
+        destinationCompanyId: targetRequisition.companyId,
+        destinationCenterId: targetRequisition.stockCenterId,
+        lineCount: targetRequisition.lines.length,
+      },
+    })
   }
 
   function openStockReportBuilderFromCurrentView() {
@@ -18665,6 +19029,34 @@ export default function App() {
           : receiptMovementResult === 'queued'
             ? 'A conferencia foi finalizada. Os itens recebidos foram registrados como pendentes porque o centro esta com inventario aberto.'
             : 'A conferencia foi finalizada e os itens recebidos foram somados ao estoque do centro.',
+    })
+    registerAuditEvent({
+      companyId: targetRequisition.companyId,
+      module: 'REQUISICOES',
+      actionKey: 'RECEIVE_REQUISITION',
+      actionLabel: 'Recebimento de requisicao',
+      targetType: 'REQUISITION',
+      targetId: String(targetRequisition.id),
+      targetLabel: `${targetRequisition.stockCenterName} • ${formatDateForDisplay(targetRequisition.countedAt)}`,
+      summary: `Conferencia da requisicao do centro ${targetRequisition.stockCenterName} foi finalizada.`,
+      impactSummary:
+        receivedLines.length === 0
+          ? 'Nenhum item foi recebido nesta conferencia.'
+          : `${receivedLines.length} item(ns) recebido(s) com entrada em estoque ${receiptMovementResult === 'queued' ? 'pendente' : 'aplicada'}.`,
+      severity: 'HIGH',
+      result: 'SUCCESS',
+      relatedCompanyIds:
+        typeof targetRequisition.supplyCompanyId === 'number' && targetRequisition.supplyCompanyId !== targetRequisition.companyId
+          ? [targetRequisition.supplyCompanyId]
+          : [],
+      details: {
+        receivedLines: receivedLines.map((line) => ({
+          key: line.key,
+          itemName: line.itemName,
+          quantity: line.requestedQuantity,
+          status: line.receiptStatus,
+        })),
+      },
     })
   }
 
@@ -21400,6 +21792,26 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
 
     setAccessProfileForm(emptyAccessProfileForm())
     setEditingAccessProfileId(null)
+    registerAuditEvent({
+      companyId: profileToSave.companyId,
+      module: 'USUARIOS',
+      actionKey: editingAccessProfileId === null ? 'CREATE_ACCESS_PROFILE' : 'UPDATE_ACCESS_PROFILE',
+      actionLabel: editingAccessProfileId === null ? 'Cadastro de perfil de acesso' : 'Atualizacao de perfil de acesso',
+      targetType: 'ACCESS_PROFILE',
+      targetId: String(profileToSave.id),
+      targetLabel: profileToSave.name,
+      summary:
+        editingAccessProfileId === null
+          ? `Perfil de acesso ${profileToSave.name} foi cadastrado.`
+          : `Perfil de acesso ${profileToSave.name} foi atualizado.`,
+      impactSummary: 'Permissoes de acesso e estoque foram alteradas.',
+      severity: 'HIGH',
+      result: 'SUCCESS',
+      details: {
+        role: profileToSave.role,
+        stockPermissions: accessProfileForm.stockPermissions,
+      },
+    })
     setSaveFeedback({
       status: 'success',
       title: editingAccessProfileId === null ? 'Perfil salvo com sucesso' : 'Perfil atualizado com sucesso',
@@ -21771,6 +22183,34 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
     setUserCompanyInput('')
     setUserSectorInput('')
     setEditingUserId(null)
+    registerAuditEvent({
+      companyId: userToSave.companyId,
+      module: 'USUARIOS',
+      actionKey: editingUserId ? 'UPDATE_USER' : 'CREATE_USER',
+      actionLabel: editingUserId ? 'Atualizacao de usuario' : 'Cadastro de usuario',
+      targetType: 'USER',
+      targetId: String(userToSave.id),
+      targetLabel: userToSave.fullName,
+      summary: editingUserId ? `Usuario ${userToSave.fullName} foi atualizado.` : `Usuario ${userToSave.fullName} foi cadastrado.`,
+      impactSummary:
+        userToSave.companyIds.length > 1
+          ? `Usuario vinculado a ${userToSave.companyIds.length} empresas.`
+          : 'Permissoes e empresas do usuario foram registradas.',
+      severity: 'HIGH',
+      result: 'SUCCESS',
+      relatedCompanyIds: userToSave.companyIds,
+      details: {
+        username: userToSave.username,
+        role: userToSave.role,
+        companyIds: userToSave.companyIds,
+        memberships: userToSave.memberships.map((membership) => ({
+          companyId: membership.companyId,
+          accessProfileId: membership.accessProfileId,
+          role: membership.role,
+          sectors: membership.sectors,
+        })),
+      },
+    })
     setSaveFeedback({
       status: 'success',
       title: editingUserId ? 'Usuario atualizado com sucesso' : 'Usuario salvo com sucesso',
@@ -22090,6 +22530,29 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
     setCompanyCepFeedback('')
     setEditingCompanyId(null)
     setIsCompanyModalOpen(false)
+    registerAuditEvent({
+      companyId: companyToSave.id,
+      module: 'EMPRESA',
+      actionKey: editingCompanyId ? 'UPDATE_COMPANY' : 'CREATE_COMPANY',
+      actionLabel: editingCompanyId ? 'Atualizacao de empresa' : 'Cadastro de empresa',
+      targetType: 'COMPANY',
+      targetId: String(companyToSave.id),
+      targetLabel: companyToSave.tradeName,
+      summary: editingCompanyId
+        ? `Empresa ${companyToSave.tradeName} foi atualizada.`
+        : `Empresa ${companyToSave.tradeName} foi cadastrada.`,
+      impactSummary:
+        companyToSave.linkedCompanyIds.length > 0
+          ? `Vinculos com ${companyToSave.linkedCompanyIds.length} empresa(s) registrados.`
+          : '',
+      severity: 'MEDIUM',
+      result: 'SUCCESS',
+      relatedCompanyIds: companyToSave.linkedCompanyIds,
+      details: {
+        status: companyToSave.status,
+        linkedCompanyIds: companyToSave.linkedCompanyIds,
+      },
+    })
     setSaveFeedback({
       status: 'success',
       title: editingCompanyId ? 'Empresa atualizada com sucesso' : 'Empresa salva com sucesso',
@@ -22106,6 +22569,18 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
     if (!isSystemAdmin && !currentAppUserCompanyIds.includes(companyId)) {
       return
     }
+    registerAuditEvent({
+      companyId,
+      module: 'ACESSO',
+      actionKey: 'SWITCH_COMPANY',
+      actionLabel: 'Troca de empresa',
+      targetType: 'COMPANY',
+      targetId: String(companyId),
+      targetLabel: getCompanyTradeName(companyId),
+      summary: `${session?.kind === 'systemAdmin' ? 'Master' : 'Usuario'} acessou a empresa ${getCompanyTradeName(companyId)}.`,
+      severity: 'LOW',
+      result: 'SUCCESS',
+    })
     setCurrentCompanyId(companyId)
   }
 
@@ -22538,6 +23013,28 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
     if (restoreTechnicalSheetDraftWithCreatedIngredient(productToSave.id, productToSave.name)) {
       setIsTechnicalSheetProductModalOpen(false)
     }
+    registerAuditEvent({
+      companyId: productToSave.companyId,
+      module: 'CATALOGO',
+      actionKey: editingProductId ? 'UPDATE_PRODUCT' : 'CREATE_PRODUCT',
+      actionLabel: editingProductId ? 'Atualizacao de produto' : 'Cadastro de produto',
+      targetType: 'PRODUCT',
+      targetId: productToSave.id,
+      targetLabel: productToSave.name,
+      summary: editingProductId ? `Produto ${productToSave.name} foi atualizado.` : `Produto ${productToSave.name} foi cadastrado.`,
+      impactSummary:
+        technicalSheetDraftStack.length > 0
+          ? 'Produto criado ou alterado dentro de fluxo de ficha tecnica.'
+          : 'Cadastro de produto e embalagens foi atualizado.',
+      severity: 'MEDIUM',
+      result: 'SUCCESS',
+      details: {
+        companyProductId: productToSave.companyProductId,
+        controlUnit: productToSave.controlUnit,
+        sectors: productToSave.sectors,
+        packages: productToSave.packages.length,
+      },
+    })
 
     setSaveFeedback({
       status: 'success',
@@ -24293,6 +24790,29 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
       } else {
         restoreTechnicalSheetDraftWithCreatedIngredient(generatedProductId, normalizedName)
       }
+      registerAuditEvent({
+        companyId: technicalSheetToSave.companyId,
+        module: 'FICHAS',
+        actionKey: 'CREATE_TECHNICAL_SHEET',
+        actionLabel: 'Cadastro de ficha tecnica',
+        targetType: 'TECHNICAL_SHEET',
+        targetId: String(technicalSheetId),
+        targetLabel: normalizedName,
+        summary: `Ficha tecnica ${normalizedName} foi cadastrada em fluxo cascata.`,
+        impactSummary:
+          pendingNestedTechnicalSheetPurpose === 'subproduct'
+            ? 'Ficha criada como subproduto vinculado a outro pre-preparo.'
+            : 'Ficha criada como dependencia de outra ficha tecnica.',
+        severity: 'HIGH',
+        result: 'SUCCESS',
+        relatedCompanyIds: technicalSheetToSave.sharedCompanyIds,
+        details: {
+          kind: technicalSheetToSave.kind,
+          sharedCompanyIds: technicalSheetToSave.sharedCompanyIds,
+          productionCenters: technicalSheetToSave.productionCenters,
+          supplyRoutes: technicalSheetToSave.supplyRoutes,
+        },
+      })
       setSaveFeedback({
         status: 'success',
         title: 'Ficha tecnica salva com sucesso',
@@ -24320,6 +24840,33 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
     setTechnicalSheetServiceItems([emptyTechnicalSheetServiceItem()])
     setEditingTechnicalSheetServiceItemId(null)
     setTechnicalSheetPackages([])
+    registerAuditEvent({
+      companyId: technicalSheetToSave.companyId,
+      module: 'FICHAS',
+      actionKey: editingTechnicalSheetId ? 'UPDATE_TECHNICAL_SHEET' : 'CREATE_TECHNICAL_SHEET',
+      actionLabel: editingTechnicalSheetId ? 'Atualizacao de ficha tecnica' : 'Cadastro de ficha tecnica',
+      targetType: 'TECHNICAL_SHEET',
+      targetId: String(technicalSheetId),
+      targetLabel: normalizedName,
+      summary:
+        editingTechnicalSheetId ? `Ficha tecnica ${normalizedName} foi atualizada.` : `Ficha tecnica ${normalizedName} foi cadastrada.`,
+      impactSummary:
+        technicalSheetToSave.sharedCompanyIds.length > 0
+          ? `Ficha compartilhada com ${technicalSheetToSave.sharedCompanyIds.length} empresa(s).`
+          : technicalSheetToSave.kind === 'PREPARO' && technicalSheetToSave.supplyRoutes.length > 0
+            ? `${technicalSheetToSave.supplyRoutes.length} rota(s) de abastecimento registrada(s).`
+            : 'Cadastro tecnico e operacional da ficha foi atualizado.',
+      severity: 'HIGH',
+      result: 'SUCCESS',
+      relatedCompanyIds: technicalSheetToSave.sharedCompanyIds,
+      details: {
+        kind: technicalSheetToSave.kind,
+        companyProductId: technicalSheetToSave.companyProductId,
+        sharedCompanyIds: technicalSheetToSave.sharedCompanyIds,
+        productionCenters: technicalSheetToSave.productionCenters,
+        supplyRoutes: technicalSheetToSave.supplyRoutes,
+      },
+    })
     setSaveFeedback({
       status: 'success',
       title: editingTechnicalSheetId ? 'Ficha tecnica atualizada com sucesso' : 'Ficha tecnica salva com sucesso',
@@ -25086,6 +25633,27 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
     }
 
     await refreshAppSalesImportRecordsFromApi()
+    registerAuditEvent({
+      companyId: batch.companyId,
+      module: 'IMPORTAR_VENDAS',
+      actionKey: 'POST_SALES_IMPORT_BATCH',
+      actionLabel: 'Lancamento de saida por importacao',
+      targetType: 'SALES_IMPORT_BATCH',
+      targetId: String(batch.id),
+      targetLabel: batch.fileName,
+      summary: `Lote ${batch.fileName} foi lancado como saida de estoque.`,
+      impactSummary:
+        postingResult === 'queued'
+          ? 'Saidas ficaram pendentes por inventario aberto.'
+          : `${updatedConsumptions.filter((consumption) => consumption.stockPostingStatus === 'POSTED').length} consumo(s) postado(s) no estoque.`,
+      severity: 'HIGH',
+      result: 'SUCCESS',
+      details: {
+        stockCenterId: batch.stockCenterId,
+        movementSessions: Array.from(postedMovementSessionIds),
+        postingResult,
+      },
+    })
     setSaveFeedback({
       status: 'success',
       title: postingResult === 'queued' ? 'Saida pendente no inventario' : 'Saida lancada',
@@ -25180,6 +25748,29 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
     }
 
     await refreshAppSalesImportRecordsFromApi()
+    registerAuditEvent({
+      companyId: batch.companyId,
+      module: 'IMPORTAR_VENDAS',
+      actionKey: 'CANCEL_SALES_IMPORT_BATCH',
+      actionLabel: 'Cancelamento de lote importado',
+      targetType: 'SALES_IMPORT_BATCH',
+      targetId: String(batch.id),
+      targetLabel: batch.fileName,
+      summary: `Lote ${batch.fileName} foi cancelado.`,
+      impactSummary:
+        postedSessionIds.size > 0
+          ? 'Saidas ja postadas foram estornadas.'
+          : queuedSessionIds.size > 0
+            ? 'Saidas pendentes foram removidas antes da aplicacao.'
+            : 'Lote cancelado apenas para fins analiticos.',
+      severity: 'CRITICAL',
+      result: 'SUCCESS',
+      details: {
+        postedSessionIds: Array.from(postedSessionIds),
+        queuedSessionIds: Array.from(queuedSessionIds),
+        reversalResult,
+      },
+    })
     setSaveFeedback({
       status: 'success',
       title: 'Lote cancelado',
@@ -25240,6 +25831,24 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
 
     setStockCenters(nextStockCenters)
     await refreshAppStockCenterRecordsFromApi()
+    registerAuditEvent({
+      companyId: batch.companyId,
+      module: 'IMPORTAR_VENDAS',
+      actionKey: 'REPROCESS_SALES_IMPORT_BATCH',
+      actionLabel: 'Reprocessamento de lote importado',
+      targetType: 'SALES_IMPORT_BATCH',
+      targetId: String(batch.id),
+      targetLabel: batch.fileName,
+      summary: `Lote ${batch.fileName} foi reprocessado para recalcular minimos sugeridos.`,
+      impactSummary: 'Configuracoes do centro e historico de vendas foram reaplicados no calculo de sugestao.',
+      severity: 'MEDIUM',
+      result: 'SUCCESS',
+      details: {
+        stockCenterId: batch.stockCenterId,
+        importedRows: importedRows.length,
+        relatedConsumptions: relatedConsumptions.length,
+      },
+    })
     setSaveFeedback({
       status: 'success',
       title: 'Lote reprocessado',
@@ -26034,6 +26643,34 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
     await refreshAppSalesImportRecordsFromApi()
     await refreshAppStockCenterRecordsFromApi()
     resetSalesImportDraft()
+    registerAuditEvent({
+      companyId: currentCompanyId,
+      module: 'IMPORTAR_VENDAS',
+      actionKey: 'CREATE_SALES_IMPORT_BATCH',
+      actionLabel: 'Registro de importacao de vendas',
+      targetType: 'SALES_IMPORT_BATCH',
+      targetId: String(batchToSave.id),
+      targetLabel: batchToSave.fileName,
+      summary: `Importacao de vendas ${batchToSave.fileName} foi registrada para o centro ${targetCenter.name}.`,
+      impactSummary:
+        postingMode === 'ANALYTICAL_ONLY'
+          ? 'Lote salvo apenas para analise e sugestao de minimo.'
+          : postingMode === 'POST_PENDING'
+            ? 'Lote salvo com saida pendente de conferencia.'
+            : postingResult === 'queued'
+              ? 'Lote salvo com saida pendente por inventario aberto.'
+              : 'Lote salvo com saida imediata de estoque.',
+      severity: 'HIGH',
+      result: 'SUCCESS',
+      details: {
+        stockCenterId: targetCenter.id,
+        validRows: validRows.length,
+        invalidRows: invalidRows.length,
+        unmatchedRows: unmatchedRows.length,
+        duplicatedRows: duplicatedRows.length,
+        postingMode,
+      },
+    })
     setSaveFeedback({
       status: 'success',
       title: 'Importacao registrada',
@@ -29301,7 +29938,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                 ) : null}
               </div>
             ) : null}
-            {(['Empresa', 'Usuarios'] as const)
+            {(['PainelMaster', 'Empresa', 'Usuarios'] as const)
               .filter((section) => allowedSections.includes(section))
               .map((section) => (
                 <button
@@ -35538,6 +36175,238 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
           </section>
 
         </>
+      ) : activeSection === 'PainelMaster' ? (
+        <>
+          <section className="panel">
+            <div className="section-heading">
+              <div>
+                <p className="kicker">Master</p>
+                <h2>Painel informativo</h2>
+              </div>
+            </div>
+            <p className="context-copy">
+              Auditoria da empresa ativa para o usuario master. Este painel mostra acessos, acoes administrativas e impactos operacionais registrados em {currentCompany?.tradeName ?? 'nenhuma empresa'}.
+            </p>
+
+            <div className="selector-list company-management-list">
+              {[
+                { label: 'Eventos da empresa', value: String(auditOverview.total) },
+                { label: 'Eventos hoje', value: String(auditOverview.today) },
+                { label: 'Alertas', value: String(auditOverview.alerts) },
+                { label: 'Impactos', value: String(auditOverview.impacts) },
+                { label: 'Usuarios/atores', value: String(auditOverview.actors) },
+              ].map((card) => (
+                <article key={card.label} className="selector-item">
+                  <div className="selector-main company-card-static">
+                    <strong>{card.value}</strong>
+                    <span>{card.label}</span>
+                    <span>{currentCompany?.tradeName ?? 'Empresa nao selecionada'}</span>
+                  </div>
+                </article>
+              ))}
+            </div>
+          </section>
+
+          <section className="panel">
+            <div className="section-heading">
+              <div>
+                <p className="kicker">Auditoria</p>
+                <h2>Eventos por empresa</h2>
+              </div>
+            </div>
+
+            <div className="panel-tabs" role="tablist" aria-label="Painel master">
+              <button
+                type="button"
+                className={auditPanelTab === 'AUDITORIA' ? 'panel-tab active' : 'panel-tab'}
+                onClick={() => setAuditPanelTab('AUDITORIA')}
+              >
+                Auditoria
+              </button>
+              <button
+                type="button"
+                className={auditPanelTab === 'ALERTAS' ? 'panel-tab active' : 'panel-tab'}
+                onClick={() => setAuditPanelTab('ALERTAS')}
+              >
+                Alertas
+              </button>
+              <button
+                type="button"
+                className={auditPanelTab === 'IMPACTOS' ? 'panel-tab active' : 'panel-tab'}
+                onClick={() => setAuditPanelTab('IMPACTOS')}
+              >
+                Impactos
+              </button>
+            </div>
+
+            <div className="report-search-row">
+              <label className="field search-field report-search-field">
+                <span>Buscar</span>
+                <input
+                  value={auditLogSearch}
+                  onChange={(event) => setAuditLogSearch(event.target.value.toLocaleUpperCase('pt-BR'))}
+                  placeholder="Busque usuario, modulo, acao, alvo ou resumo"
+                />
+              </label>
+              <label className="field report-selector-field">
+                <span>Severidade</span>
+                <select value={auditSeverityFilter} onChange={(event) => setAuditSeverityFilter(event.target.value as 'ALL' | AuditSeverity)}>
+                  <option value="ALL">Todas</option>
+                  <option value="LOW">Baixa</option>
+                  <option value="MEDIUM">Media</option>
+                  <option value="HIGH">Alta</option>
+                  <option value="CRITICAL">Critica</option>
+                </select>
+              </label>
+              <label className="field report-selector-field">
+                <span>Modulo</span>
+                <select value={auditModuleFilter} onChange={(event) => setAuditModuleFilter(event.target.value)}>
+                  <option value="ALL">Todos</option>
+                  {auditModuleSuggestions.map((moduleName) => (
+                    <option key={moduleName} value={moduleName}>
+                      {moduleName}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
+
+            {filteredAuditLogs.length > 0 ? (
+              <div className="selector-list company-management-list">
+                <section className="inner-panel">
+                  <div className="table-wrap">
+                    <table className="product-table">
+                      <thead>
+                        <tr>
+                          <th>Data</th>
+                          <th>Usuario</th>
+                          <th>Modulo</th>
+                          <th>Acao</th>
+                          <th>Alvo</th>
+                          <th>Resultado</th>
+                          <th>Impacto</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {filteredAuditLogs.map((record) => (
+                          <tr
+                            key={record.id}
+                            onClick={() => setSelectedAuditLogId(record.id)}
+                            style={{
+                              cursor: 'pointer',
+                              backgroundColor: selectedAuditLog?.id === record.id ? 'rgba(22, 101, 52, 0.08)' : undefined,
+                            }}
+                          >
+                            <td>
+                              {formatDateForDisplay(record.occurredAt.slice(0, 10))} {formatTimeForDisplay(record.occurredAt)}
+                            </td>
+                            <td>
+                              <strong>{record.actorUserName}</strong>
+                              <br />
+                              <span>{record.actorUsername}</span>
+                            </td>
+                            <td>{record.module}</td>
+                            <td>{record.actionLabel}</td>
+                            <td>{record.targetLabel}</td>
+                            <td>
+                              <span
+                                className={
+                                  record.result === 'SUCCESS'
+                                    ? 'status-pill status-active'
+                                    : record.result === 'WARNING'
+                                      ? 'status-pill status-warning'
+                                      : 'status-pill status-inactive'
+                                }
+                              >
+                                {auditResultLabelByValue[record.result]} • {auditSeverityLabelByValue[record.severity]}
+                              </span>
+                            </td>
+                            <td>{record.impactSummary || '-'}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </section>
+
+                <section className="inner-panel">
+                  <div className="section-heading">
+                    <div>
+                      <p className="kicker">Detalhe</p>
+                      <h2>{selectedAuditLog?.actionLabel ?? 'Selecione um evento'}</h2>
+                    </div>
+                  </div>
+
+                  {selectedAuditLog ? (
+                    <div className="selector-list company-management-list">
+                      <article className="selector-item">
+                        <div className="selector-main company-card-static">
+                          <strong>{selectedAuditLog.summary}</strong>
+                          <span>
+                            {formatDateForDisplay(selectedAuditLog.occurredAt.slice(0, 10))} {formatTimeForDisplay(selectedAuditLog.occurredAt)}
+                          </span>
+                          <span>Empresa ativa: {getCompanyTradeName(selectedAuditLog.companyId)}</span>
+                        </div>
+                      </article>
+                      <article className="selector-item">
+                        <div className="selector-main company-card-static">
+                          <strong>Ator</strong>
+                          <span>{selectedAuditLog.actorUserName} ({selectedAuditLog.actorUsername})</span>
+                          <span>Perfil: {selectedAuditLog.actorRole}</span>
+                          <span>Origem: {selectedAuditLog.actorKind === 'SYSTEM_ADMIN' ? 'Master' : selectedAuditLog.actorKind === 'APP_USER' ? 'Usuario interno' : 'Sistema'}</span>
+                        </div>
+                      </article>
+                      <article className="selector-item">
+                        <div className="selector-main company-card-static">
+                          <strong>Alvo</strong>
+                          <span>{selectedAuditLog.targetType}</span>
+                          <span>{selectedAuditLog.targetLabel}</span>
+                          <span>ID: {selectedAuditLog.targetId}</span>
+                        </div>
+                      </article>
+                      <article className="selector-item">
+                        <div className="selector-main company-card-static">
+                          <strong>Impacto</strong>
+                          <span>{selectedAuditLog.impactSummary || 'Sem impacto derivado registrado.'}</span>
+                          <span>Resultado: {auditResultLabelByValue[selectedAuditLog.result]}</span>
+                          <span>Severidade: {auditSeverityLabelByValue[selectedAuditLog.severity]}</span>
+                        </div>
+                      </article>
+                      {selectedAuditLog.relatedCompanyIds.length > 0 ? (
+                        <article className="selector-item">
+                          <div className="selector-main company-card-static">
+                            <strong>Empresas relacionadas</strong>
+                            <span>{selectedAuditLog.relatedCompanyIds.map((companyId) => getCompanyTradeName(companyId)).join(', ')}</span>
+                          </div>
+                        </article>
+                      ) : null}
+                      <article className="selector-item">
+                        <div className="selector-main company-card-static">
+                          <strong>Contexto tecnico</strong>
+                          <span>
+                            <pre style={{ margin: 0, whiteSpace: 'pre-wrap', fontFamily: 'inherit' }}>
+                              {JSON.stringify(selectedAuditLog.details, null, 2)}
+                            </pre>
+                          </span>
+                        </div>
+                      </article>
+                    </div>
+                  ) : (
+                    <div className="empty-state">
+                      <strong>Nenhum evento selecionado.</strong>
+                      <p>Escolha um registro da tabela para ver ator, impacto e contexto tecnico.</p>
+                    </div>
+                  )}
+                </section>
+              </div>
+            ) : (
+              <div className="empty-state">
+                <strong>Nenhum evento encontrado.</strong>
+                <p>Ajuste os filtros ou aguarde novos registros da empresa ativa.</p>
+              </div>
+            )}
+          </section>
+        </>
       ) : activeSection === 'Empresa' ? (
         <section className="panel">
           <div className="section-heading">
@@ -35972,7 +36841,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
 		                        ))}
 		                      </div>
 		                    </div>
-		                    {(['Empresa', 'Usuarios'] as const).map((section) => (
+		                    {(['PainelMaster', 'Empresa', 'Usuarios'] as const).map((section) => (
 		                      <label key={section} className="checkbox-row access-menu-item">
 		                        <input
 		                          type="checkbox"
@@ -44624,6 +45493,42 @@ function saveStockModuleSettingsState(stockModuleSettings: StockModuleSettingsRe
   }
 }
 
+function loadAuditLogsState(): AuditLogRecord[] {
+  if (typeof window === 'undefined') {
+    return []
+  }
+
+  try {
+    const raw = window.localStorage.getItem(auditLogsStorageKey)
+    if (!raw) {
+      return []
+    }
+
+    const parsed = JSON.parse(raw) as unknown
+    if (!Array.isArray(parsed)) {
+      return []
+    }
+
+    return parsed
+      .map(normalizeAuditLogRecord)
+      .filter((item): item is AuditLogRecord => item !== null)
+  } catch {
+    return []
+  }
+}
+
+function saveAuditLogsState(auditLogs: AuditLogRecord[]) {
+  if (typeof window === 'undefined') {
+    return
+  }
+
+  try {
+    window.localStorage.setItem(auditLogsStorageKey, JSON.stringify(auditLogs))
+  } catch {
+    return
+  }
+}
+
 function loadInventoryStorageLocationsState(): InventoryStorageLocationRecord[] {
   if (typeof window === 'undefined') {
     return []
@@ -45704,6 +46609,66 @@ function normalizeStockModuleSettingsRecord(value: unknown): StockModuleSettings
       (record as { closedInventoryDeleteRoles?: unknown }).closedInventoryDeleteRoles === undefined
         ? ['Administrativo', 'Gestor']
         : normalizeRoles((record as { closedInventoryDeleteRoles?: unknown }).closedInventoryDeleteRoles),
+  }
+}
+
+function normalizeAuditLogRecord(value: unknown): AuditLogRecord | null {
+  if (!value || typeof value !== 'object') {
+    return null
+  }
+
+  const record = value as Partial<AuditLogRecord>
+  if (
+    !isSafePersistedIntId(record.id) ||
+    typeof record.companyId !== 'number' ||
+    typeof record.actorUserName !== 'string' ||
+    typeof record.actorUsername !== 'string' ||
+    typeof record.actorRole !== 'string' ||
+    typeof record.actorKind !== 'string' ||
+    typeof record.module !== 'string' ||
+    typeof record.actionKey !== 'string' ||
+    typeof record.actionLabel !== 'string' ||
+    typeof record.targetType !== 'string' ||
+    typeof record.targetId !== 'string' ||
+    typeof record.targetLabel !== 'string' ||
+    typeof record.summary !== 'string' ||
+    typeof record.impactSummary !== 'string' ||
+    typeof record.severity !== 'string' ||
+    typeof record.result !== 'string' ||
+    typeof record.occurredAt !== 'string'
+  ) {
+    return null
+  }
+
+  return {
+    id: record.id,
+    companyId: record.companyId,
+    actorUserId: isSafePersistedIntId(record.actorUserId) ? record.actorUserId : null,
+    actorUserName: normalizeRegistrationText(record.actorUserName),
+    actorUsername: normalizeRegistrationText(record.actorUsername),
+    actorRole: normalizeRegistrationText(record.actorRole),
+    actorKind:
+      record.actorKind === 'SYSTEM_ADMIN' || record.actorKind === 'APP_USER' || record.actorKind === 'SYSTEM'
+        ? record.actorKind
+        : 'SYSTEM',
+    module: normalizeRegistrationText(record.module),
+    actionKey: normalizeRegistrationText(record.actionKey),
+    actionLabel: normalizeRegistrationText(record.actionLabel),
+    targetType: normalizeRegistrationText(record.targetType),
+    targetId: normalizeRegistrationText(record.targetId),
+    targetLabel: normalizeRegistrationText(record.targetLabel),
+    summary: normalizeRegistrationText(record.summary),
+    impactSummary: normalizeRegistrationText(record.impactSummary),
+    severity:
+      record.severity === 'LOW' || record.severity === 'MEDIUM' || record.severity === 'HIGH' || record.severity === 'CRITICAL'
+        ? record.severity
+        : 'LOW',
+    result: record.result === 'SUCCESS' || record.result === 'WARNING' || record.result === 'ERROR' ? record.result : 'SUCCESS',
+    relatedCompanyIds: Array.isArray(record.relatedCompanyIds)
+      ? record.relatedCompanyIds.filter((item): item is number => isSafePersistedIntId(item))
+      : [],
+    details: record.details && typeof record.details === 'object' ? (record.details as Record<string, unknown>) : {},
+    occurredAt: record.occurredAt,
   }
 }
 
