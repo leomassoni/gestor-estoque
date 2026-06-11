@@ -1828,7 +1828,6 @@ const estoqueAccessSectionOptions: Array<{ key: AppSection; label: string }> = [
 ]
 const standaloneAccessSectionOptions: Array<{ key: AppSection; label: string }> = [
   { key: 'Receituarios', label: 'Receituarios' },
-  { key: 'PainelMaster', label: 'Painel master' },
   { key: 'Empresa', label: 'Empresa' },
   { key: 'Usuarios', label: 'Usuarios' },
 ]
@@ -36858,7 +36857,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
 		                        ))}
 		                      </div>
 		                    </div>
-		                    {(['PainelMaster', 'Empresa', 'Usuarios'] as const).map((section) => (
+		                    {(['Empresa', 'Usuarios'] as const).map((section) => (
 		                      <label key={section} className="checkbox-row access-menu-item">
 		                        <input
 		                          type="checkbox"
