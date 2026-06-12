@@ -37693,10 +37693,6 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
 		                    </label>
                         {accessProfileForm.sectionAccess.Receituarios ? (
                           <div className="access-group-card">
-                            <label className="checkbox-row access-group-title access-menu-item">
-                              <input type="checkbox" checked disabled />
-                              <span>Exibicao do receituario</span>
-                            </label>
                             <div className="access-group-children">
                               <label className="checkbox-row access-group-child">
                                 <input
