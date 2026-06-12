@@ -69,6 +69,8 @@ type UserCatalogAccess = {
   familiesDelete: boolean
   subfamiliesCreate: boolean
   subfamiliesDelete: boolean
+  flavorProfilesCreate: boolean
+  flavorProfilesDelete: boolean
   itemTypesCreate: boolean
   itemTypesDelete: boolean
   materialsCreate: boolean
@@ -2682,6 +2684,8 @@ const defaultCatalogAccessByRole = (role: CompanyUserRole): UserCatalogAccess =>
       familiesDelete: true,
       subfamiliesCreate: true,
       subfamiliesDelete: true,
+      flavorProfilesCreate: true,
+      flavorProfilesDelete: true,
       itemTypesCreate: true,
       itemTypesDelete: true,
       materialsCreate: true,
@@ -2696,6 +2700,8 @@ const defaultCatalogAccessByRole = (role: CompanyUserRole): UserCatalogAccess =>
       familiesDelete: true,
       subfamiliesCreate: true,
       subfamiliesDelete: true,
+      flavorProfilesCreate: true,
+      flavorProfilesDelete: true,
       itemTypesCreate: true,
       itemTypesDelete: true,
       materialsCreate: true,
@@ -2709,6 +2715,8 @@ const defaultCatalogAccessByRole = (role: CompanyUserRole): UserCatalogAccess =>
     familiesDelete: false,
     subfamiliesCreate: false,
     subfamiliesDelete: false,
+    flavorProfilesCreate: false,
+    flavorProfilesDelete: false,
     itemTypesCreate: false,
     itemTypesDelete: false,
     materialsCreate: false,
@@ -2827,6 +2835,8 @@ const emptyAccessProfileForm = (): AccessProfileFormState => ({
     familiesDelete: false,
     subfamiliesCreate: false,
     subfamiliesDelete: false,
+    flavorProfilesCreate: false,
+    flavorProfilesDelete: false,
     itemTypesCreate: false,
     itemTypesDelete: false,
     materialsCreate: false,
@@ -4093,6 +4103,8 @@ export default function App() {
   const canDeleteFamilies = isSystemAdmin || userCatalogAccess.familiesDelete
   const canCreateSubfamilies = isSystemAdmin || userCatalogAccess.subfamiliesCreate
   const canDeleteSubfamilies = isSystemAdmin || userCatalogAccess.subfamiliesDelete
+  const canCreateFlavorProfiles = isSystemAdmin || userCatalogAccess.flavorProfilesCreate
+  const canDeleteFlavorProfiles = isSystemAdmin || userCatalogAccess.flavorProfilesDelete
   const canCreateItemTypes = isSystemAdmin || userCatalogAccess.itemTypesCreate
   const canDeleteItemTypes = isSystemAdmin || userCatalogAccess.itemTypesDelete
   const canCreateMaterials = isSystemAdmin || userCatalogAccess.materialsCreate
@@ -24294,6 +24306,10 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
       return existing
     }
 
+    if (!canCreateFlavorProfiles) {
+      throw new Error('Erro: seu perfil nao possui permissao para cadastrar perfis de sabor.')
+    }
+
     const nextProfile: FlavorProfileRecord = {
       id: buildDefaultFlavorProfileId(currentCompanyId, normalizedName),
       companyId: currentCompanyId,
@@ -24307,6 +24323,47 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
       return [...withoutDuplicate, nextProfile]
     })
     return nextProfile
+  }
+
+  async function requestDeleteFlavorProfile(rawValue: string) {
+    if (!canDeleteFlavorProfiles) {
+      setSaveFeedback({
+        status: 'error',
+        title: 'Exclusao nao permitida',
+        message: 'Erro: seu perfil nao possui permissao para excluir perfis de sabor.',
+      })
+      return
+    }
+
+    const normalizedName = normalizeRegistrationText(rawValue)
+    if (!normalizedName || currentCompanyId === null) {
+      return
+    }
+
+    const existingProfile =
+      companyFlavorProfiles.find((profile) => profile.name.localeCompare(normalizedName, 'pt-BR', { sensitivity: 'accent' }) === 0) ??
+      null
+    if (!existingProfile) {
+      return
+    }
+
+    const response = await fetch(`/api/flavor-profiles/${encodeURIComponent(existingProfile.id)}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ...existingProfile, isActive: false }),
+    })
+    if (!response.ok) {
+      const errorPayload = (await response.json().catch(() => null)) as { error?: string } | null
+      throw new Error(errorPayload?.error || 'Nao foi possivel excluir o perfil de sabor no servidor.')
+    }
+
+    setFlavorProfiles((current) =>
+      current.map((profile) => (profile.id === existingProfile.id ? { ...profile, isActive: false } : profile)),
+    )
+    setTechnicalSheetForm((current) => ({
+      ...current,
+      flavorProfileRatings: current.flavorProfileRatings.filter((rating) => rating.flavorProfileId !== existingProfile.id),
+    }))
   }
 
   async function addTechnicalSheetFlavorProfile(rawName: string) {
@@ -32984,7 +33041,24 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                       suggestions={companyFlavorProfileSuggestions}
                       onChange={setTechnicalSheetFlavorProfileInput}
                       placeholder="SELECIONE OU CRIE UM PERFIL DE SABOR"
+                      onDeleteSuggestion={
+                        canDeleteFlavorProfiles
+                          ? (value) => {
+                              void requestDeleteFlavorProfile(value).catch((error) => {
+                                setSaveFeedback({
+                                  status: 'error',
+                                  title: 'Falha ao excluir perfil de sabor',
+                                  message:
+                                    error instanceof Error
+                                      ? error.message
+                                      : 'Nao foi possivel excluir o perfil de sabor.',
+                                })
+                              })
+                            }
+                          : undefined
+                      }
                       createLabel="Criar perfil"
+                      allowCreate={canCreateFlavorProfiles}
                     />
                     <button
                       type="button"
@@ -37878,6 +37952,33 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                       </article>
                       <article className="settings-field-row access-menu-item profile-permission-row">
                         <div className="settings-field-copy">
+                          <strong>Perfis de sabor</strong>
+                        </div>
+                        <div className="settings-field-control catalog-access-actions">
+                          <label className="checkbox-row">
+                            <input
+                              type="checkbox"
+                              checked={accessProfileForm.catalogAccess.flavorProfilesCreate}
+                              onChange={(event) =>
+                                updateAccessProfileCatalogAccess('flavorProfilesCreate', event.target.checked)
+                              }
+                            />
+                            <span>Cadastrar</span>
+                          </label>
+                          <label className="checkbox-row">
+                            <input
+                              type="checkbox"
+                              checked={accessProfileForm.catalogAccess.flavorProfilesDelete}
+                              onChange={(event) =>
+                                updateAccessProfileCatalogAccess('flavorProfilesDelete', event.target.checked)
+                              }
+                            />
+                            <span>Excluir</span>
+                          </label>
+                        </div>
+                      </article>
+                      <article className="settings-field-row access-menu-item profile-permission-row">
+                        <div className="settings-field-copy">
                           <strong>Tipo do item</strong>
                         </div>
                         <div className="settings-field-control catalog-access-actions">
@@ -38091,6 +38192,8 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                           profile.catalogAccess.familiesDelete ? 'Excluir familias' : null,
                           profile.catalogAccess.subfamiliesCreate ? 'Cadastrar subfamilias' : null,
                           profile.catalogAccess.subfamiliesDelete ? 'Excluir subfamilias' : null,
+                          profile.catalogAccess.flavorProfilesCreate ? 'Cadastrar perfis de sabor' : null,
+                          profile.catalogAccess.flavorProfilesDelete ? 'Excluir perfis de sabor' : null,
                           profile.catalogAccess.itemTypesCreate ? 'Cadastrar tipos' : null,
                           profile.catalogAccess.itemTypesDelete ? 'Excluir tipos' : null,
                           profile.catalogAccess.materialsCreate ? 'Cadastrar materiais' : null,
@@ -47271,6 +47374,8 @@ function normalizeSessionUser(value: unknown): AppUserRecord | null {
           familiesDelete: user.catalogAccess.familiesDelete === true,
           subfamiliesCreate: user.catalogAccess.subfamiliesCreate === true,
           subfamiliesDelete: user.catalogAccess.subfamiliesDelete === true,
+          flavorProfilesCreate: user.catalogAccess.flavorProfilesCreate === true,
+          flavorProfilesDelete: user.catalogAccess.flavorProfilesDelete === true,
           itemTypesCreate: user.catalogAccess.itemTypesCreate === true,
           itemTypesDelete: user.catalogAccess.itemTypesDelete === true,
           materialsCreate: user.catalogAccess.materialsCreate === true,
@@ -47329,6 +47434,8 @@ function normalizeSessionUser(value: unknown): AppUserRecord | null {
                     familiesDelete: membership.catalogAccess.familiesDelete === true,
                     subfamiliesCreate: membership.catalogAccess.subfamiliesCreate === true,
                     subfamiliesDelete: membership.catalogAccess.subfamiliesDelete === true,
+                    flavorProfilesCreate: membership.catalogAccess.flavorProfilesCreate === true,
+                    flavorProfilesDelete: membership.catalogAccess.flavorProfilesDelete === true,
                     itemTypesCreate: membership.catalogAccess.itemTypesCreate === true,
                     itemTypesDelete: membership.catalogAccess.itemTypesDelete === true,
                     materialsCreate: membership.catalogAccess.materialsCreate === true,
@@ -47419,6 +47526,8 @@ function normalizeAccessProfileRecord(value: unknown): AccessProfileRecord | nul
             familiesDelete: profile.catalogAccess.familiesDelete === true,
             subfamiliesCreate: profile.catalogAccess.subfamiliesCreate === true,
             subfamiliesDelete: profile.catalogAccess.subfamiliesDelete === true,
+            flavorProfilesCreate: profile.catalogAccess.flavorProfilesCreate === true,
+            flavorProfilesDelete: profile.catalogAccess.flavorProfilesDelete === true,
             itemTypesCreate: profile.catalogAccess.itemTypesCreate === true,
             itemTypesDelete: profile.catalogAccess.itemTypesDelete === true,
             materialsCreate: profile.catalogAccess.materialsCreate === true,
