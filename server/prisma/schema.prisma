@@ -295,6 +295,7 @@ model AppAccessProfileRecord {
   role          String
   sectionAccess Json
   catalogAccess Json
+  recipePanelAccess Json
   isActive      Boolean  @default(true)
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
@@ -314,6 +315,7 @@ model AppUserRecord {
   sectors        String[]
   sectionAccess  Json
   catalogAccess  Json
+  recipePanelAccess Json
   accessProfileId Int?
   isActive       Boolean  @default(true)
   createdAt      DateTime @default(now())
@@ -332,6 +334,7 @@ model AppUserCompanyMembershipRecord {
   sectors         String[]
   sectionAccess   Json
   catalogAccess   Json
+  recipePanelAccess Json
   accessProfileId Int?
   isActive        Boolean  @default(true)
   createdAt       DateTime @default(now())
@@ -817,12 +820,15 @@ model AppTechnicalSheetRecord {
   dilutionRatePercentage String
   imageDataUrl          String
   finalSalePrice        String
+  flavorProfileRatings  Json
   flavorSweet           String
   flavorSour            String
   flavorBitter          String
   flavorSalty           String
   flavorUmami           String
   storytelling          String
+  salesArguments        String
+  harmonization         String
   preparationMode       String
   preparationLeadTimeDays String
   shelfLifeRoom         String
@@ -840,4 +846,15 @@ model AppTechnicalSheetRecord {
   @@index([companyId])
   @@index([ownerCompanyId])
   @@index([productId])
+}
+
+model AppFlavorProfileRecord {
+  id        String   @id
+  companyId Int
+  name      String
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([companyId])
 }

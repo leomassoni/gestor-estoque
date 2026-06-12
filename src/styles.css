@@ -1423,6 +1423,43 @@ h3 {
   grid-template-columns: repeat(5, minmax(0, 1fr));
 }
 
+.technical-sheet-flavor-profile-picker {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+}
+
+.technical-sheet-flavor-profile-picker .single-autocomplete {
+  flex: 1 1 280px;
+}
+
+.technical-sheet-flavor-profile-list {
+  display: grid;
+  gap: 12px;
+}
+
+.technical-sheet-flavor-profile-row {
+  display: grid;
+  grid-template-columns: minmax(180px, 1.4fr) minmax(110px, 0.6fr) auto;
+  gap: 12px;
+  align-items: end;
+  padding: 14px 16px;
+  border: 1px solid rgba(20, 33, 61, 0.08);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.72);
+}
+
+.technical-sheet-flavor-profile-label {
+  font-size: 0.94rem;
+  font-weight: 700;
+  color: #14213d;
+  padding-bottom: 10px;
+}
+
+.danger-text-button {
+  color: #a63232;
+}
+
 .package-form-grid {
   grid-template-columns: repeat(2, minmax(0, 1fr));
   align-items: start;
@@ -1762,6 +1799,80 @@ h3 {
   color: #1d4ed8;
   font-size: 0.92rem;
   font-weight: 600;
+}
+
+.recipe-description-card {
+  display: grid;
+  gap: 16px;
+}
+
+.recipe-description-sections {
+  display: grid;
+  gap: 12px;
+}
+
+.recipe-description-section {
+  display: grid;
+  gap: 10px;
+}
+
+.recipe-description-details {
+  display: grid;
+  gap: 12px;
+}
+
+.recipe-description-details > summary {
+  cursor: pointer;
+  color: #1d4ed8;
+  font-size: 0.95rem;
+  font-weight: 600;
+  list-style: none;
+}
+
+.recipe-description-details > summary::-webkit-details-marker {
+  display: none;
+}
+
+.recipe-description-details > summary::before {
+  content: '+ ';
+}
+
+.recipe-description-details[open] > summary::before {
+  content: '- ';
+}
+
+.recipe-description-section > span {
+  font-size: 0.82rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: rgba(20, 33, 61, 0.62);
+}
+
+.recipe-description-list,
+.recipe-description-children {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.recipe-description-children {
+  margin-left: 22px;
+  padding-left: 18px;
+  border-left: 2px solid rgba(20, 33, 61, 0.08);
+}
+
+.recipe-description-item {
+  display: grid;
+  gap: 8px;
+}
+
+.recipe-description-label {
+  color: #14213d;
+  font-size: 0.98rem;
+  font-weight: 600;
+  line-height: 1.5;
 }
 
 .receituario-image-wrap {
@@ -3006,6 +3117,19 @@ h3 {
   .color-pair {
     flex-direction: column;
     gap: 12px;
+  }
+
+  .technical-sheet-flavor-profile-picker {
+    flex-direction: column;
+  }
+
+  .technical-sheet-flavor-profile-row {
+    grid-template-columns: 1fr;
+    align-items: stretch;
+  }
+
+  .technical-sheet-flavor-profile-label {
+    padding-bottom: 0;
   }
 
   .save-product-row,

@@ -43,6 +43,25 @@ type ServiceItemSizeUnit = 'MILLILITER' | 'GRAM' | 'CENTIMETER'
 type TechnicalSheetSettingsTab = TechnicalSheetKind
 
 type UserSectionAccess = Record<AppSection, boolean>
+type RecipeExecutionBlockKey =
+  | 'baseSummary'
+  | 'yieldControls'
+  | 'costMetrics'
+  | 'productImage'
+  | 'description'
+  | 'serviceItems'
+  | 'ingredients'
+  | 'garnishes'
+  | 'preparationMode'
+  | 'flavorProfile'
+  | 'storytelling'
+  | 'salesArguments'
+  | 'harmonization'
+type RecipePanelAccess = {
+  showPreparoTab: boolean
+  showExecucaoTab: boolean
+  executionBlocks: Record<RecipeExecutionBlockKey, boolean>
+}
 type UserCatalogAccess = {
   sectorsCreate: boolean
   sectorsDelete: boolean
@@ -63,6 +82,7 @@ type UserCompanyMembershipRecord = {
   sectors: string[]
   sectionAccess: UserSectionAccess
   catalogAccess: UserCatalogAccess
+  recipePanelAccess: RecipePanelAccess
   accessProfileId: number | null
   isActive: boolean
 }
@@ -78,6 +98,7 @@ type AppUserRecord = {
   sectors: string[]
   sectionAccess: UserSectionAccess
   catalogAccess: UserCatalogAccess
+  recipePanelAccess: RecipePanelAccess
   accessProfileId: number | null
   isActive: boolean
   memberships: UserCompanyMembershipRecord[]
@@ -183,6 +204,19 @@ type TechnicalSheetServiceItem = {
   isActive: boolean
 }
 
+type FlavorProfileRecord = {
+  id: string
+  companyId: number
+  name: string
+  isActive: boolean
+}
+
+type TechnicalSheetFlavorProfileRating = {
+  flavorProfileId: string
+  label: string
+  value: string
+}
+
 type TechnicalSheetProductionCenter = {
   stockCenterId: number
   minimumQuantity: string
@@ -221,12 +255,15 @@ type TechnicalSheetRecord = {
   dilutionRatePercentage: string
   imageDataUrl: string
   finalSalePrice: string
+  flavorProfileRatings: TechnicalSheetFlavorProfileRating[]
   flavorSweet: string
   flavorSour: string
   flavorBitter: string
   flavorSalty: string
   flavorUmami: string
   storytelling: string
+  salesArguments: string
+  harmonization: string
   preparationMode: string
   preparationLeadTimeDays: string
   shelfLifeRoom: string
@@ -264,12 +301,15 @@ type TechnicalSheetFormState = {
   dilutionRatePercentage: string
   imageDataUrl: string
   finalSalePrice: string
+  flavorProfileRatings: TechnicalSheetFlavorProfileRating[]
   flavorSweet: string
   flavorSour: string
   flavorBitter: string
   flavorSalty: string
   flavorUmami: string
   storytelling: string
+  salesArguments: string
+  harmonization: string
   preparationMode: string
   preparationLeadTimeDays: string
   shelfLifeRoom: string
@@ -302,12 +342,10 @@ type TechnicalSheetConfigurationFieldKey =
   | 'finalSalePrice'
   | 'imageDataUrl'
   | 'garnishIngredients'
-  | 'flavorSweet'
-  | 'flavorSour'
-  | 'flavorBitter'
-  | 'flavorSalty'
-  | 'flavorUmami'
+  | 'flavorProfiles'
   | 'storytelling'
+  | 'salesArguments'
+  | 'harmonization'
   | 'preparationMode'
   | 'preparationLeadTimeDays'
   | 'shelfLifeRoom'
@@ -1137,6 +1175,19 @@ type PreparationModeMetricPart =
       quantityLabel: string
     }
 
+type TechnicalSheetDescriptionNode = {
+  label: string
+  preparationId: number | null
+  children: TechnicalSheetDescriptionNode[]
+}
+
+type TechnicalSheetGeneratedDescription = {
+  summary: string
+  mainIngredients: TechnicalSheetDescriptionNode[]
+  finalization: TechnicalSheetDescriptionNode[]
+  hasContent: boolean
+}
+
 type SectorHideState = {
   sector: string
   impactedProducts: string[]
@@ -1426,6 +1477,7 @@ type UserFormState = {
   sectors: string[]
   sectionAccess: UserSectionAccess
   catalogAccess: UserCatalogAccess
+  recipePanelAccess: RecipePanelAccess
   accessProfileId: string
   memberships: Array<{
     companyId: number
@@ -1434,6 +1486,7 @@ type UserFormState = {
     sectors: string[]
     sectionAccess: UserSectionAccess
     catalogAccess: UserCatalogAccess
+    recipePanelAccess: RecipePanelAccess
     isActive: boolean
   }>
 }
@@ -1445,6 +1498,7 @@ type AccessProfileRecord = {
   role: CompanyUserRole
   sectionAccess: UserSectionAccess
   catalogAccess: UserCatalogAccess
+  recipePanelAccess: RecipePanelAccess
   isActive: boolean
 }
 
@@ -1452,6 +1506,7 @@ type AccessProfileFormState = {
   name: string
   sectionAccess: UserSectionAccess
   catalogAccess: UserCatalogAccess
+  recipePanelAccess: RecipePanelAccess
   stockPermissions: {
     inventorySummaryEdit: boolean
     inventorySummaryDelete: boolean
@@ -1694,6 +1749,191 @@ function buildPreparationModeMetricParts(value: string, ingredients: RecipePanel
   return parts.length > 0 ? parts : [{ type: 'text', text: value }]
 }
 
+function mergeTechnicalSheetDescriptionNodes(nodes: TechnicalSheetDescriptionNode[]) {
+  const mergedNodes = new Map<string, TechnicalSheetDescriptionNode>()
+
+  nodes.forEach((node) => {
+    const normalizedLabel = normalizeRegistrationText(node.label)
+    if (!normalizedLabel) {
+      return
+    }
+
+    const key = normalizedLabel.toLocaleLowerCase('pt-BR')
+    const existingNode = mergedNodes.get(key)
+
+    if (!existingNode) {
+      mergedNodes.set(key, {
+        label: normalizedLabel,
+        preparationId: node.preparationId,
+        children: mergeTechnicalSheetDescriptionNodes(node.children),
+      })
+      return
+    }
+
+    if (existingNode.preparationId === null && node.preparationId !== null) {
+      existingNode.preparationId = node.preparationId
+    }
+    existingNode.children = mergeTechnicalSheetDescriptionNodes([...existingNode.children, ...node.children])
+  })
+
+  return Array.from(mergedNodes.values())
+}
+
+function formatNaturalLanguageList(values: string[]) {
+  if (values.length === 0) {
+    return ''
+  }
+
+  const listFormatConstructor = (globalThis as { Intl?: { ListFormat?: new (
+    locales?: string | string[],
+    options?: { style?: 'long' | 'short' | 'narrow'; type?: 'conjunction' | 'disjunction' | 'unit' },
+  ) => { format: (items: string[]) => string } } }).Intl?.ListFormat
+
+  if (typeof listFormatConstructor === 'function') {
+    return new listFormatConstructor('pt-BR', { style: 'long', type: 'conjunction' }).format(values)
+  }
+
+  if (values.length === 1) {
+    return values[0]
+  }
+
+  if (values.length === 2) {
+    return `${values[0]} e ${values[1]}`
+  }
+
+  return `${values.slice(0, -1).join(', ')} e ${values[values.length - 1]}`
+}
+
+function buildTechnicalSheetDescriptionNarrative(
+  nodes: TechnicalSheetDescriptionNode[],
+  describedPreparationIds: Set<number>,
+  depth = 0,
+): string[] {
+  return nodes.flatMap((node) => {
+    if (node.children.length === 0) {
+      return []
+    }
+
+    if (node.preparationId !== null) {
+      if (describedPreparationIds.has(node.preparationId)) {
+        return []
+      }
+      describedPreparationIds.add(node.preparationId)
+    }
+
+    const childLabels = node.children.map((child) => child.label)
+    const sentence =
+      depth === 0
+        ? `- ${node.label} leva ${formatNaturalLanguageList(childLabels)}.`
+        : `- ${node.label} combina ${formatNaturalLanguageList(childLabels)}.`
+
+    return [
+      sentence,
+      ...node.children.flatMap((child) => buildTechnicalSheetDescriptionNarrative([child], describedPreparationIds, depth + 1)),
+    ]
+  })
+}
+
+function buildTechnicalSheetDescriptionNode(
+  ingredient: TechnicalSheetIngredient,
+  technicalSheets: TechnicalSheetRecord[],
+  visitedPreparationIds: Set<number>,
+): TechnicalSheetDescriptionNode | null {
+  const normalizedLabel = normalizeRegistrationText(ingredient.productLabel)
+  if (!normalizedLabel) {
+    return null
+  }
+
+  const nestedSheet =
+    technicalSheets.find(
+      (candidate) => candidate.productId === ingredient.productId && candidate.kind === 'PREPARO' && candidate.isActive,
+    ) ?? null
+
+  if (!nestedSheet || visitedPreparationIds.has(nestedSheet.id)) {
+    return {
+      label: normalizedLabel,
+      preparationId: null,
+      children: [],
+    }
+  }
+
+  const shouldDescribeNestedComposition = nestedSheet.productionCenters.length > 0
+
+  if (!shouldDescribeNestedComposition) {
+    return {
+      label: normalizedLabel,
+      preparationId: nestedSheet.id,
+      children: [],
+    }
+  }
+
+  const nextVisitedPreparationIds = new Set(visitedPreparationIds)
+  nextVisitedPreparationIds.add(nestedSheet.id)
+
+  const nestedChildren = mergeTechnicalSheetDescriptionNodes(
+    nestedSheet.ingredients
+      .filter((nestedIngredient) => nestedIngredient.isActive)
+      .map((nestedIngredient) =>
+        buildTechnicalSheetDescriptionNode(nestedIngredient, technicalSheets, nextVisitedPreparationIds),
+      )
+      .filter((value): value is TechnicalSheetDescriptionNode => Boolean(value)),
+  )
+
+  return {
+    label: normalizedLabel,
+    preparationId: nestedSheet.id,
+    children: nestedChildren,
+  }
+}
+
+function buildTechnicalSheetGeneratedDescription(
+  sheet: TechnicalSheetRecord,
+  technicalSheets: TechnicalSheetRecord[],
+): TechnicalSheetGeneratedDescription {
+  const mainIngredients = mergeTechnicalSheetDescriptionNodes(
+    sheet.ingredients
+      .filter((ingredient) => ingredient.isActive)
+      .map((ingredient) => buildTechnicalSheetDescriptionNode(ingredient, technicalSheets, new Set<number>()))
+      .filter((value): value is TechnicalSheetDescriptionNode => Boolean(value)),
+  )
+
+  const finalization = mergeTechnicalSheetDescriptionNodes(
+    sheet.garnishIngredients
+      .filter((ingredient) => ingredient.isActive)
+      .map((ingredient) => buildTechnicalSheetDescriptionNode(ingredient, technicalSheets, new Set<number>()))
+      .filter((value): value is TechnicalSheetDescriptionNode => Boolean(value)),
+  )
+
+  const mainLabels = mainIngredients.map((node) => node.label)
+  const finalizationLabels = finalization.map((node) => node.label)
+  const describedPreparationIds = new Set<number>()
+  const summaryParts: string[] = []
+  if (mainLabels.length > 0) {
+    summaryParts.push(`Leva ${formatNaturalLanguageList(mainLabels)}.`)
+  }
+  const mainNarrative = buildTechnicalSheetDescriptionNarrative(mainIngredients, describedPreparationIds)
+  if (mainNarrative.length > 0) {
+    summaryParts.push(mainNarrative.join('\n\n'))
+  }
+  if (finalizationLabels.length > 0) {
+    summaryParts.push(`Finalizacao com ${formatNaturalLanguageList(finalizationLabels)}.`)
+  }
+  const finalizationNarrative = buildTechnicalSheetDescriptionNarrative(finalization, describedPreparationIds)
+  if (finalizationNarrative.length > 0) {
+    summaryParts.push(finalizationNarrative.join('\n\n'))
+  }
+
+  return {
+    summary:
+      summaryParts.length > 0
+        ? summaryParts.join('\n\n')
+        : 'A descricao automatica sera exibida quando a composicao da ficha estiver preenchida com insumos ativos.',
+    mainIngredients,
+    finalization,
+    hasContent: mainIngredients.length > 0 || finalization.length > 0,
+  }
+}
+
 function PreparationModeInput({
   value,
   onChange,
@@ -1860,17 +2100,30 @@ const technicalSheetConfigurationFieldDefinitions: Array<{
   { key: 'desiredCmvPercentage', label: 'CMV desejado (%)', kinds: ['EXECUCAO', 'VENDA'], block: 'Controle' },
   { key: 'dilutionRatePercentage', label: 'Taxa de diluicao (%)', kinds: ['EXECUCAO'], block: 'Controle' },
   { key: 'finalSalePrice', label: 'Valor de venda final', kinds: ['EXECUCAO', 'VENDA'], block: 'Controle' },
-  { key: 'flavorSweet', label: 'Doce', kinds: ['EXECUCAO'], block: 'Perfil sensorial' },
-  { key: 'flavorSour', label: 'Azedo', kinds: ['EXECUCAO'], block: 'Perfil sensorial' },
-  { key: 'flavorBitter', label: 'Amargo', kinds: ['EXECUCAO'], block: 'Perfil sensorial' },
-  { key: 'flavorSalty', label: 'Salgado', kinds: ['EXECUCAO'], block: 'Perfil sensorial' },
-  { key: 'flavorUmami', label: 'Umami', kinds: ['EXECUCAO'], block: 'Perfil sensorial' },
+  { key: 'flavorProfiles', label: 'Perfis de sabor', kinds: ['EXECUCAO'], block: 'Perfil sensorial' },
   { key: 'storytelling', label: 'Storytelling', kinds: ['EXECUCAO'], block: 'Narrativa' },
+  { key: 'salesArguments', label: 'Argumentos de venda', kinds: ['EXECUCAO'], block: 'Narrativa' },
+  { key: 'harmonization', label: 'Harmonizacao', kinds: ['EXECUCAO'], block: 'Narrativa' },
   { key: 'preparationMode', label: 'Modo de preparo', kinds: ['PREPARO', 'EXECUCAO'], block: 'Manipulacao' },
   { key: 'preparationLeadTimeDays', label: 'Tempo de preparo (dias)', kinds: ['PREPARO'], block: 'Manipulacao' },
   { key: 'shelfLifeRoom', label: 'Validade in natura', kinds: ['PREPARO'], block: 'Manipulacao' },
   { key: 'shelfLifeRefrigerated', label: 'Validade refrigerado', kinds: ['PREPARO'], block: 'Manipulacao' },
   { key: 'shelfLifeFrozen', label: 'Validade congelado', kinds: ['PREPARO'], block: 'Manipulacao' },
+]
+const recipeExecutionBlockDefinitions: Array<{ key: RecipeExecutionBlockKey; label: string }> = [
+  { key: 'baseSummary', label: 'Cabecalho tecnico' },
+  { key: 'yieldControls', label: 'Controles de rendimento' },
+  { key: 'costMetrics', label: 'Resumo de custo e venda' },
+  { key: 'productImage', label: 'Imagem do produto' },
+  { key: 'description', label: 'Descricao amigavel' },
+  { key: 'serviceItems', label: 'Recipientes de servico' },
+  { key: 'ingredients', label: 'Insumos' },
+  { key: 'garnishes', label: 'Guarnicoes' },
+  { key: 'preparationMode', label: 'Modo de preparo' },
+  { key: 'flavorProfile', label: 'Perfil sensorial' },
+  { key: 'storytelling', label: 'Storytelling' },
+  { key: 'salesArguments', label: 'Argumentos de venda' },
+  { key: 'harmonization', label: 'Harmonizacao' },
 ]
 
 function isTechnicalSheetConfigurationFieldApplicable(
@@ -2376,6 +2629,50 @@ const defaultSectionAccessByRole = (role: CompanyUserRole): UserSectionAccess =>
   }
 }
 
+const defaultRecipePanelAccess = (): RecipePanelAccess => ({
+  showPreparoTab: true,
+  showExecucaoTab: true,
+  executionBlocks: {
+    baseSummary: true,
+    yieldControls: true,
+    costMetrics: true,
+    productImage: true,
+    description: true,
+    serviceItems: true,
+    ingredients: true,
+    garnishes: true,
+    preparationMode: true,
+    flavorProfile: true,
+    storytelling: true,
+    salesArguments: true,
+    harmonization: true,
+  },
+})
+
+function normalizeRecipePanelAccess(value: unknown): RecipePanelAccess {
+  const fallback = defaultRecipePanelAccess()
+  if (!value || typeof value !== 'object') {
+    return fallback
+  }
+
+  const candidate = value as Partial<RecipePanelAccess>
+  const executionBlocksCandidate: Partial<Record<RecipeExecutionBlockKey, boolean>> =
+    candidate.executionBlocks && typeof candidate.executionBlocks === 'object'
+      ? (candidate.executionBlocks as Partial<Record<RecipeExecutionBlockKey, boolean>>)
+      : {}
+
+  return {
+    showPreparoTab: candidate.showPreparoTab !== false,
+    showExecucaoTab: candidate.showExecucaoTab !== false,
+    executionBlocks: recipeExecutionBlockDefinitions.reduce<Record<RecipeExecutionBlockKey, boolean>>((current, definition) => {
+      const candidateValue = executionBlocksCandidate[definition.key]
+      current[definition.key] =
+        typeof candidateValue === 'boolean' ? candidateValue : fallback.executionBlocks[definition.key]
+      return current
+    }, {} as Record<RecipeExecutionBlockKey, boolean>),
+  }
+}
+
 const defaultCatalogAccessByRole = (role: CompanyUserRole): UserCatalogAccess => {
   if (role === 'Administrativo') {
     return {
@@ -2447,6 +2744,7 @@ const buildDefaultAccessProfiles = (companyId: number | null): AccessProfileReco
       role: 'Administrativo',
       sectionAccess: defaultSectionAccessByRole('Administrativo'),
       catalogAccess: defaultCatalogAccessByRole('Administrativo'),
+      recipePanelAccess: defaultRecipePanelAccess(),
       isActive: true,
     },
     {
@@ -2456,6 +2754,7 @@ const buildDefaultAccessProfiles = (companyId: number | null): AccessProfileReco
       role: 'Gestor',
       sectionAccess: defaultSectionAccessByRole('Gestor'),
       catalogAccess: defaultCatalogAccessByRole('Gestor'),
+      recipePanelAccess: defaultRecipePanelAccess(),
       isActive: true,
     },
     {
@@ -2465,6 +2764,7 @@ const buildDefaultAccessProfiles = (companyId: number | null): AccessProfileReco
       role: 'Colaborador',
       sectionAccess: defaultSectionAccessByRole('Colaborador'),
       catalogAccess: defaultCatalogAccessByRole('Colaborador'),
+      recipePanelAccess: defaultRecipePanelAccess(),
       isActive: true,
     },
   ]
@@ -2532,6 +2832,7 @@ const emptyAccessProfileForm = (): AccessProfileFormState => ({
     materialsCreate: false,
     materialsDelete: false,
   },
+  recipePanelAccess: defaultRecipePanelAccess(),
   stockPermissions: {
     inventorySummaryEdit: false,
     inventorySummaryDelete: false,
@@ -2803,6 +3104,7 @@ const emptyUserForm = (): UserFormState => ({
   sectors: [],
   sectionAccess: defaultSectionAccessByRole('Gestor'),
   catalogAccess: defaultCatalogAccessByRole('Gestor'),
+  recipePanelAccess: defaultRecipePanelAccess(),
   accessProfileId: '',
   memberships: [],
 })
@@ -2831,12 +3133,15 @@ const emptyTechnicalSheetForm = (): TechnicalSheetFormState => ({
   dilutionRatePercentage: '',
   imageDataUrl: '',
   finalSalePrice: '',
+  flavorProfileRatings: [],
   flavorSweet: '0',
   flavorSour: '0',
   flavorBitter: '0',
   flavorSalty: '0',
   flavorUmami: '0',
   storytelling: '',
+  salesArguments: '',
+  harmonization: '',
   preparationMode: '',
   preparationLeadTimeDays: '',
   shelfLifeRoom: '',
@@ -2886,6 +3191,7 @@ const usersStorageKey = 'gestor-estoque:users'
 const accessProfilesStorageKey = 'gestor-estoque:access-profiles'
 const technicalSheetSettingsStorageKey = 'gestor-estoque:technical-sheet-settings'
 const technicalSheetsStorageKey = 'gestor-estoque:technical-sheets'
+const flavorProfilesStorageKey = 'gestor-estoque:flavor-profiles'
 const stockCentersStorageKey = 'gestor-estoque:stock-centers'
 const inventoryRecordsStorageKey = 'gestor-estoque:inventory-records'
 const inventoryActiveRecordsStorageKey = 'gestor-estoque:inventory-active-records'
@@ -2907,6 +3213,7 @@ const syncedAppStorageKeys = [
   productsStorageKey,
   serviceItemsStorageKey,
   technicalSheetsStorageKey,
+  flavorProfilesStorageKey,
   stockCentersStorageKey,
   requisitionsStorageKey,
   requisitionNotificationsStorageKey,
@@ -2931,6 +3238,19 @@ type RemoteAppStatePayload = {
 const masterCredentials = {
   username: 'igarape.aeb',
   password: 'Leo180613*',
+}
+
+const defaultFlavorProfileNames = ['Doce', 'Azedo', 'Amargo', 'Salgado', 'Umami'] as const
+
+function buildDefaultFlavorProfileId(companyId: number, name: string) {
+  const normalizedSlug = normalizeRegistrationText(name)
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-zA-Z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .toLowerCase()
+
+  return `default-flavor-profile:${companyId}:${normalizedSlug || 'perfil'}`
 }
 
 function readRemoteAppStatePayloadFromLocalStorage(): RemoteAppStatePayload {
@@ -3295,6 +3615,7 @@ export default function App() {
   const [screenMode, setScreenMode] = useState<ScreenMode>('list')
   const [products, setProducts] = useState<ProductRecord[]>(() => loadProductsState())
   const [serviceItems, setServiceItems] = useState<ServiceItemRecord[]>(() => loadServiceItemsState())
+  const [flavorProfiles, setFlavorProfiles] = useState<FlavorProfileRecord[]>(() => loadFlavorProfilesState())
   const [productSearch, setProductSearch] = useState('')
   const [openColumnMenu, setOpenColumnMenu] = useState<ColumnKey | null>(null)
   const [columnVisibility, setColumnVisibility] = useState<Record<ColumnKey, boolean>>(defaultColumnVisibility)
@@ -3357,6 +3678,7 @@ export default function App() {
   const [technicalSheetScreenMode, setTechnicalSheetScreenMode] = useState<ScreenMode>('list')
   const [technicalSheets, setTechnicalSheets] = useState<TechnicalSheetRecord[]>(() => loadTechnicalSheetsState())
   const [technicalSheetImageCache, setTechnicalSheetImageCache] = useState<Record<number, string>>({})
+  const [technicalSheetFlavorProfileInput, setTechnicalSheetFlavorProfileInput] = useState('')
   const [technicalSheetSearch, setTechnicalSheetSearch] = useState('')
   const [stockCenters, setStockCenters] = useState<StockCenterRecord[]>(() => loadStockCentersState())
   const [requisitions, setRequisitions] = useState<RequisitionRecord[]>(() => loadRequisitionsState())
@@ -3745,6 +4067,7 @@ export default function App() {
                 sectors: membership.sectors,
                 sectionAccess: membership.sectionAccess,
                 catalogAccess: membership.catalogAccess,
+                recipePanelAccess: membership.recipePanelAccess,
                 accessProfileId: membership.accessProfileId,
               }
             : session.user
@@ -3760,6 +4083,10 @@ export default function App() {
   const canAssignPrivilegedUserRoles = isSystemAdmin || isManagerUser
   const userCatalogAccess =
     effectiveSessionAppUser?.catalogAccess ?? defaultCatalogAccessByRole('Colaborador')
+  const effectiveRecipePanelAccess =
+    isSystemAdmin ? defaultRecipePanelAccess() : effectiveSessionAppUser?.recipePanelAccess ?? defaultRecipePanelAccess()
+  const canViewRecipePreparoTab = effectiveRecipePanelAccess.showPreparoTab
+  const canViewRecipeExecucaoTab = effectiveRecipePanelAccess.showExecucaoTab
   const canCreateSectors = isSystemAdmin || userCatalogAccess.sectorsCreate
   const canDeleteSectors = isSystemAdmin || userCatalogAccess.sectorsDelete
   const canCreateFamilies = isSystemAdmin || userCatalogAccess.familiesCreate
@@ -3947,6 +4274,7 @@ export default function App() {
       actors: new Set(currentCompanyAuditLogs.map((record) => `${record.actorKind}:${record.actorUsername}`)).size,
     }
   }, [currentCompanyAuditLogs])
+  const visibleRecipePanelExecutionBlocks = effectiveRecipePanelAccess.executionBlocks
   const auditResultLabelByValue: Record<AuditResult, string> = {
     SUCCESS: 'Sucesso',
     WARNING: 'Alerta',
@@ -4161,6 +4489,7 @@ export default function App() {
       sectors: membership.sectors,
       sectionAccess: membership.sectionAccess,
       catalogAccess: membership.catalogAccess,
+      recipePanelAccess: membership.recipePanelAccess,
       accessProfileId: membership.accessProfileId,
     }
   }
@@ -4184,6 +4513,7 @@ export default function App() {
         role: fallbackProfile?.role ?? membership.role,
         sectionAccess: fallbackProfile?.sectionAccess ?? defaultSectionAccessByRole(membership.role),
         catalogAccess: fallbackProfile?.catalogAccess ?? defaultCatalogAccessByRole(membership.role),
+        recipePanelAccess: fallbackProfile?.recipePanelAccess ?? defaultRecipePanelAccess(),
       }
     })
 
@@ -4202,6 +4532,7 @@ export default function App() {
       sectors: primaryMembership?.sectors ?? user.sectors,
       sectionAccess: primaryMembership?.sectionAccess ?? user.sectionAccess,
       catalogAccess: primaryMembership?.catalogAccess ?? user.catalogAccess,
+      recipePanelAccess: primaryMembership?.recipePanelAccess ?? user.recipePanelAccess,
       accessProfileId: primaryMembership?.accessProfileId ?? null,
       memberships: nextMemberships,
     }
@@ -5128,12 +5459,21 @@ export default function App() {
       ),
     [currentCompanyId, isProductVisibleForCompany, products],
   )
+  const companyFlavorProfiles = useMemo(
+    () => buildCompanyFlavorProfiles(currentCompanyId, flavorProfiles),
+    [currentCompanyId, flavorProfiles],
+  )
+  const companyFlavorProfileSuggestions = useMemo(
+    () => companyFlavorProfiles.map((profile) => profile.name),
+    [companyFlavorProfiles],
+  )
 
   function hydrateAppStateFromLocalStorageSnapshot() {
     setCompanies(loadCompaniesState())
     setUsers(loadUsersState())
     setAccessProfiles(loadAccessProfilesState())
     setTechnicalSheetSettingsRecords(loadTechnicalSheetSettingsState())
+    setFlavorProfiles(loadFlavorProfilesState())
     setProducts(loadProductsState())
     setServiceItems(loadServiceItemsState())
     setTechnicalSheets(loadTechnicalSheetsState())
@@ -5703,20 +6043,22 @@ export default function App() {
   }
 
   async function refreshAppCatalogRecordsFromApi() {
-    const [productsResponse, serviceItemsResponse, technicalSheetsResponse] = await Promise.all([
+    const [productsResponse, serviceItemsResponse, technicalSheetsResponse, flavorProfilesResponse] = await Promise.all([
       fetch('/api/products', { cache: 'no-store' }),
       fetch('/api/service-items', { cache: 'no-store' }),
       fetch('/api/technical-sheets', { cache: 'no-store' }),
+      fetch('/api/flavor-profiles', { cache: 'no-store' }),
     ])
 
-    if (!productsResponse.ok || !serviceItemsResponse.ok || !technicalSheetsResponse.ok) {
-      throw new Error('Falha ao carregar produtos, itens ou fichas tecnicas pelo backend.')
+    if (!productsResponse.ok || !serviceItemsResponse.ok || !technicalSheetsResponse.ok || !flavorProfilesResponse.ok) {
+      throw new Error('Falha ao carregar produtos, itens, perfis de sabor ou fichas tecnicas pelo backend.')
     }
 
-    const [productsData, serviceItemsData, technicalSheetsData] = await Promise.all([
+    const [productsData, serviceItemsData, technicalSheetsData, flavorProfilesData] = await Promise.all([
       productsResponse.json(),
       serviceItemsResponse.json(),
       technicalSheetsResponse.json(),
+      flavorProfilesResponse.json(),
     ])
 
     const nextProducts = Array.isArray(productsData?.products)
@@ -5734,21 +6076,30 @@ export default function App() {
           .map(normalizeTechnicalSheetRecord)
           .filter((item): item is TechnicalSheetRecord => item !== null)
       : []
+    const nextFlavorProfiles = Array.isArray(flavorProfilesData?.flavorProfiles)
+      ? (flavorProfilesData.flavorProfiles as unknown[])
+          .map(normalizeFlavorProfileRecord)
+          .filter((item): item is FlavorProfileRecord => item !== null)
+      : []
 
     const localProducts = loadProductsState()
     const localServiceItems = loadServiceItemsState()
     const localTechnicalSheets = loadTechnicalSheetsState()
+    const localFlavorProfiles = loadFlavorProfilesState()
     const missingProducts = nextProducts.length === 0 && localProducts.length > 0
     const missingServiceItems = nextServiceItems.length === 0 && localServiceItems.length > 0
     const missingTechnicalSheets = nextTechnicalSheets.length === 0 && localTechnicalSheets.length > 0
+    const missingFlavorProfiles = nextFlavorProfiles.length === 0 && localFlavorProfiles.length > 0
 
-    if (missingProducts || missingServiceItems || missingTechnicalSheets) {
+    if (missingProducts || missingServiceItems || missingTechnicalSheets || missingFlavorProfiles) {
       await Promise.all([
         ...(missingProducts ? localProducts.map((product) => upsertProductRecordOnApi(product, null)) : []),
         ...(missingServiceItems ? localServiceItems.map((item) => upsertServiceItemRecordOnApi(item, null)) : []),
         ...(missingTechnicalSheets ? localTechnicalSheets.map((sheet) => upsertTechnicalSheetRecordOnApi(sheet)) : []),
+        ...(missingFlavorProfiles ? localFlavorProfiles.map((profile) => upsertFlavorProfileRecordOnApi(profile)) : []),
       ])
 
+      setFlavorProfiles(missingFlavorProfiles ? localFlavorProfiles : nextFlavorProfiles)
       setProducts(missingProducts ? localProducts : nextProducts)
       setServiceItems(missingServiceItems ? localServiceItems : nextServiceItems)
       setTechnicalSheets(missingTechnicalSheets ? localTechnicalSheets : nextTechnicalSheets)
@@ -5758,6 +6109,7 @@ export default function App() {
       return
     }
 
+    setFlavorProfiles(nextFlavorProfiles)
     setProducts(nextProducts)
     setServiceItems(nextServiceItems)
     setTechnicalSheets(nextTechnicalSheets)
@@ -5832,6 +6184,18 @@ export default function App() {
     if (!response.ok) {
       const errorPayload = (await response.json().catch(() => null)) as { error?: string } | null
       throw new Error(errorPayload?.error || 'Nao foi possivel salvar a ficha tecnica no servidor.')
+    }
+  }
+
+  async function upsertFlavorProfileRecordOnApi(profile: FlavorProfileRecord) {
+    const response = await fetch('/api/flavor-profiles', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(profile),
+    })
+    if (!response.ok) {
+      const errorPayload = (await response.json().catch(() => null)) as { error?: string } | null
+      throw new Error(errorPayload?.error || 'Nao foi possivel salvar o perfil de sabor no servidor.')
     }
   }
 
@@ -12508,6 +12872,35 @@ export default function App() {
       }),
     [technicalSheetEditingServiceItem?.id, technicalSheetServiceItems],
   )
+  const technicalSheetGeneratedDescription = useMemo(
+    () =>
+      technicalSheetForm.kind === 'EXECUCAO'
+        ? buildTechnicalSheetGeneratedDescription(
+            {
+              ...technicalSheetForm,
+              id: editingTechnicalSheetId ?? -1,
+              companyId: currentCompanyId ?? 0,
+              ownerCompanyId: currentCompanyId ?? 0,
+              productId: draftTechnicalSheetProductId,
+              ingredients: technicalSheetRegisteredIngredients,
+              garnishIngredients: technicalSheetRegisteredGarnishIngredients,
+              serviceItems: technicalSheetRegisteredServiceItems,
+              isActive: true,
+            },
+            technicalSheets,
+          )
+        : { summary: '', mainIngredients: [], finalization: [], hasContent: false },
+    [
+      currentCompanyId,
+      draftTechnicalSheetProductId,
+      editingTechnicalSheetId,
+      technicalSheetForm,
+      technicalSheetRegisteredGarnishIngredients,
+      technicalSheetRegisteredIngredients,
+      technicalSheetRegisteredServiceItems,
+      technicalSheets,
+    ],
+  )
 
   function selectRecipePanelSheet(tab: RecipePanelTab, sheetId: number | null) {
     setRecipePanelSelectedId((current) => ({
@@ -12723,6 +13116,10 @@ export default function App() {
   useEffect(() => {
     saveServiceItemsState(serviceItems)
   }, [serviceItems])
+
+  useEffect(() => {
+    saveFlavorProfilesState(flavorProfiles)
+  }, [flavorProfiles])
 
   useEffect(() => {
     saveStockCentersState(stockCenters)
@@ -13932,6 +14329,7 @@ export default function App() {
       refreshedUser.sectors.join('|') !== session.user.sectors.join('|') ||
       JSON.stringify(refreshedUser.sectionAccess) !== JSON.stringify(session.user.sectionAccess) ||
       JSON.stringify(refreshedUser.catalogAccess) !== JSON.stringify(session.user.catalogAccess) ||
+      JSON.stringify(refreshedUser.recipePanelAccess) !== JSON.stringify(session.user.recipePanelAccess) ||
       refreshedUser.accessProfileId !== session.user.accessProfileId ||
       JSON.stringify(refreshedUser.memberships) !== JSON.stringify(session.user.memberships)
     ) {
@@ -13980,6 +14378,7 @@ export default function App() {
           sectors: existing?.sectors ?? (singleAllowedUserSector ? [singleAllowedUserSector] : []),
           sectionAccess: resolvedProfile?.sectionAccess ?? existing?.sectionAccess ?? current.sectionAccess,
           catalogAccess: resolvedProfile?.catalogAccess ?? existing?.catalogAccess ?? current.catalogAccess,
+          recipePanelAccess: resolvedProfile?.recipePanelAccess ?? existing?.recipePanelAccess ?? current.recipePanelAccess,
           isActive: existing?.isActive ?? true,
         }
       })
@@ -13991,6 +14390,7 @@ export default function App() {
         sectors: primaryMembership?.sectors ?? current.sectors,
         sectionAccess: primaryMembership?.sectionAccess ?? current.sectionAccess,
         catalogAccess: primaryMembership?.catalogAccess ?? current.catalogAccess,
+        recipePanelAccess: primaryMembership?.recipePanelAccess ?? current.recipePanelAccess,
         memberships: nextMemberships,
       }
       const hasChanged =
@@ -13999,6 +14399,7 @@ export default function App() {
         nextForm.sectors.join('|') !== current.sectors.join('|') ||
         JSON.stringify(nextForm.sectionAccess) !== JSON.stringify(current.sectionAccess) ||
         JSON.stringify(nextForm.catalogAccess) !== JSON.stringify(current.catalogAccess) ||
+        JSON.stringify(nextForm.recipePanelAccess) !== JSON.stringify(current.recipePanelAccess) ||
         JSON.stringify(nextForm.memberships) !== JSON.stringify(current.memberships)
       return hasChanged ? nextForm : current
     })
@@ -14046,6 +14447,7 @@ export default function App() {
             role: fallbackProfile?.role ?? membership.role,
             sectionAccess: fallbackProfile?.sectionAccess ?? defaultSectionAccessByRole(membership.role),
             catalogAccess: fallbackProfile?.catalogAccess ?? defaultCatalogAccessByRole(membership.role),
+            recipePanelAccess: fallbackProfile?.recipePanelAccess ?? defaultRecipePanelAccess(),
           }
         })
 
@@ -14064,6 +14466,7 @@ export default function App() {
           sectors: primaryMembership?.sectors ?? user.sectors,
           sectionAccess: primaryMembership?.sectionAccess ?? user.sectionAccess,
           catalogAccess: primaryMembership?.catalogAccess ?? user.catalogAccess,
+          recipePanelAccess: primaryMembership?.recipePanelAccess ?? user.recipePanelAccess,
           accessProfileId: primaryMembership?.accessProfileId ?? null,
           memberships: nextMemberships,
         }
@@ -14156,6 +14559,22 @@ export default function App() {
       setIsMobileSidebarOpen(true)
     }
   }, [activeSection, currentCompanyId, session])
+
+  useEffect(() => {
+    const fallbackTab = canViewRecipePreparoTab ? 'PREPARO' : canViewRecipeExecucaoTab ? 'EXECUCAO' : null
+    if (fallbackTab === null) {
+      return
+    }
+
+    if (recipePanelTab === 'PREPARO' && !canViewRecipePreparoTab) {
+      setRecipePanelTab(fallbackTab)
+      return
+    }
+
+    if (recipePanelTab === 'EXECUCAO' && !canViewRecipeExecucaoTab) {
+      setRecipePanelTab(fallbackTab)
+    }
+  }, [canViewRecipeExecucaoTab, canViewRecipePreparoTab, recipePanelTab])
 
   function openNewProductForm() {
     const nextProductForm = {
@@ -14838,6 +15257,7 @@ export default function App() {
     setEditingTechnicalSheetId(null)
     setTechnicalSheetForm(nextForm)
     setTechnicalSheetSectorInput('')
+    setTechnicalSheetFlavorProfileInput('')
     setTechnicalSheetSharedCompanyInput('')
     setTechnicalSheetProductionCenterInput('')
     setTechnicalSheetSupplyRouteConsumerCenterId('')
@@ -15376,6 +15796,7 @@ export default function App() {
             role: primaryMembership?.role ?? user.role,
             sectionAccess: primaryMembership?.sectionAccess ?? user.sectionAccess,
             catalogAccess: primaryMembership?.catalogAccess ?? user.catalogAccess,
+            recipePanelAccess: primaryMembership?.recipePanelAccess ?? user.recipePanelAccess,
             accessProfileId: primaryMembership?.accessProfileId ?? user.accessProfileId,
             isActive:
               primaryMembership === null
@@ -15562,6 +15983,7 @@ export default function App() {
         sectors: current.sectors,
         sectionAccess: current.sectionAccess,
         catalogAccess: current.catalogAccess,
+        recipePanelAccess: current.recipePanelAccess,
         isActive: true,
       }
       const nextMembership = {
@@ -15570,6 +15992,7 @@ export default function App() {
         role: selectedProfile?.role ?? baseMembership.role,
         sectionAccess: selectedProfile?.sectionAccess ?? baseMembership.sectionAccess,
         catalogAccess: selectedProfile?.catalogAccess ?? baseMembership.catalogAccess,
+        recipePanelAccess: selectedProfile?.recipePanelAccess ?? baseMembership.recipePanelAccess,
       }
       return {
         ...current,
@@ -15600,6 +16023,7 @@ export default function App() {
               sectors: normalizedSectors,
               sectionAccess: current.sectionAccess,
               catalogAccess: current.catalogAccess,
+              recipePanelAccess: current.recipePanelAccess,
               isActive: true,
             }
         return existingMembership
@@ -15630,6 +16054,32 @@ export default function App() {
       sectionAccess: {
         ...current.sectionAccess,
         [section]: value,
+      },
+    }))
+  }
+
+  function updateAccessProfileRecipePanelTabVisibility(tab: 'PREPARO' | 'EXECUCAO', value: boolean) {
+    setAccessProfileForm((current) => {
+      const nextRecipePanelAccess =
+        tab === 'PREPARO'
+          ? { ...current.recipePanelAccess, showPreparoTab: value }
+          : { ...current.recipePanelAccess, showExecucaoTab: value }
+      return {
+        ...current,
+        recipePanelAccess: nextRecipePanelAccess,
+      }
+    })
+  }
+
+  function updateAccessProfileRecipeExecutionBlockAccess(block: RecipeExecutionBlockKey, value: boolean) {
+    setAccessProfileForm((current) => ({
+      ...current,
+      recipePanelAccess: {
+        ...current.recipePanelAccess,
+        executionBlocks: {
+          ...current.recipePanelAccess.executionBlocks,
+          [block]: value,
+        },
       },
     }))
   }
@@ -21667,6 +22117,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
       role: profileRole,
       sectionAccess: accessProfileForm.sectionAccess,
       catalogAccess: accessProfileForm.catalogAccess,
+      recipePanelAccess: accessProfileForm.recipePanelAccess,
       isActive:
         editingAccessProfileId === null
           ? true
@@ -21707,6 +22158,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
         accessProfileId: String(profileToSave.id),
         sectionAccess: profileToSave.sectionAccess,
         catalogAccess: profileToSave.catalogAccess,
+        recipePanelAccess: profileToSave.recipePanelAccess,
       }))
     }
 
@@ -21838,6 +22290,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
       name: targetProfile.name,
       sectionAccess: targetProfile.sectionAccess,
       catalogAccess: targetProfile.catalogAccess,
+      recipePanelAccess: targetProfile.recipePanelAccess,
       stockPermissions: {
         inventorySummaryEdit: selectedStockModuleSettings?.inventorySummaryEditProfileIds.includes(profileId) ?? false,
         inventorySummaryDelete: selectedStockModuleSettings?.inventorySummaryDeleteProfileIds.includes(profileId) ?? false,
@@ -21934,6 +22387,10 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
             primaryCompanyId === targetProfile.companyId
               ? fallbackProfile?.catalogAccess ?? defaultCatalogAccessByRole(current.role)
               : current.catalogAccess,
+          recipePanelAccess:
+            primaryCompanyId === targetProfile.companyId
+              ? fallbackProfile?.recipePanelAccess ?? defaultRecipePanelAccess()
+              : current.recipePanelAccess,
           memberships: current.memberships.map((membership) =>
             membership.companyId === targetProfile.companyId && membership.accessProfileId === String(profileId)
               ? {
@@ -21942,6 +22399,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                   role: fallbackProfile?.role ?? membership.role,
                   sectionAccess: fallbackProfile?.sectionAccess ?? defaultSectionAccessByRole(membership.role),
                   catalogAccess: fallbackProfile?.catalogAccess ?? defaultCatalogAccessByRole(membership.role),
+                  recipePanelAccess: fallbackProfile?.recipePanelAccess ?? defaultRecipePanelAccess(),
                 }
               : membership,
           ),
@@ -22021,6 +22479,10 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
             primaryCompanyId === targetProfile.companyId
               ? fallbackProfile?.catalogAccess ?? defaultCatalogAccessByRole(current.role)
               : current.catalogAccess,
+          recipePanelAccess:
+            primaryCompanyId === targetProfile.companyId
+              ? fallbackProfile?.recipePanelAccess ?? defaultRecipePanelAccess()
+              : current.recipePanelAccess,
           memberships: current.memberships.map((membership) =>
             membership.companyId === targetProfile.companyId && membership.accessProfileId === String(profileId)
               ? {
@@ -22029,6 +22491,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                   role: fallbackProfile?.role ?? membership.role,
                   sectionAccess: fallbackProfile?.sectionAccess ?? defaultSectionAccessByRole(membership.role),
                   catalogAccess: fallbackProfile?.catalogAccess ?? defaultCatalogAccessByRole(membership.role),
+                  recipePanelAccess: fallbackProfile?.recipePanelAccess ?? defaultRecipePanelAccess(),
                 }
               : membership,
           ),
@@ -22072,6 +22535,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
         role: selectedProfile?.role ?? membership?.role ?? userForm.role,
         sectionAccess: selectedProfile?.sectionAccess ?? membership?.sectionAccess ?? userForm.sectionAccess,
         catalogAccess: selectedProfile?.catalogAccess ?? membership?.catalogAccess ?? userForm.catalogAccess,
+        recipePanelAccess: selectedProfile?.recipePanelAccess ?? membership?.recipePanelAccess ?? userForm.recipePanelAccess,
       }
     })
     const errors: string[] = []
@@ -22144,6 +22608,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
       sectors: normalizedMemberships[0]?.normalizedSectors ?? [],
       sectionAccess: normalizedMemberships[0]?.sectionAccess ?? userForm.sectionAccess,
       catalogAccess: normalizedMemberships[0]?.catalogAccess ?? userForm.catalogAccess,
+      recipePanelAccess: normalizedMemberships[0]?.recipePanelAccess ?? userForm.recipePanelAccess,
       accessProfileId: normalizedMemberships[0]?.selectedProfile?.id ?? null,
       isActive: editingUserId ? users.find((item) => item.id === editingUserId)?.isActive ?? true : true,
       memberships: normalizedMemberships.map((membership, index) => ({
@@ -22153,6 +22618,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
         sectors: membership.normalizedSectors,
         sectionAccess: membership.sectionAccess,
         catalogAccess: membership.catalogAccess,
+        recipePanelAccess: membership.recipePanelAccess,
         accessProfileId: membership.selectedProfile?.id ?? null,
         isActive: true,
       })),
@@ -22246,6 +22712,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
       sectors: targetUser.sectors,
       sectionAccess: targetUser.sectionAccess,
       catalogAccess: targetUser.catalogAccess,
+      recipePanelAccess: targetUser.recipePanelAccess,
       accessProfileId: targetUser.accessProfileId === null ? '' : String(targetUser.accessProfileId),
       memberships: targetCompanyIds.map((companyId, index) => {
         const membership = targetUser.memberships.find((item) => item.companyId === companyId) ?? null
@@ -22261,6 +22728,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
           sectors: membership?.sectors ?? (index === 0 ? targetUser.sectors : []),
           sectionAccess: membership?.sectionAccess ?? (index === 0 ? targetUser.sectionAccess : defaultSectionAccessByRole('Colaborador')),
           catalogAccess: membership?.catalogAccess ?? (index === 0 ? targetUser.catalogAccess : defaultCatalogAccessByRole('Colaborador')),
+          recipePanelAccess: membership?.recipePanelAccess ?? (index === 0 ? targetUser.recipePanelAccess : defaultRecipePanelAccess()),
           isActive: membership?.isActive ?? true,
         }
       }),
@@ -23136,12 +23604,15 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
       dilutionRatePercentage: technicalSheet.dilutionRatePercentage || '',
       imageDataUrl: technicalSheet.imageDataUrl || '',
       finalSalePrice: technicalSheet.finalSalePrice || '',
+      flavorProfileRatings: [...technicalSheet.flavorProfileRatings],
       flavorSweet: technicalSheet.flavorSweet || '0',
       flavorSour: technicalSheet.flavorSour || '0',
       flavorBitter: technicalSheet.flavorBitter || '0',
       flavorSalty: technicalSheet.flavorSalty || '0',
       flavorUmami: technicalSheet.flavorUmami || '0',
       storytelling: technicalSheet.storytelling || '',
+      salesArguments: technicalSheet.salesArguments || '',
+      harmonization: technicalSheet.harmonization || '',
       preparationMode: technicalSheet.preparationMode,
       preparationLeadTimeDays: technicalSheet.preparationLeadTimeDays,
       shelfLifeRoom: technicalSheet.shelfLifeRoom,
@@ -23158,6 +23629,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
     setDraftTechnicalSheetProductId(technicalSheet.productId)
     setEditingTechnicalSheetId(technicalSheetId)
     setTechnicalSheetSectorInput('')
+    setTechnicalSheetFlavorProfileInput('')
     setTechnicalSheetSharedCompanyInput('')
     setTechnicalSheetSharedCompanyInput('')
     setTechnicalSheetForm(nextForm)
@@ -23342,12 +23814,15 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
       dilutionRatePercentage: sourceSheet.dilutionRatePercentage || '',
       imageDataUrl: sourceSheet.imageDataUrl || '',
       finalSalePrice: sourceSheet.finalSalePrice || '',
+      flavorProfileRatings: [...sourceSheet.flavorProfileRatings],
       flavorSweet: sourceSheet.flavorSweet || '0',
       flavorSour: sourceSheet.flavorSour || '0',
       flavorBitter: sourceSheet.flavorBitter || '0',
       flavorSalty: sourceSheet.flavorSalty || '0',
       flavorUmami: sourceSheet.flavorUmami || '0',
       storytelling: sourceSheet.storytelling || '',
+      salesArguments: sourceSheet.salesArguments || '',
+      harmonization: sourceSheet.harmonization || '',
       preparationMode: sourceSheet.preparationMode,
       preparationLeadTimeDays: sourceSheet.preparationLeadTimeDays,
       shelfLifeRoom: sourceSheet.shelfLifeRoom,
@@ -23391,6 +23866,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
     setDraftTechnicalSheetProductId(buildTechnicalSheetProductId(newName, sourceSheet.kind))
     setEditingTechnicalSheetId(null)
     setTechnicalSheetSectorInput('')
+    setTechnicalSheetFlavorProfileInput('')
     setTechnicalSheetSharedCompanyInput('')
     setTechnicalSheetProductionCenterInput('')
     setTechnicalSheetForm(nextForm)
@@ -23700,12 +24176,15 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
         dilutionRatePercentage: nextKind === 'EXECUCAO' ? current.dilutionRatePercentage : '',
         imageDataUrl: nextKind === 'EXECUCAO' ? current.imageDataUrl : '',
         finalSalePrice: isCommercialTechnicalSheetKind(nextKind) ? current.finalSalePrice : '',
+        flavorProfileRatings: nextKind === 'EXECUCAO' ? current.flavorProfileRatings : [],
         flavorSweet: nextKind === 'EXECUCAO' ? current.flavorSweet : '0',
         flavorSour: nextKind === 'EXECUCAO' ? current.flavorSour : '0',
         flavorBitter: nextKind === 'EXECUCAO' ? current.flavorBitter : '0',
         flavorSalty: nextKind === 'EXECUCAO' ? current.flavorSalty : '0',
         flavorUmami: nextKind === 'EXECUCAO' ? current.flavorUmami : '0',
         storytelling: nextKind === 'EXECUCAO' ? current.storytelling : '',
+        salesArguments: nextKind === 'EXECUCAO' ? current.salesArguments : '',
+        harmonization: nextKind === 'EXECUCAO' ? current.harmonization : '',
         preparationMode: nextKind === 'VENDA' ? '' : current.preparationMode,
         preparationLeadTimeDays: nextKind === 'PREPARO' ? current.preparationLeadTimeDays : '',
         shelfLifeRoom: isCommercialTechnicalSheetKind(nextKind) ? '' : current.shelfLifeRoom,
@@ -23783,6 +24262,8 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
     if (
       field === 'preparationMode' ||
       field === 'storytelling' ||
+      field === 'salesArguments' ||
+      field === 'harmonization' ||
       field === 'shelfLifeRoom' ||
       field === 'shelfLifeRefrigerated' ||
       field === 'shelfLifeFrozen'
@@ -23790,7 +24271,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
       setTechnicalSheetForm((current) => ({
         ...current,
         [field]:
-          (field === 'preparationMode' || field === 'storytelling'
+          (field === 'preparationMode' || field === 'storytelling' || field === 'salesArguments' || field === 'harmonization'
             ? String(value)
             : normalizeRegistrationText(String(value))) as TechnicalSheetFormState[K],
       }))
@@ -23798,6 +24279,102 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
     }
 
     setTechnicalSheetForm((current) => ({ ...current, [field]: value }))
+  }
+
+  async function ensureCompanyFlavorProfile(name: string) {
+    const normalizedName = normalizeRegistrationText(name)
+    if (!normalizedName || currentCompanyId === null) {
+      return null
+    }
+
+    const existing =
+      companyFlavorProfiles.find((profile) => profile.name.localeCompare(normalizedName, 'pt-BR', { sensitivity: 'accent' }) === 0) ??
+      null
+    if (existing) {
+      return existing
+    }
+
+    const nextProfile: FlavorProfileRecord = {
+      id: buildDefaultFlavorProfileId(currentCompanyId, normalizedName),
+      companyId: currentCompanyId,
+      name: normalizedName,
+      isActive: true,
+    }
+
+    await upsertFlavorProfileRecordOnApi(nextProfile)
+    setFlavorProfiles((current) => {
+      const withoutDuplicate = current.filter((profile) => profile.id !== nextProfile.id)
+      return [...withoutDuplicate, nextProfile]
+    })
+    return nextProfile
+  }
+
+  async function addTechnicalSheetFlavorProfile(rawName: string) {
+    try {
+      const profile = await ensureCompanyFlavorProfile(rawName)
+      if (!profile) {
+        return
+      }
+
+      setTechnicalSheetForm((current) => {
+        if (
+          current.flavorProfileRatings.some(
+            (rating) =>
+              rating.flavorProfileId === profile.id ||
+              rating.label.localeCompare(profile.name, 'pt-BR', { sensitivity: 'accent' }) === 0,
+          )
+        ) {
+          return current
+        }
+
+        return {
+          ...current,
+          flavorProfileRatings: [...current.flavorProfileRatings, { flavorProfileId: profile.id, label: profile.name, value: '3' }],
+        }
+      })
+      setTechnicalSheetFlavorProfileInput('')
+    } catch (error) {
+      setSaveFeedback({
+        status: 'error',
+        title: 'Falha ao cadastrar perfil de sabor',
+        message: error instanceof Error ? error.message : 'Nao foi possivel salvar o perfil de sabor.',
+      })
+    }
+  }
+
+  function updateTechnicalSheetFlavorProfileRating(
+    flavorProfileId: string,
+    field: 'label' | 'value',
+    rawValue: string,
+  ) {
+    setTechnicalSheetForm((current) => ({
+      ...current,
+      flavorProfileRatings: current.flavorProfileRatings.map((rating) => {
+        if (rating.flavorProfileId !== flavorProfileId) {
+          return rating
+        }
+
+        if (field === 'label') {
+          return {
+            ...rating,
+            label: normalizeRegistrationText(rawValue),
+          }
+        }
+
+        const parsedValue = Number.parseInt(rawValue.trim(), 10)
+        return {
+          ...rating,
+          value: Number.isFinite(parsedValue) ? String(Math.max(1, Math.min(5, parsedValue))) : '',
+        }
+      }),
+    }))
+  }
+
+  function removeTechnicalSheetFlavorProfile(flavorProfileId: string) {
+    setTechnicalSheetForm((current) => ({
+      ...current,
+      flavorProfileRatings: current.flavorProfileRatings.filter((rating) => rating.flavorProfileId !== flavorProfileId),
+    }))
   }
 
   function updateTechnicalSheetImage(file: File | null) {
@@ -24321,6 +24898,13 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
             ).values(),
           ).sort((left, right) => left.consumerCenterId - right.consumerCenterId)
         : []
+    const normalizedFlavorProfileRatings =
+      technicalSheetForm.kind === 'EXECUCAO'
+        ? technicalSheetForm.flavorProfileRatings
+            .map((rating) => normalizeTechnicalSheetFlavorProfileRating(rating, currentCompanyId ?? 0))
+            .filter((rating): rating is TechnicalSheetFlavorProfileRating => rating !== null)
+        : []
+    const legacyFlavorValues = buildLegacyTechnicalSheetFlavorValues(normalizedFlavorProfileRatings)
 
     const errors: string[] = []
 
@@ -24404,20 +24988,11 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
     if (isTechnicalSheetFieldRequired(technicalSheetForm.kind, 'shelfLifeFrozen') && !technicalSheetForm.shelfLifeFrozen.trim()) {
       errors.push('validade congelado obrigatoria')
     }
-    if (isTechnicalSheetFieldRequired(technicalSheetForm.kind, 'flavorSweet') && !technicalSheetForm.flavorSweet.trim()) {
-      errors.push('campo doce obrigatorio')
+    if (isTechnicalSheetFieldRequired(technicalSheetForm.kind, 'flavorProfiles') && normalizedFlavorProfileRatings.length === 0) {
+      errors.push('adicione ao menos 1 perfil de sabor')
     }
-    if (isTechnicalSheetFieldRequired(technicalSheetForm.kind, 'flavorSour') && !technicalSheetForm.flavorSour.trim()) {
-      errors.push('campo azedo obrigatorio')
-    }
-    if (isTechnicalSheetFieldRequired(technicalSheetForm.kind, 'flavorBitter') && !technicalSheetForm.flavorBitter.trim()) {
-      errors.push('campo amargo obrigatorio')
-    }
-    if (isTechnicalSheetFieldRequired(technicalSheetForm.kind, 'flavorSalty') && !technicalSheetForm.flavorSalty.trim()) {
-      errors.push('campo salgado obrigatorio')
-    }
-    if (isTechnicalSheetFieldRequired(technicalSheetForm.kind, 'flavorUmami') && !technicalSheetForm.flavorUmami.trim()) {
-      errors.push('campo umami obrigatorio')
+    if (technicalSheetForm.kind === 'EXECUCAO' && normalizedFlavorProfileRatings.length !== technicalSheetForm.flavorProfileRatings.length) {
+      errors.push('verifique os perfis de sabor e mantenha apenas notas de 1 a 5')
     }
     if (isTechnicalSheetFieldRequired(technicalSheetForm.kind, 'finalSalePrice') && !technicalSheetForm.finalSalePrice.trim()) {
       errors.push('valor de venda final obrigatorio')
@@ -24630,12 +25205,15 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
         isCommercialTechnicalSheetKind(technicalSheetForm.kind)
           ? technicalSheetForm.finalSalePrice.trim()
           : '',
-      flavorSweet: technicalSheetForm.kind === 'EXECUCAO' ? technicalSheetForm.flavorSweet.trim() || '0' : '0',
-      flavorSour: technicalSheetForm.kind === 'EXECUCAO' ? technicalSheetForm.flavorSour.trim() || '0' : '0',
-      flavorBitter: technicalSheetForm.kind === 'EXECUCAO' ? technicalSheetForm.flavorBitter.trim() || '0' : '0',
-      flavorSalty: technicalSheetForm.kind === 'EXECUCAO' ? technicalSheetForm.flavorSalty.trim() || '0' : '0',
-      flavorUmami: technicalSheetForm.kind === 'EXECUCAO' ? technicalSheetForm.flavorUmami.trim() || '0' : '0',
+      flavorProfileRatings: normalizedFlavorProfileRatings,
+      flavorSweet: technicalSheetForm.kind === 'EXECUCAO' ? legacyFlavorValues.flavorSweet : '0',
+      flavorSour: technicalSheetForm.kind === 'EXECUCAO' ? legacyFlavorValues.flavorSour : '0',
+      flavorBitter: technicalSheetForm.kind === 'EXECUCAO' ? legacyFlavorValues.flavorBitter : '0',
+      flavorSalty: technicalSheetForm.kind === 'EXECUCAO' ? legacyFlavorValues.flavorSalty : '0',
+      flavorUmami: technicalSheetForm.kind === 'EXECUCAO' ? legacyFlavorValues.flavorUmami : '0',
       storytelling: technicalSheetForm.kind === 'EXECUCAO' ? normalizeFreeText(technicalSheetForm.storytelling.trim()) : '',
+      salesArguments: technicalSheetForm.kind === 'EXECUCAO' ? normalizeFreeText(technicalSheetForm.salesArguments.trim()) : '',
+      harmonization: technicalSheetForm.kind === 'EXECUCAO' ? normalizeFreeText(technicalSheetForm.harmonization.trim()) : '',
       preparationMode: technicalSheetForm.kind === 'VENDA' ? '' : normalizeFreeText(technicalSheetForm.preparationMode.trim()),
       preparationLeadTimeDays:
         technicalSheetForm.kind === 'PREPARO' ? normalizeRegistrationText(technicalSheetForm.preparationLeadTimeDays.trim()) : '',
@@ -24834,6 +25412,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
     setEditingTechnicalSheetId(null)
     setTechnicalSheetForm(emptyTechnicalSheetForm())
     setTechnicalSheetSectorInput('')
+    setTechnicalSheetFlavorProfileInput('')
     setTechnicalSheetSharedCompanyInput('')
     setTechnicalSheetProductionCenterInput('')
     setTechnicalSheetSupplyRouteConsumerCenterId('')
@@ -26741,6 +27320,8 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
         : []
     const productionCenterLabels = productionCenters.map((center) => center.name)
     const producerSectorLabels = Array.from(new Set(productionCenters.map((center) => center.sector).filter(Boolean)))
+    const generatedDescription =
+      sheet.kind === 'EXECUCAO' ? buildTechnicalSheetGeneratedDescription(sheet, technicalSheets) : null
 
     return (
       <article className="recipe-export-page" key={`technical-sheet-export-${sheet.id}`}>
@@ -27051,17 +27632,63 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
             <section className="inner-panel">
               <div className="section-heading">
                 <div>
+                  <p className="kicker">Apresentacao</p>
+                  <h2>Descricao</h2>
+                </div>
+              </div>
+              <div className="recipe-description-card">
+                {generatedDescription?.hasContent ? (
+                  <p className="recipe-copy-block">{generatedDescription.summary}</p>
+                ) : (
+                  <p className="recipe-copy-block">Descricao nao informada.</p>
+                )}
+              </div>
+            </section>
+
+            <section className="inner-panel">
+              <div className="section-heading">
+                <div>
+                  <p className="kicker">Servico</p>
+                  <h2>Harmonizacao</h2>
+                </div>
+              </div>
+              <p className="recipe-copy-block">{sheet.harmonization || 'Harmonizacao nao informada.'}</p>
+            </section>
+
+            <section className="inner-panel">
+              <div className="section-heading">
+                <div>
                   <p className="kicker">Perfil sensorial</p>
                   <h2>Notas de sabor</h2>
                 </div>
               </div>
-              <div className="receituario-summary-grid receituario-flavor-grid">
-                <article className="receituario-metric-card"><span>Doce</span><strong>{sheet.flavorSweet || '0'}</strong></article>
-                <article className="receituario-metric-card"><span>Azedo</span><strong>{sheet.flavorSour || '0'}</strong></article>
-                <article className="receituario-metric-card"><span>Amargo</span><strong>{sheet.flavorBitter || '0'}</strong></article>
-                <article className="receituario-metric-card"><span>Salgado</span><strong>{sheet.flavorSalty || '0'}</strong></article>
-                <article className="receituario-metric-card"><span>Umami</span><strong>{sheet.flavorUmami || '0'}</strong></article>
+              {(() => {
+                const flavorRatings = getTechnicalSheetFlavorProfileRatingsForDisplay(sheet, flavorProfiles)
+                return flavorRatings.length > 0 ? (
+                  <div className="receituario-summary-grid receituario-flavor-grid">
+                    {flavorRatings.map((rating) => (
+                      <article key={rating.flavorProfileId} className="receituario-metric-card">
+                        <span>{rating.label}</span>
+                        <strong>{rating.value}</strong>
+                      </article>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="empty-state empty-state-inline">
+                    <strong>Nenhum perfil de sabor informado.</strong>
+                  </div>
+                )
+              })()}
+            </section>
+
+            <section className="inner-panel">
+              <div className="section-heading">
+                <div>
+                  <p className="kicker">Venda</p>
+                  <h2>Argumentos de venda</h2>
+                </div>
               </div>
+              <p className="recipe-copy-block">{sheet.salesArguments || 'Argumentos de venda nao informados.'}</p>
             </section>
 
             <section className="inner-panel">
@@ -27195,6 +27822,8 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                 .filter((value): value is StockCenterRecord => Boolean(value))
             : []
         const producerSectorLabels = Array.from(new Set(productionCenters.map((center) => center.sector).filter(Boolean)))
+        const generatedDescription =
+          sheet.kind === 'EXECUCAO' ? buildTechnicalSheetGeneratedDescription(sheet, technicalSheets) : null
         const rows: (string | number)[][] = [
           ['Ficha tecnica', sheet.name],
           ['Tipo', getTechnicalSheetKindLabel(sheet.kind)],
@@ -27296,12 +27925,24 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
 
         if (sheet.kind === 'EXECUCAO') {
           rows.push([])
+          rows.push(['Descricao'])
+          rows.push([generatedDescription?.summary || 'Descricao nao informada.'])
+          rows.push([])
+          rows.push(['Argumentos de venda'])
+          rows.push([sheet.salesArguments || 'Argumentos de venda nao informados.'])
+          rows.push([])
+          rows.push(['Harmonizacao'])
+          rows.push([sheet.harmonization || 'Harmonizacao nao informada.'])
+          rows.push([])
           rows.push(['Perfil sensorial'])
-          rows.push(['Doce', sheet.flavorSweet || '0'])
-          rows.push(['Azedo', sheet.flavorSour || '0'])
-          rows.push(['Amargo', sheet.flavorBitter || '0'])
-          rows.push(['Salgado', sheet.flavorSalty || '0'])
-          rows.push(['Umami', sheet.flavorUmami || '0'])
+          const flavorRatings = getTechnicalSheetFlavorProfileRatingsForDisplay(sheet, flavorProfiles)
+          if (flavorRatings.length > 0) {
+            flavorRatings.forEach((rating) => {
+              rows.push([rating.label, rating.value])
+            })
+          } else {
+            rows.push(['Perfis de sabor', '-'])
+          }
           rows.push([])
           rows.push(['Storytelling'])
           rows.push([sheet.storytelling || 'Storytelling nao informado.'])
@@ -27372,6 +28013,8 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
 
   function renderRecipeExportPreview(data: RecipePanelComputedData, tab: RecipePanelTab) {
     const preparationParts = buildPreparationModeMetricParts(data.sheet.preparationMode, data.ingredientMetrics)
+    const generatedDescription =
+      tab === 'EXECUCAO' ? buildTechnicalSheetGeneratedDescription(data.sheet, technicalSheets) : null
 
     return (
       <article className="recipe-export-page" key={`${tab}-${data.sheet.id}`}>
@@ -27747,17 +28390,63 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
             <section className="inner-panel">
               <div className="section-heading">
                 <div>
+                  <p className="kicker">Apresentacao</p>
+                  <h2>Descricao</h2>
+                </div>
+              </div>
+              <div className="recipe-description-card">
+                {generatedDescription?.hasContent ? (
+                  <p className="recipe-copy-block">{generatedDescription.summary}</p>
+                ) : (
+                  <p className="recipe-copy-block">Descricao nao informada.</p>
+                )}
+              </div>
+            </section>
+
+            <section className="inner-panel">
+              <div className="section-heading">
+                <div>
+                  <p className="kicker">Servico</p>
+                  <h2>Harmonizacao</h2>
+                </div>
+              </div>
+              <p className="recipe-copy-block">{data.sheet.harmonization || 'Harmonizacao nao informada.'}</p>
+            </section>
+
+            <section className="inner-panel">
+              <div className="section-heading">
+                <div>
                   <p className="kicker">Perfil sensorial</p>
                   <h2>Notas de sabor</h2>
                 </div>
               </div>
-              <div className="receituario-summary-grid receituario-flavor-grid">
-                <article className="receituario-metric-card"><span>Doce</span><strong>{data.sheet.flavorSweet || '0'}</strong></article>
-                <article className="receituario-metric-card"><span>Azedo</span><strong>{data.sheet.flavorSour || '0'}</strong></article>
-                <article className="receituario-metric-card"><span>Amargo</span><strong>{data.sheet.flavorBitter || '0'}</strong></article>
-                <article className="receituario-metric-card"><span>Salgado</span><strong>{data.sheet.flavorSalty || '0'}</strong></article>
-                <article className="receituario-metric-card"><span>Umami</span><strong>{data.sheet.flavorUmami || '0'}</strong></article>
+              {(() => {
+                const flavorRatings = getTechnicalSheetFlavorProfileRatingsForDisplay(data.sheet, flavorProfiles)
+                return flavorRatings.length > 0 ? (
+                  <div className="receituario-summary-grid receituario-flavor-grid">
+                    {flavorRatings.map((rating) => (
+                      <article key={rating.flavorProfileId} className="receituario-metric-card">
+                        <span>{rating.label}</span>
+                        <strong>{rating.value}</strong>
+                      </article>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="empty-state empty-state-inline">
+                    <strong>Nenhum perfil de sabor informado.</strong>
+                  </div>
+                )
+              })()}
+            </section>
+
+            <section className="inner-panel">
+              <div className="section-heading">
+                <div>
+                  <p className="kicker">Venda</p>
+                  <h2>Argumentos de venda</h2>
+                </div>
               </div>
+              <p className="recipe-copy-block">{data.sheet.salesArguments || 'Argumentos de venda nao informados.'}</p>
             </section>
 
             <section className="inner-panel">
@@ -27948,16 +28637,29 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
           rows.push(['Meta de PH', data.sheet.targetPh || '-'])
           rows.push(['Meta de Brix', data.sheet.targetBrix || '-'])
         } else {
+          const generatedDescription = buildTechnicalSheetGeneratedDescription(data.sheet, technicalSheets)
           rows.push([])
           rows.push(['Perfil sensorial'])
-          rows.push(['Doce', data.sheet.flavorSweet || '0'])
-          rows.push(['Azedo', data.sheet.flavorSour || '0'])
-          rows.push(['Amargo', data.sheet.flavorBitter || '0'])
-          rows.push(['Salgado', data.sheet.flavorSalty || '0'])
-          rows.push(['Umami', data.sheet.flavorUmami || '0'])
+          const flavorRatings = getTechnicalSheetFlavorProfileRatingsForDisplay(data.sheet, flavorProfiles)
+          if (flavorRatings.length > 0) {
+            flavorRatings.forEach((rating) => {
+              rows.push([rating.label, rating.value])
+            })
+          } else {
+            rows.push(['Perfis de sabor', '-'])
+          }
           rows.push([])
           rows.push(['Storytelling'])
           rows.push([data.sheet.storytelling || 'Storytelling nao informado.'])
+          rows.push([])
+          rows.push(['Descricao'])
+          rows.push([generatedDescription.summary || 'Descricao nao informada.'])
+          rows.push([])
+          rows.push(['Argumentos de venda'])
+          rows.push([data.sheet.salesArguments || 'Argumentos de venda nao informados.'])
+          rows.push([])
+          rows.push(['Harmonizacao'])
+          rows.push([data.sheet.harmonization || 'Harmonizacao nao informada.'])
           rows.push([])
           rows.push(['Dados tecnicos'])
           rows.push(['Rendimento final', `${formatDecimal(data.desiredYield)} ${getTechnicalSheetYieldUnitLabel(data.sheet, technicalSheets, products)}`])
@@ -32194,95 +32896,6 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
             </section>
             )}
 
-	            {technicalSheetForm.kind === 'EXECUCAO' &&
-	            (isTechnicalSheetFieldVisible(technicalSheetForm.kind, 'flavorSweet') ||
-	              isTechnicalSheetFieldVisible(technicalSheetForm.kind, 'flavorSour') ||
-	              isTechnicalSheetFieldVisible(technicalSheetForm.kind, 'flavorBitter') ||
-	              isTechnicalSheetFieldVisible(technicalSheetForm.kind, 'flavorSalty') ||
-	              isTechnicalSheetFieldVisible(technicalSheetForm.kind, 'flavorUmami')) ? (
-	            <section className="panel">
-              <div className="section-heading">
-                <div>
-                  <p className="kicker">Perfil sensorial</p>
-                  <h2>Notas de sabor</h2>
-                </div>
-              </div>
-
-              <div className="form-grid flavor-grid">
-	                {isTechnicalSheetFieldVisible(technicalSheetForm.kind, 'flavorSweet') ? (
-	                <label className="field">
-	                  <span>Doce</span>
-                  <input
-                    type="number"
-                    min="0"
-                    max="5"
-                    step="0.1"
-                    value={technicalSheetForm.flavorSweet}
-                    onChange={(event) => updateTechnicalSheetForm('flavorSweet', event.target.value)}
-	                    placeholder="0,0 A 5,0"
-	                  />
-	                </label>
-	                ) : null}
-	                {isTechnicalSheetFieldVisible(technicalSheetForm.kind, 'flavorSour') ? (
-	                <label className="field">
-	                  <span>Azedo</span>
-                  <input
-                    type="number"
-                    min="0"
-                    max="5"
-                    step="0.1"
-                    value={technicalSheetForm.flavorSour}
-                    onChange={(event) => updateTechnicalSheetForm('flavorSour', event.target.value)}
-	                    placeholder="0,0 A 5,0"
-	                  />
-	                </label>
-	                ) : null}
-	                {isTechnicalSheetFieldVisible(technicalSheetForm.kind, 'flavorBitter') ? (
-	                <label className="field">
-	                  <span>Amargo</span>
-                  <input
-                    type="number"
-                    min="0"
-                    max="5"
-                    step="0.1"
-                    value={technicalSheetForm.flavorBitter}
-                    onChange={(event) => updateTechnicalSheetForm('flavorBitter', event.target.value)}
-	                    placeholder="0,0 A 5,0"
-	                  />
-	                </label>
-	                ) : null}
-	                {isTechnicalSheetFieldVisible(technicalSheetForm.kind, 'flavorSalty') ? (
-	                <label className="field">
-	                  <span>Salgado</span>
-                  <input
-                    type="number"
-                    min="0"
-                    max="5"
-                    step="0.1"
-                    value={technicalSheetForm.flavorSalty}
-                    onChange={(event) => updateTechnicalSheetForm('flavorSalty', event.target.value)}
-	                    placeholder="0,0 A 5,0"
-	                  />
-	                </label>
-	                ) : null}
-	                {isTechnicalSheetFieldVisible(technicalSheetForm.kind, 'flavorUmami') ? (
-	                <label className="field">
-	                  <span>Umami</span>
-                  <input
-                    type="number"
-                    min="0"
-                    max="5"
-                    step="0.1"
-                    value={technicalSheetForm.flavorUmami}
-                    onChange={(event) => updateTechnicalSheetForm('flavorUmami', event.target.value)}
-	                    placeholder="0,0 A 5,0"
-	                  />
-	                </label>
-	                ) : null}
-	              </div>
-	            </section>
-	            ) : null}
-
 	            {technicalSheetForm.kind === 'EXECUCAO' && isTechnicalSheetFieldVisible(technicalSheetForm.kind, 'preparationMode') ? (
 	            <section className="panel">
               <div className="section-heading">
@@ -32300,6 +32913,149 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                     onChange={(value) => updateTechnicalSheetForm('preparationMode', value)}
                     placeholder="DESCREVA O PASSO A PASSO"
                     ingredientNames={preparationModeIngredientNames}
+                  />
+                </label>
+              </div>
+            </section>
+            ) : null}
+
+	            {technicalSheetForm.kind === 'EXECUCAO' ? (
+	            <section className="panel">
+              <div className="section-heading">
+                <div>
+                  <p className="kicker">Apresentacao</p>
+                  <h2>Descricao</h2>
+                </div>
+              </div>
+
+              <div className="recipe-description-card">
+                {technicalSheetGeneratedDescription.hasContent ? (
+                  <p className="recipe-copy-block">{technicalSheetGeneratedDescription.summary}</p>
+                ) : (
+                  <p className="recipe-copy-block">
+                    A descricao automatica sera exibida quando a composicao da ficha estiver preenchida com insumos ativos.
+                  </p>
+                )}
+                <p className="helper-text">
+                  Descricao gerada automaticamente a partir da composicao ativa da ficha, incluindo os insumos internos dos pre-preparos utilizados.
+                </p>
+              </div>
+            </section>
+            ) : null}
+
+	            {technicalSheetForm.kind === 'EXECUCAO' && isTechnicalSheetFieldVisible(technicalSheetForm.kind, 'harmonization') ? (
+	            <section className="panel">
+              <div className="section-heading">
+                <div>
+                  <p className="kicker">Servico</p>
+                  <h2>Harmonizacao</h2>
+                </div>
+              </div>
+
+              <div className="form-grid">
+                <label className="field field-span-all">
+	                  <span>Harmonizacao</span>
+                  <textarea
+                    className="recipe-textarea"
+                    value={technicalSheetForm.harmonization}
+                    onChange={(event) => updateTechnicalSheetForm('harmonization', event.target.value)}
+                    placeholder="SUGIRA COMIDAS, PERFIS DE SABOR OU MOMENTOS QUE COMBINEM COM ESTE ITEM"
+                  />
+                </label>
+              </div>
+            </section>
+            ) : null}
+
+	            {technicalSheetForm.kind === 'EXECUCAO' && isTechnicalSheetFieldVisible(technicalSheetForm.kind, 'flavorProfiles') ? (
+	            <section className="panel">
+              <div className="section-heading">
+                <div>
+                  <p className="kicker">Perfil sensorial</p>
+                  <h2>Notas de sabor</h2>
+                </div>
+              </div>
+
+              <div className="form-grid">
+                <label className="field field-span-all">
+                  <span>Adicionar perfil de sabor</span>
+                  <div className="technical-sheet-flavor-profile-picker">
+                    <SingleValueAutocomplete
+                      value={technicalSheetFlavorProfileInput}
+                      suggestions={companyFlavorProfileSuggestions}
+                      onChange={setTechnicalSheetFlavorProfileInput}
+                      placeholder="SELECIONE OU CRIE UM PERFIL DE SABOR"
+                      createLabel="Criar perfil"
+                    />
+                    <button
+                      type="button"
+                      className="secondary-button"
+                      onClick={() => void addTechnicalSheetFlavorProfile(technicalSheetFlavorProfileInput)}
+                      disabled={!normalizeRegistrationText(technicalSheetFlavorProfileInput)}
+                    >
+                      Adicionar perfil
+                    </button>
+                  </div>
+                  <p className="helper-text">
+                    Escolha apenas os perfis que representam esta ficha e atribua uma nota de 1 a 5 para cada um.
+                  </p>
+                </label>
+                {technicalSheetForm.flavorProfileRatings.length > 0 ? (
+                  <div className="field field-span-all">
+                    <div className="technical-sheet-flavor-profile-list">
+                      {technicalSheetForm.flavorProfileRatings.map((rating) => (
+                        <div key={rating.flavorProfileId} className="technical-sheet-flavor-profile-row">
+                          <div className="technical-sheet-flavor-profile-label">{rating.label}</div>
+                          <label className="field">
+                            <span>Nota</span>
+                            <input
+                              type="number"
+                              min="1"
+                              max="5"
+                              step="1"
+                              value={rating.value}
+                              onChange={(event) =>
+                                updateTechnicalSheetFlavorProfileRating(rating.flavorProfileId, 'value', event.target.value)
+                              }
+                              placeholder="1 a 5"
+                            />
+                          </label>
+                          <button
+                            type="button"
+                            className="ghost-button danger-text-button"
+                            onClick={() => removeTechnicalSheetFlavorProfile(rating.flavorProfileId)}
+                          >
+                            Remover
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ) : (
+                  <p className="helper-text field-span-all">
+                    Nenhum perfil selecionado ainda. Os perfis padrao da empresa ficam disponiveis para escolha, mas nao sao obrigatorios.
+                  </p>
+                )}
+              </div>
+	            </section>
+	            ) : null}
+
+	            {technicalSheetForm.kind === 'EXECUCAO' && isTechnicalSheetFieldVisible(technicalSheetForm.kind, 'salesArguments') ? (
+	            <section className="panel">
+              <div className="section-heading">
+                <div>
+                  <p className="kicker">Venda</p>
+                  <h2>Argumentos de venda</h2>
+                </div>
+              </div>
+
+              <div className="form-grid">
+                <label className="field field-span-all">
+	                  <span>Argumentos de venda</span>
+                  <textarea
+                    className="recipe-textarea"
+                    value={technicalSheetForm.salesArguments}
+                    onChange={(event) => updateTechnicalSheetForm('salesArguments', event.target.value)}
+                    placeholder="DESTAQUE BENEFICIOS, OCASIOES DE CONSUMO E COMO APRESENTAR O ITEM AO CLIENTE"
                   />
                 </label>
               </div>
@@ -32360,30 +33116,40 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
               <h2>Painel de receitas</h2>
             </div>
             <div className="toolbar-actions">
-              <button type="button" className="primary-button" onClick={openRecipeExportModal}>
+              <button
+                type="button"
+                className="primary-button"
+                onClick={openRecipeExportModal}
+                disabled={!canViewRecipePreparoTab && !canViewRecipeExecucaoTab}
+              >
                 Exportar
               </button>
             </div>
           </div>
 
           <div className="panel-tabs" role="tablist" aria-label="Tipos de receituario">
-            <button
-              type="button"
-              className={recipePanelTab === 'PREPARO' ? 'panel-tab active' : 'panel-tab'}
-              onClick={() => setRecipePanelTab('PREPARO')}
-            >
-              Pre-preparos
-            </button>
-            <button
-              type="button"
-              className={recipePanelTab === 'EXECUCAO' ? 'panel-tab active' : 'panel-tab'}
-              onClick={() => setRecipePanelTab('EXECUCAO')}
-            >
-              Execucao
-            </button>
+            {canViewRecipePreparoTab ? (
+              <button
+                type="button"
+                className={recipePanelTab === 'PREPARO' ? 'panel-tab active' : 'panel-tab'}
+                onClick={() => setRecipePanelTab('PREPARO')}
+              >
+                Pre-preparos
+              </button>
+            ) : null}
+            {canViewRecipeExecucaoTab ? (
+              <button
+                type="button"
+                className={recipePanelTab === 'EXECUCAO' ? 'panel-tab active' : 'panel-tab'}
+                onClick={() => setRecipePanelTab('EXECUCAO')}
+              >
+                Execucao
+              </button>
+            ) : null}
           </div>
 
           <div className="receituario-content">
+            {canViewRecipePreparoTab || canViewRecipeExecucaoTab ? (
             <section className="inner-panel">
               <div className="form-grid receituario-search-grid">
                 <label className="field search-field field-span-all">
@@ -32406,8 +33172,9 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                 </label>
               </div>
             </section>
+            ) : null}
 
-              {recipePanelData ? (
+              {canViewRecipePreparoTab || canViewRecipeExecucaoTab ? recipePanelData ? (
                 <>
                   <section className="inner-panel">
                     <div className={recipePanelTab === 'EXECUCAO' ? 'receituario-hero' : undefined}>
@@ -32421,6 +33188,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                               </div>
                             </div>
 
+                            {visibleRecipePanelExecutionBlocks.baseSummary ? (
                             <div className="receituario-summary-grid receituario-summary-grid-execucao">
                               <article className="receituario-metric-card">
                                 <span>Familia</span>
@@ -32441,7 +33209,9 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                                 </strong>
                               </article>
                             </div>
+                            ) : null}
 
+                            {visibleRecipePanelExecutionBlocks.yieldControls ? (
                             <div className="form-grid receituario-controls-grid receituario-controls-grid-execucao">
                               <label className="field">
                                 <span>Quantidade de receitas</span>
@@ -32460,7 +33230,9 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                                 />
                               </label>
                             </div>
+                            ) : null}
 
+                            {visibleRecipePanelExecutionBlocks.costMetrics ? (
                             <div className="receituario-summary-grid receituario-summary-grid-metrics">
                               <article className="receituario-metric-card">
                                 <span>Rendimento final</span>
@@ -32481,9 +33253,11 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                                 <strong>R$ {formatMoney(recipePanelData.finalSalePrice)}</strong>
                               </article>
                             </div>
+                            ) : null}
 
                           </div>
 
+                          {visibleRecipePanelExecutionBlocks.productImage ? (
                           <aside className="receituario-hero-media receituario-hero-media-execucao" aria-label="Apresentacao visual do produto">
                               <div
                                 className={
@@ -32505,6 +33279,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                                 )}
                               </div>
                             </aside>
+                          ) : null}
                         </>
                       ) : (
                         <div>
@@ -32602,7 +33377,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                     </div>
                   </section>
 
-                  {recipePanelTab === 'EXECUCAO' ? (
+                  {recipePanelTab === 'EXECUCAO' && visibleRecipePanelExecutionBlocks.serviceItems ? (
                     <section className="inner-panel">
                       <div className="section-heading">
                         <div>
@@ -32649,6 +33424,49 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                     </section>
                   ) : null}
 
+                  {recipePanelTab === 'EXECUCAO' ? (
+                  visibleRecipePanelExecutionBlocks.ingredients ? (
+                  <section className="inner-panel">
+                    <div className="section-heading">
+                      <div>
+                        <p className="kicker">Composicao</p>
+                        <h2>Insumos</h2>
+                      </div>
+                    </div>
+
+                    {recipePanelData.ingredientMetrics.length > 0 ? (
+                      <div className="table-wrap">
+                        <table className="product-table">
+                          <thead>
+                            <tr>
+                              <th>Insumo</th>
+                              <th>Entrada</th>
+                              <th>% alcool</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {recipePanelData.ingredientMetrics.map((ingredient) => (
+                              <tr key={ingredient.id}>
+                                <td>
+                                  <strong>{ingredient.label}</strong>
+                                </td>
+                                <td>
+                                  {formatDecimal(ingredient.scaledInputQuantity)} {ingredient.unitLabel}
+                                </td>
+                                <td>{formatDecimal(ingredient.alcoholPercentage)}%</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    ) : (
+                      <div className="empty-state empty-state-inline">
+                        <strong>Nenhum insumo ativo cadastrado.</strong>
+                        </div>
+                      )}
+                  </section>
+                  ) : null
+                  ) : (
                   <section className="inner-panel">
                     <div className="section-heading">
                       <div>
@@ -32688,6 +33506,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                       </div>
                     )}
                   </section>
+                  )}
 
                   {recipePanelData.serviceItemMetrics.length > 0 && recipePanelTab === 'PREPARO' ? (
                     <section className="inner-panel">
@@ -32796,6 +33615,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                     </>
                   ) : (
                     <>
+                      {visibleRecipePanelExecutionBlocks.garnishes ? (
                       <section className="inner-panel">
                         <div className="section-heading">
                           <div>
@@ -32835,7 +33655,9 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                           </div>
                         )}
                       </section>
+                      ) : null}
 
+                      {visibleRecipePanelExecutionBlocks.preparationMode ? (
                       <section className="inner-panel">
                         <div className="section-heading">
                           <div>
@@ -32862,7 +33684,46 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                           </div>
                         )}
                       </section>
+                      ) : null}
 
+                      {visibleRecipePanelExecutionBlocks.description ? (
+                      <section className="inner-panel">
+                        <div className="section-heading">
+                          <div>
+                            <p className="kicker">Apresentacao</p>
+                            <h2>Descricao</h2>
+                          </div>
+                        </div>
+                        {(() => {
+                          const generatedDescription = buildTechnicalSheetGeneratedDescription(recipePanelData.sheet, technicalSheets)
+                          return (
+                            <div className="recipe-description-card">
+                              {generatedDescription.hasContent ? (
+                                <p className="recipe-copy-block">{generatedDescription.summary}</p>
+                              ) : (
+                                <p className="recipe-copy-block">Descricao nao informada.</p>
+                              )}
+                            </div>
+                          )
+                        })()}
+                      </section>
+                      ) : null}
+
+                      {visibleRecipePanelExecutionBlocks.harmonization ? (
+                      <section className="inner-panel">
+                        <div className="section-heading">
+                          <div>
+                            <p className="kicker">Servico</p>
+                            <h2>Harmonizacao</h2>
+                          </div>
+                        </div>
+                        <p className="recipe-copy-block">
+                          {recipePanelData.sheet.harmonization || 'Harmonizacao nao informada.'}
+                        </p>
+                      </section>
+                      ) : null}
+
+                      {visibleRecipePanelExecutionBlocks.flavorProfile ? (
                       <section className="inner-panel">
                         <div className="section-heading">
                           <div>
@@ -32870,30 +33731,44 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                             <h2>Notas de sabor</h2>
                           </div>
                         </div>
-                        <div className="receituario-summary-grid receituario-flavor-grid">
-                          <article className="receituario-metric-card">
-                            <span>Doce</span>
-                            <strong>{recipePanelData.sheet.flavorSweet || '0'}</strong>
-                          </article>
-                          <article className="receituario-metric-card">
-                            <span>Azedo</span>
-                            <strong>{recipePanelData.sheet.flavorSour || '0'}</strong>
-                          </article>
-                          <article className="receituario-metric-card">
-                            <span>Amargo</span>
-                            <strong>{recipePanelData.sheet.flavorBitter || '0'}</strong>
-                          </article>
-                          <article className="receituario-metric-card">
-                            <span>Salgado</span>
-                            <strong>{recipePanelData.sheet.flavorSalty || '0'}</strong>
-                          </article>
-                          <article className="receituario-metric-card">
-                            <span>Umami</span>
-                            <strong>{recipePanelData.sheet.flavorUmami || '0'}</strong>
-                          </article>
-                        </div>
+                        {(() => {
+                          const flavorRatings = getTechnicalSheetFlavorProfileRatingsForDisplay(
+                            recipePanelData.sheet,
+                            flavorProfiles,
+                          )
+                          return flavorRatings.length > 0 ? (
+                            <div className="receituario-summary-grid receituario-flavor-grid">
+                              {flavorRatings.map((rating) => (
+                                <article key={rating.flavorProfileId} className="receituario-metric-card">
+                                  <span>{rating.label}</span>
+                                  <strong>{rating.value}</strong>
+                                </article>
+                              ))}
+                            </div>
+                          ) : (
+                            <div className="empty-state empty-state-inline">
+                              <strong>Nenhum perfil de sabor informado.</strong>
+                            </div>
+                          )
+                        })()}
                       </section>
+                      ) : null}
 
+                      {visibleRecipePanelExecutionBlocks.salesArguments ? (
+                      <section className="inner-panel">
+                        <div className="section-heading">
+                          <div>
+                            <p className="kicker">Venda</p>
+                            <h2>Argumentos de venda</h2>
+                          </div>
+                        </div>
+                        <p className="recipe-copy-block">
+                          {recipePanelData.sheet.salesArguments || 'Argumentos de venda nao informados.'}
+                        </p>
+                      </section>
+                      ) : null}
+
+                      {visibleRecipePanelExecutionBlocks.storytelling ? (
                       <section className="inner-panel">
                         <div className="section-heading">
                           <div>
@@ -32905,6 +33780,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                           {recipePanelData.sheet.storytelling || 'Storytelling nao informado.'}
                         </p>
                       </section>
+                      ) : null}
 
                     </>
                   )}
@@ -32949,6 +33825,11 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                 <div className="empty-state">
                   <strong>Nenhuma receita disponivel.</strong>
                   <p>Cadastre e ative fichas tecnicas de pre-preparo ou execucao para usar o receituario.</p>
+                </div>
+              ) : (
+                <div className="empty-state">
+                  <strong>Receituario indisponivel para este perfil.</strong>
+                  <p>Habilite a exibicao de ao menos uma aba de receituario no perfil de acesso vinculado a este usuario.</p>
                 </div>
               )}
           </div>
@@ -36630,6 +37511,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                       sectors: [],
                       sectionAccess: userForm.sectionAccess,
                       catalogAccess: userForm.catalogAccess,
+                      recipePanelAccess: userForm.recipePanelAccess,
                       isActive: true,
                     } satisfies UserFormState['memberships'][number])
                   const companyProfiles = assignableAccessProfilesByCompanyId.get(company.id) ?? []
@@ -36809,6 +37691,52 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
 		                      />
 		                      <span>Receituarios</span>
 		                    </label>
+                        {accessProfileForm.sectionAccess.Receituarios ? (
+                          <div className="access-group-card">
+                            <label className="checkbox-row access-group-title access-menu-item">
+                              <input type="checkbox" checked disabled />
+                              <span>Exibicao do receituario</span>
+                            </label>
+                            <div className="access-group-children">
+                              <label className="checkbox-row access-group-child">
+                                <input
+                                  type="checkbox"
+                                  checked={accessProfileForm.recipePanelAccess.showPreparoTab}
+                                  onChange={(event) =>
+                                    updateAccessProfileRecipePanelTabVisibility('PREPARO', event.target.checked)
+                                  }
+                                />
+                                <span>Aba Pre-preparos</span>
+                              </label>
+                              <label className="checkbox-row access-group-child">
+                                <input
+                                  type="checkbox"
+                                  checked={accessProfileForm.recipePanelAccess.showExecucaoTab}
+                                  onChange={(event) =>
+                                    updateAccessProfileRecipePanelTabVisibility('EXECUCAO', event.target.checked)
+                                  }
+                                />
+                                <span>Aba Execucao</span>
+                              </label>
+                            </div>
+                            {accessProfileForm.recipePanelAccess.showExecucaoTab ? (
+                              <div className="access-group-children">
+                                {recipeExecutionBlockDefinitions.map((block) => (
+                                  <label key={block.key} className="checkbox-row access-group-child">
+                                    <input
+                                      type="checkbox"
+                                      checked={accessProfileForm.recipePanelAccess.executionBlocks[block.key]}
+                                      onChange={(event) =>
+                                        updateAccessProfileRecipeExecutionBlockAccess(block.key, event.target.checked)
+                                      }
+                                    />
+                                    <span>{block.label}</span>
+                                  </label>
+                                ))}
+                              </div>
+                            ) : null}
+                          </div>
+                        ) : null}
 		                    <div className="access-group-card">
 		                      <label className="checkbox-row access-group-title access-menu-item">
 		                        <input
@@ -45845,6 +46773,198 @@ function saveTechnicalSheetSettingsState(settings: TechnicalSheetSettingsRecord[
   }
 }
 
+function normalizeFlavorProfileRecord(value: unknown): FlavorProfileRecord | null {
+  if (!value || typeof value !== 'object') {
+    return null
+  }
+
+  const profile = value as Partial<FlavorProfileRecord>
+  if (
+    typeof profile.id !== 'string' ||
+    typeof profile.companyId !== 'number' ||
+    typeof profile.name !== 'string' ||
+    typeof profile.isActive !== 'boolean'
+  ) {
+    return null
+  }
+
+  const normalizedName = normalizeRegistrationText(profile.name)
+  if (!normalizedName) {
+    return null
+  }
+
+  return {
+    id: normalizeRegistrationText(profile.id),
+    companyId: profile.companyId,
+    name: normalizedName,
+    isActive: profile.isActive,
+  }
+}
+
+function normalizeTechnicalSheetFlavorProfileRating(
+  value: unknown,
+  companyId: number,
+): TechnicalSheetFlavorProfileRating | null {
+  if (!value || typeof value !== 'object') {
+    return null
+  }
+
+  const rating = value as Partial<TechnicalSheetFlavorProfileRating>
+  if (
+    typeof rating.flavorProfileId !== 'string' ||
+    typeof rating.label !== 'string' ||
+    typeof rating.value !== 'string'
+  ) {
+    return null
+  }
+
+  const normalizedLabel = normalizeRegistrationText(rating.label)
+  const normalizedValue = rating.value.trim()
+  const parsedValue = Number.parseInt(normalizedValue, 10)
+  if (!normalizedLabel || !Number.isFinite(parsedValue) || parsedValue < 1 || parsedValue > 5) {
+    return null
+  }
+
+  return {
+    flavorProfileId: normalizeRegistrationText(rating.flavorProfileId) || buildDefaultFlavorProfileId(companyId, normalizedLabel),
+    label: normalizedLabel,
+    value: String(parsedValue),
+  }
+}
+
+function buildLegacyTechnicalSheetFlavorProfileRatings(
+  companyId: number,
+  values: Partial<Record<'Doce' | 'Azedo' | 'Amargo' | 'Salgado' | 'Umami', string>>,
+): TechnicalSheetFlavorProfileRating[] {
+  return (Object.entries(values) as Array<[keyof typeof values, string | undefined]>)
+    .map(([label, rawValue]) => {
+      const normalizedValue = typeof rawValue === 'string' ? rawValue.trim() : '0'
+      const parsedValue = Number.parseInt(normalizedValue, 10)
+      if (!Number.isFinite(parsedValue) || parsedValue <= 0) {
+        return null
+      }
+
+      return {
+        flavorProfileId: buildDefaultFlavorProfileId(companyId, label),
+        label: String(label),
+        value: String(Math.max(1, Math.min(5, parsedValue))),
+      } satisfies TechnicalSheetFlavorProfileRating
+    })
+    .filter((item): item is TechnicalSheetFlavorProfileRating => item !== null)
+}
+
+function buildLegacyTechnicalSheetFlavorValues(
+  ratings: TechnicalSheetFlavorProfileRating[],
+): Record<'flavorSweet' | 'flavorSour' | 'flavorBitter' | 'flavorSalty' | 'flavorUmami', string> {
+  const defaults = {
+    flavorSweet: '0',
+    flavorSour: '0',
+    flavorBitter: '0',
+    flavorSalty: '0',
+    flavorUmami: '0',
+  }
+
+  for (const rating of ratings) {
+    if (rating.label === 'Doce') defaults.flavorSweet = rating.value
+    if (rating.label === 'Azedo') defaults.flavorSour = rating.value
+    if (rating.label === 'Amargo') defaults.flavorBitter = rating.value
+    if (rating.label === 'Salgado') defaults.flavorSalty = rating.value
+    if (rating.label === 'Umami') defaults.flavorUmami = rating.value
+  }
+
+  return defaults
+}
+
+function buildCompanyFlavorProfiles(companyId: number | null, profiles: FlavorProfileRecord[]) {
+  if (companyId === null) {
+    return []
+  }
+
+  const existingById = new Map(
+    profiles
+      .filter((profile) => profile.companyId === companyId && profile.isActive)
+      .map((profile) => [profile.id, profile] as const),
+  )
+
+  for (const name of defaultFlavorProfileNames) {
+    const id = buildDefaultFlavorProfileId(companyId, name)
+    if (!existingById.has(id)) {
+      existingById.set(id, {
+        id,
+        companyId,
+        name,
+        isActive: true,
+      })
+    }
+  }
+
+  return Array.from(existingById.values()).sort((a, b) => a.name.localeCompare(b.name, 'pt-BR'))
+}
+
+function getTechnicalSheetFlavorProfileRatingsForDisplay(
+  sheet: TechnicalSheetRecord,
+  flavorProfiles: FlavorProfileRecord[],
+): TechnicalSheetFlavorProfileRating[] {
+  const baseRatings =
+    sheet.flavorProfileRatings.length > 0
+      ? sheet.flavorProfileRatings
+      : buildLegacyTechnicalSheetFlavorProfileRatings(sheet.companyId, {
+          Doce: sheet.flavorSweet,
+          Azedo: sheet.flavorSour,
+          Amargo: sheet.flavorBitter,
+          Salgado: sheet.flavorSalty,
+          Umami: sheet.flavorUmami,
+        })
+  const companyProfiles = buildCompanyFlavorProfiles(sheet.companyId, flavorProfiles)
+  const profileById = new Map(companyProfiles.map((profile) => [profile.id, profile] as const))
+
+  return baseRatings
+    .map((rating) => ({
+      ...rating,
+      label: profileById.get(rating.flavorProfileId)?.name ?? rating.label,
+    }))
+    .filter(
+      (rating): rating is TechnicalSheetFlavorProfileRating =>
+        normalizeRegistrationText(rating.label) !== '' && rating.value.trim() !== '',
+    )
+}
+
+function loadFlavorProfilesState(): FlavorProfileRecord[] {
+  if (typeof window === 'undefined') {
+    return []
+  }
+
+  try {
+    const raw = window.localStorage.getItem(flavorProfilesStorageKey)
+    if (!raw) {
+      return []
+    }
+
+    const parsed = JSON.parse(raw) as unknown
+    if (!Array.isArray(parsed)) {
+      return []
+    }
+
+    return parsed
+      .map(normalizeFlavorProfileRecord)
+      .filter((item): item is FlavorProfileRecord => item !== null)
+  } catch {
+    return []
+  }
+}
+
+function saveFlavorProfilesState(flavorProfiles: FlavorProfileRecord[]) {
+  if (typeof window === 'undefined') {
+    return
+  }
+
+  try {
+    window.localStorage.setItem(flavorProfilesStorageKey, JSON.stringify(flavorProfiles))
+  } catch {
+    return
+  }
+}
+
 function loadTechnicalSheetsState(): TechnicalSheetRecord[] {
   if (typeof window === 'undefined') {
     return []
@@ -45946,12 +47066,15 @@ function recoverTechnicalSheetsFromProductsStorage() {
         dilutionRatePercentage: '',
         imageDataUrl: '',
         finalSalePrice: '',
+        flavorProfileRatings: [],
         flavorSweet: '0',
         flavorSour: '0',
         flavorBitter: '0',
         flavorSalty: '0',
         flavorUmami: '0',
         storytelling: '',
+        salesArguments: '',
+        harmonization: '',
         preparationMode: '',
         preparationLeadTimeDays: '',
         shelfLifeRoom: '',
@@ -46142,6 +47265,7 @@ function normalizeSessionUser(value: unknown): AppUserRecord | null {
           Usuarios: user.sectionAccess.Usuarios === true,
         }
       : defaultSectionAccessByRole(baseRole)
+  const normalizedRecipePanelAccess = normalizeRecipePanelAccess(user.recipePanelAccess)
   const normalizedCatalogAccess =
     user.catalogAccess && typeof user.catalogAccess === 'object'
       ? {
@@ -46215,6 +47339,7 @@ function normalizeSessionUser(value: unknown): AppUserRecord | null {
                     materialsDelete: membership.catalogAccess.materialsDelete === true,
                   }
                 : normalizedCatalogAccess,
+            recipePanelAccess: normalizeRecipePanelAccess(membership.recipePanelAccess ?? normalizedRecipePanelAccess),
             accessProfileId: typeof membership.accessProfileId === 'number' ? membership.accessProfileId : typeof user.accessProfileId === 'number' ? user.accessProfileId : null,
             isActive: membership.isActive !== false,
           } satisfies UserCompanyMembershipRecord
@@ -46241,6 +47366,7 @@ function normalizeSessionUser(value: unknown): AppUserRecord | null {
     sectors: normalizedSectors,
     sectionAccess: normalizedSectionAccess,
     catalogAccess: normalizedCatalogAccess,
+    recipePanelAccess: normalizedRecipePanelAccess,
     accessProfileId: typeof user.accessProfileId === 'number' ? user.accessProfileId : null,
     isActive: user.isActive,
     memberships: normalizedMemberships,
@@ -46303,6 +47429,7 @@ function normalizeAccessProfileRecord(value: unknown): AccessProfileRecord | nul
             materialsDelete: profile.catalogAccess.materialsDelete === true,
           }
         : defaultCatalogAccessByRole(profile.role),
+    recipePanelAccess: normalizeRecipePanelAccess(profile.recipePanelAccess),
     isActive: profile.isActive,
   }
 }
@@ -47118,6 +48245,7 @@ function normalizeTechnicalSheetRecord(value: unknown): TechnicalSheetRecord | n
   }
 
   const normalizedKind = item.kind === 'VENDA' || item.kind === 'EXECUCAO' ? item.kind : 'PREPARO'
+  const normalizedCompanyId = item.companyId
   const normalizedIngredients = item.ingredients
     .filter((ingredient): ingredient is TechnicalSheetIngredient => {
       return (
@@ -47175,10 +48303,21 @@ function normalizeTechnicalSheetRecord(value: unknown): TechnicalSheetRecord | n
       : normalizedKind === 'PREPARO' && declaredOutputQuantity > 0 && totalInputQuantity > declaredOutputQuantity
         ? 'WASTE'
         : ''
+  const normalizedFlavorProfileRatings = Array.isArray(item.flavorProfileRatings)
+    ? item.flavorProfileRatings
+        .map((rating) => normalizeTechnicalSheetFlavorProfileRating(rating, normalizedCompanyId))
+        .filter((rating): rating is TechnicalSheetFlavorProfileRating => rating !== null)
+    : buildLegacyTechnicalSheetFlavorProfileRatings(normalizedCompanyId, {
+        Doce: typeof item.flavorSweet === 'string' ? item.flavorSweet : '0',
+        Azedo: typeof item.flavorSour === 'string' ? item.flavorSour : '0',
+        Amargo: typeof item.flavorBitter === 'string' ? item.flavorBitter : '0',
+        Salgado: typeof item.flavorSalty === 'string' ? item.flavorSalty : '0',
+        Umami: typeof item.flavorUmami === 'string' ? item.flavorUmami : '0',
+      })
 
   return {
     id: item.id,
-    companyId: item.companyId,
+    companyId: normalizedCompanyId,
     ownerCompanyId:
       typeof item.ownerCompanyId === 'number'
         ? item.ownerCompanyId
@@ -47225,12 +48364,15 @@ function normalizeTechnicalSheetRecord(value: unknown): TechnicalSheetRecord | n
     dilutionRatePercentage: typeof item.dilutionRatePercentage === 'string' ? item.dilutionRatePercentage : '',
     imageDataUrl: typeof item.imageDataUrl === 'string' ? item.imageDataUrl : '',
     finalSalePrice: typeof item.finalSalePrice === 'string' ? item.finalSalePrice : '',
+    flavorProfileRatings: normalizedFlavorProfileRatings,
     flavorSweet: typeof item.flavorSweet === 'string' ? item.flavorSweet : '0',
     flavorSour: typeof item.flavorSour === 'string' ? item.flavorSour : '0',
     flavorBitter: typeof item.flavorBitter === 'string' ? item.flavorBitter : '0',
     flavorSalty: typeof item.flavorSalty === 'string' ? item.flavorSalty : '0',
     flavorUmami: typeof item.flavorUmami === 'string' ? item.flavorUmami : '0',
     storytelling: normalizeFreeText(typeof item.storytelling === 'string' ? item.storytelling : ''),
+    salesArguments: normalizeFreeText(typeof item.salesArguments === 'string' ? item.salesArguments : ''),
+    harmonization: normalizeFreeText(typeof item.harmonization === 'string' ? item.harmonization : ''),
     preparationMode: normalizeFreeText(item.preparationMode),
     preparationLeadTimeDays: typeof item.preparationLeadTimeDays === 'string' ? item.preparationLeadTimeDays : '',
     shelfLifeRoom: normalizeRegistrationText(item.shelfLifeRoom),

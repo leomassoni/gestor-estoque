@@ -30,6 +30,7 @@ const pendingInventoryMovementsStorageKey = 'gestor-estoque:pending-inventory-mo
 const inventoryStorageLocationsStorageKey = 'gestor-estoque:inventory-storage-locations'
 const inventoryActiveRecordsStorageKey = 'gestor-estoque:inventory-active-records'
 const inventoryActiveSessionsStorageKey = 'gestor-estoque:inventory-active-sessions'
+const defaultFlavorProfileNames = ['Doce', 'Azedo', 'Amargo', 'Salgado', 'Umami']
 const maxInt32Id = 2147483647
 let hasSeededAppAdminRecords = false
 let hasSeededAppStockCenterRecords = false
@@ -400,6 +401,7 @@ app.post('/api/users', async (request, response) => {
           sectors: membership.sectors,
           sectionAccess: membership.sectionAccess,
           catalogAccess: membership.catalogAccess,
+          recipePanelAccess: membership.recipePanelAccess,
           accessProfileId: membership.accessProfileId,
           isActive: membership.isActive,
         },
@@ -438,6 +440,7 @@ app.put('/api/users/:id', async (request, response) => {
           sectors: membership.sectors,
           sectionAccess: membership.sectionAccess,
           catalogAccess: membership.catalogAccess,
+          recipePanelAccess: membership.recipePanelAccess,
           accessProfileId: membership.accessProfileId,
           isActive: membership.isActive,
         },
@@ -515,6 +518,50 @@ app.get('/api/stock-centers', async (request, response) => {
     orderBy: [{ name: 'asc' }, { id: 'asc' }],
   })
   response.json({ stockCenters })
+})
+
+app.get('/api/flavor-profiles', async (request, response) => {
+  await ensureAppAdminRecordsSeeded()
+  const companyId = parseIntegerParam(request.query.companyId)
+  await ensureDefaultFlavorProfiles(companyId)
+  const flavorProfiles = await prisma.appFlavorProfileRecord.findMany({
+    where: companyId === null ? undefined : { companyId },
+    orderBy: [{ name: 'asc' }, { id: 'asc' }],
+  })
+  response.json({ flavorProfiles })
+})
+
+app.post('/api/flavor-profiles', async (request, response) => {
+  await ensureAppAdminRecordsSeeded()
+  const flavorProfile = normalizeFlavorProfilePayload(request.body)
+  if (!flavorProfile) {
+    response.status(400).json({ error: 'Payload de perfil de sabor invalido.' })
+    return
+  }
+
+  const saved = await prisma.appFlavorProfileRecord.upsert({
+    where: { id: flavorProfile.id },
+    create: flavorProfile,
+    update: flavorProfile,
+  })
+  response.json({ flavorProfile: saved })
+})
+
+app.put('/api/flavor-profiles/:id', async (request, response) => {
+  await ensureAppAdminRecordsSeeded()
+  const flavorProfileId = normalizeRegistrationText(String(request.params.id ?? ''))
+  const flavorProfile = normalizeFlavorProfilePayload({ ...request.body, id: flavorProfileId })
+  if (!flavorProfileId || !flavorProfile) {
+    response.status(400).json({ error: 'Payload de perfil de sabor invalido.' })
+    return
+  }
+
+  const saved = await prisma.appFlavorProfileRecord.upsert({
+    where: { id: flavorProfileId },
+    create: flavorProfile,
+    update: flavorProfile,
+  })
+  response.json({ flavorProfile: saved })
 })
 
 app.get('/api/sales-import-templates', async (request, response) => {
@@ -1993,6 +2040,28 @@ function normalizeAccessProfilePayload(value) {
     role,
     sectionAccess: profile.sectionAccess,
     catalogAccess: profile.catalogAccess,
+    recipePanelAccess:
+      profile.recipePanelAccess && typeof profile.recipePanelAccess === 'object'
+        ? profile.recipePanelAccess
+        : {
+            showPreparoTab: true,
+            showExecucaoTab: true,
+            executionBlocks: {
+              baseSummary: true,
+              yieldControls: true,
+              costMetrics: true,
+              productImage: true,
+              description: true,
+              serviceItems: true,
+              ingredients: true,
+              garnishes: true,
+              preparationMode: true,
+              flavorProfile: true,
+              storytelling: true,
+              salesArguments: true,
+              harmonization: true,
+            },
+          },
     isActive: profile.isActive,
   }
 }
@@ -2025,6 +2094,30 @@ function normalizeUserPayload(value) {
   ) {
     return null
   }
+
+  const defaultRecipePanelAccess = {
+    showPreparoTab: true,
+    showExecucaoTab: true,
+    executionBlocks: {
+      baseSummary: true,
+      yieldControls: true,
+      costMetrics: true,
+      productImage: true,
+      description: true,
+      serviceItems: true,
+      ingredients: true,
+      garnishes: true,
+      preparationMode: true,
+      flavorProfile: true,
+      storytelling: true,
+      salesArguments: true,
+      harmonization: true,
+    },
+  }
+  const normalizedRecipePanelAccess =
+    user.recipePanelAccess && typeof user.recipePanelAccess === 'object'
+      ? user.recipePanelAccess
+      : defaultRecipePanelAccess
 
   const normalizedCompanyIds = Array.from(new Set([...companyIds, ...(companyId === null ? [] : [companyId])]))
   const normalizedMemberships = Array.isArray(user.memberships)
@@ -2059,6 +2152,10 @@ function normalizeUserPayload(value) {
             sectors: Array.isArray(membership.sectors) ? membership.sectors.filter((item) => typeof item === 'string') : [],
             sectionAccess: membership.sectionAccess,
             catalogAccess: membership.catalogAccess,
+            recipePanelAccess:
+              membership.recipePanelAccess && typeof membership.recipePanelAccess === 'object'
+                ? membership.recipePanelAccess
+                : normalizedRecipePanelAccess,
             accessProfileId: membershipAccessProfileId,
             isActive: membership.isActive !== false,
           }
@@ -2071,6 +2168,7 @@ function normalizeUserPayload(value) {
         sectors,
         sectionAccess: user.sectionAccess,
         catalogAccess: user.catalogAccess,
+        recipePanelAccess: normalizedRecipePanelAccess,
         accessProfileId,
         isActive: user.isActive,
       }))
@@ -2086,6 +2184,7 @@ function normalizeUserPayload(value) {
     sectors,
     sectionAccess: user.sectionAccess,
     catalogAccess: user.catalogAccess,
+    recipePanelAccess: normalizedRecipePanelAccess,
     accessProfileId,
     isActive: user.isActive,
     memberships: normalizedMemberships,
@@ -3166,6 +3265,17 @@ function normalizeTechnicalSheetPayload(value) {
       : sheet.kind === 'PREPARO' && declaredOutputQuantity > 0 && totalInputQuantity > declaredOutputQuantity
         ? 'WASTE'
         : ''
+  const normalizedFlavorProfileRatings = Array.isArray(sheet.flavorProfileRatings)
+    ? sheet.flavorProfileRatings
+        .map((rating) => normalizeTechnicalSheetFlavorProfileRating(rating))
+        .filter((rating) => rating !== null)
+    : buildLegacyFlavorProfileRatings(sheet.companyId, {
+        Doce: sheet.flavorSweet,
+        Azedo: sheet.flavorSour,
+        Amargo: sheet.flavorBitter,
+        Salgado: sheet.flavorSalty,
+        Umami: sheet.flavorUmami,
+      })
 
   return {
     id: sheet.id,
@@ -3196,12 +3306,15 @@ function normalizeTechnicalSheetPayload(value) {
     dilutionRatePercentage: sheet.dilutionRatePercentage,
     imageDataUrl: sheet.imageDataUrl,
     finalSalePrice: sheet.finalSalePrice,
+    flavorProfileRatings: normalizedFlavorProfileRatings,
     flavorSweet: sheet.flavorSweet,
     flavorSour: sheet.flavorSour,
     flavorBitter: sheet.flavorBitter,
     flavorSalty: sheet.flavorSalty,
     flavorUmami: sheet.flavorUmami,
     storytelling: sheet.storytelling,
+    salesArguments: typeof sheet.salesArguments === 'string' ? sheet.salesArguments : '',
+    harmonization: typeof sheet.harmonization === 'string' ? sheet.harmonization : '',
     preparationMode: sheet.preparationMode,
     preparationLeadTimeDays: typeof sheet.preparationLeadTimeDays === 'string' ? sheet.preparationLeadTimeDays : '',
     shelfLifeRoom: sheet.shelfLifeRoom,
@@ -3223,6 +3336,81 @@ function normalizeTechnicalSheetPayload(value) {
     serviceItems: sheet.serviceItems,
     isActive: sheet.isActive,
   }
+}
+
+function normalizeFlavorProfilePayload(value) {
+  if (!value || typeof value !== 'object') {
+    return null
+  }
+
+  const profile = value
+  if (
+    typeof profile.id !== 'string' ||
+    typeof profile.companyId !== 'number' ||
+    typeof profile.name !== 'string' ||
+    typeof profile.isActive !== 'boolean'
+  ) {
+    return null
+  }
+
+  const normalizedId = normalizeRegistrationText(profile.id)
+  const normalizedName = normalizeRegistrationText(profile.name)
+  if (!normalizedId || !normalizedName) {
+    return null
+  }
+
+  return {
+    id: normalizedId,
+    companyId: profile.companyId,
+    name: normalizedName,
+    isActive: profile.isActive,
+  }
+}
+
+function normalizeTechnicalSheetFlavorProfileRating(value) {
+  if (!value || typeof value !== 'object') {
+    return null
+  }
+
+  const rating = value
+  if (
+    typeof rating.flavorProfileId !== 'string' ||
+    typeof rating.label !== 'string' ||
+    typeof rating.value !== 'string'
+  ) {
+    return null
+  }
+
+  const flavorProfileId = normalizeRegistrationText(rating.flavorProfileId)
+  const label = normalizeRegistrationText(rating.label)
+  const parsedValue = Number.parseInt(rating.value.trim(), 10)
+  if (!flavorProfileId || !label || !Number.isFinite(parsedValue) || parsedValue < 1 || parsedValue > 5) {
+    return null
+  }
+
+  return {
+    flavorProfileId,
+    label,
+    value: String(parsedValue),
+  }
+}
+
+function buildLegacyFlavorProfileRatings(companyId, values) {
+  return defaultFlavorProfileNames
+    .map((label) => {
+      const rawValue = typeof values?.[label] === 'string' ? values[label].trim() : '0'
+      const parsedValue = Number.parseInt(rawValue, 10)
+      if (!Number.isFinite(parsedValue) || parsedValue <= 0) {
+        return null
+      }
+
+      return {
+        flavorProfileId: buildDefaultFlavorProfileId(companyId, label),
+        label,
+        value: String(Math.max(1, Math.min(5, parsedValue))),
+      }
+    })
+    .filter((rating) => rating !== null)
 }
 
 function normalizeIntegerArray(value) {
@@ -3376,6 +3564,7 @@ async function ensureAppAdminRecordsSeeded() {
             sectors: membership.sectors,
             sectionAccess: membership.sectionAccess,
             catalogAccess: membership.catalogAccess,
+            recipePanelAccess: membership.recipePanelAccess,
             accessProfileId: membership.accessProfileId,
             isActive: membership.isActive,
           },
@@ -3384,6 +3573,7 @@ async function ensureAppAdminRecordsSeeded() {
             sectors: membership.sectors,
             sectionAccess: membership.sectionAccess,
             catalogAccess: membership.catalogAccess,
+            recipePanelAccess: membership.recipePanelAccess,
             accessProfileId: membership.accessProfileId,
             isActive: membership.isActive,
           },
@@ -3404,8 +3594,51 @@ async function ensureAppAdminRecordsSeeded() {
   await ensureAppUserMembershipRecordsHydrated()
 }
 
+function buildDefaultFlavorProfileId(companyId, name) {
+  const normalizedSlug = normalizeRegistrationText(name)
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-zA-Z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .toLowerCase()
+
+  return `default-flavor-profile:${companyId}:${normalizedSlug || 'perfil'}`
+}
+
+async function ensureDefaultFlavorProfiles(companyId = null) {
+  const companies = await prisma.appCompanyRecord.findMany({
+    where: companyId === null ? undefined : { id: companyId },
+    select: { id: true },
+  })
+
+  if (companies.length === 0) {
+    return
+  }
+
+  await prisma.$transaction(async (transaction) => {
+    for (const company of companies) {
+      for (const name of defaultFlavorProfileNames) {
+        const id = buildDefaultFlavorProfileId(company.id, name)
+        await transaction.appFlavorProfileRecord.upsert({
+          where: { id },
+          create: {
+            id,
+            companyId: company.id,
+            name,
+            isActive: true,
+          },
+          update: {
+            name,
+          },
+        })
+      }
+    }
+  })
+}
+
 async function ensureAppCatalogRecordsSeeded() {
   if (hasSeededAppCatalogRecords) {
+    await ensureDefaultFlavorProfiles()
     return
   }
 
@@ -3417,6 +3650,7 @@ async function ensureAppCatalogRecordsSeeded() {
 
   if (productsCount > 0 || serviceItemsCount > 0 || technicalSheetsCount > 0) {
     hasSeededAppCatalogRecords = true
+    await ensureDefaultFlavorProfiles()
     return
   }
 
@@ -3427,6 +3661,7 @@ async function ensureAppCatalogRecordsSeeded() {
   const entries = payload && typeof payload === 'object' && !Array.isArray(payload) ? payload.entries : null
   if (!entries || typeof entries !== 'object' || Array.isArray(entries)) {
     hasSeededAppCatalogRecords = true
+    await ensureDefaultFlavorProfiles()
     return
   }
 
@@ -3461,6 +3696,7 @@ async function ensureAppCatalogRecordsSeeded() {
   })
 
   hasSeededAppCatalogRecords = true
+  await ensureDefaultFlavorProfiles()
 }
 
 async function ensureAppStockCenterRecordsSeeded() {
