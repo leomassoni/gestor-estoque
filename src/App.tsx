@@ -9714,6 +9714,36 @@ export default function App() {
           (sum, consumption) => sum + (parseDecimal(consumption.quantityConsumed) ?? 0),
           0,
         )
+        const consumptionBreakdown = Array.from(
+          relatedConsumptions.reduce((map, consumption) => {
+            const current = map.get(consumption.ingredientProductId) ?? {
+              label: '',
+              quantity: 0,
+              unit: consumption.unit,
+            }
+            const linkedPrepSheet =
+              technicalSheets.find(
+                (sheet) =>
+                  sheet.companyId === currentCompanyId &&
+                  sheet.kind === 'PREPARO' &&
+                  sheet.productId === consumption.ingredientProductId,
+              ) ?? null
+            const linkedProduct =
+              products.find(
+                (product) =>
+                  product.companyId === currentCompanyId &&
+                  product.id === consumption.ingredientProductId,
+              ) ?? null
+            map.set(consumption.ingredientProductId, {
+              label: linkedPrepSheet?.name ?? linkedProduct?.name ?? consumption.ingredientProductId,
+              quantity: current.quantity + (parseDecimal(consumption.quantityConsumed) ?? 0),
+              unit: consumption.unit,
+            })
+            return map
+          }, new Map<string, { label: string; quantity: number; unit: string }>()),
+        )
+          .map(([, entry]) => `${entry.label}: ${formatDecimal(entry.quantity)} ${entry.unit}`)
+          .join(' • ')
         const uniquePostingStatuses = Array.from(new Set(relatedConsumptions.map((consumption) => consumption.stockPostingStatus)))
         const postingStatus =
           relatedConsumptions.length === 0
@@ -9743,13 +9773,13 @@ export default function App() {
           quantity: row.quantity,
           position:
             relatedConsumptions.length > 0
-              ? `${uniqueIngredients.size} ingrediente(s) • ${formatDecimal(totalConsumedQuantity)} de consumo calculado`
+              ? `${uniqueIngredients.size} ingrediente(s) • ${consumptionBreakdown}`
               : row.errorMessage || '-',
           minimum:
             batch !== null
               ? `${batch.coverageDays} dia(s) • ${batch.safetyMarginPercent}% margem`
               : '',
-          unit: matchedSheet?.kind === 'VENDA' ? 'UN' : 'PORCOES',
+          unit: 'UN',
           user: batch?.uploadedByUserName ?? '',
           sortValues: {
             date: normalizeSalesImportDateKey(row.consumedAt) ?? row.consumedAt,
@@ -9766,6 +9796,7 @@ export default function App() {
     currentCompanySalesImportBatches,
     currentCompanySalesImportRows,
     isTechnicalSheetVisibleForCompany,
+    products,
     stockCenters,
     technicalSheets,
   ])
@@ -9839,11 +9870,11 @@ export default function App() {
                   })
                 : null
         const adoptedDefinitionLabel = minimumEntry
-          ? formatStockCenterMinimumDefinition(minimumEntry.minimumQuantity, minimumEntry)
+          ? formatStockCenterMinimumDefinition(minimumEntry.minimumQuantity, minimumEntry, { technicalSheets })
           : '-'
         const suggestedDefinitionLabel =
           minimumEntry?.suggestedMinimumQuantity?.trim()
-            ? formatStockCenterMinimumDefinition(minimumEntry.suggestedMinimumQuantity, minimumEntry)
+            ? formatStockCenterMinimumDefinition(minimumEntry.suggestedMinimumQuantity, minimumEntry, { technicalSheets })
             : '-'
         const suggestedMinimumQuantity =
           minimumEntry ? getStockCenterSuggestedMinimumEntryBaseQuantity(minimumEntry, technicalSheets, products) : 0
@@ -10035,8 +10066,8 @@ export default function App() {
                 ? 'Sugestao aplicada'
                 : 'Sem origem definida',
           operation: '',
-          recorded: formatStockCenterMinimumDefinition(minimumEntry.minimumQuantity, minimumEntry),
-          quantity: formatStockCenterMinimumDefinition(minimumEntry.suggestedMinimumQuantity ?? '', minimumEntry),
+          recorded: formatStockCenterMinimumDefinition(minimumEntry.minimumQuantity, minimumEntry, { technicalSheets }),
+          quantity: formatStockCenterMinimumDefinition(minimumEntry.suggestedMinimumQuantity ?? '', minimumEntry, { technicalSheets }),
           position: '',
           minimum: minimumEntry.kind === 'PREPARO' ? `${leadTimeDays} dia(s)` : '-',
           unit,
@@ -17449,7 +17480,9 @@ export default function App() {
           requestUnitLabel: getRequisitionRequestUnitLabel(row),
           currentQuantity: formatDecimal(currentBaseQuantity),
           currentUnitLabel: formatControlUnitShort(row.baseUnit),
-          minimumDefinitionLabel: formatStockCenterMinimumDefinition(minimumStock?.minimumQuantity ?? '', row),
+          minimumDefinitionLabel: formatStockCenterMinimumDefinition(minimumStock?.minimumQuantity ?? '', row, {
+            baseUnit: row.baseUnit,
+          }),
           destinationType,
           destinationCenterId,
           destinationCenterName,
@@ -34726,9 +34759,16 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                                   }),
                                   {
                                     kind: selectedInventoryCountableItem.kind,
+                                    technicalSheetId: selectedInventoryCountableItem.technicalSheetId,
                                     packageId:
                                       selectedInventoryCountableItem.kind === 'PRODUTO'
                                         ? selectedInventoryRecipient?.packageId ?? null
+                                        : null,
+                                  },
+                                  {
+                                    baseUnit:
+                                      selectedInventoryCountableItem.kind === 'PREPARO'
+                                        ? selectedInventoryCountableItem.baseUnit
                                         : null,
                                   },
                                 )
@@ -45732,8 +45772,13 @@ function formatStockCenterMinimumDefinition(
   minimumQuantity: string,
   target: {
     kind: StockCountableKind
+    technicalSheetId?: number | null
     packageId: number | null
   },
+  options: {
+    technicalSheets?: TechnicalSheetRecord[]
+    baseUnit?: ControlUnit | null
+  } = {},
 ) {
   const normalizedValue = minimumQuantity.trim()
   if (!normalizedValue) {
@@ -45745,6 +45790,14 @@ function formatStockCenterMinimumDefinition(
   }
 
   if (target.kind === 'PREPARO') {
+    const prepUnit =
+      options.baseUnit ??
+      (typeof target.technicalSheetId === 'number'
+        ? options.technicalSheets?.find((item) => item.id === target.technicalSheetId)?.outputUnit ?? null
+        : null)
+    if (prepUnit === 'UNIT') {
+      return `${normalizedValue} un`
+    }
     return `${normalizedValue} porcao(oes) base`
   }
 
@@ -49355,6 +49408,10 @@ function getTechnicalSheetBaseYield(sheet: TechnicalSheetRecord) {
 }
 
 function getStockCenterBaseQuantity(sheet: TechnicalSheetRecord) {
+  if (sheet.outputUnit === 'UNIT') {
+    return 1
+  }
+
   const portionBase = parseDecimal(sheet.portionSize) ?? 0
   return portionBase > 0 ? portionBase : getTechnicalSheetBaseYield(sheet)
 }
