@@ -26782,6 +26782,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
       safetyMarginPercent: batch.safetyMarginPercent,
       importedRows: matchedRows,
       pendingConsumptions: nextConsumptionsForRecalculation,
+      replaceSourceBatchId: batch.id,
     })
 
     try {
@@ -26847,6 +26848,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
     safetyMarginPercent: string
     importedRows: Array<Pick<SalesImportPreviewRow, 'consumedAt'>>
     pendingConsumptions: SalesConsumptionRecord[]
+    replaceSourceBatchId?: number | null
   }) {
     const {
       companyId,
@@ -26855,6 +26857,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
       historyMonths,
       importedRows,
       pendingConsumptions,
+      replaceSourceBatchId,
       safetyMarginPercent,
       targetCenterId,
     } = params
@@ -26883,7 +26886,13 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
         .map((sheet) => [sheet.productId, sheet] as const),
     )
 
-    const allConsumptions = [...salesConsumptions, ...pendingConsumptions].filter(
+    const baseConsumptions = salesConsumptions.filter(
+      (record) =>
+        replaceSourceBatchId === null ||
+        replaceSourceBatchId === undefined ||
+        record.sourceBatchId !== replaceSourceBatchId,
+    )
+    const allConsumptions = [...baseConsumptions, ...pendingConsumptions].filter(
       (record) =>
         record.companyId === companyId &&
         record.stockCenterId === targetCenterId &&
