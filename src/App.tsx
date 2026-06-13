@@ -34768,7 +34768,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                                   {
                                     baseUnit:
                                       selectedInventoryCountableItem.kind === 'PREPARO'
-                                        ? selectedInventoryCountableItem.baseUnit
+                                        ? selectedInventoryCountableItem.controlUnit
                                         : null,
                                   },
                                 )
