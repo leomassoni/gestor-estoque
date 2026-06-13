@@ -1354,9 +1354,11 @@ type SalesImportTemplateRecord = {
   isActive: boolean
 }
 
+type SalesImportWorkbookCell = string | number | boolean | Date | null
+
 type SalesImportWorkbookSheet = {
   name: string
-  rows: string[][]
+  rows: SalesImportWorkbookCell[][]
 }
 
 type SalesImportBatchRecord = {
@@ -7561,7 +7563,7 @@ export default function App() {
     const headerRowValues = rows[salesImportHeaderRowIndex] ?? []
     return Array.from({ length: maxColumns }, (_, index) => {
       const letter = XLSX.utils.encode_col(index)
-      const headerLabel = normalizeRegistrationText(headerRowValues[index] ?? '')
+      const headerLabel = normalizeRegistrationText(formatSalesImportWorkbookCellValue(headerRowValues[index] ?? '', 'TEXT'))
       return {
         value: letter,
         label: headerLabel ? `${letter} • ${headerLabel}` : letter,
@@ -7613,10 +7615,10 @@ export default function App() {
           sourceRowKey: `${salesImportCurrentSheet.name}:${salesImportDataStartRowIndex + index + 1}`,
             consumedAt:
               salesImportDateMode === 'COLUMN'
-                ? String(row[dateColumnIndex] ?? '').trim()
-                : String(fixedDateValue ?? '').trim(),
-            companyProductId: String(row[codeColumnIndex] ?? ''),
-            quantity: String(row[quantityColumnIndex] ?? '').trim(),
+                ? formatSalesImportWorkbookCellValue(row[dateColumnIndex] ?? '', 'DATE')
+                : formatSalesImportWorkbookCellValue(fixedDateValue ?? '', 'DATE'),
+            companyProductId: formatSalesImportWorkbookCellValue(row[codeColumnIndex] ?? '', 'TEXT'),
+            quantity: formatSalesImportWorkbookCellValue(row[quantityColumnIndex] ?? '', 'QUANTITY'),
           },
           salesImportCandidateTechnicalSheets,
         )
@@ -7645,7 +7647,7 @@ export default function App() {
     const matchedRows = activeSalesImportPreviewRows.filter((row) => row.status === 'MATCHED')
     const unmatchedRows = activeSalesImportPreviewRows.filter((row) => row.status === 'UNMATCHED')
     const errorRows = activeSalesImportPreviewRows.filter((row) => row.status === 'ERROR')
-    const totalQuantity = matchedRows.reduce((sum, row) => sum + (parseDecimal(row.quantity) ?? 0), 0)
+    const totalQuantity = matchedRows.reduce((sum, row) => sum + (parseSalesImportQuantityValue(row.quantity) ?? 0), 0)
     const distinctSheetIds = new Set(matchedRows.map((row) => row.matchedTechnicalSheetId).filter((value): value is number => typeof value === 'number'))
     return {
       totalRows: activeSalesImportPreviewRows.length,
@@ -7824,7 +7826,7 @@ export default function App() {
     const matchedRows = selectedSalesImportBatchRows.filter((row) => row.status === 'MATCHED')
     const unmatchedRows = selectedSalesImportBatchRows.filter((row) => row.status === 'UNMATCHED')
     const errorRows = selectedSalesImportBatchRows.filter((row) => row.status === 'ERROR')
-    const matchedQuantity = matchedRows.reduce((sum, row) => sum + (parseDecimal(row.quantity) ?? 0), 0)
+    const matchedQuantity = matchedRows.reduce((sum, row) => sum + (parseSalesImportQuantityValue(row.quantity) ?? 0), 0)
     const uniqueSheetIds = new Set(
       matchedRows.map((row) => row.matchedTechnicalSheetId).filter((value): value is number => typeof value === 'number'),
     )
@@ -9715,7 +9717,7 @@ export default function App() {
         const uniqueIngredients = new Set(
           relatedConsumptions.map((consumption) => consumption.ingredientProductId).filter(Boolean),
         )
-        const soldQuantity = parseDecimal(row.quantity) ?? 0
+        const soldQuantity = parseSalesImportQuantityValue(row.quantity) ?? 0
         const recipeData =
           matchedSheet && soldQuantity > 0
             ? buildRecipePanelDataForSheet(
@@ -9768,7 +9770,7 @@ export default function App() {
           user: batch?.uploadedByUserName ?? '',
           sortValues: {
             date: normalizeSalesImportDateKey(row.consumedAt) ?? row.consumedAt,
-            quantity: parseDecimal(row.quantity) ?? 0,
+            quantity: parseSalesImportQuantityValue(row.quantity) ?? 0,
             recorded: uniqueIngredients.size,
             position: lineConsumedQuantity,
           },
@@ -25922,6 +25924,54 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
     return dateKey >= startDateKey && dateKey <= endDateKey
   }
 
+  function formatSalesImportWorkbookCellValue(
+    value: SalesImportWorkbookCell,
+    kind: 'TEXT' | 'DATE' | 'QUANTITY',
+  ) {
+    if (value instanceof Date) {
+      return kind === 'DATE' ? value.toISOString().slice(0, 10) : String(value.toISOString().slice(0, 10))
+    }
+
+    if (typeof value === 'number') {
+      if (kind === 'DATE') {
+        const parsedDate = XLSX.SSF.parse_date_code(value)
+        if (parsedDate) {
+          const year = String(parsedDate.y).padStart(4, '0')
+          const month = String(parsedDate.m).padStart(2, '0')
+          const day = String(parsedDate.d).padStart(2, '0')
+          return `${year}-${month}-${day}`
+        }
+      }
+      return formatEditableDecimal(value)
+    }
+
+    if (typeof value === 'boolean') {
+      return value ? 'TRUE' : 'FALSE'
+    }
+
+    return String(value ?? '').trim()
+  }
+
+  function parseSalesImportQuantityValue(value: string) {
+    const trimmedValue = value.trim()
+    if (!trimmedValue) {
+      return null
+    }
+
+    const compactValue = trimmedValue.replace(/\s/g, '')
+    if (/^-?\d+\.\d{3}$/.test(compactValue) && !compactValue.includes(',')) {
+      const normalizedValue = Number(compactValue)
+      return Number.isFinite(normalizedValue) ? normalizedValue / 1000 : null
+    }
+
+    return parseDecimal(trimmedValue)
+  }
+
+  function normalizeSalesImportQuantityValue(value: string) {
+    const parsedValue = parseSalesImportQuantityValue(value)
+    return parsedValue === null ? value.trim() : formatEditableDecimal(parsedValue)
+  }
+
   function buildSalesImportDuplicateKey(row: Pick<SalesImportPreviewRow, 'consumedAt' | 'companyProductId'>) {
     return `${normalizeSalesImportDateKey(row.consumedAt) ?? row.consumedAt}|${normalizeRegistrationText(row.companyProductId)}`
   }
@@ -25931,10 +25981,10 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
     candidateSheets: TechnicalSheetRecord[],
   ): SalesImportPreviewRow {
     const companyProductId = normalizeRegistrationText(row.companyProductId)
-    const quantity = String(row.quantity ?? '').trim()
+    const quantity = normalizeSalesImportQuantityValue(String(row.quantity ?? '').trim())
     const consumedAt = String(row.consumedAt ?? '').trim()
     const matchedSheet = candidateSheets.find((sheet) => sheet.companyProductId === companyProductId) ?? null
-    const quantityValue = parseDecimal(quantity)
+    const quantityValue = parseSalesImportQuantityValue(quantity)
 
     let status: SalesImportPreviewRow['status'] = 'MATCHED'
     let errorMessage = ''
@@ -25983,7 +26033,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
     return validRows.flatMap((row, rowIndex) => {
       const matchedSheet =
         technicalSheets.find((sheet) => sheet.id === row.matchedTechnicalSheetId && (sheet.kind === 'EXECUCAO' || sheet.kind === 'VENDA')) ?? null
-      const soldQuantity = parseDecimal(row.quantity) ?? 0
+      const soldQuantity = parseSalesImportQuantityValue(row.quantity) ?? 0
       if (!matchedSheet || soldQuantity <= 0) {
         return []
       }
@@ -27095,12 +27145,13 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
       const workbook = XLSX.read(arrayBuffer, { type: 'array' })
       const workbookSheets = workbook.SheetNames.map((sheetName) => {
         const worksheet = workbook.Sheets[sheetName]
-        const rows = XLSX.utils.sheet_to_json<(string | number | null)[]>(worksheet, {
+        const rows = XLSX.utils.sheet_to_json<SalesImportWorkbookCell[]>(worksheet, {
           header: 1,
-          raw: false,
-          defval: '',
+          raw: true,
+          cellDates: true,
+          defval: null,
           blankrows: false,
-        }).map((row) => row.map((cell) => String(cell ?? '').trim()))
+        })
 
         return {
           name: sheetName,
