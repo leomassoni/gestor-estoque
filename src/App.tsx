@@ -1419,6 +1419,8 @@ type SalesConsumptionRecord = {
   postedAt: string
 }
 
+type SalesImportResolvableRow = Pick<SalesImportPreviewRow, 'sourceRowKey' | 'consumedAt' | 'companyProductId' | 'quantity'>
+
 type ProductActionState = {
   action: ProductAction
   productId: string
@@ -3736,7 +3738,8 @@ export default function App() {
   const [salesImportQuantityColumn, setSalesImportQuantityColumn] = useState('')
   const [salesImportPostingMode, setSalesImportPostingMode] = useState<SalesImportBatchRecord['postingMode']>('ANALYTICAL_ONLY')
   const [salesImportShouldSaveTemplate, setSalesImportShouldSaveTemplate] = useState(false)
-  const [salesImportPreviewFilter, setSalesImportPreviewFilter] = useState<'ALL' | 'MATCHED' | 'UNMATCHED' | 'ERROR'>('ALL')
+  const [salesImportPreviewFilter, setSalesImportPreviewFilter] = useState<'ALL' | 'MATCHED' | 'UNMATCHED' | 'ERROR' | 'IGNORED'>('ALL')
+  const [salesImportIgnoredSourceRowKeys, setSalesImportIgnoredSourceRowKeys] = useState<string[]>([])
   const [selectedSalesImportBatchId, setSelectedSalesImportBatchId] = useState<number | null>(null)
   const [isSalesImportConfirmationOpen, setIsSalesImportConfirmationOpen] = useState(false)
   const [stockImportSettingsCenterId, setStockImportSettingsCenterId] = useState<string>('')
@@ -7601,49 +7604,18 @@ export default function App() {
     return rows
       .slice(salesImportDataStartRowIndex)
       .map((row, index) => {
-        const companyProductId = normalizeRegistrationText(row[codeColumnIndex] ?? '')
-        const quantity = String(row[quantityColumnIndex] ?? '').trim()
-        const consumedAt =
-          salesImportDateMode === 'COLUMN'
-            ? String(row[dateColumnIndex] ?? '').trim()
-            : String(fixedDateValue ?? '').trim()
-        const matchedSheet =
-          salesImportCandidateTechnicalSheets.find((sheet) => sheet.companyProductId === companyProductId) ?? null
-        const quantityValue = parseDecimal(quantity)
-
-        let status: SalesImportPreviewRow['status'] = 'MATCHED'
-        let errorMessage = ''
-        const matchedKind: SalesImportPreviewRow['matchedKind'] =
-          matchedSheet?.kind === 'EXECUCAO'
-            ? 'EXECUCAO'
-            : matchedSheet?.kind === 'VENDA'
-              ? 'VENDA'
-              : ''
-
-        if (!consumedAt) {
-          status = 'ERROR'
-          errorMessage = 'Data nao encontrada.'
-        } else if (!companyProductId) {
-          status = 'ERROR'
-          errorMessage = 'ID empresa nao encontrado.'
-        } else if (quantityValue === null || quantityValue <= 0) {
-          status = 'ERROR'
-          errorMessage = 'Quantidade invalida.'
-        } else if (!matchedSheet) {
-          status = 'UNMATCHED'
-          errorMessage = 'Ficha de EXECUCAO ou VENDA nao encontrada para este ID empresa.'
-        }
-
-        return {
+        return resolveSalesImportRow(
+          {
           sourceRowKey: `${salesImportCurrentSheet.name}:${salesImportDataStartRowIndex + index + 1}`,
-          consumedAt,
-          companyProductId,
-          quantity,
-          matchedTechnicalSheetId: matchedSheet?.id ?? null,
-          matchedKind,
-          status,
-          errorMessage,
-        }
+            consumedAt:
+              salesImportDateMode === 'COLUMN'
+                ? String(row[dateColumnIndex] ?? '').trim()
+                : String(fixedDateValue ?? '').trim(),
+            companyProductId: String(row[codeColumnIndex] ?? ''),
+            quantity: String(row[quantityColumnIndex] ?? '').trim(),
+          },
+          salesImportCandidateTechnicalSheets,
+        )
       })
       .filter((row) => row.consumedAt || row.companyProductId || row.quantity)
   }, [
@@ -7657,21 +7629,30 @@ export default function App() {
     salesImportDateMode,
     salesImportQuantityColumn,
   ])
+  const salesImportIgnoredSourceRowKeySet = useMemo(
+    () => new Set(salesImportIgnoredSourceRowKeys),
+    [salesImportIgnoredSourceRowKeys],
+  )
+  const activeSalesImportPreviewRows = useMemo(
+    () => salesImportPreviewRows.filter((row) => !salesImportIgnoredSourceRowKeySet.has(row.sourceRowKey)),
+    [salesImportIgnoredSourceRowKeySet, salesImportPreviewRows],
+  )
   const salesImportPreviewSummary = useMemo(() => {
-    const matchedRows = salesImportPreviewRows.filter((row) => row.status === 'MATCHED')
-    const unmatchedRows = salesImportPreviewRows.filter((row) => row.status === 'UNMATCHED')
-    const errorRows = salesImportPreviewRows.filter((row) => row.status === 'ERROR')
+    const matchedRows = activeSalesImportPreviewRows.filter((row) => row.status === 'MATCHED')
+    const unmatchedRows = activeSalesImportPreviewRows.filter((row) => row.status === 'UNMATCHED')
+    const errorRows = activeSalesImportPreviewRows.filter((row) => row.status === 'ERROR')
     const totalQuantity = matchedRows.reduce((sum, row) => sum + (parseDecimal(row.quantity) ?? 0), 0)
     const distinctSheetIds = new Set(matchedRows.map((row) => row.matchedTechnicalSheetId).filter((value): value is number => typeof value === 'number'))
     return {
-      totalRows: salesImportPreviewRows.length,
+      totalRows: activeSalesImportPreviewRows.length,
+      ignoredRows: salesImportPreviewRows.length - activeSalesImportPreviewRows.length,
       matchedRows: matchedRows.length,
       unmatchedRows: unmatchedRows.length,
       errorRows: errorRows.length,
       totalQuantity,
       distinctSheets: distinctSheetIds.size,
     }
-  }, [salesImportPreviewRows])
+  }, [activeSalesImportPreviewRows, salesImportPreviewRows.length])
   const selectedSalesImportCenter = useMemo(
     () =>
       salesImportStockCenterId
@@ -7741,10 +7722,10 @@ export default function App() {
         id: 'preview',
         label: '4. Preview',
         description:
-          salesImportPreviewRows.length > 0
-            ? `${salesImportPreviewSummary.matchedRows} linha(s) validas prontas para importar.`
+          activeSalesImportPreviewRows.length > 0
+            ? `${salesImportPreviewSummary.matchedRows} linha(s) validas prontas para importar.${salesImportPreviewSummary.ignoredRows > 0 ? ` ${salesImportPreviewSummary.ignoredRows} linha(s) estao ignoradas.` : ''}`
             : 'Revise o preview antes de registrar o lote.',
-        isComplete: salesImportPreviewRows.length > 0,
+        isComplete: activeSalesImportPreviewRows.length > 0,
       },
       {
         id: 'confirm',
@@ -7763,8 +7744,9 @@ export default function App() {
       salesImportDateCell,
       selectedSalesImportCenter,
       salesImportUsesRollingMonths,
-      salesImportPreviewRows.length,
+      activeSalesImportPreviewRows.length,
       salesImportPreviewSummary.matchedRows,
+      salesImportPreviewSummary.ignoredRows,
       selectedSalesImportCenter,
     ],
   )
@@ -7801,9 +7783,13 @@ export default function App() {
   const visibleSalesImportPreviewRows = useMemo(
     () =>
       salesImportPreviewFilter === 'ALL'
-        ? salesImportPreviewRows
-        : salesImportPreviewRows.filter((row) => row.status === salesImportPreviewFilter),
-    [salesImportPreviewFilter, salesImportPreviewRows],
+        ? activeSalesImportPreviewRows
+        : salesImportPreviewFilter === 'IGNORED'
+          ? salesImportPreviewRows.filter((row) => salesImportIgnoredSourceRowKeySet.has(row.sourceRowKey))
+          : salesImportPreviewRows.filter(
+              (row) => !salesImportIgnoredSourceRowKeySet.has(row.sourceRowKey) && row.status === salesImportPreviewFilter,
+            ),
+    [activeSalesImportPreviewRows, salesImportIgnoredSourceRowKeySet, salesImportPreviewFilter, salesImportPreviewRows],
   )
   const selectedSalesImportBatch = useMemo(
     () =>
@@ -25922,6 +25908,123 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
     return `${normalizeSalesImportDateKey(row.consumedAt) ?? row.consumedAt}|${normalizeRegistrationText(row.companyProductId)}`
   }
 
+  function resolveSalesImportRow(
+    row: SalesImportResolvableRow,
+    candidateSheets: TechnicalSheetRecord[],
+  ): SalesImportPreviewRow {
+    const companyProductId = normalizeRegistrationText(row.companyProductId)
+    const quantity = String(row.quantity ?? '').trim()
+    const consumedAt = String(row.consumedAt ?? '').trim()
+    const matchedSheet = candidateSheets.find((sheet) => sheet.companyProductId === companyProductId) ?? null
+    const quantityValue = parseDecimal(quantity)
+
+    let status: SalesImportPreviewRow['status'] = 'MATCHED'
+    let errorMessage = ''
+    const matchedKind: SalesImportPreviewRow['matchedKind'] =
+      matchedSheet?.kind === 'EXECUCAO'
+        ? 'EXECUCAO'
+        : matchedSheet?.kind === 'VENDA'
+          ? 'VENDA'
+          : ''
+
+    if (!consumedAt) {
+      status = 'ERROR'
+      errorMessage = 'Data nao encontrada.'
+    } else if (!companyProductId) {
+      status = 'ERROR'
+      errorMessage = 'ID empresa nao encontrado.'
+    } else if (quantityValue === null || quantityValue <= 0) {
+      status = 'ERROR'
+      errorMessage = 'Quantidade invalida.'
+    } else if (!matchedSheet) {
+      status = 'UNMATCHED'
+      errorMessage = 'Ficha de EXECUCAO ou VENDA nao encontrada para este ID empresa.'
+    }
+
+    return {
+      sourceRowKey: row.sourceRowKey,
+      consumedAt,
+      companyProductId,
+      quantity,
+      matchedTechnicalSheetId: matchedSheet?.id ?? null,
+      matchedKind,
+      status,
+      errorMessage,
+    }
+  }
+
+  function buildSalesImportConsumptionsForMatchedRows(params: {
+    companyId: number
+    stockCenterId: number
+    batchId: number
+    postingMode: SalesImportBatchRecord['postingMode']
+    validRows: SalesImportPreviewRow[]
+    startingConsumptionId: number
+  }) {
+    const { batchId, companyId, postingMode, startingConsumptionId, stockCenterId, validRows } = params
+    return validRows.flatMap((row, rowIndex) => {
+      const matchedSheet =
+        technicalSheets.find((sheet) => sheet.id === row.matchedTechnicalSheetId && (sheet.kind === 'EXECUCAO' || sheet.kind === 'VENDA')) ?? null
+      const soldQuantity = parseDecimal(row.quantity) ?? 0
+      if (!matchedSheet || soldQuantity <= 0) {
+        return []
+      }
+
+      const baseYield = getTechnicalSheetBaseYield(matchedSheet)
+      const recipeData = buildRecipePanelDataForSheet(matchedSheet, baseYield * soldQuantity, soldQuantity)
+      const consumptions = [...recipeData.ingredientMetrics, ...recipeData.garnishMetrics]
+
+      const sourceTechnicalSheetKind: SalesConsumptionRecord['sourceTechnicalSheetKind'] =
+        matchedSheet.kind === 'EXECUCAO' ? 'EXECUCAO' : 'VENDA'
+
+      return consumptions.map((ingredient, ingredientIndex) => ({
+        id: startingConsumptionId + rowIndex * 100 + ingredientIndex,
+        companyId,
+        stockCenterId,
+        consumedAt: row.consumedAt,
+        sourceBatchId: batchId,
+        sourceTechnicalSheetId: matchedSheet.id,
+        sourceTechnicalSheetKind,
+        ingredientProductId: ingredient.productId,
+        quantityConsumed: formatDecimal(ingredient.scaledInputQuantity),
+        unit: ingredient.unitLabel,
+        stockPostingStatus: (postingMode === 'ANALYTICAL_ONLY' ? 'ANALYTICAL' : 'PENDING') as SalesConsumptionRecord['stockPostingStatus'],
+        stockMovementId: null,
+        postedAt: '',
+      }))
+    })
+  }
+
+  function getSalesImportProcessableMatchedRows(
+    rows: SalesImportPreviewRow[],
+    duplicatePolicy: StockCenterSalesImportSettings['duplicateRowPolicy'],
+  ) {
+    const duplicateCounts = new Map<string, number>()
+    rows.forEach((row) => {
+      const duplicateKey = buildSalesImportDuplicateKey(row)
+      duplicateCounts.set(duplicateKey, (duplicateCounts.get(duplicateKey) ?? 0) + 1)
+    })
+    const duplicatedRows = rows.filter((row) => (duplicateCounts.get(buildSalesImportDuplicateKey(row)) ?? 0) > 1)
+    const consumedDuplicateKeys = new Set<string>()
+    const validRows = rows.filter((row) => {
+      if (row.status !== 'MATCHED') {
+        return false
+      }
+      if (duplicatePolicy === 'SKIP') {
+        const duplicateKey = buildSalesImportDuplicateKey(row)
+        if (consumedDuplicateKeys.has(duplicateKey)) {
+          return false
+        }
+        consumedDuplicateKeys.add(duplicateKey)
+      }
+      return true
+    })
+    return {
+      validRows,
+      duplicatedRows,
+    }
+  }
+
   function getSalesImportPostingModeLabel(mode: SalesImportBatchRecord['postingMode']) {
     if (mode === 'POST_PENDING') {
       return 'Tratar como saida pendente'
@@ -26426,19 +26529,205 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
   }
 
   async function reprocessSalesImportBatch(batch: SalesImportBatchRecord) {
-    const importedRows = currentCompanySalesImportRows.filter(
-      (row) => row.batchId === batch.id && row.status === 'MATCHED',
+    const batchRows = currentCompanySalesImportRows.filter((row) => row.batchId === batch.id)
+    const candidateSheets = technicalSheets.filter(
+      (sheet) =>
+        sheet.companyId === batch.companyId &&
+        sheet.isActive &&
+        (sheet.kind === 'EXECUCAO' || sheet.kind === 'VENDA') &&
+        normalizeRegistrationText(sheet.companyProductId).length > 0,
     )
+    const rebuiltRows = batchRows.map((row) =>
+      resolveSalesImportRow(
+        {
+          sourceRowKey: row.sourceRowKey,
+          consumedAt: row.consumedAt,
+          companyProductId: row.companyProductId,
+          quantity: row.quantity,
+        },
+        candidateSheets,
+      ),
+    )
+    const rowsToUpdate = batchRows
+      .map((row, index) => {
+        const rebuiltRow = rebuiltRows[index]
+        return row.consumedAt !== rebuiltRow.consumedAt ||
+          row.companyProductId !== rebuiltRow.companyProductId ||
+          row.quantity !== rebuiltRow.quantity ||
+          row.matchedTechnicalSheetId !== rebuiltRow.matchedTechnicalSheetId ||
+          row.matchedKind !== rebuiltRow.matchedKind ||
+          row.status !== rebuiltRow.status ||
+          row.errorMessage !== rebuiltRow.errorMessage
+          ? {
+              ...row,
+              consumedAt: rebuiltRow.consumedAt,
+              companyProductId: rebuiltRow.companyProductId,
+              quantity: rebuiltRow.quantity,
+              matchedTechnicalSheetId: rebuiltRow.matchedTechnicalSheetId,
+              matchedKind: rebuiltRow.matchedKind,
+              status: rebuiltRow.status,
+              errorMessage: rebuiltRow.errorMessage,
+            }
+          : null
+      })
+      .filter((row): row is SalesImportRowRecord => row !== null)
+
     const relatedConsumptions = currentCompanySalesConsumptions.filter(
       (consumption) =>
         consumption.sourceBatchId === batch.id &&
         consumption.stockPostingStatus !== 'CANCELLED',
     )
-    if (importedRows.length === 0 || relatedConsumptions.length === 0) {
+    const targetCenter =
+      stockCenters.find((center) => center.id === batch.stockCenterId && center.companyId === batch.companyId) ?? null
+    const duplicatePolicy = targetCenter?.salesImportSettings.duplicateRowPolicy ?? 'BLOCK'
+    const { validRows: matchedRows, duplicatedRows } = getSalesImportProcessableMatchedRows(rebuiltRows, duplicatePolicy)
+    const hasPostedConsumptions = relatedConsumptions.some(
+      (consumption) => consumption.stockPostingStatus === 'POSTED' || consumption.stockMovementId !== null,
+    )
+    if (duplicatedRows.length > 0 && duplicatePolicy === 'BLOCK') {
+      setSaveFeedback({
+        status: 'error',
+        title: 'Lote com linhas duplicadas',
+        message: 'Este lote continua com linhas repetidas para a mesma data e o mesmo ID empresa. Ajuste a regra de duplicidade do centro ou revise o arquivo antes de reprocessar.',
+      })
+      return
+    }
+    if (matchedRows.length === 0) {
+      if (rowsToUpdate.length > 0) {
+        try {
+          const rowUpdateResponses = await Promise.all(
+            rowsToUpdate.map((row) =>
+              fetch(`/api/sales-import-rows/${row.id}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(row),
+              }),
+            ),
+          )
+          if (rowUpdateResponses.some((response) => !response.ok)) {
+            throw new Error('Nao foi possivel atualizar as linhas do lote no servidor.')
+          }
+          await refreshAppSalesImportRecordsFromApi()
+        } catch (error) {
+          console.error(error)
+          setSaveFeedback({
+            status: 'error',
+            title: 'Falha ao reprocessar lote',
+            message:
+              error instanceof Error
+                ? error.message
+                : 'Nao foi possivel atualizar as linhas do lote no servidor.',
+          })
+          return
+        }
+      }
       setSaveFeedback({
         status: 'error',
         title: 'Nada para reprocessar',
-        message: 'Este lote nao possui linhas validas e consumos ativos suficientes para recalculo.',
+        message: 'Este lote nao possui linhas validas suficientes para recalculo no estado atual do de/para.',
+      })
+      return
+    }
+
+    let nextConsumptionsForRecalculation = relatedConsumptions
+    let newlyMatchedRows = rebuiltRows.filter((row, index) => row.status === 'MATCHED' && batchRows[index]?.status !== 'MATCHED').length
+
+    if (!hasPostedConsumptions) {
+      const nextConsumptionId = getNextPersistedIntId(
+        salesConsumptions.map((item) => item.id).concat([batch.id + 2000]),
+      )
+      const rebuiltConsumptions = buildSalesImportConsumptionsForMatchedRows({
+        companyId: batch.companyId,
+        stockCenterId: batch.stockCenterId,
+        batchId: batch.id,
+        postingMode: batch.postingMode,
+        validRows: matchedRows,
+        startingConsumptionId: nextConsumptionId,
+      })
+
+      try {
+        const requests: Promise<Response>[] = [
+          ...rowsToUpdate.map((row) =>
+            fetch(`/api/sales-import-rows/${row.id}`, {
+              method: 'PUT',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(row),
+            }),
+          ),
+          ...relatedConsumptions.map((consumption) =>
+            fetch(`/api/sales-consumptions/${consumption.id}`, {
+              method: 'PUT',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                ...consumption,
+                stockPostingStatus: 'CANCELLED',
+                stockMovementId: null,
+                postedAt: '',
+              } satisfies SalesConsumptionRecord),
+            }),
+          ),
+          ...rebuiltConsumptions.map((consumption) =>
+            fetch('/api/sales-consumptions', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(consumption),
+            }),
+          ),
+        ]
+        const responses = await Promise.all(requests)
+        if (responses.some((response) => !response.ok)) {
+          throw new Error('Nao foi possivel reconstruir as linhas e consumos deste lote no servidor.')
+        }
+      } catch (error) {
+        console.error(error)
+        setSaveFeedback({
+          status: 'error',
+          title: 'Falha ao reprocessar lote',
+          message:
+            error instanceof Error
+              ? error.message
+              : 'Nao foi possivel reconstruir os consumos deste lote.',
+        })
+        return
+      }
+
+      nextConsumptionsForRecalculation = rebuiltConsumptions
+    } else if (rowsToUpdate.length > 0) {
+      try {
+        const rowUpdateResponses = await Promise.all(
+          rowsToUpdate.map((row) =>
+            fetch(`/api/sales-import-rows/${row.id}`, {
+              method: 'PUT',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(row),
+            }),
+          ),
+        )
+        if (rowUpdateResponses.some((response) => !response.ok)) {
+          throw new Error('Nao foi possivel atualizar as linhas do lote no servidor.')
+        }
+      } catch (error) {
+        console.error(error)
+        setSaveFeedback({
+          status: 'error',
+          title: 'Falha ao reprocessar lote',
+          message:
+            error instanceof Error
+              ? error.message
+              : 'Nao foi possivel atualizar as linhas do lote no servidor.',
+        })
+        return
+      }
+    }
+
+    if (nextConsumptionsForRecalculation.length === 0) {
+      await refreshAppSalesImportRecordsFromApi()
+      setSaveFeedback({
+        status: 'success',
+        title: 'Linhas revisadas',
+        message: hasPostedConsumptions
+          ? 'As linhas do lote foram reavaliadas, mas este lote ja teve saida de estoque aplicada e nao pode reconstruir consumos automaticamente.'
+          : 'As linhas do lote foram reavaliadas, mas nenhuma linha com match valido permaneceu para gerar consumo.',
       })
       return
     }
@@ -26450,8 +26739,8 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
       historyMonths: batch.historyMonths,
       coverageDays: batch.coverageDays,
       safetyMarginPercent: batch.safetyMarginPercent,
-      importedRows,
-      pendingConsumptions: relatedConsumptions,
+      importedRows: matchedRows,
+      pendingConsumptions: nextConsumptionsForRecalculation,
     })
 
     try {
@@ -26470,6 +26759,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
     }
 
     setStockCenters(nextStockCenters)
+    await refreshAppSalesImportRecordsFromApi()
     await refreshAppStockCenterRecordsFromApi()
     registerAuditEvent({
       companyId: batch.companyId,
@@ -26485,14 +26775,21 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
       result: 'SUCCESS',
       details: {
         stockCenterId: batch.stockCenterId,
-        importedRows: importedRows.length,
-        relatedConsumptions: relatedConsumptions.length,
+        importedRows: matchedRows.length,
+        relatedConsumptions: nextConsumptionsForRecalculation.length,
+        rowsUpdated: rowsToUpdate.length,
+        newlyMatchedRows,
+        hasPostedConsumptions,
       },
     })
     setSaveFeedback({
       status: 'success',
       title: 'Lote reprocessado',
-      message: 'Os consumos deste lote foram reaplicados no calculo dos minimos sugeridos do centro.',
+      message: hasPostedConsumptions
+        ? 'As linhas do lote foram reavaliadas e os minimos sugeridos foram recalculados com os consumos ja existentes. Como este lote ja teve saida lancada, novos matches ficaram apenas registrados para auditoria.'
+        : newlyMatchedRows > 0
+          ? `O lote foi reprocessado e ${newlyMatchedRows} linha(s) que antes estavam sem de/para agora passaram a gerar consumo para o calculo dos minimos sugeridos.`
+          : 'Os consumos deste lote foram reconstruidos e reaplicados no calculo dos minimos sugeridos do centro.',
     })
   }
 
@@ -26727,9 +27024,10 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
     setSalesImportCodeColumn('')
     setSalesImportQuantityColumn('')
     setSalesImportPreviewFilter('ALL')
+    setSalesImportIgnoredSourceRowKeys([])
     if (!preserveDefaults) {
-    setSalesImportPostingMode('ANALYTICAL_ONLY')
-    setSalesImportShouldSaveTemplate(false)
+      setSalesImportPostingMode('ANALYTICAL_ONLY')
+      setSalesImportShouldSaveTemplate(false)
     }
   }
 
@@ -26766,6 +27064,8 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
       setSalesImportQuantityColumn('')
       setSalesImportPostingMode('ANALYTICAL_ONLY')
       setSalesImportShouldSaveTemplate(false)
+      setSalesImportPreviewFilter('ALL')
+      setSalesImportIgnoredSourceRowKeys([])
     } catch (error) {
       console.error(error)
       setSaveFeedback({
@@ -26843,11 +27143,11 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
       })
       return
     }
-    if (salesImportPreviewRows.length === 0) {
+    if (activeSalesImportPreviewRows.length === 0) {
       setSaveFeedback({
         status: 'error',
         title: 'Importacao vazia',
-        message: 'Erro: gere um preview valido antes de confirmar o lote.',
+        message: 'Erro: gere um preview valido antes de confirmar o lote ou restaure alguma linha ignorada.',
       })
       return
     }
@@ -26910,43 +27210,28 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
       })
       return
     }
-    if (salesImportPreviewRows.length === 0) {
+    if (activeSalesImportPreviewRows.length === 0) {
       setSaveFeedback({
         status: 'error',
         title: 'Importacao vazia',
-        message: 'Erro: nenhuma linha valida foi encontrada para o mapeamento informado.',
+        message: 'Erro: nenhuma linha ativa foi encontrada para o mapeamento informado.',
       })
       return
     }
 
-    const invalidRows = salesImportPreviewRows.filter((row) => row.status === 'ERROR')
+    const invalidRows = activeSalesImportPreviewRows.filter((row) => row.status === 'ERROR')
     if (invalidRows.length > 0) {
       setSaveFeedback({
         status: 'error',
         title: 'Importacao com inconsistencias',
-        message: 'Erro: existem linhas com data, ID empresa ou quantidade invalidos. Corrija o mapeamento antes de continuar.',
+        message: `Erro: ${invalidRows.length} linha(s) tem data, ID empresa ou quantidade invalidos no arquivo. Linhas sem de/para podem ser registradas, mas erros estruturais precisam ser corrigidos antes de continuar.`,
       })
       return
     }
 
-    const unmatchedRows = salesImportPreviewRows.filter((row) => row.status === 'UNMATCHED')
-    const unmatchedPolicy = targetCenter.salesImportSettings.unmatchedRowPolicy
-    if (unmatchedRows.length > 0 && unmatchedPolicy === 'BLOCK') {
-      setSaveFeedback({
-        status: 'error',
-        title: 'Importacao com itens sem de/para',
-        message: 'Erro: existem linhas cujo ID empresa nao corresponde a nenhuma ficha ativa de EXECUCAO ou VENDA.',
-      })
-      return
-    }
-
-    const duplicateCounts = new Map<string, number>()
-    salesImportPreviewRows.forEach((row) => {
-      const duplicateKey = buildSalesImportDuplicateKey(row)
-      duplicateCounts.set(duplicateKey, (duplicateCounts.get(duplicateKey) ?? 0) + 1)
-    })
+    const unmatchedRows = activeSalesImportPreviewRows.filter((row) => row.status === 'UNMATCHED')
     const duplicatePolicy = targetCenter.salesImportSettings.duplicateRowPolicy
-    const duplicatedRows = salesImportPreviewRows.filter((row) => (duplicateCounts.get(buildSalesImportDuplicateKey(row)) ?? 0) > 1)
+    const { validRows, duplicatedRows } = getSalesImportProcessableMatchedRows(activeSalesImportPreviewRows, duplicatePolicy)
     if (duplicatedRows.length > 0 && duplicatePolicy === 'BLOCK') {
       setSaveFeedback({
         status: 'error',
@@ -26955,21 +27240,6 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
       })
       return
     }
-
-    const consumedDuplicateKeys = new Set<string>()
-    const validRows = salesImportPreviewRows.filter((row) => {
-      if (row.status !== 'MATCHED') {
-        return false
-      }
-      if (duplicatePolicy === 'SKIP') {
-        const duplicateKey = buildSalesImportDuplicateKey(row)
-        if (consumedDuplicateKeys.has(duplicateKey)) {
-          return false
-        }
-        consumedDuplicateKeys.add(duplicateKey)
-      }
-      return true
-    })
     if (validRows.length === 0) {
       setSaveFeedback({
         status: 'error',
@@ -27034,7 +27304,8 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
             : 'READY_TO_POST',
       importedAt,
       summary: {
-        totalRows: salesImportPreviewRows.length,
+        totalRows: activeSalesImportPreviewRows.length,
+        ignoredRows: salesImportPreviewSummary.ignoredRows,
         matchedRows: validRows.length,
         invalidRows: invalidRows.length,
         unmatchedRows: unmatchedRows.length,
@@ -27044,7 +27315,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
     }
 
     const nextRowId = getNextPersistedIntId(currentCompanySalesImportBatches.map((batch) => batch.id).concat([nextBatchId + 1000]))
-    const rowsToSave = salesImportPreviewRows.map((row, index) => ({
+    const rowsToSave = activeSalesImportPreviewRows.map((row, index) => ({
       id: nextRowId + index,
       batchId: batchToSave.id,
       companyId: currentCompanyId,
@@ -27060,36 +27331,13 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
     }))
 
     const nextConsumptionId = getNextPersistedIntId(currentCompanySalesConsumptions.map((item) => item.id).concat([nextBatchId + 2000]))
-    const consumptionsToSave = validRows.flatMap((row, rowIndex) => {
-      const matchedSheet =
-        technicalSheets.find((sheet) => sheet.id === row.matchedTechnicalSheetId && (sheet.kind === 'EXECUCAO' || sheet.kind === 'VENDA')) ?? null
-      const soldQuantity = parseDecimal(row.quantity) ?? 0
-      if (!matchedSheet || soldQuantity <= 0) {
-        return []
-      }
-
-      const baseYield = getTechnicalSheetBaseYield(matchedSheet)
-      const recipeData = buildRecipePanelDataForSheet(matchedSheet, baseYield * soldQuantity, soldQuantity)
-      const consumptions = [...recipeData.ingredientMetrics, ...recipeData.garnishMetrics]
-
-      const sourceTechnicalSheetKind: SalesConsumptionRecord['sourceTechnicalSheetKind'] =
-        matchedSheet.kind === 'EXECUCAO' ? 'EXECUCAO' : 'VENDA'
-
-      return consumptions.map((ingredient, ingredientIndex) => ({
-        id: nextConsumptionId + rowIndex * 100 + ingredientIndex,
-        companyId: currentCompanyId,
-        stockCenterId: targetCenter.id,
-        consumedAt: row.consumedAt,
-        sourceBatchId: batchToSave.id,
-        sourceTechnicalSheetId: matchedSheet.id,
-        sourceTechnicalSheetKind,
-        ingredientProductId: ingredient.productId,
-        quantityConsumed: formatDecimal(ingredient.scaledInputQuantity),
-        unit: ingredient.unitLabel,
-        stockPostingStatus: (postingMode === 'ANALYTICAL_ONLY' ? 'ANALYTICAL' : 'PENDING') as SalesConsumptionRecord['stockPostingStatus'],
-        stockMovementId: null,
-        postedAt: '',
-      }))
+    const consumptionsToSave = buildSalesImportConsumptionsForMatchedRows({
+      companyId: currentCompanyId,
+      stockCenterId: targetCenter.id,
+      batchId: batchToSave.id,
+      postingMode,
+      validRows,
+      startingConsumptionId: nextConsumptionId,
     })
 
     const movementPlan =
@@ -27311,19 +27559,27 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
         postingMode,
       },
     })
+    const unmatchedSummaryMessage =
+      unmatchedRows.length > 0
+        ? ` ${unmatchedRows.length} linha(s) sem de/para ficaram salvas para auditoria e poderao ser reaproveitadas depois, quando o ID empresa passar a existir em fichas de EXECUCAO ou VENDA.`
+        : ''
+    const ignoredSummaryMessage =
+      salesImportPreviewSummary.ignoredRows > 0
+        ? ` ${salesImportPreviewSummary.ignoredRows} linha(s) foram ignoradas manualmente e nao entraram neste lote.`
+        : ''
     setSaveFeedback({
       status: 'success',
       title: 'Importacao registrada',
       message:
         postingMode === 'ANALYTICAL_ONLY'
-          ? `O lote foi registrado para o centro ${targetCenter.name}. ${validRows.length} linha(s) validas entraram na base analitica de consumo e os minimos sugeridos deste centro foram recalculados.`
+          ? `O lote foi registrado para o centro ${targetCenter.name}. ${validRows.length} linha(s) validas entraram na base analitica de consumo e os minimos sugeridos deste centro foram recalculados.${unmatchedSummaryMessage}${ignoredSummaryMessage}`
           : postingMode === 'POST_PENDING'
-            ? `O lote foi registrado para o centro ${targetCenter.name}. ${validRows.length} linha(s) validas ficaram prontas para virar saida oficial de estoque depois da conferencia e os minimos sugeridos deste centro foram recalculados.`
+            ? `O lote foi registrado para o centro ${targetCenter.name}. ${validRows.length} linha(s) validas ficaram prontas para virar saida oficial de estoque depois da conferencia e os minimos sugeridos deste centro foram recalculados.${unmatchedSummaryMessage}${ignoredSummaryMessage}`
             : !movementPlan || movementPlan.length === 0
-              ? `O lote foi registrado para o centro ${targetCenter.name}. Nenhum item rastreavel de estoque foi encontrado para baixa imediata, mas a base de consumo e os minimos sugeridos foram atualizados.`
+              ? `O lote foi registrado para o centro ${targetCenter.name}. Nenhum item rastreavel de estoque foi encontrado para baixa imediata, mas a base de consumo e os minimos sugeridos foram atualizados.${unmatchedSummaryMessage}${ignoredSummaryMessage}`
               : postingResult === 'queued'
-                ? `O lote foi registrado para o centro ${targetCenter.name}. A saida de estoque ficou pendente porque ha inventario aberto nesse centro e sera aplicada ao final dele.`
-                : `O lote foi registrado para o centro ${targetCenter.name}, a saida oficial de estoque foi lancada e os minimos sugeridos deste centro foram recalculados.`,
+                ? `O lote foi registrado para o centro ${targetCenter.name}. A saida de estoque ficou pendente porque ha inventario aberto nesse centro e sera aplicada ao final dele.${unmatchedSummaryMessage}${ignoredSummaryMessage}`
+                : `O lote foi registrado para o centro ${targetCenter.name}, a saida oficial de estoque foi lancada e os minimos sugeridos deste centro foram recalculados.${unmatchedSummaryMessage}${ignoredSummaryMessage}`,
     })
   }
 
@@ -35564,6 +35820,10 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                           <span>Com erro</span>
                           <strong>{salesImportPreviewSummary.errorRows}</strong>
                         </button>
+                        <button type="button" className={`receituario-metric-card sales-import-metric-button ${salesImportPreviewFilter === 'IGNORED' ? 'active' : ''}`} onClick={() => setSalesImportPreviewFilter('IGNORED')}>
+                          <span>Ignoradas</span>
+                          <strong>{salesImportPreviewSummary.ignoredRows}</strong>
+                        </button>
                         <article className="receituario-metric-card">
                           <span>Quantidade valida</span>
                           <strong>{formatDecimal(salesImportPreviewSummary.totalQuantity)}</strong>
@@ -35581,7 +35841,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                             value={salesImportPreviewFilter}
                             onChange={(event) =>
                               setSalesImportPreviewFilter(
-                                event.target.value as 'ALL' | 'MATCHED' | 'UNMATCHED' | 'ERROR',
+                                event.target.value as 'ALL' | 'MATCHED' | 'UNMATCHED' | 'ERROR' | 'IGNORED',
                               )
                             }
                           >
@@ -35589,15 +35849,16 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                             <option value="MATCHED">So validas</option>
                             <option value="UNMATCHED">So sem de/para</option>
                             <option value="ERROR">So com erro</option>
+                            <option value="IGNORED">So ignoradas</option>
                           </select>
                         </label>
-                        {salesImportPreviewRows.some((row) => row.status !== 'MATCHED') ? (
+                        {activeSalesImportPreviewRows.some((row) => row.status !== 'MATCHED') ? (
                           <button
                             type="button"
                             className="secondary-button"
                             onClick={() =>
                               exportSalesImportIssues(
-                                salesImportPreviewRows,
+                                activeSalesImportPreviewRows,
                                 `inconsistencias-importacao-${(salesImportWorkbookName || 'vendas').replace(/\.[^.]+$/, '')}.xlsx`,
                               )
                             }
@@ -35617,6 +35878,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                               <th>Match</th>
                               <th>Status</th>
                               <th>Observacao</th>
+                              <th>Acoes</th>
                             </tr>
                           </thead>
                           <tbody>
@@ -35625,14 +35887,38 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                                 row.matchedTechnicalSheetId === null
                                   ? null
                                   : technicalSheets.find((sheet) => sheet.id === row.matchedTechnicalSheetId) ?? null
+                              const isIgnored = salesImportIgnoredSourceRowKeySet.has(row.sourceRowKey)
                               return (
-                                <tr key={row.sourceRowKey}>
+                                <tr key={row.sourceRowKey} className={isIgnored ? 'muted-row' : ''}>
                                   <td>{row.consumedAt || '-'}</td>
                                   <td>{row.companyProductId || '-'}</td>
                                   <td>{row.quantity || '-'}</td>
                                   <td>{matchedSheet ? `${matchedSheet.name} (${row.matchedKind})` : '-'}</td>
-                                  <td>{row.status}</td>
+                                  <td>{isIgnored ? 'IGNORED' : row.status}</td>
                                   <td>{row.errorMessage || '-'}</td>
+                                  <td className="sticky-actions-cell">
+                                    {row.status !== 'MATCHED' || isIgnored ? (
+                                      <div className="table-actions">
+                                        <button
+                                          type="button"
+                                          className={isIgnored ? 'icon-button icon-view active' : 'icon-button icon-hide'}
+                                          aria-label={isIgnored ? 'Restaurar linha' : 'Ignorar linha'}
+                                          title={isIgnored ? 'Restaurar linha' : 'Ignorar linha'}
+                                          onClick={() =>
+                                            setSalesImportIgnoredSourceRowKeys((current) =>
+                                              isIgnored
+                                                ? current.filter((item) => item !== row.sourceRowKey)
+                                                : [...current, row.sourceRowKey],
+                                            )
+                                          }
+                                        >
+                                          <span aria-hidden="true">{isIgnored ? '↺' : '⊘'}</span>
+                                        </button>
+                                      </div>
+                                    ) : (
+                                      '-'
+                                    )}
+                                  </td>
                                 </tr>
                               )
                             })}
@@ -35640,7 +35926,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                         </table>
                       </div>
                       <p className="helper-text">
-                        Exibindo ate 50 linhas do preview atual. Ajuste o filtro para revisar inconsistencias antes de registrar o lote.
+                        Exibindo ate 50 linhas do preview atual. Linhas ignoradas nao entram no lote enquanto nao forem restauradas.
                       </p>
                     </>
                   ) : (
@@ -42087,6 +42373,27 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
               minimos e, quando escolhido, gerar ou preparar saida oficial de estoque.
             </p>
 
+            {salesImportPreviewSummary.unmatchedRows > 0 ? (
+              <div className="inline-warning-card">
+                <strong>Ha linhas sem de/para neste lote.</strong>
+                <p>
+                  Ao confirmar, o sistema vai registrar o lote mesmo assim. As linhas com match valido geram consumo agora;
+                  as linhas sem de/para ficam salvas para auditoria e podem ser reaproveitadas depois, quando o ID empresa
+                  passar a existir em fichas de EXECUCAO ou VENDA.
+                </p>
+              </div>
+            ) : null}
+
+            {salesImportPreviewSummary.errorRows > 0 ? (
+              <div className="inline-warning-card danger">
+                <strong>Ha erros estruturais no arquivo.</strong>
+                <p>
+                  Linhas com data, ID empresa ou quantidade invalidos ainda bloqueiam a importacao. Corrija o mapeamento
+                  antes de confirmar.
+                </p>
+              </div>
+            ) : null}
+
             <div className="confirmation-details">
               <p><strong>Arquivo:</strong> {salesImportDraftSummary.fileName}</p>
               <p><strong>Centro:</strong> {salesImportDraftSummary.centerName}</p>
@@ -42099,13 +42406,19 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
               <p><strong>Linhas validas:</strong> {salesImportPreviewSummary.matchedRows}</p>
               <p><strong>Sem de/para:</strong> {salesImportPreviewSummary.unmatchedRows}</p>
               <p><strong>Com erro:</strong> {salesImportPreviewSummary.errorRows}</p>
+              <p><strong>Ignoradas:</strong> {salesImportPreviewSummary.ignoredRows}</p>
             </div>
 
             <div className="modal-actions">
               <button className="ghost-button" type="button" onClick={() => setIsSalesImportConfirmationOpen(false)}>
                 Cancelar
               </button>
-              <button className="primary-button" type="button" onClick={() => void saveSalesImportDraft()}>
+              <button
+                className="primary-button"
+                type="button"
+                onClick={() => void saveSalesImportDraft()}
+                disabled={salesImportPreviewSummary.errorRows > 0}
+              >
                 Confirmar importacao
               </button>
             </div>

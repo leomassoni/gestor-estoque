@@ -1034,6 +1034,15 @@ h3 {
   background: rgba(252, 163, 17, 0.18);
 }
 
+.muted-row td {
+  color: rgba(20, 33, 61, 0.56);
+  background: rgba(20, 33, 61, 0.04);
+}
+
+.muted-row .sticky-actions-cell {
+  background: rgba(20, 33, 61, 0.06);
+}
+
 .inventory-summary-pending-row td {
   background: rgba(87, 117, 144, 0.08);
 }
@@ -2836,6 +2845,34 @@ h3 {
 
 .confirm-copy {
   margin: 20px 0 0;
+}
+
+.inline-warning-card {
+  margin-top: 16px;
+  padding: 14px 16px;
+  border-radius: 18px;
+  border: 1px solid rgba(180, 122, 19, 0.18);
+  background: rgba(255, 248, 230, 0.96);
+  color: #6c4b00;
+}
+
+.inline-warning-card strong {
+  display: block;
+  color: #8a5b00;
+}
+
+.inline-warning-card p {
+  margin: 6px 0 0;
+}
+
+.inline-warning-card.danger {
+  border-color: rgba(171, 47, 47, 0.18);
+  background: rgba(255, 239, 239, 0.96);
+  color: #7d1f1f;
+}
+
+.inline-warning-card.danger strong {
+  color: #9e2525;
 }
 
 .technical-sheet-image-field {
