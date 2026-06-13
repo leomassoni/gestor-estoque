@@ -3742,6 +3742,10 @@ export default function App() {
   const [salesImportIgnoredSourceRowKeys, setSalesImportIgnoredSourceRowKeys] = useState<string[]>([])
   const [selectedSalesImportBatchId, setSelectedSalesImportBatchId] = useState<number | null>(null)
   const [isSalesImportConfirmationOpen, setIsSalesImportConfirmationOpen] = useState(false)
+  const [processingSalesImportBatchAction, setProcessingSalesImportBatchAction] = useState<{
+    batchId: number
+    action: 'REPROCESS'
+  } | null>(null)
   const [stockImportSettingsCenterId, setStockImportSettingsCenterId] = useState<string>('')
   const [stockImportSettingsCenterInput, setStockImportSettingsCenterInput] = useState('')
   const isLocalhostEnvironment =
@@ -9705,44 +9709,25 @@ export default function App() {
           (consumption) =>
             consumption.sourceBatchId === row.batchId &&
             consumption.sourceTechnicalSheetId === (row.matchedTechnicalSheetId ?? -1) &&
-            normalizeSalesImportDateKey(consumption.consumedAt) === normalizeSalesImportDateKey(row.consumedAt),
+            normalizeSalesImportDateKey(consumption.consumedAt) === normalizeSalesImportDateKey(row.consumedAt) &&
+            consumption.stockPostingStatus !== 'CANCELLED',
         )
         const uniqueIngredients = new Set(
           relatedConsumptions.map((consumption) => consumption.ingredientProductId).filter(Boolean),
         )
-        const totalConsumedQuantity = relatedConsumptions.reduce(
-          (sum, consumption) => sum + (parseDecimal(consumption.quantityConsumed) ?? 0),
-          0,
-        )
-        const consumptionBreakdown = Array.from(
-          relatedConsumptions.reduce((map, consumption) => {
-            const current = map.get(consumption.ingredientProductId) ?? {
-              label: '',
-              quantity: 0,
-              unit: consumption.unit,
-            }
-            const linkedPrepSheet =
-              technicalSheets.find(
-                (sheet) =>
-                  sheet.companyId === currentCompanyId &&
-                  sheet.kind === 'PREPARO' &&
-                  sheet.productId === consumption.ingredientProductId,
-              ) ?? null
-            const linkedProduct =
-              products.find(
-                (product) =>
-                  product.companyId === currentCompanyId &&
-                  product.id === consumption.ingredientProductId,
-              ) ?? null
-            map.set(consumption.ingredientProductId, {
-              label: linkedPrepSheet?.name ?? linkedProduct?.name ?? consumption.ingredientProductId,
-              quantity: current.quantity + (parseDecimal(consumption.quantityConsumed) ?? 0),
-              unit: consumption.unit,
-            })
-            return map
-          }, new Map<string, { label: string; quantity: number; unit: string }>()),
-        )
-          .map(([, entry]) => `${entry.label}: ${formatDecimal(entry.quantity)} ${entry.unit}`)
+        const soldQuantity = parseDecimal(row.quantity) ?? 0
+        const recipeData =
+          matchedSheet && soldQuantity > 0
+            ? buildRecipePanelDataForSheet(
+                matchedSheet,
+                getTechnicalSheetBaseYield(matchedSheet) * soldQuantity,
+                soldQuantity,
+              )
+            : null
+        const lineBreakdownMetrics = recipeData ? [...recipeData.ingredientMetrics, ...recipeData.garnishMetrics] : []
+        const lineConsumedQuantity = lineBreakdownMetrics.reduce((sum, ingredient) => sum + ingredient.scaledInputQuantity, 0)
+        const lineConsumptionBreakdown = lineBreakdownMetrics
+          .map((ingredient) => `${ingredient.label}: ${formatDecimal(ingredient.scaledInputQuantity)} ${ingredient.unitLabel}`)
           .join(' • ')
         const uniquePostingStatuses = Array.from(new Set(relatedConsumptions.map((consumption) => consumption.stockPostingStatus)))
         const postingStatus =
@@ -9772,8 +9757,8 @@ export default function App() {
           recorded: String(uniqueIngredients.size),
           quantity: row.quantity,
           position:
-            relatedConsumptions.length > 0
-              ? `${uniqueIngredients.size} ingrediente(s) • ${consumptionBreakdown}`
+            lineBreakdownMetrics.length > 0
+              ? `${lineBreakdownMetrics.length} ingrediente(s) • ${lineConsumptionBreakdown}`
               : row.errorMessage || '-',
           minimum:
             batch !== null
@@ -9785,7 +9770,7 @@ export default function App() {
             date: normalizeSalesImportDateKey(row.consumedAt) ?? row.consumedAt,
             quantity: parseDecimal(row.quantity) ?? 0,
             recorded: uniqueIngredients.size,
-            position: totalConsumedQuantity,
+            position: lineConsumedQuantity,
           },
         } satisfies StockReportRow
       })
@@ -26562,6 +26547,17 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
   }
 
   async function reprocessSalesImportBatch(batch: SalesImportBatchRecord) {
+    if (processingSalesImportBatchAction?.batchId === batch.id && processingSalesImportBatchAction.action === 'REPROCESS') {
+      return
+    }
+    setProcessingSalesImportBatchAction({
+      batchId: batch.id,
+      action: 'REPROCESS',
+    })
+    setSaveProgressState({
+      title: 'Reprocessando lote importado',
+      message: 'Reprocessando, aguarde. Nao feche a tela nem clique novamente em reprocessar.',
+    })
     const batchRows = currentCompanySalesImportRows.filter((row) => row.batchId === batch.id)
     const candidateSheets = technicalSheets.filter(
       (sheet) =>
@@ -26623,6 +26619,8 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
         title: 'Lote com linhas duplicadas',
         message: 'Este lote continua com linhas repetidas para a mesma data e o mesmo ID empresa. Ajuste a regra de duplicidade do centro ou revise o arquivo antes de reprocessar.',
       })
+      setSaveProgressState(null)
+      setProcessingSalesImportBatchAction(null)
       return
     }
     if (matchedRows.length === 0) {
@@ -26651,6 +26649,8 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                 ? error.message
                 : 'Nao foi possivel atualizar as linhas do lote no servidor.',
           })
+          setSaveProgressState(null)
+          setProcessingSalesImportBatchAction(null)
           return
         }
       }
@@ -26659,6 +26659,8 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
         title: 'Nada para reprocessar',
         message: 'Este lote nao possui linhas validas suficientes para recalculo no estado atual do de/para.',
       })
+      setSaveProgressState(null)
+      setProcessingSalesImportBatchAction(null)
       return
     }
 
@@ -26721,6 +26723,8 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
               ? error.message
               : 'Nao foi possivel reconstruir os consumos deste lote.',
         })
+        setSaveProgressState(null)
+        setProcessingSalesImportBatchAction(null)
         return
       }
 
@@ -26749,6 +26753,8 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
               ? error.message
               : 'Nao foi possivel atualizar as linhas do lote no servidor.',
         })
+        setSaveProgressState(null)
+        setProcessingSalesImportBatchAction(null)
         return
       }
     }
@@ -26762,6 +26768,8 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
           ? 'As linhas do lote foram reavaliadas, mas este lote ja teve saida de estoque aplicada e nao pode reconstruir consumos automaticamente.'
           : 'As linhas do lote foram reavaliadas, mas nenhuma linha com match valido permaneceu para gerar consumo.',
       })
+      setSaveProgressState(null)
+      setProcessingSalesImportBatchAction(null)
       return
     }
 
@@ -26788,6 +26796,8 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
             ? error.message
             : 'Nao foi possivel recalcular os minimos sugeridos deste lote.',
       })
+      setSaveProgressState(null)
+      setProcessingSalesImportBatchAction(null)
       return
     }
 
@@ -26824,6 +26834,8 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
           ? `O lote foi reprocessado e ${newlyMatchedRows} linha(s) que antes estavam sem de/para agora passaram a gerar consumo para o calculo dos minimos sugeridos.`
           : 'Os consumos deste lote foram reconstruidos e reaplicados no calculo dos minimos sugeridos do centro.',
     })
+    setSaveProgressState(null)
+    setProcessingSalesImportBatchAction(null)
   }
 
   function applySalesImportSuggestedMinimums(params: {
@@ -36182,9 +36194,16 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                                 <button
                                   type="button"
                                   className="secondary-button"
+                                  disabled={
+                                    processingSalesImportBatchAction?.batchId === selectedSalesImportBatch.id &&
+                                    processingSalesImportBatchAction.action === 'REPROCESS'
+                                  }
                                   onClick={() => void reprocessSalesImportBatch(selectedSalesImportBatch)}
                                 >
-                                  Reprocessar lote
+                                  {processingSalesImportBatchAction?.batchId === selectedSalesImportBatch.id &&
+                                  processingSalesImportBatchAction.action === 'REPROCESS'
+                                    ? 'Reprocessando, aguarde...'
+                                    : 'Reprocessar lote'}
                                 </button>
                               ) : null}
                               {selectedSalesImportBatch.status !== 'CANCELLED' ? (
