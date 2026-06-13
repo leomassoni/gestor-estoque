@@ -42417,7 +42417,6 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                 className="primary-button"
                 type="button"
                 onClick={() => void saveSalesImportDraft()}
-                disabled={salesImportPreviewSummary.errorRows > 0}
               >
                 Confirmar importacao
               </button>
