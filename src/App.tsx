@@ -482,6 +482,7 @@ type StockCenterMinimumStock = {
   minimumQuantity: string
   suggestedMinimumQuantity?: string
   minimumSource?: 'MANUAL' | 'SUGERIDO_VENDAS'
+  suggestedContext?: 'CONSUMO_PROPRIO' | 'ESPELHO_ABASTECIMENTO'
   suggestedAt?: string
   overriddenAt?: string
 }
@@ -798,6 +799,9 @@ type ProductionRequestRow = {
   baseUnitLabel: string
   priority: number
   statusLabel: string
+  shortageLineCount: number
+  shortageLines: RequisitionLineRecord[]
+  dependencyRequests: Array<{ centerId: number; sheetId: number; desiredYield: number }>
   manualRequestIds: number[]
   cancellableManualRequestIds: number[]
 }
@@ -5413,6 +5417,10 @@ export default function App() {
         const manualRequestIds = manualRequestIdsBySheetId.get(sheet.id) ?? []
         const cancellableManualRequestIds = cancellableManualRequestIdsBySheetId.get(sheet.id) ?? []
         const suggestedProductionQuantity = automaticSuggestedQuantity + manualRequestedQuantity
+        const shortagePlan =
+          suggestedProductionQuantity > 0
+            ? buildManualProductionShortageLines(selectedProductionCenter, sheet, suggestedProductionQuantity)
+            : { shortageLines: [] as RequisitionLineRecord[], dependencyRequests: [] as Array<{ centerId: number; sheetId: number; desiredYield: number }> }
         const priority = computePriority(sheet.id)
         const inProgressDraft = productionInProgressDraftByKey.get(`${selectedProductionCenter.id}:${sheet.id}`) ?? null
         const hasManualRequests = manualRequestIds.length > 0
@@ -5435,6 +5443,9 @@ export default function App() {
           baseUnitLabel: formatControlUnitShort(sheet.outputUnit),
           priority,
           statusLabel: inProgressDraft ? 'Em producao' : hasManualRequests || suggestedProductionQuantity > 0 ? 'A produzir' : 'Produzido',
+          shortageLineCount: shortagePlan.shortageLines.length,
+          shortageLines: shortagePlan.shortageLines,
+          dependencyRequests: shortagePlan.dependencyRequests,
           manualRequestIds,
           cancellableManualRequestIds,
         } satisfies ProductionRequestRow
@@ -19727,6 +19738,40 @@ export default function App() {
     )
   }
 
+  function requestProductionInputs(row: ProductionRequestRow) {
+    if (row.shortageLines.length === 0) {
+      setSaveFeedback({
+        status: 'success',
+        title: 'Sem falta de insumos',
+        message: 'O centro ja possui os insumos necessarios para esta producao sugerida.',
+      })
+      return
+    }
+
+    const created = createProductionShortageRequisition({
+      centerId: row.centerId,
+      centerName: row.centerName,
+      shortageLines: row.shortageLines,
+    })
+    if (!created) {
+      setSaveFeedback({
+        status: 'error',
+        title: 'Falha ao criar requisicao',
+        message: 'Nao foi possivel criar a requisicao de insumos faltantes para a producao.',
+      })
+      return
+    }
+
+    setSaveFeedback({
+      status: 'success',
+      title: 'Requisicao criada',
+      message:
+        row.dependencyRequests.length > 0
+          ? 'A requisicao de insumos faltantes foi criada e a analise tambem considerou dependencias de pre-preparos para esta producao.'
+          : 'A requisicao de insumos faltantes foi criada para este centro produtor.',
+    })
+  }
+
   function openProductionDraft(centerId: number, sheetId: number, desiredYieldOverride?: number, manualRequestIds: number[] = []) {
     const existingDraft = productionInProgressDraftByKey.get(`${centerId}:${sheetId}`) ?? null
     if (existingDraft) {
@@ -20122,6 +20167,58 @@ export default function App() {
     setManualProductionPreviewState(plan)
   }
 
+  function createProductionShortageRequisition(params: {
+    centerId: number
+    centerName: string
+    shortageLines: RequisitionLineRecord[]
+  }) {
+    if (currentCompanyId === null || params.shortageLines.length === 0) {
+      return false
+    }
+
+    const now = new Date().toISOString()
+    const requisitionId = getNextPersistedIntId([
+      ...requisitions.map((record) => record.id),
+      ...requisitions.map((record) => record.requisitionGroupId),
+    ])
+    const nextRequisition: RequisitionRecord = {
+      id: requisitionId,
+      companyId: currentCompanyId,
+      requisitionGroupId: requisitionId,
+      stockCenterId: params.centerId,
+      stockCenterName: params.centerName,
+      supplyCenterId: null,
+      supplyCenterName: '',
+      supplyCompanyId: null,
+      supplyCompanyName: '',
+      sector: stockCenters.find((center) => center.id === params.centerId)?.sector ?? '',
+      countedAt: getTodayDateInputValue(),
+      status: 'PENDING_APPROVAL',
+      editScope: 'LINES_ONLY',
+      lines: params.shortageLines,
+      createdAt: now,
+      createdByUserId: currentAppUser?.id ?? null,
+      createdByUserName: currentAppUser?.fullName ?? 'Administrador do sistema',
+      approvedAt: '',
+      approvedByUserId: null,
+      approvedByUserName: '',
+      sentAt: '',
+      sentByUserId: null,
+      sentByUserName: '',
+      preparedAt: '',
+      preparedByUserId: null,
+      preparedByUserName: '',
+      receivedAt: '',
+      receivedByUserId: null,
+      receivedByUserName: '',
+      lastUpdatedAt: now,
+      lastUpdatedByUserId: currentAppUser?.id ?? null,
+      lastUpdatedByUserName: currentAppUser?.fullName ?? 'Administrador do sistema',
+    }
+    setRequisitions((current) => [nextRequisition, ...current])
+    return true
+  }
+
   function confirmSaveManualProduction() {
     if (!manualProductionPreviewState || currentCompanyId === null) {
       return
@@ -20167,46 +20264,11 @@ export default function App() {
       ])
     }
     if (shortageLines.length > 0) {
-      const now = new Date().toISOString()
-      const requisitionId = getNextPersistedIntId([
-        ...requisitions.map((record) => record.id),
-        ...requisitions.map((record) => record.requisitionGroupId),
-      ])
-      const nextRequisition: RequisitionRecord = {
-        id: requisitionId,
-        companyId: currentCompanyId,
-        requisitionGroupId: requisitionId,
-        stockCenterId: manualProductionPreviewState.centerId,
-        stockCenterName: manualProductionPreviewState.centerName,
-        supplyCenterId: null,
-        supplyCenterName: '',
-        supplyCompanyId: null,
-        supplyCompanyName: '',
-        sector: stockCenters.find((center) => center.id === manualProductionPreviewState.centerId)?.sector ?? '',
-        countedAt: getTodayDateInputValue(),
-        status: 'PENDING_APPROVAL',
-        editScope: 'LINES_ONLY',
-        lines: shortageLines,
-        createdAt: now,
-        createdByUserId: currentAppUser?.id ?? null,
-        createdByUserName: currentAppUser?.fullName ?? 'Administrador do sistema',
-        approvedAt: '',
-        approvedByUserId: null,
-        approvedByUserName: '',
-        sentAt: '',
-        sentByUserId: null,
-        sentByUserName: '',
-        preparedAt: '',
-        preparedByUserId: null,
-        preparedByUserName: '',
-        receivedAt: '',
-        receivedByUserId: null,
-        receivedByUserName: '',
-        lastUpdatedAt: now,
-        lastUpdatedByUserId: currentAppUser?.id ?? null,
-        lastUpdatedByUserName: currentAppUser?.fullName ?? 'Administrador do sistema',
-      }
-      setRequisitions((current) => [nextRequisition, ...current])
+      createProductionShortageRequisition({
+        centerId: manualProductionPreviewState.centerId,
+        centerName: manualProductionPreviewState.centerName,
+        shortageLines,
+      })
       setSaveFeedback({
         status: 'success',
         title: 'Producao registrada',
@@ -27416,8 +27478,10 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
       technicalSheetId: number | null
       productId: string
       suggestedMinimumQuantity: string
+      suggestedContext: 'CONSUMO_PROPRIO' | 'ESPELHO_ABASTECIMENTO'
     }
     const suggestedMinimumByCenter = new Map<number, SuggestionEntry[]>()
+    const mirrorCleanupKeysByCenter = new Map<number, Set<string>>()
     const addSuggestionEntry = (centerId: number, entry: SuggestionEntry) => {
       const current = suggestedMinimumByCenter.get(centerId) ?? []
       const existingIndex = current.findIndex(
@@ -27445,6 +27509,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
         technicalSheetId: target.technicalSheetId,
         productId: target.productId,
         suggestedMinimumQuantity: consumerSuggestedMinimumQuantity,
+        suggestedContext: 'CONSUMO_PROPRIO',
       })
 
       const consumerSuggestedMinimumValue = parseDecimal(consumerSuggestedMinimumQuantity) ?? 0
@@ -27463,9 +27528,21 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
         if (
           supplyResolution.status === 'resolved' &&
           supplyResolution.supplierCenter &&
-          supplyResolution.supplierCenter.id !== targetCenter.id &&
-          supplyResolution.supplierCenter.salesImportSettings.mirrorDependentMinimums === true
+          supplyResolution.supplierCenter.id !== targetCenter.id
         ) {
+          const supplierMirrorKey = buildStockCenterMinimumEntryKey({
+            kind: 'PREPARO',
+            technicalSheetId: target.technicalSheetId,
+            productId: '',
+            serviceItemId: '',
+            packageId: null,
+          })
+          const cleanupKeys = mirrorCleanupKeysByCenter.get(supplyResolution.supplierCenter.id) ?? new Set<string>()
+          cleanupKeys.add(supplierMirrorKey)
+          mirrorCleanupKeysByCenter.set(supplyResolution.supplierCenter.id, cleanupKeys)
+          if (supplyResolution.supplierCenter.salesImportSettings.mirrorDependentMinimums !== true) {
+            return
+          }
           const supplierEntries = suggestedMinimumByCenter.get(supplyResolution.supplierCenter.id) ?? []
           const existingSupplierEntry =
             supplierEntries.find(
@@ -27479,6 +27556,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
             technicalSheetId: target.technicalSheetId,
             productId: '',
             suggestedMinimumQuantity: nextSupplierQuantity,
+            suggestedContext: 'ESPELHO_ABASTECIMENTO',
           })
         }
         return
@@ -27491,9 +27569,21 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
         })
         if (
           distributorCenter &&
-          distributorCenter.id !== targetCenter.id &&
-          distributorCenter.salesImportSettings.mirrorDependentMinimums === true
+          distributorCenter.id !== targetCenter.id
         ) {
+          const supplierMirrorKey = buildStockCenterMinimumEntryKey({
+            kind: 'PRODUTO',
+            technicalSheetId: null,
+            productId: target.productId,
+            serviceItemId: '',
+            packageId: null,
+          })
+          const cleanupKeys = mirrorCleanupKeysByCenter.get(distributorCenter.id) ?? new Set<string>()
+          cleanupKeys.add(supplierMirrorKey)
+          mirrorCleanupKeysByCenter.set(distributorCenter.id, cleanupKeys)
+          if (distributorCenter.salesImportSettings.mirrorDependentMinimums !== true) {
+            return
+          }
           const supplierEntries = suggestedMinimumByCenter.get(distributorCenter.id) ?? []
           const existingSupplierEntry =
             supplierEntries.find(
@@ -27507,6 +27597,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
             technicalSheetId: null,
             productId: target.productId,
             suggestedMinimumQuantity: nextSupplierQuantity,
+            suggestedContext: 'ESPELHO_ABASTECIMENTO',
           })
         }
       }
@@ -27518,11 +27609,21 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
 
     const nextCenters = stockCenters.map((center) => {
       const centerSuggestions = suggestedMinimumByCenter.get(center.id) ?? null
-      if (!centerSuggestions || centerSuggestions.length === 0) {
+      const mirrorCleanupKeys = mirrorCleanupKeysByCenter.get(center.id) ?? null
+      if ((!centerSuggestions || centerSuggestions.length === 0) && (!mirrorCleanupKeys || mirrorCleanupKeys.size === 0)) {
         return center
       }
 
-      const nextMinimumStocks = [...center.minimumStocks]
+      const nextMinimumStocks = center.minimumStocks.filter((entry) => {
+        if (!mirrorCleanupKeys || mirrorCleanupKeys.size === 0) {
+          return true
+        }
+        const entryKey = buildStockCenterMinimumEntryKey(entry)
+        if (!mirrorCleanupKeys.has(entryKey)) {
+          return true
+        }
+        return entry.suggestedContext !== 'ESPELHO_ABASTECIMENTO'
+      })
       centerSuggestions.forEach((entry) => {
         const targetKey = buildStockCenterMinimumEntryKey({
           kind: entry.kind,
@@ -27550,6 +27651,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
               : entry.suggestedMinimumQuantity,
           suggestedMinimumQuantity: entry.suggestedMinimumQuantity,
           minimumSource: shouldPreserveManualValue ? 'MANUAL' : shouldAutoApply ? 'SUGERIDO_VENDAS' : existingEntry?.minimumSource,
+          suggestedContext: shouldPreserveManualValue ? existingEntry?.suggestedContext : entry.suggestedContext,
           suggestedAt: new Date().toISOString(),
           overriddenAt: shouldPreserveManualValue ? existingEntry?.overriddenAt ?? new Date().toISOString() : existingEntry?.overriddenAt,
         }
@@ -37664,6 +37766,11 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                             {productionColumnVisibility.sheet ? <td className="sticky-product-cell">
                               <strong>{row.sheetName}</strong>
                               <div className="table-cell-support">{row.internalId}</div>
+                              {row.shortageLineCount > 0 ? (
+                                <div className="table-cell-support">
+                                  Faltam insumos para {String(row.shortageLineCount)} item(ns)
+                                </div>
+                              ) : null}
                             </td> : null}
                             {productionColumnVisibility.priority ? <td>{String(row.priority)}</td> : null}
                             {productionColumnVisibility.current ? <td>{row.currentQuantityLabel}</td> : null}
@@ -37680,6 +37787,15 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                               >
                                   {row.statusLabel === 'Em producao' ? 'Continuar' : 'Produzir'}
                               </button>
+                              {row.shortageLineCount > 0 ? (
+                                <button
+                                  type="button"
+                                  className="ghost-button"
+                                  onClick={() => requestProductionInputs(row)}
+                                >
+                                  Requisitar insumos
+                                </button>
+                              ) : null}
                               {row.cancellableManualRequestIds.length > 0 && row.statusLabel !== 'Em producao' ? (
                                 <button
                                   type="button"
@@ -48544,6 +48660,10 @@ function normalizeStockCenterRecord(value: unknown): StockCenterRecord | null {
           typeof item.suggestedMinimumQuantity === 'string' ? item.suggestedMinimumQuantity.trim() : undefined,
         minimumSource:
           item.minimumSource === 'SUGERIDO_VENDAS' || item.minimumSource === 'MANUAL' ? item.minimumSource : undefined,
+        suggestedContext:
+          item.suggestedContext === 'ESPELHO_ABASTECIMENTO' || item.suggestedContext === 'CONSUMO_PROPRIO'
+            ? item.suggestedContext
+            : undefined,
         suggestedAt: typeof item.suggestedAt === 'string' ? item.suggestedAt : undefined,
         overriddenAt: typeof item.overriddenAt === 'string' ? item.overriddenAt : undefined,
       }))
