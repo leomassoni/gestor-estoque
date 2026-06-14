@@ -27195,7 +27195,6 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
         const rows = XLSX.utils.sheet_to_json<SalesImportWorkbookCell[]>(worksheet, {
           header: 1,
           raw: true,
-          cellDates: true,
           defval: null,
           blankrows: false,
         })
