@@ -5365,16 +5365,15 @@ export default function App() {
 
     const useMinimumBySheetId = new Map<number, number>(
       producedSheets.map((sheet) => {
-        const configuredMinimum =
-          parseDecimal(
-            findStockCenterMinimumQuantity(selectedProductionCenter.minimumStocks, {
-              kind: 'PREPARO',
-              technicalSheetId: sheet.id,
-              productId: '',
-              serviceItemId: '',
-              packageId: null,
-            }),
-          ) ?? 0
+        const configuredMinimum = getMinimumUseQuantityValue(
+          findStockCenterMinimumEntry(selectedProductionCenter.minimumStocks, {
+            kind: 'PREPARO',
+            technicalSheetId: sheet.id,
+            productId: '',
+            serviceItemId: '',
+            packageId: null,
+          }),
+        )
         return [sheet.id, configuredMinimum * getStockCenterBaseQuantity(sheet)] as const
       }),
     )
@@ -9066,7 +9065,7 @@ export default function App() {
           productId: row.productId,
           serviceItemId: row.serviceItemId,
         })
-        const minimumQuantity = parseDecimal(stock.minimumQuantity) ?? 0
+        const minimumQuantity = getMinimumUseQuantityValue(stock)
         const currentKey = `${center.id}:${aggregationKey}`
         nextMap.set(currentKey, (nextMap.get(currentKey) ?? 0) + minimumQuantity * row.baseQuantity)
       })
@@ -9565,16 +9564,15 @@ export default function App() {
 
         const useMinimumBySheetId = new Map<number, number>(
           producedSheets.map((sheet) => {
-            const configuredMinimum =
-              parseDecimal(
-                findStockCenterMinimumQuantity(center.minimumStocks, {
-                  kind: 'PREPARO',
-                  technicalSheetId: sheet.id,
-                  productId: '',
-                  serviceItemId: '',
-                  packageId: null,
-                }),
-              ) ?? 0
+            const configuredMinimum = getMinimumUseQuantityValue(
+              findStockCenterMinimumEntry(center.minimumStocks, {
+                kind: 'PREPARO',
+                technicalSheetId: sheet.id,
+                productId: '',
+                serviceItemId: '',
+                packageId: null,
+              }),
+            )
             return [sheet.id, configuredMinimum * getStockCenterBaseQuantity(sheet)] as const
           }),
         )
@@ -11351,16 +11349,15 @@ export default function App() {
                   if (supplyResolution.status !== 'resolved' || supplyResolution.supplierCenter?.id !== center.id) {
                     return null
                   }
-                  const configuredMinimum =
-                    parseDecimal(
-                      findStockCenterMinimumQuantity(consumerCenter.minimumStocks, {
-                        kind: 'PREPARO',
-                        technicalSheetId: sheet.id,
-                        productId: '',
-                        serviceItemId: '',
-                        packageId: null,
-                      }),
-                    ) ?? 0
+                  const configuredMinimum = getMinimumUseQuantityValue(
+                    findStockCenterMinimumEntry(consumerCenter.minimumStocks, {
+                      kind: 'PREPARO',
+                      technicalSheetId: sheet.id,
+                      productId: '',
+                      serviceItemId: '',
+                      packageId: null,
+                    }),
+                  )
 
                   if (configuredMinimum <= 0) {
                     return null
@@ -17537,7 +17534,7 @@ export default function App() {
         stockCenterForm.isDistributor && !stockCenterForm.distributesAllProducts ? validDistributedProductIds : [],
       suppliedCenterIds: stockCenterForm.isDistributor ? validSuppliedCenterIds : [],
       minimumStocks: stockCenterForm.minimumStocks
-        .filter((item) => item.minimumQuantity.trim() !== '')
+        .filter((item) => item.minimumQuantity.trim() !== '' || getRealMinimumQuantityText(item) !== '')
         .map((item) => ({
           kind: item.kind,
           technicalSheetId: item.technicalSheetId,
@@ -35581,16 +35578,18 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                           <strong>
                             {selectedInventoryStockCenter
                               ? formatStockCenterMinimumDefinition(
-                                  findStockCenterMinimumQuantity(selectedInventoryStockCenter.minimumStocks, {
-                                    kind: selectedInventoryCountableItem.kind,
-                                    technicalSheetId: selectedInventoryCountableItem.technicalSheetId,
-                                    productId: selectedInventoryCountableItem.productId,
-                                    serviceItemId: selectedInventoryCountableItem.serviceItemId,
-                                    packageId:
-                                      selectedInventoryCountableItem.kind === 'PRODUTO'
-                                        ? selectedInventoryRecipient?.packageId ?? null
-                                        : null,
-                                  }),
+                                  getMinimumUseQuantityText(
+                                    findStockCenterMinimumEntry(selectedInventoryStockCenter.minimumStocks, {
+                                      kind: selectedInventoryCountableItem.kind,
+                                      technicalSheetId: selectedInventoryCountableItem.technicalSheetId,
+                                      productId: selectedInventoryCountableItem.productId,
+                                      serviceItemId: selectedInventoryCountableItem.serviceItemId,
+                                      packageId:
+                                        selectedInventoryCountableItem.kind === 'PRODUTO'
+                                          ? selectedInventoryRecipient?.packageId ?? null
+                                          : null,
+                                    }),
+                                  ),
                                   {
                                     kind: selectedInventoryCountableItem.kind,
                                     technicalSheetId: selectedInventoryCountableItem.technicalSheetId,
