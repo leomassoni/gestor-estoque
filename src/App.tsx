@@ -27613,6 +27613,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
       if ((!centerSuggestions || centerSuggestions.length === 0) && (!mirrorCleanupKeys || mirrorCleanupKeys.size === 0)) {
         return center
       }
+      const effectiveCenterSuggestions = centerSuggestions ?? []
 
       const nextMinimumStocks = center.minimumStocks.filter((entry) => {
         if (!mirrorCleanupKeys || mirrorCleanupKeys.size === 0) {
@@ -27624,7 +27625,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
         }
         return entry.suggestedContext !== 'ESPELHO_ABASTECIMENTO'
       })
-      centerSuggestions.forEach((entry) => {
+      effectiveCenterSuggestions.forEach((entry) => {
         const targetKey = buildStockCenterMinimumEntryKey({
           kind: entry.kind,
           technicalSheetId: entry.technicalSheetId,
