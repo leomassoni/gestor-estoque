@@ -4526,6 +4526,71 @@ export default function App() {
       return 0
     }
 
+    const getCenterPreparationRealMinimumQuantity = (
+      center: StockCenterRecord,
+      targetSheet: TechnicalSheetRecord,
+      visiting = new Set<number>(),
+    ): number => {
+      if (visiting.has(targetSheet.id)) {
+        const directEntry = findStockCenterMinimumEntry(center.minimumStocks, {
+          kind: 'PREPARO',
+          technicalSheetId: targetSheet.id,
+          productId: '',
+          serviceItemId: '',
+          packageId: null,
+        })
+        const baseQuantity = getStockCenterBaseQuantity(targetSheet)
+        return (
+          getMinimumUseQuantityValue(directEntry) * baseQuantity +
+          (parseDecimal(getRealMinimumQuantityText(directEntry)) ?? 0) * baseQuantity
+        )
+      }
+
+      const nextVisiting = new Set(visiting)
+      nextVisiting.add(targetSheet.id)
+
+      const directEntry = findStockCenterMinimumEntry(center.minimumStocks, {
+        kind: 'PREPARO',
+        technicalSheetId: targetSheet.id,
+        productId: '',
+        serviceItemId: '',
+        packageId: null,
+      })
+      const baseQuantity = getStockCenterBaseQuantity(targetSheet)
+      const directDemand =
+        getMinimumUseQuantityValue(directEntry) * baseQuantity +
+        (parseDecimal(getRealMinimumQuantityText(directEntry)) ?? 0) * baseQuantity
+
+      const productionContribution = technicalSheets.reduce((sum, candidateSheet) => {
+        if (
+          !isTechnicalSheetVisibleForCompany(candidateSheet, center.companyId) ||
+          !candidateSheet.isActive ||
+          candidateSheet.kind !== 'PREPARO' ||
+          !center.producedTechnicalSheetIds.includes(candidateSheet.id) ||
+          candidateSheet.id === targetSheet.id
+        ) {
+          return sum
+        }
+
+        const ingredient = candidateSheet.ingredients.find(
+          (item) => item.isActive && item.productId === targetSheet.productId,
+        )
+        if (!ingredient) {
+          return sum
+        }
+
+        const candidateRequiredOutput = getCenterPreparationRealMinimumQuantity(center, candidateSheet, nextVisiting)
+        const candidateBaseYield = getTechnicalSheetBaseYield(candidateSheet)
+        if (candidateRequiredOutput <= 0 || candidateBaseYield <= 0) {
+          return sum
+        }
+
+        return sum + candidateRequiredOutput * ((parseDecimal(ingredient.quantity) ?? 0) / candidateBaseYield)
+      }, 0)
+
+      return directDemand + productionContribution
+    }
+
     return stockCenters.reduce((sum, consumerCenter) => {
       if (!consumerCenter.isActive || consumerCenter.id === supplierCenter.id) {
         return sum
@@ -4534,17 +4599,8 @@ export default function App() {
         return sum
       }
 
-      const configuredMinimum =
-        parseDecimal(
-          findStockCenterMinimumQuantity(consumerCenter.minimumStocks, {
-            kind: 'PREPARO',
-            technicalSheetId: sheet.id,
-            productId: '',
-            serviceItemId: '',
-            packageId: null,
-          }),
-        ) ?? 0
-      if (configuredMinimum <= 0) {
+      const demandedQuantity = getCenterPreparationRealMinimumQuantity(consumerCenter, sheet)
+      if (demandedQuantity <= 0) {
         return sum
       }
 
@@ -4553,7 +4609,7 @@ export default function App() {
         return sum
       }
 
-      return sum + configuredMinimum * getStockCenterBaseQuantity(sheet)
+      return sum + demandedQuantity
     }, 0)
   }
   function buildPendingRequisitionDemandBySheetIdForSupplierCenter(supplierCenter: StockCenterRecord) {
