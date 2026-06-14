@@ -2560,6 +2560,7 @@ function normalizeStockCenterPayload(value) {
               : '20',
           consumptionMethod:
             record.salesImportSettings.consumptionMethod === 'MEDIAN_DAILY' ? 'MEDIAN_DAILY' : 'SIMPLE_AVERAGE',
+          mirrorDependentMinimums: record.salesImportSettings.mirrorDependentMinimums === true,
           autoApplySuggestedMinimum: record.salesImportSettings.autoApplySuggestedMinimum !== false,
           allowManualMinimumOverride: record.salesImportSettings.allowManualMinimumOverride !== false,
           unmatchedRowPolicy: record.salesImportSettings.unmatchedRowPolicy === 'SKIP' ? 'SKIP' : 'BLOCK',
@@ -2573,6 +2574,7 @@ function normalizeStockCenterPayload(value) {
           coverageWeekStartsOn: 1,
           safetyMarginPercent: '20',
           consumptionMethod: 'SIMPLE_AVERAGE',
+          mirrorDependentMinimums: false,
           autoApplySuggestedMinimum: true,
           allowManualMinimumOverride: true,
           unmatchedRowPolicy: 'BLOCK',

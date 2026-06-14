@@ -466,6 +466,7 @@ type StockCenterSalesImportSettings = {
   coverageWeekStartsOn: number
   safetyMarginPercent: string
   consumptionMethod: SalesImportConsumptionMethod
+  mirrorDependentMinimums: boolean
   autoApplySuggestedMinimum: boolean
   allowManualMinimumOverride: boolean
   unmatchedRowPolicy: 'BLOCK' | 'SKIP'
@@ -2523,7 +2524,7 @@ const stockReportTabDefinitions: Array<{ key: StockReportTab; label: string; des
   {
     key: 'COBERTURA',
     label: 'Cobertura entre centros',
-    description: 'Mostra quais centros produtores abastecem o estoque minimo de outros centros.',
+    description: 'Mostra quais centros produtores e distribuidores abastecem o estoque minimo de outros centros.',
   },
   {
     key: 'COMPROMETIDO',
@@ -2880,6 +2881,7 @@ const emptyStockCenterForm = (): StockCenterFormState => ({
     coverageWeekStartsOn: 1,
     safetyMarginPercent: '20',
     consumptionMethod: 'SIMPLE_AVERAGE',
+    mirrorDependentMinimums: false,
     autoApplySuggestedMinimum: true,
     allowManualMinimumOverride: true,
     unmatchedRowPolicy: 'BLOCK',
@@ -3534,6 +3536,7 @@ function normalizeStockCenterSalesImportSettings(value: unknown): StockCenterSal
         ? record.safetyMarginPercent.trim()
         : '20',
     consumptionMethod: record.consumptionMethod === 'MEDIAN_DAILY' ? 'MEDIAN_DAILY' : 'SIMPLE_AVERAGE',
+    mirrorDependentMinimums: record.mirrorDependentMinimums === true,
     autoApplySuggestedMinimum: record.autoApplySuggestedMinimum !== false,
     allowManualMinimumOverride: record.allowManualMinimumOverride !== false,
     unmatchedRowPolicy: record.unmatchedRowPolicy === 'SKIP' ? 'SKIP' : 'BLOCK',
@@ -11255,8 +11258,8 @@ export default function App() {
       .sort((a, b) => a.main.localeCompare(b.main, 'pt-BR') || a.secondary.localeCompare(b.secondary, 'pt-BR'))
   }, [currentCompanyId, isTechnicalSheetVisibleForCompany, reportEligibleStockCenters, stockUnitCostByAggregationKey, technicalSheets])
   const stockCoverageReportRows = useMemo(
-    () =>
-      reportEligibleStockCenters
+    () => {
+      const producerRows = reportEligibleStockCenters
         .filter((center) => center.isProducer)
         .flatMap((center) =>
           technicalSheets
@@ -11294,8 +11297,17 @@ export default function App() {
                   }
 
                   const minimumQuantity = configuredMinimum * getStockCenterBaseQuantity(sheet)
+                  const unitCost =
+                    stockUnitCostByAggregationKey.get(
+                      buildInventoryAggregationKey({
+                        kind: 'PREPARO',
+                        technicalSheetId: sheet.id,
+                        productId: '',
+                        serviceItemId: '',
+                      }),
+                    ) ?? 0
                   return {
-                    id: `coverage-${center.id}-${consumerCenter.id}-${sheet.id}`,
+                    id: `coverage-preparo-${center.id}-${consumerCenter.id}-${sheet.id}`,
                     main: sheet.name,
                     secondary: `${consumerCenter.name} • ${getCompanyTradeName(consumerCenter.companyId)}`,
                     internalId: sheet.productId,
@@ -11310,50 +11322,14 @@ export default function App() {
                         ? 'Abastece outro centro'
                         : 'Abastece outra empresa',
                     quantity: formatDecimal(minimumQuantity),
-                    unitCost: formatCurrencyLabel(
-                      stockUnitCostByAggregationKey.get(
-                        buildInventoryAggregationKey({
-                          kind: 'PREPARO',
-                          technicalSheetId: sheet.id,
-                          productId: '',
-                          serviceItemId: '',
-                        }),
-                      ) ?? 0,
-                    ),
-                    totalCost: formatCurrencyLabel(
-                      minimumQuantity *
-                        (stockUnitCostByAggregationKey.get(
-                          buildInventoryAggregationKey({
-                            kind: 'PREPARO',
-                            technicalSheetId: sheet.id,
-                            productId: '',
-                            serviceItemId: '',
-                          }),
-                        ) ?? 0),
-                    ),
+                    unitCost: formatCurrencyLabel(unitCost),
+                    totalCost: formatCurrencyLabel(minimumQuantity * unitCost),
                     unit: formatControlUnitShort(sheet.outputUnit),
                     user: '',
                     sortValues: {
                       quantity: minimumQuantity,
-                      unitCost:
-                        stockUnitCostByAggregationKey.get(
-                          buildInventoryAggregationKey({
-                            kind: 'PREPARO',
-                            technicalSheetId: sheet.id,
-                            productId: '',
-                            serviceItemId: '',
-                          }),
-                        ) ?? 0,
-                      totalCost:
-                        minimumQuantity *
-                        (stockUnitCostByAggregationKey.get(
-                          buildInventoryAggregationKey({
-                            kind: 'PREPARO',
-                            technicalSheetId: sheet.id,
-                            productId: '',
-                            serviceItemId: '',
-                          }),
-                        ) ?? 0),
+                      unitCost,
+                      totalCost: minimumQuantity * unitCost,
                       date: '',
                     },
                   } satisfies StockReportRow
@@ -11361,8 +11337,79 @@ export default function App() {
                 .filter((row) => row !== null) as StockReportRow[],
             ),
         )
-        .sort((a, b) => a.center.localeCompare(b.center, 'pt-BR') || a.secondary.localeCompare(b.secondary, 'pt-BR') || a.main.localeCompare(b.main, 'pt-BR')),
-    [currentCompanyId, isTechnicalSheetVisibleForCompany, reportEligibleStockCenters, stockCenters, stockUnitCostByAggregationKey, technicalSheets],
+
+      const distributorRows = reportEligibleStockCenters
+        .filter((center) => center.isDistributor)
+        .flatMap((center) =>
+          stockCenters
+            .filter((consumerCenter) => consumerCenter.isActive && consumerCenter.id !== center.id && center.suppliedCenterIds.includes(consumerCenter.id))
+            .flatMap((consumerCenter) =>
+              consumerCenter.minimumStocks
+                .filter((minimumEntry) => minimumEntry.kind === 'PRODUTO' && minimumEntry.productId.trim() !== '')
+                .map((minimumEntry) => {
+                  const configuredMinimum = parseDecimal(minimumEntry.minimumQuantity) ?? 0
+                  if (configuredMinimum <= 0) {
+                    return null
+                  }
+                  const product = products.find((item) => item.id === minimumEntry.productId) ?? null
+                  if (
+                    !product ||
+                    !product.isActive ||
+                    !isProductStockTracked(product) ||
+                    !isProductVisibleForCompany(product, currentCompanyId)
+                  ) {
+                    return null
+                  }
+                  if (!center.distributesAllProducts && !center.distributedProductIds.includes(product.id)) {
+                    return null
+                  }
+
+                  const unitCost =
+                    stockUnitCostByAggregationKey.get(
+                      buildInventoryAggregationKey({
+                        kind: 'PRODUTO',
+                        technicalSheetId: null,
+                        productId: product.id,
+                        serviceItemId: '',
+                      }),
+                    ) ?? 0
+                  return {
+                    id: `coverage-product-${center.id}-${consumerCenter.id}-${product.id}`,
+                    main: product.name,
+                    secondary: `${consumerCenter.name} • ${getCompanyTradeName(consumerCenter.companyId)}`,
+                    internalId: product.id,
+                    companyId: product.companyProductId,
+                    packageId: '',
+                    kind: 'Produto',
+                    family: product.family,
+                    center: center.name,
+                    date: '',
+                    status:
+                      consumerCenter.companyId === center.companyId
+                        ? 'Distribui para outro centro'
+                        : 'Distribui para outra empresa',
+                    quantity: formatDecimal(configuredMinimum),
+                    unitCost: formatCurrencyLabel(unitCost),
+                    totalCost: formatCurrencyLabel(configuredMinimum * unitCost),
+                    unit: formatControlUnitShort(product.controlUnit),
+                    user: '',
+                    sortValues: {
+                      quantity: configuredMinimum,
+                      unitCost,
+                      totalCost: configuredMinimum * unitCost,
+                      date: '',
+                    },
+                  } satisfies StockReportRow
+                })
+                .filter((row) => row !== null) as StockReportRow[],
+            ),
+        )
+
+      return [...producerRows, ...distributorRows].sort(
+        (a, b) => a.center.localeCompare(b.center, 'pt-BR') || a.secondary.localeCompare(b.secondary, 'pt-BR') || a.main.localeCompare(b.main, 'pt-BR'),
+      )
+    },
+    [currentCompanyId, isProductVisibleForCompany, isProductStockTracked, isTechnicalSheetVisibleForCompany, products, reportEligibleStockCenters, stockCenters, stockUnitCostByAggregationKey, technicalSheets],
   )
   const stockCommittedReportRows = useMemo(() => {
     const rows: StockReportRow[] = []
@@ -21860,6 +21907,20 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
             />
             <span>Permitir que o minimo manual deste centro sobreponha a sugestao baseada no historico.</span>
           </label>
+
+          <label className="checkbox-row field-span-all">
+            <input
+              type="checkbox"
+              checked={stockCenterForm.salesImportSettings.mirrorDependentMinimums}
+              onChange={(event) =>
+                updateStockCenterSalesImportSettingsField('mirrorDependentMinimums', event.target.checked)
+              }
+            />
+            <span>Espelhar no centro abastecedor o minimo dos centros dependentes.</span>
+          </label>
+          <p className="field-helper field-span-all">
+            Desligado por padrao: o centro consumidor recebe o minimo sugerido e o centro produtor/distribuidor acompanha a demanda consolidada sem inflar seu estoque minimo. Ligue apenas se quiser uma segunda camada de seguranca no abastecedor.
+          </p>
         </form>
 
         <div className="section-heading section-heading-inline stock-center-subheading">
@@ -27399,7 +27460,12 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
           return
         }
         const supplyResolution = resolveTechnicalSheetSupplyRoute(targetSheet, targetCenter)
-        if (supplyResolution.status === 'resolved' && supplyResolution.supplierCenter && supplyResolution.supplierCenter.id !== targetCenter.id) {
+        if (
+          supplyResolution.status === 'resolved' &&
+          supplyResolution.supplierCenter &&
+          supplyResolution.supplierCenter.id !== targetCenter.id &&
+          supplyResolution.supplierCenter.salesImportSettings.mirrorDependentMinimums === true
+        ) {
           const supplierEntries = suggestedMinimumByCenter.get(supplyResolution.supplierCenter.id) ?? []
           const existingSupplierEntry =
             supplierEntries.find(
@@ -27423,7 +27489,11 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
           kind: 'PRODUTO',
           productId: target.productId,
         })
-        if (distributorCenter && distributorCenter.id !== targetCenter.id) {
+        if (
+          distributorCenter &&
+          distributorCenter.id !== targetCenter.id &&
+          distributorCenter.salesImportSettings.mirrorDependentMinimums === true
+        ) {
           const supplierEntries = suggestedMinimumByCenter.get(distributorCenter.id) ?? []
           const existingSupplierEntry =
             supplierEntries.find(
@@ -36958,6 +37028,23 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                   />
                   <span>Permitir que a edicao manual do minimo no centro de estoque sobreponha a sugestao do historico.</span>
                 </label>
+
+                <label className="checkbox-row field-span-all">
+                  <input
+                    type="checkbox"
+                    checked={selectedStockImportSettingsCenter.salesImportSettings.mirrorDependentMinimums}
+                    onChange={(event) =>
+                      updateSelectedStockImportSettingsCenter((current) => ({
+                        ...current,
+                        mirrorDependentMinimums: event.target.checked,
+                      }))
+                    }
+                  />
+                  <span>Espelhar no centro abastecedor o minimo dos centros dependentes.</span>
+                </label>
+                <p className="field-helper field-span-all">
+                  Desligado por padrao: o centro consumidor recebe o minimo sugerido e o centro produtor/distribuidor acompanha a demanda consolidada sem inflar seu estoque minimo.
+                </p>
 
                 <div className="field field-span-all">
                   <div className="empty-state empty-state-inline">
