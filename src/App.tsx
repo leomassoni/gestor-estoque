@@ -25952,23 +25952,33 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
     return String(value ?? '').trim()
   }
 
-  function parseSalesImportQuantityValue(value: string) {
+  function parseSalesImportQuantityValue(
+    value: string,
+    options?: {
+      recoverLegacyThousandthBug?: boolean
+    },
+  ) {
     const trimmedValue = value.trim()
     if (!trimmedValue) {
       return null
     }
 
     const compactValue = trimmedValue.replace(/\s/g, '')
-    if (/^-?\d+\.\d{3}$/.test(compactValue) && !compactValue.includes(',')) {
-      const normalizedValue = Number(compactValue)
-      return Number.isFinite(normalizedValue) ? normalizedValue / 1000 : null
+    const normalizedValue = compactValue.replace(/\./g, '').replace(',', '.')
+    const parsedValue = Number(normalizedValue)
+    if (!Number.isFinite(parsedValue)) {
+      return null
     }
 
-    return parseDecimal(trimmedValue)
+    if (options?.recoverLegacyThousandthBug && /^0[,.]\d{3}$/.test(compactValue)) {
+      return parsedValue * 1000
+    }
+
+    return parsedValue
   }
 
-  function normalizeSalesImportQuantityValue(value: string) {
-    const parsedValue = parseSalesImportQuantityValue(value)
+  function normalizeSalesImportQuantityValue(value: string, recoverLegacyThousandthBug = false) {
+    const parsedValue = parseSalesImportQuantityValue(value, { recoverLegacyThousandthBug })
     return parsedValue === null ? value.trim() : formatEditableDecimal(parsedValue)
   }
 
@@ -25981,9 +25991,9 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
     candidateSheets: TechnicalSheetRecord[],
   ): SalesImportPreviewRow {
     const companyProductId = normalizeRegistrationText(row.companyProductId)
-    const quantity = normalizeSalesImportQuantityValue(String(row.quantity ?? '').trim())
     const consumedAt = String(row.consumedAt ?? '').trim()
     const matchedSheet = candidateSheets.find((sheet) => sheet.companyProductId === companyProductId) ?? null
+    const quantity = normalizeSalesImportQuantityValue(String(row.quantity ?? '').trim(), Boolean(matchedSheet))
     const quantityValue = parseSalesImportQuantityValue(quantity)
 
     let status: SalesImportPreviewRow['status'] = 'MATCHED'
@@ -27095,14 +27105,15 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
             const currentDate = addSalesImportDateKeyDays(windowStartDateKey, offset)
             return directDailyDemandBySheetId.get(sheetId)?.get(currentDate) ?? 0
           }).sort((left, right) => left - right)
+        const positiveDailyDemandValues = dailyDemandValues.filter((value) => value > 0)
         const simpleAverageDailyDemand = totalQuantityConsumed / analysisDays
         const medianDailyDemand =
-          dailyDemandValues.length === 0
+          positiveDailyDemandValues.length === 0
             ? 0
-            : dailyDemandValues.length % 2 === 1
-              ? dailyDemandValues[(dailyDemandValues.length - 1) / 2] ?? 0
-              : ((dailyDemandValues[dailyDemandValues.length / 2 - 1] ?? 0) +
-                  (dailyDemandValues[dailyDemandValues.length / 2] ?? 0)) /
+            : positiveDailyDemandValues.length % 2 === 1
+              ? positiveDailyDemandValues[(positiveDailyDemandValues.length - 1) / 2] ?? 0
+              : ((positiveDailyDemandValues[positiveDailyDemandValues.length / 2 - 1] ?? 0) +
+                  (positiveDailyDemandValues[positiveDailyDemandValues.length / 2] ?? 0)) /
                 2
         const averageDailyDemand =
           targetCenter.salesImportSettings.consumptionMethod === 'MEDIAN_DAILY'
