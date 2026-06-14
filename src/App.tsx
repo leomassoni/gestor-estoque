@@ -26063,6 +26063,36 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
     })
   }
 
+  function buildSalesImportIngredientDemandRows(
+    rows: Array<{
+      consumedAt: string
+      matchedTechnicalSheetId: number | null
+      quantity: string
+      status: SalesImportPreviewRow['status']
+    }>,
+  ) {
+    return rows.flatMap((row) => {
+      if (row.status !== 'MATCHED') {
+        return []
+      }
+
+      const matchedSheet =
+        technicalSheets.find((sheet) => sheet.id === row.matchedTechnicalSheetId && (sheet.kind === 'EXECUCAO' || sheet.kind === 'VENDA')) ?? null
+      const soldQuantity = parseSalesImportQuantityValue(row.quantity) ?? 0
+      if (!matchedSheet || soldQuantity <= 0) {
+        return []
+      }
+
+      const baseYield = getTechnicalSheetBaseYield(matchedSheet)
+      const recipeData = buildRecipePanelDataForSheet(matchedSheet, baseYield * soldQuantity, soldQuantity)
+      return [...recipeData.ingredientMetrics, ...recipeData.garnishMetrics].map((ingredient) => ({
+        consumedAt: row.consumedAt,
+        ingredientProductId: ingredient.productId,
+        quantityConsumed: ingredient.scaledInputQuantity,
+      }))
+    })
+  }
+
   function getSalesImportProcessableMatchedRows(
     rows: SalesImportPreviewRow[],
     duplicatePolicy: StockCenterSalesImportSettings['duplicateRowPolicy'],
@@ -26831,7 +26861,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
       coverageDays: batch.coverageDays,
       safetyMarginPercent: batch.safetyMarginPercent,
       importedRows: matchedRows,
-      pendingConsumptions: nextConsumptionsForRecalculation,
+      pendingMatchedRows: matchedRows,
       replaceSourceBatchId: batch.id,
     })
 
@@ -26864,7 +26894,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
       targetId: String(batch.id),
       targetLabel: batch.fileName,
       summary: `Lote ${batch.fileName} foi reprocessado para recalcular minimos sugeridos.`,
-      impactSummary: 'Configuracoes do centro e historico de vendas foram reaplicados no calculo de sugestao.',
+      impactSummary: 'Configuracoes do centro e as linhas reconstruidas do lote foram reaplicadas no calculo de sugestao.',
       severity: 'MEDIUM',
       result: 'SUCCESS',
       details: {
@@ -26880,7 +26910,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
       status: 'success',
       title: 'Lote reprocessado',
       message: hasPostedConsumptions
-        ? 'As linhas do lote foram reavaliadas e os minimos sugeridos foram recalculados com os consumos ja existentes. Como este lote ja teve saida lancada, novos matches ficaram apenas registrados para auditoria.'
+        ? 'As linhas do lote foram reavaliadas e os minimos sugeridos foram recalculados a partir das linhas corrigidas do lote. Como este lote ja teve saida lancada, a movimentacao operacional anterior nao foi reconstruida automaticamente.'
         : newlyMatchedRows > 0
           ? `O lote foi reprocessado e ${newlyMatchedRows} linha(s) que antes estavam sem de/para agora passaram a gerar consumo para o calculo dos minimos sugeridos.`
           : 'Os consumos deste lote foram reconstruidos e reaplicados no calculo dos minimos sugeridos do centro.',
@@ -26897,7 +26927,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
     coverageDays: number
     safetyMarginPercent: string
     importedRows: Array<Pick<SalesImportPreviewRow, 'consumedAt'>>
-    pendingConsumptions: SalesConsumptionRecord[]
+    pendingMatchedRows: SalesImportPreviewRow[]
     replaceSourceBatchId?: number | null
   }) {
     const {
@@ -26906,7 +26936,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
       historyMode,
       historyMonths,
       importedRows,
-      pendingConsumptions,
+      pendingMatchedRows,
       replaceSourceBatchId,
       safetyMarginPercent,
       targetCenterId,
@@ -26936,24 +26966,41 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
         .map((sheet) => [sheet.productId, sheet] as const),
     )
 
-    const baseConsumptions = salesConsumptions.filter(
-      (record) =>
-        replaceSourceBatchId === null ||
-        replaceSourceBatchId === undefined ||
-        record.sourceBatchId !== replaceSourceBatchId,
+    const activeBatchIds = new Set(
+      currentCompanySalesImportBatches
+        .filter(
+          (batch) =>
+            batch.companyId === companyId &&
+            batch.stockCenterId === targetCenterId &&
+            batch.status !== 'CANCELLED' &&
+            (replaceSourceBatchId === null || replaceSourceBatchId === undefined || batch.id !== replaceSourceBatchId),
+        )
+        .map((batch) => batch.id),
     )
-    const allConsumptions = [...baseConsumptions, ...pendingConsumptions].filter(
-      (record) =>
-        record.companyId === companyId &&
-        record.stockCenterId === targetCenterId &&
-        record.stockPostingStatus !== 'CANCELLED',
+    const persistedMatchedRows = currentCompanySalesImportRows.filter(
+      (row) =>
+        row.companyId === companyId &&
+        row.stockCenterId === targetCenterId &&
+        row.status === 'MATCHED' &&
+        activeBatchIds.has(row.batchId),
     )
-    const normalizedConsumptionRows = allConsumptions
+    const relevantDemandRows = [
+      ...buildSalesImportIngredientDemandRows(
+        persistedMatchedRows.map((row) => ({
+          consumedAt: row.consumedAt,
+          matchedTechnicalSheetId: row.matchedTechnicalSheetId,
+          quantity: row.quantity,
+          status: row.status,
+        })),
+      ),
+      ...buildSalesImportIngredientDemandRows(pendingMatchedRows),
+    ]
+    const normalizedConsumptionRows = relevantDemandRows
       .map((record) => ({
         record,
         dateKey: normalizeSalesImportDateKey(record.consumedAt),
       }))
-      .filter((item): item is { record: SalesConsumptionRecord; dateKey: string } => Boolean(item.dateKey))
+      .filter((item): item is { record: { consumedAt: string; ingredientProductId: string; quantityConsumed: number }; dateKey: string } => Boolean(item.dateKey))
 
     if (normalizedConsumptionRows.length === 0) {
       return stockCenters
@@ -27002,7 +27049,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
         return
       }
 
-      const quantityConsumed = parseDecimal(record.quantityConsumed) ?? 0
+      const quantityConsumed = record.quantityConsumed
       if (quantityConsumed <= 0) {
         return
       }
@@ -27615,7 +27662,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
       coverageDays: batchToSave.coverageDays,
       safetyMarginPercent: batchToSave.safetyMarginPercent,
       importedRows: validRows,
-      pendingConsumptions: normalizedConsumptionsToSave,
+      pendingMatchedRows: validRows,
     })
     try {
       await persistChangedStockCentersOnApi(stockCenters, nextStockCenters)
