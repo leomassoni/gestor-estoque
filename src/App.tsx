@@ -26122,11 +26122,17 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
   function resolveSalesImportRow(
     row: SalesImportResolvableRow,
     candidateSheets: TechnicalSheetRecord[],
+    options?: {
+      recoverLegacyThousandthBug?: boolean
+    },
   ): SalesImportPreviewRow {
     const companyProductId = normalizeRegistrationText(row.companyProductId)
     const consumedAt = String(row.consumedAt ?? '').trim()
     const matchedSheet = candidateSheets.find((sheet) => sheet.companyProductId === companyProductId) ?? null
-    const quantity = normalizeSalesImportQuantityValue(String(row.quantity ?? '').trim(), Boolean(matchedSheet))
+    const quantity = normalizeSalesImportQuantityValue(
+      String(row.quantity ?? '').trim(),
+      options?.recoverLegacyThousandthBug === true,
+    )
     const quantityValue = parseSalesImportQuantityValue(quantity)
 
     let status: SalesImportPreviewRow['status'] = 'MATCHED'
@@ -26798,6 +26804,9 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
           quantity: row.quantity,
         },
         candidateSheets,
+        {
+          recoverLegacyThousandthBug: true,
+        },
       ),
     )
     const rowsToUpdate = batchRows
@@ -27111,7 +27120,6 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
         )
         .map((sheet) => [sheet.productId, sheet] as const),
     )
-
     const activeBatchIds = new Set(
       currentCompanySalesImportBatches
         .filter(
@@ -27184,125 +27192,293 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
       return stockCenters
     }
 
-    const safetyMultiplier = 1 + Math.max(0, parseDecimal(safetyMarginPercent) ?? 0) / 100
-    const peakDemandBySheetId = new Map<number, number>()
-    const peakWindowSpanDaysBySheetId = new Map<number, number>()
-    const demandBySheetAndWindow = new Map<number, Map<string, number>>()
+    const stockTrackedProductsById = new Map(
+      products
+        .filter((product) => product.isActive && isProductStockTracked(product) && isProductVisibleForCompany(product, companyId))
+        .map((product) => [product.id, product] as const),
+    )
+    type MinimumSuggestionTarget = {
+      kind: 'PREPARO' | 'PRODUTO'
+      technicalSheetId: number | null
+      productId: string
+      demandByDate: Map<string, number>
+    }
+    const consumerDemandByItemKey = new Map<string, MinimumSuggestionTarget>()
 
-    relevantConsumptions.forEach(({ record }) => {
-      const linkedPrepSheet = prepSheetsByProductId.get(record.ingredientProductId) ?? null
-      if (!linkedPrepSheet) {
-        return
-      }
-
+    relevantConsumptions.forEach(({ record, dateKey }) => {
       const quantityConsumed = record.quantityConsumed
       if (quantityConsumed <= 0) {
         return
       }
 
-      const dateKey = normalizeSalesImportDateKey(record.consumedAt)
-      if (!dateKey) {
+      const linkedPrepSheet = prepSheetsByProductId.get(record.ingredientProductId) ?? null
+      if (linkedPrepSheet) {
+        const itemKey = `PREPARO:${linkedPrepSheet.id}`
+        const current = consumerDemandByItemKey.get(itemKey) ?? {
+          kind: 'PREPARO' as const,
+          technicalSheetId: linkedPrepSheet.id,
+          productId: '',
+          demandByDate: new Map<string, number>(),
+        }
+        current.demandByDate.set(dateKey, (current.demandByDate.get(dateKey) ?? 0) + quantityConsumed)
+        consumerDemandByItemKey.set(itemKey, current)
         return
       }
-      const windowKey = getSalesImportCoverageWindowKey(dateKey, coverageMode, coverageWeekStartsOn)
-      const perWindow = demandBySheetAndWindow.get(linkedPrepSheet.id) ?? new Map<string, number>()
-      perWindow.set(windowKey, (perWindow.get(windowKey) ?? 0) + quantityConsumed)
-      demandBySheetAndWindow.set(linkedPrepSheet.id, perWindow)
+
+      const linkedProduct = stockTrackedProductsById.get(record.ingredientProductId) ?? null
+      if (!linkedProduct) {
+        return
+      }
+
+      const itemKey = `PRODUTO:${linkedProduct.id}`
+      const current = consumerDemandByItemKey.get(itemKey) ?? {
+        kind: 'PRODUTO' as const,
+        technicalSheetId: null,
+        productId: linkedProduct.id,
+        demandByDate: new Map<string, number>(),
+      }
+      current.demandByDate.set(dateKey, (current.demandByDate.get(dateKey) ?? 0) + quantityConsumed)
+      consumerDemandByItemKey.set(itemKey, current)
     })
 
-    demandBySheetAndWindow.forEach((windowDemandMap, sheetId) => {
+    if (consumerDemandByItemKey.size === 0) {
+      return stockCenters
+    }
+
+    const buildWindowEndDateKey = (windowKey: string, mode: SalesImportCoverageMode) => {
+      if (mode === 'DAILY') {
+        return windowKey
+      }
+      if (mode === 'WEEKLY') {
+        return addSalesImportDateKeyDays(windowKey, 6)
+      }
+      if (mode === 'FORTNIGHTLY') {
+        const [year, month, day] = windowKey.split('-').map((part) => Number(part))
+        if (day === 1) {
+          return `${String(year).padStart(4, '0')}-${String(month).padStart(2, '0')}-15`
+        }
+        const nextMonthFirst = new Date(Date.UTC(year, month, 1))
+        nextMonthFirst.setUTCDate(0)
+        return `${String(year).padStart(4, '0')}-${String(month).padStart(2, '0')}-${String(nextMonthFirst.getUTCDate()).padStart(2, '0')}`
+      }
+      const [year, month] = windowKey.split('-').map((part) => Number(part))
+      const nextMonthFirst = new Date(Date.UTC(year, month, 1))
+      nextMonthFirst.setUTCDate(0)
+      return `${String(year).padStart(4, '0')}-${String(month).padStart(2, '0')}-${String(nextMonthFirst.getUTCDate()).padStart(2, '0')}`
+    }
+
+    const computeSuggestedMinimumQuantity = (center: StockCenterRecord, target: MinimumSuggestionTarget) => {
+      const centerHistoryMode = center.salesImportSettings.historyMode
+      const centerHistoryMonths = centerHistoryMode === 'ROLLING_MONTHS' ? Math.max(1, center.salesImportSettings.historyMonths) : null
+      const centerCoverageMode = center.salesImportSettings.coverageMode ?? coverageMode
+      const centerCoverageWeekStartsOn = center.salesImportSettings.coverageWeekStartsOn ?? coverageWeekStartsOn
+      const centerSafetyMultiplier =
+        1 + Math.max(0, parseDecimal(center.salesImportSettings.safetyMarginPercent.trim() || safetyMarginPercent) ?? 0) / 100
+
+      const availableDateKeys = Array.from(target.demandByDate.keys()).sort()
+      if (availableDateKeys.length === 0) {
+        return null
+      }
+
+      const fullPeriodStartDateKey = availableDateKeys[0]
+      const rollingEndDateKey = importedEndDateKey
+      const rollingStartDateKey =
+        centerHistoryMode === 'ROLLING_MONTHS'
+          ? addSalesImportDateKeyMonths(rollingEndDateKey, -Math.max(1, centerHistoryMonths ?? 1))
+          : fullPeriodStartDateKey
+      const comparisonStartDateKey =
+        centerHistoryMode === 'SAME_PERIOD_LAST_YEAR'
+          ? shiftSalesImportDateKeyByYears(importedStartDateKey, -1)
+          : importedStartDateKey
+      const comparisonEndDateKey =
+        centerHistoryMode === 'SAME_PERIOD_LAST_YEAR'
+          ? shiftSalesImportDateKeyByYears(importedEndDateKey, -1)
+          : importedEndDateKey
+
+      const [windowStartDateKey, windowEndDateKey] =
+        centerHistoryMode === 'FULL_PERIOD'
+          ? [fullPeriodStartDateKey, rollingEndDateKey]
+          : centerHistoryMode === 'SAME_PERIOD_LAST_YEAR'
+            ? [comparisonStartDateKey, comparisonEndDateKey]
+            : [rollingStartDateKey, rollingEndDateKey]
+
+      const demandByWindow = new Map<string, number>()
+      target.demandByDate.forEach((quantity, dateKey) => {
+        if (!isSalesImportDateKeyWithinRange(dateKey, windowStartDateKey, windowEndDateKey)) {
+          return
+        }
+        const windowKey = getSalesImportCoverageWindowKey(dateKey, centerCoverageMode, centerCoverageWeekStartsOn)
+        demandByWindow.set(windowKey, (demandByWindow.get(windowKey) ?? 0) + quantity)
+      })
+
+      if (demandByWindow.size === 0) {
+        return null
+      }
+
       let peakQuantity = 0
       let peakWindowKey = ''
-      windowDemandMap.forEach((quantity, windowKey) => {
+      demandByWindow.forEach((quantity, windowKey) => {
         if (quantity > peakQuantity) {
           peakQuantity = quantity
           peakWindowKey = windowKey
         }
       })
       if (peakQuantity <= 0 || !peakWindowKey) {
+        return null
+      }
+
+      let baseQuantity = 1
+      let leadTimeDays = 0
+      if (target.kind === 'PREPARO' && typeof target.technicalSheetId === 'number') {
+        const targetSheet = technicalSheets.find(
+          (sheet) => sheet.id === target.technicalSheetId && sheet.companyId === companyId && sheet.kind === 'PREPARO',
+        ) ?? null
+        if (!targetSheet) {
+          return null
+        }
+        baseQuantity = getStockCenterBaseQuantity(targetSheet)
+        if (baseQuantity <= 0) {
+          return null
+        }
+        leadTimeDays = getTechnicalSheetPreparationLeadTimeDays(targetSheet)
+      }
+
+      const effectiveWindowEndDateKey = buildWindowEndDateKey(peakWindowKey, centerCoverageMode)
+      const windowSpanDays = getInclusiveSalesImportDateRangeDays(peakWindowKey, effectiveWindowEndDateKey)
+      const leadTimeDemand = windowSpanDays > 0 ? (peakQuantity / windowSpanDays) * leadTimeDays : 0
+      const suggestedOutputQuantity = (peakQuantity + leadTimeDemand) * centerSafetyMultiplier
+      return formatDecimal(suggestedOutputQuantity / baseQuantity)
+    }
+
+    type SuggestionEntry = {
+      kind: 'PREPARO' | 'PRODUTO'
+      technicalSheetId: number | null
+      productId: string
+      suggestedMinimumQuantity: string
+    }
+    const suggestedMinimumByCenter = new Map<number, SuggestionEntry[]>()
+    const addSuggestionEntry = (centerId: number, entry: SuggestionEntry) => {
+      const current = suggestedMinimumByCenter.get(centerId) ?? []
+      const existingIndex = current.findIndex(
+        (candidate) =>
+          candidate.kind === entry.kind &&
+          candidate.technicalSheetId === entry.technicalSheetId &&
+          candidate.productId === entry.productId,
+      )
+      if (existingIndex >= 0) {
+        current[existingIndex] = entry
+      } else {
+        current.push(entry)
+      }
+      suggestedMinimumByCenter.set(centerId, current)
+    }
+
+    consumerDemandByItemKey.forEach((target) => {
+      const consumerSuggestedMinimumQuantity = computeSuggestedMinimumQuantity(targetCenter, target)
+      if (!consumerSuggestedMinimumQuantity) {
         return
       }
 
-      let windowEndKey = peakWindowKey
-      if (coverageMode === 'DAILY') {
-        windowEndKey = peakWindowKey
-      } else if (coverageMode === 'WEEKLY') {
-        windowEndKey = addSalesImportDateKeyDays(peakWindowKey, 6)
-      } else if (coverageMode === 'FORTNIGHTLY') {
-        const [year, month, day] = peakWindowKey.split('-').map((part) => Number(part))
-        if (day === 1) {
-          windowEndKey = `${String(year).padStart(4, '0')}-${String(month).padStart(2, '0')}-15`
-        } else {
-          const nextMonthFirst = new Date(Date.UTC(year, month, 1))
-          nextMonthFirst.setUTCDate(0)
-          windowEndKey = `${String(year).padStart(4, '0')}-${String(month).padStart(2, '0')}-${String(nextMonthFirst.getUTCDate()).padStart(2, '0')}`
-        }
-      } else {
-        const [year, month] = peakWindowKey.split('-').map((part) => Number(part))
-        const nextMonthFirst = new Date(Date.UTC(year, month, 1))
-        nextMonthFirst.setUTCDate(0)
-        windowEndKey = `${String(year).padStart(4, '0')}-${String(month).padStart(2, '0')}-${String(nextMonthFirst.getUTCDate()).padStart(2, '0')}`
+      addSuggestionEntry(targetCenter.id, {
+        kind: target.kind,
+        technicalSheetId: target.technicalSheetId,
+        productId: target.productId,
+        suggestedMinimumQuantity: consumerSuggestedMinimumQuantity,
+      })
+
+      const consumerSuggestedMinimumValue = parseDecimal(consumerSuggestedMinimumQuantity) ?? 0
+      if (consumerSuggestedMinimumValue <= 0) {
+        return
       }
 
-      peakDemandBySheetId.set(sheetId, peakQuantity)
-      peakWindowSpanDaysBySheetId.set(sheetId, getInclusiveSalesImportDateRangeDays(peakWindowKey, windowEndKey))
-    })
-
-    if (peakDemandBySheetId.size === 0) {
-      return stockCenters
-    }
-
-    const nextCenters = stockCenters.map((center) => {
-      if (center.id !== targetCenterId || center.companyId !== companyId) {
-        return center
-      }
-
-      const nextMinimumStocks = [...center.minimumStocks]
-      peakDemandBySheetId.forEach((peakWindowDemand, sheetId) => {
+      if (target.kind === 'PREPARO' && typeof target.technicalSheetId === 'number') {
         const targetSheet = technicalSheets.find(
-          (sheet) => sheet.id === sheetId && sheet.companyId === companyId && sheet.kind === 'PREPARO',
+          (sheet) => sheet.id === target.technicalSheetId && sheet.companyId === companyId && sheet.kind === 'PREPARO',
         ) ?? null
         if (!targetSheet) {
           return
         }
-
-        const baseQuantity = getStockCenterBaseQuantity(targetSheet)
-        if (baseQuantity <= 0) {
-          return
+        const supplyResolution = resolveTechnicalSheetSupplyRoute(targetSheet, targetCenter)
+        if (supplyResolution.status === 'resolved' && supplyResolution.supplierCenter && supplyResolution.supplierCenter.id !== targetCenter.id) {
+          const supplierEntries = suggestedMinimumByCenter.get(supplyResolution.supplierCenter.id) ?? []
+          const existingSupplierEntry =
+            supplierEntries.find(
+              (entry) => entry.kind === 'PREPARO' && entry.technicalSheetId === target.technicalSheetId,
+            ) ?? null
+          const nextSupplierQuantity = formatDecimal(
+            (parseDecimal(existingSupplierEntry?.suggestedMinimumQuantity ?? '') ?? 0) + consumerSuggestedMinimumValue,
+          )
+          addSuggestionEntry(supplyResolution.supplierCenter.id, {
+            kind: 'PREPARO',
+            technicalSheetId: target.technicalSheetId,
+            productId: '',
+            suggestedMinimumQuantity: nextSupplierQuantity,
+          })
         }
+        return
+      }
 
-        const windowSpanDays = peakWindowSpanDaysBySheetId.get(sheetId) ?? 1
-        const leadTimeDays = getTechnicalSheetPreparationLeadTimeDays(targetSheet)
-        const leadTimeDemand = windowSpanDays > 0 ? (peakWindowDemand / windowSpanDays) * leadTimeDays : 0
-        const suggestedOutputQuantity = (peakWindowDemand + leadTimeDemand) * safetyMultiplier
-        const suggestedMinimumQuantity = formatDecimal(suggestedOutputQuantity / baseQuantity)
+      if (target.kind === 'PRODUTO' && target.productId.trim()) {
+        const distributorCenter = findDistributorCenterForRequisitionLine(targetCenter, {
+          kind: 'PRODUTO',
+          productId: target.productId,
+        })
+        if (distributorCenter && distributorCenter.id !== targetCenter.id) {
+          const supplierEntries = suggestedMinimumByCenter.get(distributorCenter.id) ?? []
+          const existingSupplierEntry =
+            supplierEntries.find(
+              (entry) => entry.kind === 'PRODUTO' && entry.productId === target.productId,
+            ) ?? null
+          const nextSupplierQuantity = formatDecimal(
+            (parseDecimal(existingSupplierEntry?.suggestedMinimumQuantity ?? '') ?? 0) + consumerSuggestedMinimumValue,
+          )
+          addSuggestionEntry(distributorCenter.id, {
+            kind: 'PRODUTO',
+            technicalSheetId: null,
+            productId: target.productId,
+            suggestedMinimumQuantity: nextSupplierQuantity,
+          })
+        }
+      }
+    })
+
+    if (suggestedMinimumByCenter.size === 0) {
+      return stockCenters
+    }
+
+    const nextCenters = stockCenters.map((center) => {
+      const centerSuggestions = suggestedMinimumByCenter.get(center.id) ?? null
+      if (!centerSuggestions || centerSuggestions.length === 0) {
+        return center
+      }
+
+      const nextMinimumStocks = [...center.minimumStocks]
+      centerSuggestions.forEach((entry) => {
         const targetKey = buildStockCenterMinimumEntryKey({
-          kind: 'PREPARO',
-          technicalSheetId: sheetId,
-          productId: '',
+          kind: entry.kind,
+          technicalSheetId: entry.technicalSheetId,
+          productId: entry.productId,
           serviceItemId: '',
           packageId: null,
         })
-        const existingIndex = nextMinimumStocks.findIndex(
-          (item) => buildStockCenterMinimumEntryKey(item) === targetKey,
-        )
+        const existingIndex = nextMinimumStocks.findIndex((item) => buildStockCenterMinimumEntryKey(item) === targetKey)
         const existingEntry = existingIndex >= 0 ? nextMinimumStocks[existingIndex] : null
         const shouldPreserveManualValue =
-          targetCenter.salesImportSettings.allowManualMinimumOverride !== false &&
+          center.salesImportSettings.allowManualMinimumOverride !== false &&
           existingEntry?.minimumSource === 'MANUAL' &&
           existingEntry.minimumQuantity.trim() !== ''
-        const shouldAutoApply = targetCenter.salesImportSettings.autoApplySuggestedMinimum !== false
+        const shouldAutoApply = center.salesImportSettings.autoApplySuggestedMinimum !== false
         const nextEntry: StockCenterMinimumStock = {
-          kind: 'PREPARO',
-          technicalSheetId: sheetId,
-          productId: '',
+          kind: entry.kind,
+          technicalSheetId: entry.technicalSheetId,
+          productId: entry.productId,
           serviceItemId: '',
           packageId: null,
           minimumQuantity:
             shouldPreserveManualValue || !shouldAutoApply
               ? existingEntry?.minimumQuantity?.trim() || ''
-              : suggestedMinimumQuantity,
-          suggestedMinimumQuantity,
+              : entry.suggestedMinimumQuantity,
+          suggestedMinimumQuantity: entry.suggestedMinimumQuantity,
           minimumSource: shouldPreserveManualValue ? 'MANUAL' : shouldAutoApply ? 'SUGERIDO_VENDAS' : existingEntry?.minimumSource,
           suggestedAt: new Date().toISOString(),
           overriddenAt: shouldPreserveManualValue ? existingEntry?.overriddenAt ?? new Date().toISOString() : existingEntry?.overriddenAt,
