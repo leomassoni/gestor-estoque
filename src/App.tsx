@@ -17529,14 +17529,14 @@ export default function App() {
     const minimumByKey = new Map(
       center.minimumStocks.map((minimumStock) => [buildStockCenterMinimumEntryKey(minimumStock), minimumStock] as const),
     )
-
-    return stockCenterMinimumRows
+    const baseLines = stockCenterMinimumRows
       .filter((row) => row.kind !== 'ITEM' || row.baseUnit === 'UNIT')
       .filter((row) => !(row.kind === 'PREPARO' && row.technicalSheetId !== null && center.producedTechnicalSheetIds.includes(row.technicalSheetId)))
       .map((row) => {
         const minimumStock = minimumByKey.get(row.key) ?? null
-        const configuredMinimum = parseDecimal(minimumStock?.minimumQuantity ?? '') ?? 0
-        const requiredBaseQuantity = configuredMinimum * row.baseQuantity
+        const manualUseMinimum = getMinimumUseQuantityValue(minimumStock)
+        const suggestedRealMinimum = parseDecimal(minimumStock?.suggestedMinimumQuantity ?? '') ?? 0
+        const requiredBaseQuantity = (manualUseMinimum + suggestedRealMinimum) * row.baseQuantity
         const currentBaseQuantity =
           selectedRequisitionCurrentQuantityByKey.get(
             buildInventoryAggregationKey({
@@ -17602,9 +17602,17 @@ export default function App() {
           requestUnitLabel: getRequisitionRequestUnitLabel(row),
           currentQuantity: formatDecimal(currentBaseQuantity),
           currentUnitLabel: formatControlUnitShort(row.baseUnit),
-          minimumDefinitionLabel: formatStockCenterMinimumDefinition(minimumStock?.minimumQuantity ?? '', row, {
-            baseUnit: row.baseUnit,
-          }),
+          minimumDefinitionLabel:
+            [
+              manualUseMinimum > 0
+                ? `Uso ${formatStockCenterMinimumDefinition(formatDecimal(manualUseMinimum), row, { baseUnit: row.baseUnit })}`
+                : '',
+              suggestedRealMinimum > 0
+                ? `Real ${formatStockCenterMinimumDefinition(formatDecimal(suggestedRealMinimum), row, { baseUnit: row.baseUnit })}`
+                : '',
+            ]
+              .filter(Boolean)
+              .join(' • ') || '-',
           destinationType,
           destinationCenterId,
           destinationCenterName,
@@ -17629,7 +17637,65 @@ export default function App() {
           receiptStatus: 'PENDING',
         } satisfies RequisitionDraftLine
       })
-      .sort((a, b) => a.itemName.localeCompare(b.itemName, 'pt-BR'))
+
+    if (!center.isProducer) {
+      return baseLines.sort((a, b) => a.itemName.localeCompare(b.itemName, 'pt-BR'))
+    }
+
+    const producedSheets = technicalSheets
+      .filter(
+        (sheet) =>
+          isTechnicalSheetVisibleForCompany(sheet, currentCompanyId) &&
+          sheet.kind === 'PREPARO' &&
+          sheet.isActive &&
+          center.producedTechnicalSheetIds.includes(sheet.id),
+      )
+      .sort((a, b) => a.name.localeCompare(b.name, 'pt-BR'))
+
+    const productionShortageLines = producedSheets.flatMap((sheet) => {
+      const currentQuantity =
+        latestInventoryQuantityByCenterAndAggregation.get(
+          `${center.id}:${buildInventoryAggregationKey({
+            kind: 'PREPARO',
+            technicalSheetId: sheet.id,
+            productId: '',
+            serviceItemId: '',
+          })}`,
+        ) ?? 0
+      const minimumEntry = findStockCenterMinimumEntry(center.minimumStocks, {
+        kind: 'PREPARO',
+        technicalSheetId: sheet.id,
+        productId: '',
+        serviceItemId: '',
+        packageId: null,
+      })
+      const useMinimumQuantity = getMinimumUseQuantityValue(minimumEntry) * getStockCenterBaseQuantity(sheet)
+      const externalUseMinimumQuantity = getTechnicalSheetExternalUseMinimumQuantityForCenter(sheet, center)
+      const realMinimumQuantity = useMinimumQuantity + externalUseMinimumQuantity
+      const suggestedProductionQuantity = Math.max(realMinimumQuantity - currentQuantity, 0)
+      if (suggestedProductionQuantity <= 0) {
+        return []
+      }
+      return buildManualProductionShortageLines(center, sheet, suggestedProductionQuantity).shortageLines
+    })
+
+    const mergedByKey = new Map<string, RequisitionDraftLine>()
+    ;[...baseLines, ...productionShortageLines].forEach((line) => {
+      const existing = mergedByKey.get(line.key) ?? null
+      if (!existing) {
+        mergedByKey.set(line.key, { ...line })
+        return
+      }
+      const nextSuggested = (parseDecimal(existing.suggestedQuantity) ?? 0) + (parseDecimal(line.suggestedQuantity) ?? 0)
+      const nextRequested = (parseDecimal(existing.requestedQuantity) ?? 0) + (parseDecimal(line.requestedQuantity) ?? 0)
+      mergedByKey.set(line.key, {
+        ...existing,
+        suggestedQuantity: formatDecimal(nextSuggested),
+        requestedQuantity: formatDecimal(nextRequested),
+      })
+    })
+
+    return Array.from(mergedByKey.values()).sort((a, b) => a.itemName.localeCompare(b.itemName, 'pt-BR'))
   }
 
   function generateRequisitionDraft() {
@@ -19736,40 +19802,6 @@ export default function App() {
       row.suggestedProductionQuantity > 0 ? row.suggestedProductionQuantity : row.realMinimumQuantity,
       row.manualRequestIds,
     )
-  }
-
-  function requestProductionInputs(row: ProductionRequestRow) {
-    if (row.shortageLines.length === 0) {
-      setSaveFeedback({
-        status: 'success',
-        title: 'Sem falta de insumos',
-        message: 'O centro ja possui os insumos necessarios para esta producao sugerida.',
-      })
-      return
-    }
-
-    const created = createProductionShortageRequisition({
-      centerId: row.centerId,
-      centerName: row.centerName,
-      shortageLines: row.shortageLines,
-    })
-    if (!created) {
-      setSaveFeedback({
-        status: 'error',
-        title: 'Falha ao criar requisicao',
-        message: 'Nao foi possivel criar a requisicao de insumos faltantes para a producao.',
-      })
-      return
-    }
-
-    setSaveFeedback({
-      status: 'success',
-      title: 'Requisicao criada',
-      message:
-        row.dependencyRequests.length > 0
-          ? 'A requisicao de insumos faltantes foi criada e a analise tambem considerou dependencias de pre-preparos para esta producao.'
-          : 'A requisicao de insumos faltantes foi criada para este centro produtor.',
-    })
   }
 
   function openProductionDraft(centerId: number, sheetId: number, desiredYieldOverride?: number, manualRequestIds: number[] = []) {
@@ -22110,7 +22142,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                   {stockCenterMinimumColumnVisibility.minimum
                     ? renderStockCenterMinimumColumnHeader(
                         'minimum',
-                        'Estoque minimo',
+                        'Minimo de uso',
                         openStockCenterMinimumColumnMenu,
                         setOpenStockCenterMinimumColumnMenu,
                         stockCenterMinimumColumnFilters,
@@ -22147,8 +22179,8 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                           />
                           {minimumStockEntry?.suggestedMinimumQuantity ? (
                             <p className="helper-text">
-                              Sugerido: {minimumStockEntry.suggestedMinimumQuantity}
-                              {minimumStockEntry.minimumSource === 'MANUAL' ? ' • Manual aplicado' : ' • Sugestao aplicada'}
+                              Minimo real sugerido: {minimumStockEntry.suggestedMinimumQuantity}
+                              {minimumStockEntry.minimumSource === 'MANUAL' ? ' • Minimo de uso manual mantido' : ''}
                             </p>
                           ) : null}
                         </td>
@@ -27649,7 +27681,9 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
           minimumQuantity:
             shouldPreserveManualValue || !shouldAutoApply
               ? existingEntry?.minimumQuantity?.trim() || ''
-              : entry.suggestedMinimumQuantity,
+              : existingEntry?.minimumSource === 'MANUAL'
+                ? existingEntry?.minimumQuantity?.trim() || ''
+                : '',
           suggestedMinimumQuantity: entry.suggestedMinimumQuantity,
           minimumSource: shouldPreserveManualValue ? 'MANUAL' : shouldAutoApply ? 'SUGERIDO_VENDAS' : existingEntry?.minimumSource,
           suggestedContext: shouldPreserveManualValue ? existingEntry?.suggestedContext : entry.suggestedContext,
@@ -37767,11 +37801,6 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                             {productionColumnVisibility.sheet ? <td className="sticky-product-cell">
                               <strong>{row.sheetName}</strong>
                               <div className="table-cell-support">{row.internalId}</div>
-                              {row.shortageLineCount > 0 ? (
-                                <div className="table-cell-support">
-                                  Faltam insumos para {String(row.shortageLineCount)} item(ns)
-                                </div>
-                              ) : null}
                             </td> : null}
                             {productionColumnVisibility.priority ? <td>{String(row.priority)}</td> : null}
                             {productionColumnVisibility.current ? <td>{row.currentQuantityLabel}</td> : null}
@@ -37788,15 +37817,6 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                               >
                                   {row.statusLabel === 'Em producao' ? 'Continuar' : 'Produzir'}
                               </button>
-                              {row.shortageLineCount > 0 ? (
-                                <button
-                                  type="button"
-                                  className="ghost-button"
-                                  onClick={() => requestProductionInputs(row)}
-                                >
-                                  Requisitar insumos
-                                </button>
-                              ) : null}
                               {row.cancellableManualRequestIds.length > 0 && row.statusLabel !== 'Em producao' ? (
                                 <button
                                   type="button"
@@ -45456,6 +45476,16 @@ function getRequisitionDraftColumnValue(line: RequisitionDraftLine, key: Requisi
     case 'destination':
       return line.destinationLabel
   }
+}
+
+function getMinimumUseQuantityValue(entry: StockCenterMinimumStock | null) {
+  if (!entry) {
+    return 0
+  }
+  if (entry.minimumSource === 'SUGERIDO_VENDAS') {
+    return 0
+  }
+  return parseDecimal(entry.minimumQuantity) ?? 0
 }
 
 function getRequisitionDraftColumnSortableValue(line: RequisitionDraftLine, key: RequisitionDraftColumnKey) {
