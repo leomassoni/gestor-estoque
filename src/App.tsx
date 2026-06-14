@@ -482,6 +482,7 @@ type StockCenterMinimumStock = {
   minimumQuantity: string
   suggestedMinimumQuantity?: string
   minimumSource?: 'MANUAL' | 'SUGERIDO_VENDAS'
+  realMinimumSource?: 'MANUAL' | 'SUGERIDO_VENDAS'
   suggestedContext?: 'CONSUMO_PROPRIO' | 'ESPELHO_ABASTECIMENTO'
   suggestedAt?: string
   overriddenAt?: string
@@ -502,7 +503,7 @@ type StockCenterMinimumRow = {
   packageId: number | null
 }
 
-type StockCenterMinimumColumnKey = 'sheet' | 'type' | 'family' | 'reference' | 'yield' | 'minimum'
+type StockCenterMinimumColumnKey = 'sheet' | 'type' | 'family' | 'reference' | 'yield' | 'minimum' | 'realMinimum'
 type InventorySummaryColumnKey = 'date' | 'location' | 'product' | 'type' | 'recipient' | 'closed' | 'open' | 'total' | 'user'
 type ClosedInventoryColumnKey = 'id' | 'center' | 'date' | 'startedBy' | 'closedBy' | 'startedAt' | 'closedAt'
 type InventoryReviewColumnKey = 'product' | 'internalId' | 'companyId' | 'type' | 'family' | 'total' | 'unit' | 'status'
@@ -2217,7 +2218,8 @@ const stockCenterMinimumColumnOptions: Array<[StockCenterMinimumColumnKey, strin
   ['family', 'Familia'],
   ['reference', 'Apresentacao'],
   ['yield', 'Rendimento base'],
-  ['minimum', 'Estoque minimo'],
+  ['minimum', 'Minimo de uso'],
+  ['realMinimum', 'Minimo real'],
 ]
 const defaultStockCenterMinimumColumnVisibility: Record<StockCenterMinimumColumnKey, boolean> = {
   sheet: true,
@@ -2226,6 +2228,7 @@ const defaultStockCenterMinimumColumnVisibility: Record<StockCenterMinimumColumn
   reference: true,
   yield: true,
   minimum: true,
+  realMinimum: true,
 }
 const defaultStockCenterMinimumColumnFilters: Partial<Record<StockCenterMinimumColumnKey, string[]>> = {}
 const inventorySummaryColumnOptions: Array<[InventorySummaryColumnKey, string]> = [
@@ -11646,7 +11649,7 @@ export default function App() {
       sortRecordsByColumn(
         stockCenterMinimumRows.filter((row) => {
           const search = stockCenterMinimumSearch.trim().toLowerCase()
-          const minimumValue = findStockCenterMinimumQuantity(stockCenterForm.minimumStocks, row)
+          const minimumEntry = findStockCenterMinimumEntry(stockCenterForm.minimumStocks, row)
           const matchesSearch =
             search === '' ||
             row.name.toLowerCase().includes(search) ||
@@ -11660,13 +11663,13 @@ export default function App() {
             }
 
             const key = rawKey as StockCenterMinimumColumnKey
-            return selectedValues.includes(getStockCenterMinimumColumnValue(row, minimumValue, key))
+            return selectedValues.includes(getStockCenterMinimumColumnValue(row, minimumEntry, key))
           })
 
           return matchesSearch && matchesFilters
         }),
         stockCenterMinimumColumnSort,
-        (row, key) => getStockCenterMinimumColumnValue(row, findStockCenterMinimumQuantity(stockCenterForm.minimumStocks, row), key),
+        (row, key) => getStockCenterMinimumColumnValue(row, findStockCenterMinimumEntry(stockCenterForm.minimumStocks, row), key),
       ),
     [stockCenterForm.minimumStocks, stockCenterMinimumColumnFilters, stockCenterMinimumColumnSort, stockCenterMinimumRows, stockCenterMinimumSearch],
   )
@@ -11681,13 +11684,13 @@ export default function App() {
                 stockCenterMinimumRows.map((row) =>
                   getStockCenterMinimumColumnValue(
                     row,
-                    findStockCenterMinimumQuantity(stockCenterForm.minimumStocks, row),
+                    findStockCenterMinimumEntry(stockCenterForm.minimumStocks, row),
                     key,
                   ),
                 ),
               ),
             ),
-            key === 'yield' || key === 'minimum',
+            key === 'yield' || key === 'minimum' || key === 'realMinimum',
           ),
         ]),
       ) as Record<StockCenterMinimumColumnKey, string[]>,
@@ -16326,9 +16329,23 @@ export default function App() {
         current.minimumStocks.find((item) => buildStockCenterMinimumEntryKey(item) === targetKey) ?? null
 
       if (!normalizedValue) {
+        if (!existing) {
+          return current
+        }
+
         return {
           ...current,
-          minimumStocks: current.minimumStocks.filter((item) => buildStockCenterMinimumEntryKey(item) !== targetKey),
+          minimumStocks: current.minimumStocks
+            .map((item) =>
+              buildStockCenterMinimumEntryKey(item) === targetKey
+                ? {
+                    ...item,
+                    minimumQuantity: '',
+                    minimumSource: undefined,
+                  }
+                : item,
+            )
+            .filter((item) => item.minimumQuantity.trim() !== '' || getRealMinimumQuantityText(item) !== ''),
         }
       }
 
@@ -16356,6 +16373,67 @@ export default function App() {
                 minimumQuantity: normalizedValue,
                 minimumSource: 'MANUAL',
                 overriddenAt: new Date().toISOString(),
+              },
+            ],
+      }
+    })
+  }
+
+  function updateStockCenterRealMinimumStock(row: StockCenterMinimumRow, realMinimumQuantity: string) {
+    setStockCenterForm((current) => {
+      const normalizedValue = realMinimumQuantity.trim()
+      const targetKey = buildStockCenterMinimumEntryKey(row)
+      const existing =
+        current.minimumStocks.find((item) => buildStockCenterMinimumEntryKey(item) === targetKey) ?? null
+
+      if (!normalizedValue) {
+        if (!existing) {
+          return current
+        }
+
+        const nextMinimumStocks = current.minimumStocks
+          .map((item) =>
+            buildStockCenterMinimumEntryKey(item) === targetKey
+              ? {
+                  ...item,
+                  suggestedMinimumQuantity: undefined,
+                  realMinimumSource: undefined,
+                }
+              : item,
+          )
+          .filter((item) => item.minimumQuantity.trim() !== '' || (item.suggestedMinimumQuantity ?? '').trim() !== '')
+
+        return {
+          ...current,
+          minimumStocks: nextMinimumStocks,
+        }
+      }
+
+      return {
+        ...current,
+        minimumStocks: existing
+          ? current.minimumStocks.map((item) =>
+              buildStockCenterMinimumEntryKey(item) === targetKey
+                ? {
+                    ...item,
+                    suggestedMinimumQuantity: normalizedValue,
+                    realMinimumSource: 'MANUAL',
+                    suggestedAt: new Date().toISOString(),
+                  }
+                : item,
+            )
+          : [
+              ...current.minimumStocks,
+              {
+                kind: row.technicalSheetId !== null ? 'PREPARO' : row.productId ? 'PRODUTO' : 'ITEM',
+                technicalSheetId: row.technicalSheetId,
+                productId: row.productId,
+                serviceItemId: row.serviceItemId,
+                packageId: row.packageId,
+                minimumQuantity: '',
+                suggestedMinimumQuantity: normalizedValue,
+                realMinimumSource: 'MANUAL',
+                suggestedAt: new Date().toISOString(),
               },
             ],
       }
@@ -17413,6 +17491,7 @@ export default function App() {
           minimumQuantity: item.minimumQuantity.trim(),
           suggestedMinimumQuantity: item.suggestedMinimumQuantity?.trim() || undefined,
           minimumSource: item.minimumSource,
+          realMinimumSource: item.realMinimumSource,
           suggestedAt: item.suggestedAt,
           overriddenAt: item.overriddenAt,
         })),
@@ -19957,16 +20036,6 @@ export default function App() {
         .map((product) => [product.id, product] as const),
     )
 
-    const queueManualProductionRequest = (centerId: number, sheetId: number, requiredYield: number) => {
-      const requestKey = `${centerId}:${sheetId}`
-      const currentRequest = plannedProductionRequests.get(requestKey) ?? null
-      plannedProductionRequests.set(requestKey, {
-        centerId,
-        sheetId,
-        desiredYield: (currentRequest?.desiredYield ?? 0) + requiredYield,
-      })
-    }
-
     const resolveDependencyProducerCenter = (sheetId: number, preferredCenterId: number) => {
       const dependencySheet =
         technicalSheets.find(
@@ -20058,6 +20127,44 @@ export default function App() {
       })
     }
 
+    const addPreparationShortageLine = (
+      dependencySheet: TechnicalSheetRecord,
+      shortageQuantity: number,
+      existingLine: RequisitionLineRecord | null,
+      lineKey: string,
+      producerCenter: StockCenterRecord | null,
+    ) => {
+      const nextRequestedQuantity = (parseDecimal(existingLine?.requestedQuantity ?? '0') ?? 0) + shortageQuantity
+      lineMap.set(lineKey, {
+        key: existingLine?.key ?? `${lineKey}:${Date.now()}:${lineMap.size}`,
+        kind: 'PREPARO',
+        technicalSheetId: dependencySheet.id,
+        productId: '',
+        serviceItemId: '',
+        packageId: null,
+        itemName: dependencySheet.name,
+        itemTypeLabel: 'PRE-PREPARO',
+        family: dependencySheet.family,
+        suggestedQuantity: formatDecimal(nextRequestedQuantity),
+        requestedQuantity: formatDecimal(nextRequestedQuantity),
+        requestUnitLabel: formatControlUnitShort(dependencySheet.outputUnit),
+        currentQuantity: '0',
+        currentUnitLabel: formatControlUnitShort(dependencySheet.outputUnit),
+        minimumDefinitionLabel: '-',
+        destinationType: 'PRODUCOES',
+        destinationCenterId: producerCenter?.id ?? null,
+        destinationCenterName: producerCenter?.name ?? '',
+        destinationLabel: producerCenter
+          ? `CENTRO PRODUTOR: ${producerCenter.name} • ${getCompanyTradeName(producerCenter.companyId)}`
+          : 'CENTRO PRODUTOR NAO DEFINIDO',
+        supplierCenterId: null,
+        supplierCenterName: '',
+        supplierCompanyId: producerCenter?.companyId ?? null,
+        supplierCompanyName: producerCenter ? getCompanyTradeName(producerCenter.companyId) : '',
+        receiptStatus: 'PENDING',
+      })
+    }
+
     const consumeOrRegisterShortage = (sheet: TechnicalSheetRecord, requiredYield: number, sourceCenterId: number) => {
       const recipeCount = requiredYield > 0 ? requiredYield / getTechnicalSheetBaseYield(sheet) : 0
       const recipeData = buildRecipePanelDataForSheet(sheet, requiredYield, recipeCount)
@@ -20095,35 +20202,7 @@ export default function App() {
           if (dependencySheet) {
             const producerCenter = resolveDependencyProducerCenter(dependencySheet.id, sourceCenterId)
 
-            if (producerCenter) {
-              queueManualProductionRequest(producerCenter.id, dependencySheet.id, shortageQuantity)
-              consumeOrRegisterShortage(dependencySheet, shortageQuantity, producerCenter.id)
-              return
-            }
-
-            const nextRequestedQuantity = (parseDecimal(existingLine?.requestedQuantity ?? '0') ?? 0) + shortageQuantity
-            lineMap.set(lineKey, {
-              key: existingLine?.key ?? `${lineKey}:${Date.now()}:${lineMap.size}`,
-              kind: 'PREPARO',
-              technicalSheetId: dependencySheet.id,
-              productId: '',
-              serviceItemId: '',
-              packageId: null,
-              itemName: dependencySheet.name,
-              itemTypeLabel: 'PRE-PREPARO',
-              family: dependencySheet.family,
-              suggestedQuantity: formatDecimal(nextRequestedQuantity),
-              requestedQuantity: formatDecimal(nextRequestedQuantity),
-              requestUnitLabel: formatControlUnitShort(dependencySheet.outputUnit),
-              currentQuantity: '0',
-              currentUnitLabel: formatControlUnitShort(dependencySheet.outputUnit),
-              minimumDefinitionLabel: '-',
-              destinationType: 'PRODUCOES',
-              destinationCenterId: null,
-              destinationCenterName: '',
-              destinationLabel: 'CENTRO PRODUTOR NAO DEFINIDO',
-              receiptStatus: 'PENDING',
-            })
+            addPreparationShortageLine(dependencySheet, shortageQuantity, existingLine, lineKey, producerCenter)
             return
           }
 
@@ -22153,12 +22232,27 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                         setStockCenterMinimumColumnSort,
                       )
                     : null}
+                  {stockCenterMinimumColumnVisibility.realMinimum
+                    ? renderStockCenterMinimumColumnHeader(
+                        'realMinimum',
+                        'Minimo real',
+                        openStockCenterMinimumColumnMenu,
+                        setOpenStockCenterMinimumColumnMenu,
+                        stockCenterMinimumColumnFilters,
+                        distinctStockCenterMinimumColumnValues,
+                        setStockCenterMinimumColumnFilters,
+                        setStockCenterMinimumColumnVisibility,
+                        stockCenterMinimumColumnSort,
+                        setStockCenterMinimumColumnSort,
+                      )
+                    : null}
                 </tr>
               </thead>
               <tbody>
                 {visibleStockCenterMinimumRows.length > 0 ? visibleStockCenterMinimumRows.map((row) => {
                   const minimumStockEntry = findStockCenterMinimumEntry(stockCenterForm.minimumStocks, row)
-                  const minimumStock = minimumStockEntry?.minimumQuantity ?? ''
+                  const minimumStock = getMinimumUseQuantityText(minimumStockEntry)
+                  const realMinimum = getRealMinimumQuantityText(minimumStockEntry)
                   return (
                     <tr key={row.key}>
                       {stockCenterMinimumColumnVisibility.sheet ? (
@@ -22168,7 +22262,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                       {stockCenterMinimumColumnVisibility.family ? <td>{row.family || '-'}</td> : null}
                       {stockCenterMinimumColumnVisibility.reference ? <td>{row.referenceLabel || '-'}</td> : null}
                       {stockCenterMinimumColumnVisibility.yield ? (
-                        <td>{getStockCenterMinimumColumnValue(row, minimumStock, 'yield')}</td>
+                        <td>{getStockCenterMinimumColumnValue(row, minimumStockEntry, 'yield')}</td>
                       ) : null}
                       {stockCenterMinimumColumnVisibility.minimum ? (
                         <td>
@@ -22177,11 +22271,19 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                             onChange={(event) => updateStockCenterMinimumStock(row, event.target.value)}
                             placeholder="EX.: 3"
                           />
-                          {minimumStockEntry?.suggestedMinimumQuantity ? (
-                            <p className="helper-text">
-                              Minimo real sugerido: {minimumStockEntry.suggestedMinimumQuantity}
-                              {minimumStockEntry.minimumSource === 'MANUAL' ? ' • Minimo de uso manual mantido' : ''}
-                            </p>
+                        </td>
+                      ) : null}
+                      {stockCenterMinimumColumnVisibility.realMinimum ? (
+                        <td>
+                          <input
+                            value={realMinimum}
+                            onChange={(event) => updateStockCenterRealMinimumStock(row, event.target.value)}
+                            placeholder="Sugestao automatica"
+                          />
+                          {minimumStockEntry?.realMinimumSource === 'MANUAL' ? (
+                            <p className="helper-text">Minimo real manual aplicado.</p>
+                          ) : minimumStockEntry?.suggestedMinimumQuantity ? (
+                            <p className="helper-text">Sugestao automatica do sistema.</p>
                           ) : null}
                         </td>
                       ) : null}
@@ -27669,8 +27771,8 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
         const existingEntry = existingIndex >= 0 ? nextMinimumStocks[existingIndex] : null
         const shouldPreserveManualValue =
           center.salesImportSettings.allowManualMinimumOverride !== false &&
-          existingEntry?.minimumSource === 'MANUAL' &&
-          existingEntry.minimumQuantity.trim() !== ''
+          existingEntry?.realMinimumSource === 'MANUAL' &&
+          (existingEntry.suggestedMinimumQuantity ?? '').trim() !== ''
         const shouldAutoApply = center.salesImportSettings.autoApplySuggestedMinimum !== false
         const nextEntry: StockCenterMinimumStock = {
           kind: entry.kind,
@@ -27684,8 +27786,11 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
               : existingEntry?.minimumSource === 'MANUAL'
                 ? existingEntry?.minimumQuantity?.trim() || ''
                 : '',
-          suggestedMinimumQuantity: entry.suggestedMinimumQuantity,
-          minimumSource: shouldPreserveManualValue ? 'MANUAL' : shouldAutoApply ? 'SUGERIDO_VENDAS' : existingEntry?.minimumSource,
+          suggestedMinimumQuantity: shouldPreserveManualValue
+            ? existingEntry?.suggestedMinimumQuantity?.trim() || ''
+            : entry.suggestedMinimumQuantity,
+          minimumSource: existingEntry?.minimumSource,
+          realMinimumSource: shouldPreserveManualValue ? 'MANUAL' : 'SUGERIDO_VENDAS',
           suggestedContext: shouldPreserveManualValue ? existingEntry?.suggestedContext : entry.suggestedContext,
           suggestedAt: new Date().toISOString(),
           overriddenAt: shouldPreserveManualValue ? existingEntry?.overriddenAt ?? new Date().toISOString() : existingEntry?.overriddenAt,
@@ -45118,7 +45223,7 @@ function getItemColumnSortLabels(key: ItemColumnKey) {
 }
 
 function isNumericStockCenterMinimumColumn(key: StockCenterMinimumColumnKey) {
-  return key === 'yield' || key === 'minimum'
+  return key === 'yield' || key === 'minimum' || key === 'realMinimum'
 }
 
 function getStockCenterMinimumColumnSortLabels(key: StockCenterMinimumColumnKey) {
@@ -45486,6 +45591,20 @@ function getMinimumUseQuantityValue(entry: StockCenterMinimumStock | null) {
     return 0
   }
   return parseDecimal(entry.minimumQuantity) ?? 0
+}
+
+function getMinimumUseQuantityText(entry: StockCenterMinimumStock | null) {
+  if (!entry || entry.minimumSource === 'SUGERIDO_VENDAS') {
+    return ''
+  }
+  return entry.minimumQuantity.trim()
+}
+
+function getRealMinimumQuantityText(entry: StockCenterMinimumStock | null) {
+  if (!entry) {
+    return ''
+  }
+  return entry.suggestedMinimumQuantity?.trim() || (entry.minimumSource === 'SUGERIDO_VENDAS' ? entry.minimumQuantity.trim() : '')
 }
 
 function getRequisitionDraftColumnSortableValue(line: RequisitionDraftLine, key: RequisitionDraftColumnKey) {
@@ -46603,7 +46722,7 @@ function getRequisitionRequestUnitLabel(row: StockCenterMinimumRow) {
 
 function getStockCenterMinimumColumnValue(
   row: StockCenterMinimumRow,
-  minimumQuantity: string,
+  minimumEntry: StockCenterMinimumStock | null,
   key: StockCenterMinimumColumnKey,
 ) {
   switch (key) {
@@ -46618,7 +46737,9 @@ function getStockCenterMinimumColumnValue(
     case 'yield':
       return `${formatDecimal(row.baseQuantity)} ${formatControlUnitShort(row.baseUnit)}`
     case 'minimum':
-      return minimumQuantity.trim() || ''
+      return getMinimumUseQuantityText(minimumEntry)
+    case 'realMinimum':
+      return getRealMinimumQuantityText(minimumEntry)
   }
 }
 
@@ -48691,6 +48812,12 @@ function normalizeStockCenterRecord(value: unknown): StockCenterRecord | null {
           typeof item.suggestedMinimumQuantity === 'string' ? item.suggestedMinimumQuantity.trim() : undefined,
         minimumSource:
           item.minimumSource === 'SUGERIDO_VENDAS' || item.minimumSource === 'MANUAL' ? item.minimumSource : undefined,
+        realMinimumSource:
+          item.realMinimumSource === 'SUGERIDO_VENDAS' || item.realMinimumSource === 'MANUAL'
+            ? item.realMinimumSource
+            : item.minimumSource === 'SUGERIDO_VENDAS'
+              ? 'SUGERIDO_VENDAS'
+              : undefined,
         suggestedContext:
           item.suggestedContext === 'ESPELHO_ABASTECIMENTO' || item.suggestedContext === 'CONSUMO_PROPRIO'
             ? item.suggestedContext
@@ -48698,7 +48825,7 @@ function normalizeStockCenterRecord(value: unknown): StockCenterRecord | null {
         suggestedAt: typeof item.suggestedAt === 'string' ? item.suggestedAt : undefined,
         overriddenAt: typeof item.overriddenAt === 'string' ? item.overriddenAt : undefined,
       }))
-      .filter((item) => item.minimumQuantity !== ''),
+      .filter((item) => item.minimumQuantity !== '' || getRealMinimumQuantityText(item) !== ''),
     salesImportSettings: normalizeStockCenterSalesImportSettings(record.salesImportSettings),
     isActive: record.isActive,
   }
