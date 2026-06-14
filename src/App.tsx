@@ -456,11 +456,14 @@ const remoteSnapshotSyncEnabled = false
 type StockCountableKind = 'PREPARO' | 'PRODUTO' | 'ITEM'
 type SalesImportHistoryMode = 'ROLLING_MONTHS' | 'FULL_PERIOD' | 'SAME_PERIOD_LAST_YEAR'
 type SalesImportConsumptionMethod = 'SIMPLE_AVERAGE' | 'MEDIAN_DAILY'
+type SalesImportCoverageMode = 'DAILY' | 'WEEKLY' | 'FORTNIGHTLY' | 'MONTHLY'
 
 type StockCenterSalesImportSettings = {
   historyMode: SalesImportHistoryMode
   historyMonths: number
-  coverageDays: number
+  coverageDays?: number
+  coverageMode: SalesImportCoverageMode
+  coverageWeekStartsOn: number
   safetyMarginPercent: string
   consumptionMethod: SalesImportConsumptionMethod
   autoApplySuggestedMinimum: boolean
@@ -1372,6 +1375,8 @@ type SalesImportBatchRecord = {
   historyMode: 'ROLLING_MONTHS' | 'FULL_PERIOD' | 'SAME_PERIOD_LAST_YEAR'
   historyMonths: number | null
   coverageDays: number
+  coverageMode?: SalesImportCoverageMode
+  coverageWeekStartsOn?: number
   safetyMarginPercent: string
   postingMode: 'ANALYTICAL_ONLY' | 'POST_PENDING' | 'POST_IMMEDIATE'
   status: 'DRAFT' | 'IMPORTED' | 'READY_TO_POST' | 'POST_QUEUED' | 'POSTED' | 'CANCELLED'
@@ -2871,7 +2876,8 @@ const emptyStockCenterForm = (): StockCenterFormState => ({
   salesImportSettings: {
     historyMode: 'ROLLING_MONTHS',
     historyMonths: 3,
-    coverageDays: 7,
+    coverageMode: 'WEEKLY',
+    coverageWeekStartsOn: 1,
     safetyMarginPercent: '20',
     consumptionMethod: 'SIMPLE_AVERAGE',
     autoApplySuggestedMinimum: true,
@@ -3504,10 +3510,25 @@ function normalizeStockCenterSalesImportSettings(value: unknown): StockCenterSal
       typeof record.historyMonths === 'number' && Number.isFinite(record.historyMonths)
         ? Math.max(1, Math.trunc(record.historyMonths))
         : 3,
-    coverageDays:
-      typeof record.coverageDays === 'number' && Number.isFinite(record.coverageDays)
-        ? Math.max(1, Math.trunc(record.coverageDays))
-        : 7,
+    coverageMode:
+      record.coverageMode === 'DAILY' ||
+      record.coverageMode === 'WEEKLY' ||
+      record.coverageMode === 'FORTNIGHTLY' ||
+      record.coverageMode === 'MONTHLY'
+        ? record.coverageMode
+        : typeof record.coverageDays === 'number' && Number.isFinite(record.coverageDays)
+          ? record.coverageDays <= 1
+            ? 'DAILY'
+            : record.coverageDays <= 7
+              ? 'WEEKLY'
+              : record.coverageDays <= 15
+                ? 'FORTNIGHTLY'
+                : 'MONTHLY'
+          : 'WEEKLY',
+    coverageWeekStartsOn:
+      typeof record.coverageWeekStartsOn === 'number' && Number.isFinite(record.coverageWeekStartsOn)
+        ? Math.min(6, Math.max(0, Math.trunc(record.coverageWeekStartsOn)))
+        : 1,
     safetyMarginPercent:
       typeof record.safetyMarginPercent === 'string' && record.safetyMarginPercent.trim()
         ? record.safetyMarginPercent.trim()
@@ -3518,6 +3539,66 @@ function normalizeStockCenterSalesImportSettings(value: unknown): StockCenterSal
     unmatchedRowPolicy: record.unmatchedRowPolicy === 'SKIP' ? 'SKIP' : 'BLOCK',
     duplicateRowPolicy: record.duplicateRowPolicy === 'SKIP' ? 'SKIP' : 'BLOCK',
   }
+}
+
+function getSalesImportCoverageModeLabel(mode: SalesImportCoverageMode, weekStartsOn = 1) {
+  if (mode === 'DAILY') {
+    return 'Diario'
+  }
+  if (mode === 'WEEKLY') {
+    return `Semanal (${getWeekdayLabel(weekStartsOn)} a ${getWeekdayLabel((weekStartsOn + 6) % 7)})`
+  }
+  if (mode === 'FORTNIGHTLY') {
+    return 'Quinzenal (1-15 / 16-fim do mes)'
+  }
+  return 'Mensal'
+}
+
+function getWeekdayLabel(dayIndex: number) {
+  return ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sab'][Math.min(6, Math.max(0, dayIndex))] ?? 'Seg'
+}
+
+function getSalesImportCoverageModeLegacyDays(mode: SalesImportCoverageMode) {
+  if (mode === 'DAILY') return 1
+  if (mode === 'WEEKLY') return 7
+  if (mode === 'FORTNIGHTLY') return 15
+  return 30
+}
+
+function getSalesImportBatchCoverageMode(batch: Pick<SalesImportBatchRecord, 'coverageMode' | 'coverageDays' | 'summary'>) {
+  const summaryCoverageMode =
+    batch.summary && typeof batch.summary === 'object'
+      ? (batch.summary as { coverageMode?: unknown }).coverageMode
+      : undefined
+  if (
+    summaryCoverageMode === 'DAILY' ||
+    summaryCoverageMode === 'WEEKLY' ||
+    summaryCoverageMode === 'FORTNIGHTLY' ||
+    summaryCoverageMode === 'MONTHLY'
+  ) {
+    return summaryCoverageMode
+  }
+  if (batch.coverageMode === 'DAILY' || batch.coverageMode === 'WEEKLY' || batch.coverageMode === 'FORTNIGHTLY' || batch.coverageMode === 'MONTHLY') {
+    return batch.coverageMode
+  }
+  if (batch.coverageDays <= 1) return 'DAILY'
+  if (batch.coverageDays <= 7) return 'WEEKLY'
+  if (batch.coverageDays <= 15) return 'FORTNIGHTLY'
+  return 'MONTHLY'
+}
+
+function getSalesImportBatchCoverageWeekStartsOn(batch: Pick<SalesImportBatchRecord, 'coverageWeekStartsOn' | 'summary'>) {
+  const summaryWeekStartsOn =
+    batch.summary && typeof batch.summary === 'object'
+      ? (batch.summary as { coverageWeekStartsOn?: unknown }).coverageWeekStartsOn
+      : undefined
+  if (typeof summaryWeekStartsOn === 'number' && Number.isFinite(summaryWeekStartsOn)) {
+    return Math.min(6, Math.max(0, Math.trunc(summaryWeekStartsOn)))
+  }
+  if (typeof batch.coverageWeekStartsOn === 'number' && Number.isFinite(batch.coverageWeekStartsOn)) {
+    return Math.min(6, Math.max(0, Math.trunc(batch.coverageWeekStartsOn)))
+  }
+  return 1
 }
 
 function getSalesImportConsumptionMethodLabel(method: SalesImportConsumptionMethod) {
@@ -7764,11 +7845,11 @@ export default function App() {
         selectedSalesImportCenter?.salesImportSettings.historyMode ?? 'ROLLING_MONTHS',
         salesImportUsesRollingMonths ? (selectedSalesImportCenter?.salesImportSettings.historyMonths ?? 3) : null,
       ),
-      coverageLabel: `${selectedSalesImportCenter?.salesImportSettings.coverageDays ?? 7} dias`,
+      coverageLabel: getSalesImportCoverageModeLabel(
+        selectedSalesImportCenter?.salesImportSettings.coverageMode ?? 'WEEKLY',
+        selectedSalesImportCenter?.salesImportSettings.coverageWeekStartsOn ?? 1,
+      ),
       marginLabel: `${selectedSalesImportCenter?.salesImportSettings.safetyMarginPercent ?? '20'}%`,
-      consumptionMethodLabel: selectedSalesImportCenter
-        ? getSalesImportConsumptionMethodLabel(selectedSalesImportCenter.salesImportSettings.consumptionMethod)
-        : getSalesImportConsumptionMethodLabel('SIMPLE_AVERAGE'),
       postingLabel: getSalesImportPostingModeLabel(salesImportPostingMode),
       templateModeLabel: salesImportShouldSaveTemplate
         ? salesImportSelectedTemplateId
@@ -9764,7 +9845,7 @@ export default function App() {
               : row.errorMessage || '-',
           minimum:
             batch !== null
-              ? `${batch.coverageDays} dia(s) • ${batch.safetyMarginPercent}% margem`
+              ? `${getSalesImportCoverageModeLabel(getSalesImportBatchCoverageMode(batch), getSalesImportBatchCoverageWeekStartsOn(batch))} • ${batch.safetyMarginPercent}% margem`
               : '',
           unit: 'UN',
           user: batch?.uploadedByUserName ?? '',
@@ -17284,7 +17365,7 @@ export default function App() {
       salesImportSettings: {
         ...stockCenterForm.salesImportSettings,
         historyMonths: Math.max(1, stockCenterForm.salesImportSettings.historyMonths),
-        coverageDays: Math.max(1, stockCenterForm.salesImportSettings.coverageDays),
+        coverageDays: getSalesImportCoverageModeLegacyDays(stockCenterForm.salesImportSettings.coverageMode),
         safetyMarginPercent: stockCenterForm.salesImportSettings.safetyMarginPercent.trim() || '20',
       },
       isActive: editingStockCenterId === null ? true : stockCenters.find((center) => center.id === editingStockCenterId)?.isActive ?? true,
@@ -21664,18 +21745,45 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
           </label>
 
           <label className="field stock-import-settings-panel-coverage-field">
-            <span>Periodo de cobertura (dias)</span>
-            <input
-              value={String(stockCenterForm.salesImportSettings.coverageDays)}
+            <span>Cobertura</span>
+            <select
+              value={stockCenterForm.salesImportSettings.coverageMode}
               onChange={(event) =>
                 updateStockCenterSalesImportSettingsField(
-                  'coverageDays',
-                  Math.max(1, Number.parseInt(event.target.value || '0', 10) || 1),
+                  'coverageMode',
+                  event.target.value as StockCenterSalesImportSettings['coverageMode'],
                 )
               }
-              placeholder="7"
-            />
+            >
+              <option value="DAILY">Diario</option>
+              <option value="WEEKLY">Semanal</option>
+              <option value="FORTNIGHTLY">Quinzenal</option>
+              <option value="MONTHLY">Mensal</option>
+            </select>
           </label>
+
+          {stockCenterForm.salesImportSettings.coverageMode === 'WEEKLY' ? (
+            <label className="field">
+              <span>Inicio da semana</span>
+              <select
+                value={String(stockCenterForm.salesImportSettings.coverageWeekStartsOn)}
+                onChange={(event) =>
+                  updateStockCenterSalesImportSettingsField(
+                    'coverageWeekStartsOn',
+                    Math.min(6, Math.max(0, Number.parseInt(event.target.value || '1', 10) || 1)),
+                  )
+                }
+              >
+                <option value="0">Domingo</option>
+                <option value="1">Segunda-feira</option>
+                <option value="2">Terca-feira</option>
+                <option value="3">Quarta-feira</option>
+                <option value="4">Quinta-feira</option>
+                <option value="5">Sexta-feira</option>
+                <option value="6">Sabado</option>
+              </select>
+            </label>
+          ) : null}
 
           <label className="field stock-import-settings-panel-margin-field">
             <span>Margem de seguranca (%)</span>
@@ -21696,25 +21804,12 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
             </p>
           </div>
 
-          <label className="field company-field-wide stock-import-settings-consumption-field stock-center-import-consumption-field">
-            <span>Metodo de consumo</span>
-            <select
-              value={stockCenterForm.salesImportSettings.consumptionMethod}
-              onChange={(event) =>
-                updateStockCenterSalesImportSettingsField(
-                  'consumptionMethod',
-                  event.target.value as StockCenterSalesImportSettings['consumptionMethod'],
-                )
-              }
-            >
-              <option value="SIMPLE_AVERAGE">Media diaria simples</option>
-              <option value="MEDIAN_DAILY">Mediana diaria</option>
-            </select>
+          <div className="field field-span-all">
             <p className="helper-text">
-              Media diaria simples soma o consumo total e divide pelos dias do periodo. Mediana diaria usa o valor central
-              dos dias e reduz a influencia de picos. Exemplo: 2, 2, 2, 2, 2, 2, 20 gera media 4,57 e mediana 2.
+              O minimo sugerido usa o maior consumo encontrado dentro da cobertura escolhida, recortando a base historica
+              em janelas diarias, semanais, quinzenais ou mensais.
             </p>
-          </label>
+          </div>
 
           <label className="field">
             <span>Linhas sem de/para</span>
@@ -22070,8 +22165,16 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
       return
     }
 
+    const normalizedCenterToSave: StockCenterRecord = {
+      ...centerToSave,
+      salesImportSettings: {
+        ...centerToSave.salesImportSettings,
+        coverageDays: getSalesImportCoverageModeLegacyDays(centerToSave.salesImportSettings.coverageMode),
+      },
+    }
+
     try {
-      await upsertStockCenterRecordOnApi(centerToSave)
+      await upsertStockCenterRecordOnApi(normalizedCenterToSave)
       await refreshAppStockCenterRecordsFromApi()
     } catch (error) {
       console.error(error)
@@ -25924,6 +26027,40 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
     return dateKey >= startDateKey && dateKey <= endDateKey
   }
 
+  function getSalesImportCoverageWindowKey(
+    dateKey: string,
+    coverageMode: SalesImportCoverageMode,
+    coverageWeekStartsOn: number,
+  ) {
+    if (coverageMode === 'DAILY') {
+      return dateKey
+    }
+
+    const timestamp = Date.parse(`${dateKey}T00:00:00Z`)
+    if (Number.isNaN(timestamp)) {
+      return dateKey
+    }
+
+    const currentDate = new Date(timestamp)
+    if (coverageMode === 'WEEKLY') {
+      const currentDay = currentDate.getUTCDay()
+      const diff = (currentDay - coverageWeekStartsOn + 7) % 7
+      currentDate.setUTCDate(currentDate.getUTCDate() - diff)
+      return currentDate.toISOString().slice(0, 10)
+    }
+
+    if (coverageMode === 'FORTNIGHTLY') {
+      const year = currentDate.getUTCFullYear()
+      const month = String(currentDate.getUTCMonth() + 1).padStart(2, '0')
+      const day = currentDate.getUTCDate() <= 15 ? '01' : '16'
+      return `${year}-${month}-${day}`
+    }
+
+    const year = currentDate.getUTCFullYear()
+    const month = String(currentDate.getUTCMonth() + 1).padStart(2, '0')
+    return `${year}-${month}-01`
+  }
+
   function formatSalesImportWorkbookCellValue(
     value: SalesImportWorkbookCell,
     kind: 'TEXT' | 'DATE' | 'QUANTITY',
@@ -26868,7 +27005,8 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
       targetCenterId: batch.stockCenterId,
       historyMode: batch.historyMode,
       historyMonths: batch.historyMonths,
-      coverageDays: batch.coverageDays,
+      coverageMode: getSalesImportBatchCoverageMode(batch),
+      coverageWeekStartsOn: getSalesImportBatchCoverageWeekStartsOn(batch),
       safetyMarginPercent: batch.safetyMarginPercent,
       importedRows: matchedRows,
       pendingMatchedRows: matchedRows,
@@ -26934,7 +27072,8 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
     targetCenterId: number
     historyMode: SalesImportBatchRecord['historyMode']
     historyMonths: number | null
-    coverageDays: number
+    coverageMode: SalesImportCoverageMode
+    coverageWeekStartsOn: number
     safetyMarginPercent: string
     importedRows: Array<Pick<SalesImportPreviewRow, 'consumedAt'>>
     pendingMatchedRows: SalesImportPreviewRow[]
@@ -26942,7 +27081,8 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
   }) {
     const {
       companyId,
-      coverageDays,
+      coverageMode,
+      coverageWeekStartsOn,
       historyMode,
       historyMonths,
       importedRows,
@@ -27048,10 +27188,10 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
       return stockCenters
     }
 
-    const analysisDays = getInclusiveSalesImportDateRangeDays(windowStartDateKey, windowEndDateKey)
     const safetyMultiplier = 1 + Math.max(0, parseDecimal(safetyMarginPercent) ?? 0) / 100
-    const directDemandBySheetId = new Map<number, number>()
-    const directDailyDemandBySheetId = new Map<number, Map<string, number>>()
+    const peakDemandBySheetId = new Map<number, number>()
+    const peakWindowSpanDaysBySheetId = new Map<number, number>()
+    const demandBySheetAndWindow = new Map<number, Map<string, number>>()
 
     relevantConsumptions.forEach(({ record }) => {
       const linkedPrepSheet = prepSheetsByProductId.get(record.ingredientProductId) ?? null
@@ -27064,20 +27204,55 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
         return
       }
 
-      directDemandBySheetId.set(
-        linkedPrepSheet.id,
-        (directDemandBySheetId.get(linkedPrepSheet.id) ?? 0) + quantityConsumed,
-      )
       const dateKey = normalizeSalesImportDateKey(record.consumedAt)
       if (!dateKey) {
         return
       }
-      const perDay = directDailyDemandBySheetId.get(linkedPrepSheet.id) ?? new Map<string, number>()
-      perDay.set(dateKey, (perDay.get(dateKey) ?? 0) + quantityConsumed)
-      directDailyDemandBySheetId.set(linkedPrepSheet.id, perDay)
+      const windowKey = getSalesImportCoverageWindowKey(dateKey, coverageMode, coverageWeekStartsOn)
+      const perWindow = demandBySheetAndWindow.get(linkedPrepSheet.id) ?? new Map<string, number>()
+      perWindow.set(windowKey, (perWindow.get(windowKey) ?? 0) + quantityConsumed)
+      demandBySheetAndWindow.set(linkedPrepSheet.id, perWindow)
     })
 
-    if (directDemandBySheetId.size === 0) {
+    demandBySheetAndWindow.forEach((windowDemandMap, sheetId) => {
+      let peakQuantity = 0
+      let peakWindowKey = ''
+      windowDemandMap.forEach((quantity, windowKey) => {
+        if (quantity > peakQuantity) {
+          peakQuantity = quantity
+          peakWindowKey = windowKey
+        }
+      })
+      if (peakQuantity <= 0 || !peakWindowKey) {
+        return
+      }
+
+      let windowEndKey = peakWindowKey
+      if (coverageMode === 'DAILY') {
+        windowEndKey = peakWindowKey
+      } else if (coverageMode === 'WEEKLY') {
+        windowEndKey = addSalesImportDateKeyDays(peakWindowKey, 6)
+      } else if (coverageMode === 'FORTNIGHTLY') {
+        const [year, month, day] = peakWindowKey.split('-').map((part) => Number(part))
+        if (day === 1) {
+          windowEndKey = `${String(year).padStart(4, '0')}-${String(month).padStart(2, '0')}-15`
+        } else {
+          const nextMonthFirst = new Date(Date.UTC(year, month, 1))
+          nextMonthFirst.setUTCDate(0)
+          windowEndKey = `${String(year).padStart(4, '0')}-${String(month).padStart(2, '0')}-${String(nextMonthFirst.getUTCDate()).padStart(2, '0')}`
+        }
+      } else {
+        const [year, month] = peakWindowKey.split('-').map((part) => Number(part))
+        const nextMonthFirst = new Date(Date.UTC(year, month, 1))
+        nextMonthFirst.setUTCDate(0)
+        windowEndKey = `${String(year).padStart(4, '0')}-${String(month).padStart(2, '0')}-${String(nextMonthFirst.getUTCDate()).padStart(2, '0')}`
+      }
+
+      peakDemandBySheetId.set(sheetId, peakQuantity)
+      peakWindowSpanDaysBySheetId.set(sheetId, getInclusiveSalesImportDateRangeDays(peakWindowKey, windowEndKey))
+    })
+
+    if (peakDemandBySheetId.size === 0) {
       return stockCenters
     }
 
@@ -27087,7 +27262,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
       }
 
       const nextMinimumStocks = [...center.minimumStocks]
-      directDemandBySheetId.forEach((totalQuantityConsumed, sheetId) => {
+      peakDemandBySheetId.forEach((peakWindowDemand, sheetId) => {
         const targetSheet = technicalSheets.find(
           (sheet) => sheet.id === sheetId && sheet.companyId === companyId && sheet.kind === 'PREPARO',
         ) ?? null
@@ -27100,27 +27275,10 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
           return
         }
 
-        const dailyDemandValues =
-          Array.from({ length: analysisDays }, (_, offset) => {
-            const currentDate = addSalesImportDateKeyDays(windowStartDateKey, offset)
-            return directDailyDemandBySheetId.get(sheetId)?.get(currentDate) ?? 0
-          }).sort((left, right) => left - right)
-        const positiveDailyDemandValues = dailyDemandValues.filter((value) => value > 0)
-        const simpleAverageDailyDemand = totalQuantityConsumed / analysisDays
-        const medianDailyDemand =
-          positiveDailyDemandValues.length === 0
-            ? 0
-            : positiveDailyDemandValues.length % 2 === 1
-              ? positiveDailyDemandValues[(positiveDailyDemandValues.length - 1) / 2] ?? 0
-              : ((positiveDailyDemandValues[positiveDailyDemandValues.length / 2 - 1] ?? 0) +
-                  (positiveDailyDemandValues[positiveDailyDemandValues.length / 2] ?? 0)) /
-                2
-        const averageDailyDemand =
-          targetCenter.salesImportSettings.consumptionMethod === 'MEDIAN_DAILY'
-            ? medianDailyDemand
-            : simpleAverageDailyDemand
-        const horizonDays = Math.max(1, coverageDays) + getTechnicalSheetPreparationLeadTimeDays(targetSheet)
-        const suggestedOutputQuantity = averageDailyDemand * horizonDays * safetyMultiplier
+        const windowSpanDays = peakWindowSpanDaysBySheetId.get(sheetId) ?? 1
+        const leadTimeDays = getTechnicalSheetPreparationLeadTimeDays(targetSheet)
+        const leadTimeDemand = windowSpanDays > 0 ? (peakWindowDemand / windowSpanDays) * leadTimeDays : 0
+        const suggestedOutputQuantity = (peakWindowDemand + leadTimeDemand) * safetyMultiplier
         const suggestedMinimumQuantity = formatDecimal(suggestedOutputQuantity / baseQuantity)
         const targetKey = buildStockCenterMinimumEntryKey({
           kind: 'PREPARO',
@@ -27414,7 +27572,9 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
     const historyMode = targetCenter.salesImportSettings.historyMode
     const historyMonthsValue =
       historyMode === 'ROLLING_MONTHS' ? Math.max(1, targetCenter.salesImportSettings.historyMonths) : null
-    const coverageDays = Math.max(1, targetCenter.salesImportSettings.coverageDays)
+    const coverageMode = targetCenter.salesImportSettings.coverageMode
+    const coverageWeekStartsOn = targetCenter.salesImportSettings.coverageWeekStartsOn
+    const coverageDays = getSalesImportCoverageModeLegacyDays(coverageMode)
     const safetyMarginPercent = targetCenter.salesImportSettings.safetyMarginPercent.trim() || '20'
     const nextTemplateId = getNextPersistedIntId(salesImportTemplates.map((template) => template.id))
     const templateId =
@@ -27456,6 +27616,8 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
       historyMode,
       historyMonths: historyMonthsValue,
       coverageDays,
+      coverageMode,
+      coverageWeekStartsOn,
       safetyMarginPercent,
       postingMode,
       status:
@@ -27473,6 +27635,8 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
         unmatchedRows: unmatchedRows.length,
         duplicateRows: duplicatedRows.length,
         sourceSheet: salesImportCurrentSheet.name,
+        coverageMode,
+        coverageWeekStartsOn,
       },
     }
 
@@ -27669,7 +27833,8 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
       targetCenterId: targetCenter.id,
       historyMode: batchToSave.historyMode,
       historyMonths: batchToSave.historyMonths,
-      coverageDays: batchToSave.coverageDays,
+      coverageMode: batchToSave.coverageMode ?? 'WEEKLY',
+      coverageWeekStartsOn: batchToSave.coverageWeekStartsOn ?? 1,
       safetyMarginPercent: batchToSave.safetyMarginPercent,
       importedRows: validRows,
       pendingMatchedRows: validRows,
@@ -35742,10 +35907,6 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                       <strong>{salesImportDraftSummary.marginLabel}</strong>
                     </article>
                     <article className="sales-import-summary-chip">
-                      <span>Metodo</span>
-                      <strong>{salesImportDraftSummary.consumptionMethodLabel}</strong>
-                    </article>
-                    <article className="sales-import-summary-chip">
                       <span>Saida</span>
                       <strong>{salesImportDraftSummary.postingLabel}</strong>
                     </article>
@@ -36181,7 +36342,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                                 <td>{stockCenters.find((center) => center.id === batch.stockCenterId)?.name ?? `CENTRO ${batch.stockCenterId}`}</td>
                                 <td>{getSalesImportHistoryModeLabel(batch.historyMode, batch.historyMonths)}</td>
                                 <td>{getSalesImportPostingModeLabel(batch.postingMode)}</td>
-                                <td>{batch.coverageDays} dias</td>
+                                <td>{getSalesImportCoverageModeLabel(getSalesImportBatchCoverageMode(batch), getSalesImportBatchCoverageWeekStartsOn(batch))}</td>
                                 <td>{batch.safetyMarginPercent}%</td>
                                 <td>{formatDateForDisplay(batch.importedAt.slice(0, 10))}</td>
                                 <td>
@@ -36285,7 +36446,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                               </article>
                               <article className="receituario-metric-card">
                                 <span>Cobertura</span>
-                                <strong>{selectedSalesImportBatch.coverageDays} dias</strong>
+                                <strong>{getSalesImportCoverageModeLabel(getSalesImportBatchCoverageMode(selectedSalesImportBatch), getSalesImportBatchCoverageWeekStartsOn(selectedSalesImportBatch))}</strong>
                               </article>
                               <article className="receituario-metric-card">
                                 <span>Margem</span>
@@ -36497,18 +36658,45 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                 </label>
 
                 <label className="field stock-import-settings-panel-coverage-field">
-                  <span>Periodo de cobertura (dias)</span>
-                  <input
-                    value={String(selectedStockImportSettingsCenter.salesImportSettings.coverageDays)}
+                  <span>Cobertura</span>
+                  <select
+                    value={selectedStockImportSettingsCenter.salesImportSettings.coverageMode}
                     onChange={(event) =>
                       updateSelectedStockImportSettingsCenter((current) => ({
                         ...current,
-                        coverageDays: Math.max(1, Number.parseInt(event.target.value || '0', 10) || 1),
+                        coverageMode: event.target.value as StockCenterSalesImportSettings['coverageMode'],
                       }))
                     }
-                    placeholder="7"
-                  />
+                  >
+                    <option value="DAILY">Diario</option>
+                    <option value="WEEKLY">Semanal</option>
+                    <option value="FORTNIGHTLY">Quinzenal</option>
+                    <option value="MONTHLY">Mensal</option>
+                  </select>
                 </label>
+
+                {selectedStockImportSettingsCenter.salesImportSettings.coverageMode === 'WEEKLY' ? (
+                  <label className="field">
+                    <span>Inicio da semana</span>
+                    <select
+                      value={String(selectedStockImportSettingsCenter.salesImportSettings.coverageWeekStartsOn)}
+                      onChange={(event) =>
+                        updateSelectedStockImportSettingsCenter((current) => ({
+                          ...current,
+                          coverageWeekStartsOn: Math.min(6, Math.max(0, Number.parseInt(event.target.value || '1', 10) || 1)),
+                        }))
+                      }
+                    >
+                      <option value="0">Domingo</option>
+                      <option value="1">Segunda-feira</option>
+                      <option value="2">Terca-feira</option>
+                      <option value="3">Quarta-feira</option>
+                      <option value="4">Quinta-feira</option>
+                      <option value="5">Sexta-feira</option>
+                      <option value="6">Sabado</option>
+                    </select>
+                  </label>
+                ) : null}
 
                 <label className="field stock-import-settings-panel-margin-field">
                   <span>Margem de seguranca (%)</span>
@@ -36532,25 +36720,12 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                   </p>
                 </div>
 
-                <label className="field company-field-wide stock-import-settings-consumption-field">
-                  <span>Metodo de consumo</span>
-                  <select
-                    value={selectedStockImportSettingsCenter.salesImportSettings.consumptionMethod}
-                    onChange={(event) =>
-                      updateSelectedStockImportSettingsCenter((current) => ({
-                        ...current,
-                        consumptionMethod: event.target.value as StockCenterSalesImportSettings['consumptionMethod'],
-                      }))
-                    }
-                  >
-                    <option value="SIMPLE_AVERAGE">Media diaria simples</option>
-                    <option value="MEDIAN_DAILY">Mediana diaria</option>
-                  </select>
+                <div className="field field-span-all">
                   <p className="helper-text">
-                    Media diaria simples soma o consumo total e divide pelos dias do periodo. Mediana diaria usa o valor central
-                    dos dias e reduz a influencia de picos. Exemplo: 2, 2, 2, 2, 2, 2, 20 gera media 4,57 e mediana 2.
+                    O minimo sugerido usa o maior consumo encontrado dentro da cobertura escolhida, recortando a base
+                    historica em janelas diarias, semanais, quinzenais ou mensais.
                   </p>
-                </label>
+                </div>
 
                 <label className="field">
                   <span>Linhas sem de/para</span>
@@ -42576,7 +42751,6 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
               <p><strong>Base historica:</strong> {salesImportDraftSummary.historyLabel}</p>
               <p><strong>Cobertura:</strong> {salesImportDraftSummary.coverageLabel}</p>
               <p><strong>Margem:</strong> {salesImportDraftSummary.marginLabel}</p>
-              <p><strong>Metodo de consumo:</strong> {salesImportDraftSummary.consumptionMethodLabel}</p>
               <p><strong>Tratamento no estoque:</strong> {salesImportDraftSummary.postingLabel}</p>
               <p><strong>Template:</strong> {salesImportDraftSummary.templateModeLabel}</p>
               <p><strong>Linhas validas:</strong> {salesImportPreviewSummary.matchedRows}</p>

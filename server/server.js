@@ -2528,6 +2528,32 @@ function normalizeStockCenterPayload(value) {
               : 'ROLLING_MONTHS',
           historyMonths: Math.max(1, parseIntegerParam(record.salesImportSettings.historyMonths) ?? 3),
           coverageDays: Math.max(1, parseIntegerParam(record.salesImportSettings.coverageDays) ?? 7),
+          coverageMode:
+            record.salesImportSettings.coverageMode === 'DAILY' ||
+            record.salesImportSettings.coverageMode === 'WEEKLY' ||
+            record.salesImportSettings.coverageMode === 'FORTNIGHTLY' ||
+            record.salesImportSettings.coverageMode === 'MONTHLY'
+              ? record.salesImportSettings.coverageMode
+              : (() => {
+                  const legacyCoverageDays = parseIntegerParam(record.salesImportSettings.coverageDays)
+                  if (legacyCoverageDays === null) {
+                    return 'WEEKLY'
+                  }
+                  if (legacyCoverageDays <= 1) {
+                    return 'DAILY'
+                  }
+                  if (legacyCoverageDays <= 7) {
+                    return 'WEEKLY'
+                  }
+                  if (legacyCoverageDays <= 15) {
+                    return 'FORTNIGHTLY'
+                  }
+                  return 'MONTHLY'
+                })(),
+          coverageWeekStartsOn:
+            typeof record.salesImportSettings.coverageWeekStartsOn === 'number'
+              ? Math.min(6, Math.max(0, Math.trunc(record.salesImportSettings.coverageWeekStartsOn)))
+              : 1,
           safetyMarginPercent:
             typeof record.salesImportSettings.safetyMarginPercent === 'string'
               ? record.salesImportSettings.safetyMarginPercent.trim() || '20'
@@ -2543,6 +2569,8 @@ function normalizeStockCenterPayload(value) {
           historyMode: 'ROLLING_MONTHS',
           historyMonths: 3,
           coverageDays: 7,
+          coverageMode: 'WEEKLY',
+          coverageWeekStartsOn: 1,
           safetyMarginPercent: '20',
           consumptionMethod: 'SIMPLE_AVERAGE',
           autoApplySuggestedMinimum: true,
