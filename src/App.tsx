@@ -3601,10 +3601,6 @@ function getSalesImportBatchCoverageWeekStartsOn(batch: Pick<SalesImportBatchRec
   return 1
 }
 
-function getSalesImportConsumptionMethodLabel(method: SalesImportConsumptionMethod) {
-  return method === 'MEDIAN_DAILY' ? 'Mediana diaria' : 'Media diaria simples'
-}
-
 function getStockCenterSelectionLabel(center: Pick<StockCenterRecord, 'name' | 'code'>) {
   return center.code ? `${center.name} • ${center.code}` : center.name
 }
