@@ -5392,7 +5392,7 @@ export default function App() {
   const inventoryAccessibleStockCenters = useMemo(
     () =>
       stockCenters
-        .filter((center) => isStockCenterVisibleForCompany(center, currentCompanyId))
+        .filter((center) => center.companyId === currentCompanyId)
         .filter((center) => isSystemAdmin || (currentAppUser ? center.userIds.includes(currentAppUser.id) : false))
         .sort((a, b) => a.name.localeCompare(b.name, 'pt-BR')),
     [currentAppUser, currentCompanyId, isSystemAdmin, stockCenters],
@@ -5411,7 +5411,7 @@ export default function App() {
   const requisitionApprovalCenters = useMemo(
     () =>
       stockCenters
-        .filter((center) => isStockCenterVisibleForCompany(center, currentCompanyId) && center.isActive)
+        .filter((center) => center.companyId === currentCompanyId && center.isActive)
         .filter((center) => isSystemAdmin || (currentAppUser ? center.responsibleUserIds.includes(currentAppUser.id) : false))
         .sort((a, b) => a.name.localeCompare(b.name, 'pt-BR')),
     [currentAppUser, currentCompanyId, isSystemAdmin, stockCenters],
@@ -5419,7 +5419,7 @@ export default function App() {
   const supplyResponsibleCenters = useMemo(
     () =>
       stockCenters
-        .filter((center) => isStockCenterVisibleForCompany(center, currentCompanyId) && center.isActive)
+        .filter((center) => center.companyId === currentCompanyId && center.isActive)
         .filter((center) => isSystemAdmin || (currentAppUser ? center.responsibleUserIds.includes(currentAppUser.id) : false))
         .sort((a, b) => a.name.localeCompare(b.name, 'pt-BR')),
     [currentAppUser, currentCompanyId, isSystemAdmin, stockCenters],
@@ -5427,7 +5427,7 @@ export default function App() {
   const productionEligibleCenters = useMemo(
     () =>
       stockCenters
-        .filter((center) => isStockCenterVisibleForCompany(center, currentCompanyId) && center.isActive && center.isProducer)
+        .filter((center) => center.companyId === currentCompanyId && center.isActive && center.isProducer)
         .filter((center) => isSystemAdmin || (currentAppUser ? center.userIds.includes(currentAppUser.id) : false))
         .sort((a, b) => a.name.localeCompare(b.name, 'pt-BR')),
     [currentAppUser, currentCompanyId, isSystemAdmin, stockCenters],
@@ -5600,7 +5600,7 @@ export default function App() {
       return [] as ProductionRequestRow[]
     }
 
-    const demandContext = buildPreparationDemandContext(selectedProductionCenter, currentCompanyId)
+    const demandContext = buildPreparationDemandContext(selectedProductionCenter, selectedProductionCenter.companyId)
     const manualRequestSheetIds = new Set(
       manualProductionRequests
         .filter((request) => request.companyId === currentCompanyId && request.centerId === selectedProductionCenter.id)
@@ -5614,7 +5614,7 @@ export default function App() {
     const producedSheets = technicalSheets
       .filter(
         (sheet) =>
-          isTechnicalSheetVisibleForCompany(sheet, currentCompanyId) &&
+          isTechnicalSheetVisibleForCompany(sheet, selectedProductionCenter.companyId) &&
           sheet.isActive &&
           sheet.kind === 'PREPARO' &&
           ((demandContext?.sheetById.has(sheet.id) ?? false) || manualRequestSheetIds.has(sheet.id) || draftSheetIds.has(sheet.id)),
@@ -9733,7 +9733,7 @@ export default function App() {
     return reportEligibleStockCenters
       .filter((center) => center.isProducer)
       .flatMap((center) => {
-        const demandContext = buildPreparationDemandContext(center, currentCompanyId)
+        const demandContext = buildPreparationDemandContext(center, center.companyId)
         const producedSheets = demandContext?.producedSheets ?? []
 
         return producedSheets.map((sheet) => {
@@ -17849,7 +17849,7 @@ export default function App() {
       return baseLines.sort((a, b) => a.itemName.localeCompare(b.itemName, 'pt-BR'))
     }
 
-    const demandContext = buildPreparationDemandContext(center, currentCompanyId)
+    const demandContext = buildPreparationDemandContext(center, center.companyId)
     const producedSheets = demandContext?.producedSheets ?? []
 
     const productionShortageLines = producedSheets.flatMap((sheet) => {
