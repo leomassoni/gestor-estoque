@@ -9155,9 +9155,37 @@ export default function App() {
     [stockCenters, technicalSheetForm.productionCenters],
   )
   const stockCenterMinimumRows = useMemo(
-    () =>
-      [
-        ...stockCenterMinimumCountableSheets.map(
+    () => {
+      const companyId = currentCompanyId
+      if (companyId === null) {
+        return [] as StockCenterMinimumRow[]
+      }
+
+      const countableSheets = technicalSheets
+        .filter(
+          (sheet) =>
+            isTechnicalSheetVisibleForCompany(sheet, companyId) &&
+            sheet.isActive &&
+            sheet.kind === 'PREPARO' &&
+            isTechnicalSheetStockTracked(sheet, products),
+        )
+        .sort((a, b) => a.name.localeCompare(b.name, 'pt-BR'))
+      const countableProducts = products
+        .filter(
+          (product) =>
+            isProductVisibleForCompany(product, companyId) &&
+            product.isActive &&
+            isProductStockTracked(product) &&
+            typeof product.technicalSheetId !== 'number' &&
+            product.controlUnit !== 'COMBO',
+        )
+        .sort((a, b) => a.name.localeCompare(b.name, 'pt-BR'))
+      const countableServiceItems = serviceItems
+        .filter((item) => item.companyId === companyId && item.isActive)
+        .sort((a, b) => a.name.localeCompare(b.name, 'pt-BR'))
+
+      return [
+        ...countableSheets.map(
           (sheet) =>
             ({
               key: buildStockCenterMinimumEntryKey({
@@ -9180,7 +9208,7 @@ export default function App() {
               packageId: null,
             }) satisfies StockCenterMinimumRow,
         ),
-        ...inventoryCountableProducts.flatMap((product) =>
+        ...countableProducts.flatMap((product) =>
           product.packages
             .filter((item) => item.isActive)
             .map(
@@ -9207,7 +9235,7 @@ export default function App() {
                 }) satisfies StockCenterMinimumRow,
             ),
         ),
-        ...inventoryCountableServiceItems.map(
+        ...countableServiceItems.map(
           (item) =>
             ({
               key: buildStockCenterMinimumEntryKey({
@@ -9236,18 +9264,132 @@ export default function App() {
           return nameCompare
         }
         return a.referenceLabel.localeCompare(b.referenceLabel, 'pt-BR')
-      }),
-    [inventoryCountableProducts, inventoryCountableServiceItems, stockCenterMinimumCountableSheets],
+      })
+    },
+    [currentCompanyId, isProductVisibleForCompany, isTechnicalSheetVisibleForCompany, products, serviceItems, technicalSheets],
   )
   const minimumBaseQuantityByCenterAndAggregation = useMemo(() => {
     const nextMap = new Map<string, number>()
 
     reportEligibleStockCenters.forEach((center) => {
+      const rowsByKey = new Map(
+        technicalSheets
+          .filter(
+            (sheet) =>
+              isTechnicalSheetVisibleForCompany(sheet, center.companyId) &&
+              sheet.isActive &&
+              sheet.kind === 'PREPARO' &&
+              isTechnicalSheetStockTracked(sheet, products),
+          )
+          .map((sheet) => [
+            buildStockCenterMinimumEntryKey({
+              kind: 'PREPARO',
+              technicalSheetId: sheet.id,
+              productId: '',
+              serviceItemId: '',
+              packageId: null,
+            }),
+            {
+              key: buildStockCenterMinimumEntryKey({
+                kind: 'PREPARO',
+                technicalSheetId: sheet.id,
+                productId: '',
+                serviceItemId: '',
+                packageId: null,
+              }),
+              kind: 'PREPARO' as const,
+              name: sheet.name,
+              typeLabel: 'Pre-preparo',
+              family: sheet.family,
+              referenceLabel: 'PORCAO BASE',
+              baseQuantity: getStockCenterBaseQuantity(sheet),
+              baseUnit: sheet.outputUnit,
+              technicalSheetId: sheet.id,
+              productId: '',
+              serviceItemId: '',
+              packageId: null,
+            } satisfies StockCenterMinimumRow,
+          ] as const)
+          .concat(
+            products
+              .filter(
+                (product) =>
+                  isProductVisibleForCompany(product, center.companyId) &&
+                  product.isActive &&
+                  isProductStockTracked(product) &&
+                  typeof product.technicalSheetId !== 'number' &&
+                  product.controlUnit !== 'COMBO',
+              )
+              .flatMap((product) =>
+                product.packages
+                  .filter((item) => item.isActive)
+                  .map((item) => [
+                    buildStockCenterMinimumEntryKey({
+                      kind: 'PRODUTO',
+                      technicalSheetId: null,
+                      productId: product.id,
+                      serviceItemId: '',
+                      packageId: item.id,
+                    }),
+                    {
+                      key: buildStockCenterMinimumEntryKey({
+                        kind: 'PRODUTO',
+                        technicalSheetId: null,
+                        productId: product.id,
+                        serviceItemId: '',
+                        packageId: item.id,
+                      }),
+                      kind: 'PRODUTO' as const,
+                      name: product.name,
+                      typeLabel: 'Produto',
+                      family: product.family,
+                      referenceLabel: buildProductPackageLabel(product, item),
+                      baseQuantity: calculateNormalizedPackageQuantity(item, product.controlUnit),
+                      baseUnit: product.controlUnit,
+                      technicalSheetId: null,
+                      productId: product.id,
+                      serviceItemId: '',
+                      packageId: item.id,
+                    } satisfies StockCenterMinimumRow,
+                  ] as const),
+              ),
+          )
+          .concat(
+            serviceItems
+              .filter((item) => item.companyId === center.companyId && item.isActive)
+              .map((item) => [
+                buildStockCenterMinimumEntryKey({
+                  kind: 'ITEM',
+                  technicalSheetId: null,
+                  productId: '',
+                  serviceItemId: item.id,
+                  packageId: null,
+                }),
+                {
+                  key: buildStockCenterMinimumEntryKey({
+                    kind: 'ITEM',
+                    technicalSheetId: null,
+                    productId: '',
+                    serviceItemId: item.id,
+                    packageId: null,
+                  }),
+                  kind: 'ITEM' as const,
+                  name: item.name,
+                  typeLabel: buildServiceItemInventoryLabel(item),
+                  family: item.family,
+                  referenceLabel: '1 UN',
+                  baseQuantity: 1,
+                  baseUnit: 'UNIT' as const,
+                  technicalSheetId: null,
+                  productId: '',
+                  serviceItemId: item.id,
+                  packageId: null,
+                } satisfies StockCenterMinimumRow,
+              ] as const),
+          ),
+      )
       center.minimumStocks.forEach((stock) => {
-        const row =
-          stockCenterMinimumRows.find(
-            (candidate) => candidate.key === buildStockCenterMinimumEntryKey(stock),
-          ) ?? null
+        const row = rowsByKey.get(buildStockCenterMinimumEntryKey(stock)) ?? null
         if (!row) {
           return
         }
@@ -9265,7 +9407,7 @@ export default function App() {
     })
 
     return nextMap
-  }, [reportEligibleStockCenters, stockCenterMinimumRows])
+  }, [isProductVisibleForCompany, isTechnicalSheetVisibleForCompany, products, reportEligibleStockCenters, serviceItems, technicalSheets])
   const manualSupplyOptions = useMemo(
     () =>
       stockCenterMinimumRows
@@ -17730,7 +17872,101 @@ export default function App() {
     const minimumByKey = new Map(
       center.minimumStocks.map((minimumStock) => [buildStockCenterMinimumEntryKey(minimumStock), minimumStock] as const),
     )
-    const baseLines = stockCenterMinimumRows
+    const centerMinimumRows = [
+      ...technicalSheets
+        .filter(
+          (sheet) =>
+            isTechnicalSheetVisibleForCompany(sheet, center.companyId) &&
+            sheet.isActive &&
+            sheet.kind === 'PREPARO' &&
+            isTechnicalSheetStockTracked(sheet, products),
+        )
+        .map(
+          (sheet) =>
+            ({
+              key: buildStockCenterMinimumEntryKey({
+                kind: 'PREPARO',
+                technicalSheetId: sheet.id,
+                productId: '',
+                serviceItemId: '',
+                packageId: null,
+              }),
+              kind: 'PREPARO',
+              name: sheet.name,
+              typeLabel: 'Pre-preparo',
+              family: sheet.family,
+              referenceLabel: 'PORCAO BASE',
+              baseQuantity: getStockCenterBaseQuantity(sheet),
+              baseUnit: sheet.outputUnit,
+              technicalSheetId: sheet.id,
+              productId: '',
+              serviceItemId: '',
+              packageId: null,
+            }) satisfies StockCenterMinimumRow,
+        ),
+      ...products
+        .filter(
+          (product) =>
+            isProductVisibleForCompany(product, center.companyId) &&
+            product.isActive &&
+            isProductStockTracked(product) &&
+            typeof product.technicalSheetId !== 'number' &&
+            product.controlUnit !== 'COMBO',
+        )
+        .flatMap((product) =>
+          product.packages
+            .filter((item) => item.isActive)
+            .map(
+              (item) =>
+                ({
+                  key: buildStockCenterMinimumEntryKey({
+                    kind: 'PRODUTO',
+                    technicalSheetId: null,
+                    productId: product.id,
+                    serviceItemId: '',
+                    packageId: item.id,
+                  }),
+                  kind: 'PRODUTO',
+                  name: product.name,
+                  typeLabel: 'Produto',
+                  family: product.family,
+                  referenceLabel: buildProductPackageLabel(product, item),
+                  baseQuantity: calculateNormalizedPackageQuantity(item, product.controlUnit),
+                  baseUnit: product.controlUnit,
+                  technicalSheetId: null,
+                  productId: product.id,
+                  serviceItemId: '',
+                  packageId: item.id,
+                }) satisfies StockCenterMinimumRow,
+            ),
+        ),
+      ...serviceItems
+        .filter((item) => item.companyId === center.companyId && item.isActive)
+        .map(
+          (item) =>
+            ({
+              key: buildStockCenterMinimumEntryKey({
+                kind: 'ITEM',
+                technicalSheetId: null,
+                productId: '',
+                serviceItemId: item.id,
+                packageId: null,
+              }),
+              kind: 'ITEM',
+              name: item.name,
+              typeLabel: buildServiceItemInventoryLabel(item),
+              family: item.family,
+              referenceLabel: '1 UN',
+              baseQuantity: 1,
+              baseUnit: 'UNIT',
+              technicalSheetId: null,
+              productId: '',
+              serviceItemId: item.id,
+              packageId: null,
+            }) satisfies StockCenterMinimumRow,
+        ),
+    ]
+    const baseLines = centerMinimumRows
       .filter((row) => row.kind !== 'ITEM' || row.baseUnit === 'UNIT')
       .filter((row) => {
         if (row.kind !== 'PREPARO' || row.technicalSheetId === null) {
@@ -20123,9 +20359,15 @@ export default function App() {
 
     const lineMap = new Map<string, RequisitionLineRecord>()
     const plannedProductionRequests = new Map<string, { centerId: number; sheetId: number; desiredYield: number }>()
+    const stockCenterCompanyId = stockCenter.companyId
     const activeProductById = new Map(
       products
-        .filter((product) => isProductVisibleForCompany(product, currentCompanyId) && product.isActive && isProductStockTracked(product))
+        .filter(
+          (product) =>
+            isProductVisibleForCompany(product, stockCenterCompanyId) &&
+            product.isActive &&
+            isProductStockTracked(product),
+        )
         .map((product) => [product.id, product] as const),
     )
 
@@ -20133,17 +20375,19 @@ export default function App() {
       const dependencySheet =
         technicalSheets.find(
           (sheet) =>
-            isTechnicalSheetVisibleForCompany(sheet, currentCompanyId) &&
+            isTechnicalSheetVisibleForCompany(sheet, stockCenterCompanyId) &&
             sheet.kind === 'PREPARO' &&
             sheet.id === sheetId,
         ) ?? null
+
+      const companyScopeIds = new Set(getCompanyLinkScopeIds(stockCenterCompanyId))
 
       const assignedProducerCenters =
         dependencySheet?.productionCenters
           ?.map((assignment) =>
             stockCenters.find(
               (center) =>
-                (center.companyId === currentCompanyId || getTechnicalSheetSharedCompanyIds(dependencySheet).includes(center.companyId)) &&
+                companyScopeIds.has(center.companyId) &&
                 center.isActive &&
                 center.id === Number(assignment.stockCenterId),
             ) ?? null,
@@ -20159,7 +20403,7 @@ export default function App() {
 
       const legacyProducerAssignments = stockCenters.filter(
         (center) =>
-          (dependencySheet ? getTechnicalSheetSharedCompanyIds(dependencySheet).includes(center.companyId) : center.companyId === currentCompanyId) &&
+          (dependencySheet ? companyScopeIds.has(center.companyId) : center.companyId === stockCenterCompanyId) &&
           center.isActive &&
           center.isProducer &&
           !!dependencySheet &&
@@ -20178,8 +20422,7 @@ export default function App() {
       existingLine: RequisitionLineRecord | null,
       lineKey: string,
     ) => {
-      const requesterCenter =
-        stockCenters.find((center) => center.companyId === currentCompanyId && center.id === stockCenter.id) ?? null
+      const requesterCenter = stockCenters.find((center) => center.id === stockCenter.id) ?? null
       const distributorCenter =
         requesterCenter
           ? findDistributorCenterForRequisitionLine(requesterCenter, { kind: 'PRODUTO', productId: linkedProduct.id })
