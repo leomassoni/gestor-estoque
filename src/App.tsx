@@ -4995,6 +4995,21 @@ export default function App() {
   function getCompanyTradeName(companyId: number) {
     return companies.find((item) => item.id === companyId)?.tradeName ?? `EMPRESA ${companyId}`
   }
+  function isStockCenterVisibleForCompany(center: StockCenterRecord, companyId: number | null) {
+    return companyId !== null && getCompanyLinkScopeIds(center.companyId).includes(companyId)
+  }
+  function buildRequisitionLineSemanticKey(line: Pick<RequisitionLineRecord, 'kind' | 'technicalSheetId' | 'productId' | 'serviceItemId' | 'packageId' | 'destinationType' | 'destinationCenterId' | 'supplierCenterId'>) {
+    return [
+      line.kind,
+      line.technicalSheetId ?? '',
+      line.productId,
+      line.serviceItemId,
+      line.packageId ?? '',
+      line.destinationType,
+      line.destinationCenterId ?? '',
+      line.supplierCenterId ?? '',
+    ].join(':')
+  }
   function getAuditActorSnapshot() {
     if (session?.kind === 'systemAdmin') {
       return {
@@ -5377,7 +5392,7 @@ export default function App() {
   const inventoryAccessibleStockCenters = useMemo(
     () =>
       stockCenters
-        .filter((center) => center.companyId === currentCompanyId)
+        .filter((center) => isStockCenterVisibleForCompany(center, currentCompanyId))
         .filter((center) => isSystemAdmin || (currentAppUser ? center.userIds.includes(currentAppUser.id) : false))
         .sort((a, b) => a.name.localeCompare(b.name, 'pt-BR')),
     [currentAppUser, currentCompanyId, isSystemAdmin, stockCenters],
@@ -5396,7 +5411,7 @@ export default function App() {
   const requisitionApprovalCenters = useMemo(
     () =>
       stockCenters
-        .filter((center) => center.companyId === currentCompanyId && center.isActive)
+        .filter((center) => isStockCenterVisibleForCompany(center, currentCompanyId) && center.isActive)
         .filter((center) => isSystemAdmin || (currentAppUser ? center.responsibleUserIds.includes(currentAppUser.id) : false))
         .sort((a, b) => a.name.localeCompare(b.name, 'pt-BR')),
     [currentAppUser, currentCompanyId, isSystemAdmin, stockCenters],
@@ -5404,7 +5419,7 @@ export default function App() {
   const supplyResponsibleCenters = useMemo(
     () =>
       stockCenters
-        .filter((center) => center.companyId === currentCompanyId && center.isActive)
+        .filter((center) => isStockCenterVisibleForCompany(center, currentCompanyId) && center.isActive)
         .filter((center) => isSystemAdmin || (currentAppUser ? center.responsibleUserIds.includes(currentAppUser.id) : false))
         .sort((a, b) => a.name.localeCompare(b.name, 'pt-BR')),
     [currentAppUser, currentCompanyId, isSystemAdmin, stockCenters],
@@ -5412,7 +5427,7 @@ export default function App() {
   const productionEligibleCenters = useMemo(
     () =>
       stockCenters
-        .filter((center) => center.companyId === currentCompanyId && center.isActive && center.isProducer)
+        .filter((center) => isStockCenterVisibleForCompany(center, currentCompanyId) && center.isActive && center.isProducer)
         .filter((center) => isSystemAdmin || (currentAppUser ? center.userIds.includes(currentAppUser.id) : false))
         .sort((a, b) => a.name.localeCompare(b.name, 'pt-BR')),
     [currentAppUser, currentCompanyId, isSystemAdmin, stockCenters],
@@ -5752,7 +5767,7 @@ export default function App() {
   const reportEligibleStockCenters = useMemo(
     () =>
       stockCenters
-        .filter((center) => center.companyId === currentCompanyId && center.isActive)
+        .filter((center) => isStockCenterVisibleForCompany(center, currentCompanyId) && center.isActive)
         .filter(
           (center) =>
             isSystemAdmin ||
@@ -17849,14 +17864,15 @@ export default function App() {
 
     const mergedByKey = new Map<string, RequisitionDraftLine>()
     ;[...baseLines, ...productionShortageLines].forEach((line) => {
-      const existing = mergedByKey.get(line.key) ?? null
+      const semanticKey = buildRequisitionLineSemanticKey(line)
+      const existing = mergedByKey.get(semanticKey) ?? null
       if (!existing) {
-        mergedByKey.set(line.key, { ...line })
+        mergedByKey.set(semanticKey, { ...line })
         return
       }
       const nextSuggested = (parseDecimal(existing.suggestedQuantity) ?? 0) + (parseDecimal(line.suggestedQuantity) ?? 0)
       const nextRequested = (parseDecimal(existing.requestedQuantity) ?? 0) + (parseDecimal(line.requestedQuantity) ?? 0)
-      mergedByKey.set(line.key, {
+      mergedByKey.set(semanticKey, {
         ...existing,
         suggestedQuantity: formatDecimal(nextSuggested),
         requestedQuantity: formatDecimal(nextRequested),
