@@ -46630,20 +46630,6 @@ function calculateInventoryTotalCountedQuantityForContext(params: {
   return hasOpenItems ? closedCountedQuantity + openPhysicalQuantity : closedCountedQuantity
 }
 
-function findStockCenterMinimumQuantity(
-  minimumStocks: StockCenterMinimumStock[],
-  target: {
-    kind: StockCountableKind
-    technicalSheetId: number | null
-    productId: string
-    serviceItemId: string
-    packageId: number | null
-  },
-) {
-  const key = buildStockCenterMinimumEntryKey(target)
-  return minimumStocks.find((item) => buildStockCenterMinimumEntryKey(item) === key)?.minimumQuantity ?? ''
-}
-
 function findStockCenterMinimumEntry(
   minimumStocks: StockCenterMinimumStock[],
   target: {
