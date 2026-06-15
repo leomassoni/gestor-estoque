@@ -27152,7 +27152,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
       stockCenters.find((center) => center.id === batch.stockCenterId && center.companyId === batch.companyId) ?? null
     const duplicatePolicy = targetCenter?.salesImportSettings.duplicateRowPolicy ?? 'BLOCK'
     const { validRows: matchedRows, duplicatedRows } = getSalesImportProcessableMatchedRows(rebuiltRows, duplicatePolicy)
-    const preservedMatchedRows = batchRows
+    const preservedMatchedRows: SalesImportPreviewRow[] = batchRows
       .filter((row) => row.status === 'MATCHED' && typeof row.matchedTechnicalSheetId === 'number')
       .map((row) => {
         const matchedSheet =
@@ -27176,8 +27176,8 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
           errorMessage: '',
         } satisfies SalesImportPreviewRow
       })
-      .filter((row): row is SalesImportPreviewRow => row !== null)
-    const effectiveMatchedRows = matchedRows.length > 0 ? matchedRows : preservedMatchedRows
+      .filter((row): row is NonNullable<typeof row> => row !== null)
+    const effectiveMatchedRows: SalesImportPreviewRow[] = matchedRows.length > 0 ? matchedRows : preservedMatchedRows
     const hasPostedConsumptions = relatedConsumptions.some(
       (consumption) => consumption.stockPostingStatus === 'POSTED' || consumption.stockMovementId !== null,
     )
