@@ -5372,16 +5372,30 @@ export default function App() {
 
     const useMinimumBySheetId = new Map<number, number>(
       producedSheets.map((sheet) => {
-        const configuredMinimum = getMinimumUseQuantityValue(
-          findStockCenterMinimumEntry(selectedProductionCenter.minimumStocks, {
-            kind: 'PREPARO',
-            technicalSheetId: sheet.id,
-            productId: '',
-            serviceItemId: '',
-            packageId: null,
-          }),
-        )
+        const minimumEntry = findStockCenterMinimumEntry(selectedProductionCenter.minimumStocks, {
+          kind: 'PREPARO',
+          technicalSheetId: sheet.id,
+          productId: '',
+          serviceItemId: '',
+          packageId: null,
+        })
+        const configuredMinimum = getMinimumUseQuantityValue(minimumEntry)
         return [sheet.id, configuredMinimum * getStockCenterBaseQuantity(sheet)] as const
+      }),
+    )
+    const realMinimumBySheetId = new Map<number, number>(
+      producedSheets.map((sheet) => {
+        const minimumEntry = findStockCenterMinimumEntry(selectedProductionCenter.minimumStocks, {
+          kind: 'PREPARO',
+          technicalSheetId: sheet.id,
+          productId: '',
+          serviceItemId: '',
+          packageId: null,
+        })
+        return [
+          sheet.id,
+          (parseDecimal(getRealMinimumQuantityText(minimumEntry)) ?? 0) * getStockCenterBaseQuantity(sheet),
+        ] as const
       }),
     )
     const externalUseMinimumBySheetId = new Map<number, number>()
@@ -5419,6 +5433,7 @@ export default function App() {
       const nextVisiting = new Set(visiting)
       nextVisiting.add(sheetId)
       const ownUseMinimum = useMinimumBySheetId.get(sheetId) ?? 0
+      const ownRealMinimum = realMinimumBySheetId.get(sheetId) ?? 0
       const externalUseMinimum = externalUseMinimumBySheetId.get(sheetId) ?? 0
 
       const productionContribution = producedSheets.reduce((sum, candidateSheet) => {
@@ -5442,7 +5457,7 @@ export default function App() {
         return sum + candidateRequiredOutput * ((parseDecimal(ingredient.quantity) ?? 0) / candidateBaseYield)
       }, 0)
 
-      const total = ownUseMinimum + externalUseMinimum + productionContribution
+      const total = ownUseMinimum + ownRealMinimum + externalUseMinimum + productionContribution
       effectiveMinimumMemo.set(sheetId, total)
       return total
     }
@@ -9581,20 +9596,34 @@ export default function App() {
           )
         })
 
-        const useMinimumBySheetId = new Map<number, number>(
-          producedSheets.map((sheet) => {
-            const configuredMinimum = getMinimumUseQuantityValue(
-              findStockCenterMinimumEntry(center.minimumStocks, {
-                kind: 'PREPARO',
-                technicalSheetId: sheet.id,
-                productId: '',
-                serviceItemId: '',
-                packageId: null,
-              }),
-            )
-            return [sheet.id, configuredMinimum * getStockCenterBaseQuantity(sheet)] as const
-          }),
-        )
+    const useMinimumBySheetId = new Map<number, number>(
+      producedSheets.map((sheet) => {
+        const minimumEntry = findStockCenterMinimumEntry(center.minimumStocks, {
+          kind: 'PREPARO',
+          technicalSheetId: sheet.id,
+          productId: '',
+          serviceItemId: '',
+          packageId: null,
+        })
+        const configuredMinimum = getMinimumUseQuantityValue(minimumEntry)
+        return [sheet.id, configuredMinimum * getStockCenterBaseQuantity(sheet)] as const
+      }),
+    )
+    const realMinimumBySheetId = new Map<number, number>(
+      producedSheets.map((sheet) => {
+        const minimumEntry = findStockCenterMinimumEntry(center.minimumStocks, {
+          kind: 'PREPARO',
+          technicalSheetId: sheet.id,
+          productId: '',
+          serviceItemId: '',
+          packageId: null,
+        })
+        return [
+          sheet.id,
+          (parseDecimal(getRealMinimumQuantityText(minimumEntry)) ?? 0) * getStockCenterBaseQuantity(sheet),
+        ] as const
+      }),
+    )
 
         const externalUseMinimumBySheetId = new Map<number, number>()
         producedSheets.forEach((sheet) => {
@@ -9633,6 +9662,7 @@ export default function App() {
           const nextVisiting = new Set(visiting)
           nextVisiting.add(sheetId)
           const ownUseMinimum = useMinimumBySheetId.get(sheetId) ?? 0
+          const ownRealMinimum = realMinimumBySheetId.get(sheetId) ?? 0
           const externalUseMinimum = externalUseMinimumBySheetId.get(sheetId) ?? 0
 
           const productionContribution = producedSheets.reduce((sum, candidateSheet) => {
@@ -9656,7 +9686,7 @@ export default function App() {
             return sum + candidateRequiredOutput * ((parseDecimal(ingredient.quantity) ?? 0) / candidateBaseYield)
           }, 0)
 
-          const total = ownUseMinimum + externalUseMinimum + productionContribution
+          const total = ownUseMinimum + ownRealMinimum + externalUseMinimum + productionContribution
           effectiveMinimumMemo.set(sheetId, total)
           return total
         }
