@@ -3830,10 +3830,14 @@ export default function App() {
   const [salesImportPreviewFilter, setSalesImportPreviewFilter] = useState<'ALL' | 'MATCHED' | 'UNMATCHED' | 'ERROR' | 'IGNORED'>('ALL')
   const [salesImportIgnoredSourceRowKeys, setSalesImportIgnoredSourceRowKeys] = useState<string[]>([])
   const [selectedSalesImportBatchId, setSelectedSalesImportBatchId] = useState<number | null>(null)
+  const [showCancelledSalesImportBatches, setShowCancelledSalesImportBatches] = useState(false)
   const [isSalesImportConfirmationOpen, setIsSalesImportConfirmationOpen] = useState(false)
   const [processingSalesImportBatchAction, setProcessingSalesImportBatchAction] = useState<{
     batchId: number
     action: 'REPROCESS'
+  } | {
+    batchId: number
+    action: 'DELETE'
   } | null>(null)
   const [stockImportSettingsCenterId, setStockImportSettingsCenterId] = useState<string>('')
   const [stockImportSettingsCenterInput, setStockImportSettingsCenterInput] = useState('')
@@ -7687,18 +7691,25 @@ export default function App() {
     () => salesImportBatches.filter((batch) => batch.companyId === currentCompanyId),
     [currentCompanyId, salesImportBatches],
   )
+  const visibleCompanySalesImportBatches = useMemo(
+    () =>
+      currentCompanySalesImportBatches.filter(
+        (batch) => showCancelledSalesImportBatches || batch.status !== 'CANCELLED',
+      ),
+    [currentCompanySalesImportBatches, showCancelledSalesImportBatches],
+  )
   const currentCompanySalesImportRows = useMemo(
     () => salesImportRows.filter((row) => row.companyId === currentCompanyId),
     [currentCompanyId, salesImportRows],
   )
   const currentCompanySalesImportBatchesSorted = useMemo(
     () =>
-      [...currentCompanySalesImportBatches].sort((a, b) => {
+      [...visibleCompanySalesImportBatches].sort((a, b) => {
         const dateCompare = b.importedAt.localeCompare(a.importedAt)
         if (dateCompare !== 0) return dateCompare
         return b.id - a.id
       }),
-    [currentCompanySalesImportBatches],
+    [visibleCompanySalesImportBatches],
   )
   const currentCompanySalesConsumptions = useMemo(
     () => salesConsumptions.filter((consumption) => consumption.companyId === currentCompanyId),
@@ -27119,8 +27130,75 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
             ? 'O lote foi cancelado e o estoque recebeu um estorno das saidas que ja haviam sido lancadas.'
             : queuedSessionIds.size > 0
               ? 'O lote foi cancelado e as saidas que ainda estavam pendentes no inventario foram removidas.'
-              : 'O lote foi cancelado e seus consumos deixaram de valer para analise e sugestao de minimo.',
+            : 'O lote foi cancelado e seus consumos deixaram de valer para analise e sugestao de minimo.',
     })
+  }
+
+  async function deleteSalesImportBatch(batch: SalesImportBatchRecord) {
+    if (batch.status !== 'CANCELLED') {
+      setSaveFeedback({
+        status: 'error',
+        title: 'Exclusao bloqueada',
+        message: 'Cancele o lote antes de exclui-lo definitivamente.',
+      })
+      return
+    }
+    if (processingSalesImportBatchAction?.batchId === batch.id && processingSalesImportBatchAction.action === 'DELETE') {
+      return
+    }
+
+    setProcessingSalesImportBatchAction({
+      batchId: batch.id,
+      action: 'DELETE',
+    })
+
+    try {
+      const response = await fetch(`/api/sales-import-batches/${batch.id}`, {
+        method: 'DELETE',
+      })
+      if (!response.ok) {
+        throw new Error('Nao foi possivel excluir o lote no servidor.')
+      }
+    } catch (error) {
+      console.error(error)
+      setSaveFeedback({
+        status: 'error',
+        title: 'Falha ao excluir lote',
+        message:
+          error instanceof Error
+            ? error.message
+            : 'Nao foi possivel excluir este lote de importacao.',
+      })
+      setProcessingSalesImportBatchAction(null)
+      return
+    }
+
+    await refreshAppSalesImportRecordsFromApi()
+    if (selectedSalesImportBatchId === batch.id) {
+      setSelectedSalesImportBatchId(null)
+    }
+    registerAuditEvent({
+      companyId: batch.companyId,
+      module: 'IMPORTAR_VENDAS',
+      actionKey: 'DELETE_SALES_IMPORT_BATCH',
+      actionLabel: 'Exclusao de lote importado',
+      targetType: 'SALES_IMPORT_BATCH',
+      targetId: String(batch.id),
+      targetLabel: batch.fileName,
+      summary: `Lote ${batch.fileName} foi excluido definitivamente.`,
+      impactSummary: 'Lote, linhas importadas e consumos analiticos relacionados foram removidos.',
+      severity: 'CRITICAL',
+      result: 'SUCCESS',
+      details: {
+        stockCenterId: batch.stockCenterId,
+      },
+    })
+    setSaveFeedback({
+      status: 'success',
+      title: 'Lote excluido',
+      message: 'O lote cancelado foi removido definitivamente da lista.',
+    })
+    setProcessingSalesImportBatchAction(null)
   }
 
   async function reprocessSalesImportBatch(batch: SalesImportBatchRecord) {
@@ -36936,6 +37014,14 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                       <h2>Lotes importados</h2>
                     </div>
                   </div>
+                  <label className="checkbox-row">
+                    <input
+                      type="checkbox"
+                      checked={showCancelledSalesImportBatches}
+                      onChange={(event) => setShowCancelledSalesImportBatches(event.target.checked)}
+                    />
+                    <span>Exibir lotes cancelados</span>
+                  </label>
                   {currentCompanySalesImportBatches.length > 0 ? (
                     <>
                       <div className="table-wrap">
@@ -37109,6 +37195,22 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                                   onClick={() => void cancelSalesImportBatch(selectedSalesImportBatch)}
                                 >
                                   Cancelar lote
+                                </button>
+                              ) : null}
+                              {selectedSalesImportBatch.status === 'CANCELLED' ? (
+                                <button
+                                  type="button"
+                                  className="ghost-button danger-button"
+                                  disabled={
+                                    processingSalesImportBatchAction?.batchId === selectedSalesImportBatch.id &&
+                                    processingSalesImportBatchAction.action === 'DELETE'
+                                  }
+                                  onClick={() => void deleteSalesImportBatch(selectedSalesImportBatch)}
+                                >
+                                  {processingSalesImportBatchAction?.batchId === selectedSalesImportBatch.id &&
+                                  processingSalesImportBatchAction.action === 'DELETE'
+                                    ? 'Excluindo, aguarde...'
+                                    : 'Excluir lote'}
                                 </button>
                               ) : null}
                               {selectedSalesImportBatchRows.some((row) => row.status !== 'MATCHED') ? (

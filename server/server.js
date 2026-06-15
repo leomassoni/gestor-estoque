@@ -655,6 +655,22 @@ app.put('/api/sales-import-batches/:id', async (request, response) => {
   response.json({ batch: saved })
 })
 
+app.delete('/api/sales-import-batches/:id', async (request, response) => {
+  const batchId = parseIntegerParam(request.params.id)
+  if (batchId === null) {
+    response.status(400).json({ error: 'Lote de importacao invalido.' })
+    return
+  }
+
+  await prisma.$transaction([
+    prisma.appSalesConsumptionRecord.deleteMany({ where: { sourceBatchId: batchId } }),
+    prisma.appSalesImportRowRecord.deleteMany({ where: { batchId } }),
+    prisma.appSalesImportBatchRecord.deleteMany({ where: { id: batchId } }),
+  ])
+
+  response.json({ ok: true })
+})
+
 app.get('/api/sales-import-rows', async (request, response) => {
   const batchId = parseIntegerParam(request.query.batchId)
   const rows = await prisma.appSalesImportRowRecord.findMany({
