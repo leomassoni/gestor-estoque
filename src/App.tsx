@@ -27579,7 +27579,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
       technicalSheets
         .filter(
           (sheet) =>
-            sheet.companyId === companyId &&
+            isTechnicalSheetVisibleForCompany(sheet, companyId) &&
             sheet.isActive &&
             sheet.kind === 'PREPARO' &&
             sheet.productId.trim() !== '',
@@ -27798,7 +27798,10 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
       let leadTimeDays = 0
       if (target.kind === 'PREPARO' && typeof target.technicalSheetId === 'number') {
         const targetSheet = technicalSheets.find(
-          (sheet) => sheet.id === target.technicalSheetId && sheet.companyId === companyId && sheet.kind === 'PREPARO',
+          (sheet) =>
+            sheet.id === target.technicalSheetId &&
+            sheet.kind === 'PREPARO' &&
+            isTechnicalSheetVisibleForCompany(sheet, companyId),
         ) ?? null
         if (!targetSheet) {
           return null
@@ -27863,7 +27866,10 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
 
       if (target.kind === 'PREPARO' && typeof target.technicalSheetId === 'number') {
         const targetSheet = technicalSheets.find(
-          (sheet) => sheet.id === target.technicalSheetId && sheet.companyId === companyId && sheet.kind === 'PREPARO',
+          (sheet) =>
+            sheet.id === target.technicalSheetId &&
+            sheet.kind === 'PREPARO' &&
+            isTechnicalSheetVisibleForCompany(sheet, companyId),
         ) ?? null
         if (!targetSheet) {
           return
