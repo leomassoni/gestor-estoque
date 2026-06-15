@@ -20334,6 +20334,10 @@ export default function App() {
               return
             }
 
+            if (!producerCenter) {
+              return
+            }
+
             addPreparationShortageLine(dependencySheet, shortageQuantity, existingLine, lineKey, producerCenter)
             return
           }
