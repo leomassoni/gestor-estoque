@@ -4433,14 +4433,19 @@ export default function App() {
   function getTechnicalSheetSupplyRoutes(sheet: TechnicalSheetRecord) {
     return normalizeTechnicalSheetSupplyRoutes(sheet.supplyRoutes)
   }
+  function doesCenterProduceTechnicalSheet(center: StockCenterRecord, sheet: TechnicalSheetRecord) {
+    return (
+      center.producedTechnicalSheetIds.includes(sheet.id) ||
+      (sheet.productionCenters ?? []).some((assignment) => assignment.stockCenterId === center.id)
+    )
+  }
   function getTechnicalSheetProducerCenterCandidates(sheet: TechnicalSheetRecord, consumerCenter: StockCenterRecord) {
     const allowedCompanyIds = new Set(getCompanyLinkScopeIds(consumerCenter.companyId))
-    const producerCenterIds = new Set((sheet.productionCenters ?? []).map((assignment) => assignment.stockCenterId))
     return stockCenters
       .filter(
         (center) =>
           center.isActive &&
-          producerCenterIds.has(center.id) &&
+          doesCenterProduceTechnicalSheet(center, sheet) &&
           allowedCompanyIds.has(center.companyId) &&
           isTechnicalSheetVisibleForCompany(sheet, center.companyId),
       )
@@ -4519,9 +4524,7 @@ export default function App() {
     sheet: TechnicalSheetRecord,
     supplierCenter: StockCenterRecord,
   ) {
-    const supplierIsProducer = (sheet.productionCenters ?? []).some(
-      (assignment) => assignment.stockCenterId === supplierCenter.id,
-    )
+    const supplierIsProducer = doesCenterProduceTechnicalSheet(supplierCenter, sheet)
     if (!supplierIsProducer) {
       return 0
     }
@@ -4566,7 +4569,7 @@ export default function App() {
           !isTechnicalSheetVisibleForCompany(candidateSheet, center.companyId) ||
           !candidateSheet.isActive ||
           candidateSheet.kind !== 'PREPARO' ||
-          !center.producedTechnicalSheetIds.includes(candidateSheet.id) ||
+          !doesCenterProduceTechnicalSheet(center, candidateSheet) ||
           candidateSheet.id === targetSheet.id
         ) {
           return sum
@@ -5322,7 +5325,7 @@ export default function App() {
         }
 
         return (
-          selectedProductionCenter.producedTechnicalSheetIds.includes(sheet.id) ||
+          doesCenterProduceTechnicalSheet(selectedProductionCenter, sheet) ||
           manualRequestSheetIds.has(sheet.id) ||
           draftSheetIds.has(sheet.id)
         )
@@ -7200,7 +7203,8 @@ export default function App() {
             isTechnicalSheetVisibleForCompany(sheet, currentCompanyId) &&
             sheet.isActive &&
             sheet.kind === 'PREPARO' &&
-            manualProductionCenter?.producedTechnicalSheetIds.includes(sheet.id),
+            !!manualProductionCenter &&
+            doesCenterProduceTechnicalSheet(manualProductionCenter, sheet),
         )
         .sort((a, b) => a.name.localeCompare(b.name, 'pt-BR')),
     [currentCompanyId, isTechnicalSheetVisibleForCompany, manualProductionCenter, technicalSheets],
@@ -9082,7 +9086,11 @@ export default function App() {
           }
 
           if (row.kind === 'PREPARO') {
-            if (!manualSupplySourceCenter.producedTechnicalSheetIds.includes(row.technicalSheetId)) {
+            const technicalSheet =
+              row.technicalSheetId === null
+                ? null
+                : technicalSheets.find((sheet) => sheet.id === row.technicalSheetId && sheet.kind === 'PREPARO') ?? null
+            if (!technicalSheet || !doesCenterProduceTechnicalSheet(manualSupplySourceCenter, technicalSheet)) {
               return false
             }
           }
@@ -9542,7 +9550,7 @@ export default function App() {
               isTechnicalSheetVisibleForCompany(sheet, currentCompanyId) &&
               sheet.isActive &&
               sheet.kind === 'PREPARO' &&
-              center.producedTechnicalSheetIds.includes(sheet.id),
+              doesCenterProduceTechnicalSheet(center, sheet),
           )
           .sort((a, b) => a.name.localeCompare(b.name, 'pt-BR'))
 
@@ -11257,7 +11265,7 @@ export default function App() {
             }
 
             const producerNames = reportEligibleStockCenters
-              .filter((center) => center.producedTechnicalSheetIds.includes(sheet.id))
+              .filter((center) => doesCenterProduceTechnicalSheet(center, sheet))
               .map((center) => center.name)
 
             return {
@@ -11336,7 +11344,7 @@ export default function App() {
                 isTechnicalSheetVisibleForCompany(sheet, currentCompanyId) &&
                 sheet.isActive &&
                 sheet.kind === 'PREPARO' &&
-                center.producedTechnicalSheetIds.includes(sheet.id),
+                doesCenterProduceTechnicalSheet(center, sheet),
             )
             .flatMap((sheet) =>
               stockCenters
@@ -17663,7 +17671,13 @@ export default function App() {
     )
     const baseLines = stockCenterMinimumRows
       .filter((row) => row.kind !== 'ITEM' || row.baseUnit === 'UNIT')
-      .filter((row) => !(row.kind === 'PREPARO' && row.technicalSheetId !== null && center.producedTechnicalSheetIds.includes(row.technicalSheetId)))
+      .filter((row) => {
+        if (row.kind !== 'PREPARO' || row.technicalSheetId === null) {
+          return true
+        }
+        const technicalSheet = technicalSheets.find((sheet) => sheet.id === row.technicalSheetId && sheet.kind === 'PREPARO') ?? null
+        return !technicalSheet || !doesCenterProduceTechnicalSheet(center, technicalSheet)
+      })
       .map((row) => {
         const minimumStock = minimumByKey.get(row.key) ?? null
         const manualUseMinimum = getMinimumUseQuantityValue(minimumStock)
@@ -17780,7 +17794,7 @@ export default function App() {
           isTechnicalSheetVisibleForCompany(sheet, currentCompanyId) &&
           sheet.kind === 'PREPARO' &&
           sheet.isActive &&
-          center.producedTechnicalSheetIds.includes(sheet.id),
+          doesCenterProduceTechnicalSheet(center, sheet),
       )
       .sort((a, b) => a.name.localeCompare(b.name, 'pt-BR'))
 
@@ -20122,7 +20136,8 @@ export default function App() {
           (dependencySheet ? getTechnicalSheetSharedCompanyIds(dependencySheet).includes(center.companyId) : center.companyId === currentCompanyId) &&
           center.isActive &&
           center.isProducer &&
-          center.producedTechnicalSheetIds.includes(sheetId),
+          !!dependencySheet &&
+          doesCenterProduceTechnicalSheet(center, dependencySheet),
       )
 
       return (
@@ -27178,6 +27193,13 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
       })
       .filter((row): row is NonNullable<typeof row> => row !== null)
     const effectiveMatchedRows: SalesImportPreviewRow[] = matchedRows.length > 0 ? matchedRows : preservedMatchedRows
+    const fallbackDemandRowsFromConsumptions = relatedConsumptions
+      .map((consumption) => ({
+        consumedAt: consumption.consumedAt,
+        ingredientProductId: consumption.ingredientProductId,
+        quantityConsumed: parseDecimal(consumption.quantityConsumed) ?? 0,
+      }))
+      .filter((row) => row.quantityConsumed > 0)
     const hasPostedConsumptions = relatedConsumptions.some(
       (consumption) => consumption.stockPostingStatus === 'POSTED' || consumption.stockMovementId !== null,
     )
@@ -27191,7 +27213,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
       setProcessingSalesImportBatchAction(null)
       return
     }
-    if (effectiveMatchedRows.length === 0) {
+    if (effectiveMatchedRows.length === 0 && fallbackDemandRowsFromConsumptions.length === 0) {
       if (rowsToUpdate.length > 0) {
         try {
           const rowUpdateResponses = await Promise.all(
@@ -27235,7 +27257,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
     let nextConsumptionsForRecalculation = relatedConsumptions
     let newlyMatchedRows = rebuiltRows.filter((row, index) => row.status === 'MATCHED' && batchRows[index]?.status !== 'MATCHED').length
 
-    if (!hasPostedConsumptions) {
+    if (!hasPostedConsumptions && effectiveMatchedRows.length > 0) {
       const nextConsumptionId = getNextPersistedIntId(
         salesConsumptions.map((item) => item.id).concat([batch.id + 2000]),
       )
@@ -27349,8 +27371,9 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
       coverageMode: getSalesImportBatchCoverageMode(batch),
       coverageWeekStartsOn: getSalesImportBatchCoverageWeekStartsOn(batch),
       safetyMarginPercent: batch.safetyMarginPercent,
-      importedRows: effectiveMatchedRows,
+      importedRows: effectiveMatchedRows.length > 0 ? effectiveMatchedRows : rebuiltRows,
       pendingMatchedRows: effectiveMatchedRows,
+      fallbackDemandRows: effectiveMatchedRows.length === 0 ? fallbackDemandRowsFromConsumptions : [],
       replaceSourceBatchId: batch.id,
     })
 
@@ -27418,6 +27441,11 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
     safetyMarginPercent: string
     importedRows: Array<Pick<SalesImportPreviewRow, 'consumedAt'>>
     pendingMatchedRows: SalesImportPreviewRow[]
+    fallbackDemandRows?: Array<{
+      consumedAt: string
+      ingredientProductId: string
+      quantityConsumed: number
+    }>
     replaceSourceBatchId?: number | null
   }) {
     const {
@@ -27428,6 +27456,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
       historyMonths,
       importedRows,
       pendingMatchedRows,
+      fallbackDemandRows = [],
       replaceSourceBatchId,
       safetyMarginPercent,
       targetCenterId,
@@ -27437,8 +27466,8 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
       return stockCenters
     }
 
-    const importedDateKeys = importedRows
-      .map((row) => normalizeSalesImportDateKey(row.consumedAt))
+    const importedDateKeys = [...importedRows.map((row) => row.consumedAt), ...fallbackDemandRows.map((row) => row.consumedAt)]
+      .map((value) => normalizeSalesImportDateKey(value))
       .filter((value): value is string => Boolean(value))
       .sort()
     if (importedDateKeys.length === 0) {
@@ -27484,6 +27513,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
         })),
       ),
       ...buildSalesImportIngredientDemandRows(pendingMatchedRows),
+      ...fallbackDemandRows,
     ]
     const normalizedConsumptionRows = relevantDemandRows
       .map((record) => ({
