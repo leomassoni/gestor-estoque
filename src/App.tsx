@@ -27833,10 +27833,9 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
       technicalSheetId: number | null
       productId: string
       suggestedMinimumQuantity: string
-      suggestedContext: 'CONSUMO_PROPRIO' | 'ESPELHO_ABASTECIMENTO'
+      suggestedContext: 'CONSUMO_PROPRIO'
     }
     const suggestedMinimumByCenter = new Map<number, SuggestionEntry[]>()
-    const mirrorCleanupKeysByCenter = new Map<number, Set<string>>()
     const addSuggestionEntry = (centerId: number, entry: SuggestionEntry) => {
       const current = suggestedMinimumByCenter.get(centerId) ?? []
       const existingIndex = current.findIndex(
@@ -27866,123 +27865,17 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
         suggestedMinimumQuantity: consumerSuggestedMinimumQuantity,
         suggestedContext: 'CONSUMO_PROPRIO',
       })
-
-      const consumerSuggestedMinimumValue = parseDecimal(consumerSuggestedMinimumQuantity) ?? 0
-      if (consumerSuggestedMinimumValue <= 0) {
-        return
-      }
-
-      if (target.kind === 'PREPARO' && typeof target.technicalSheetId === 'number') {
-        const targetSheet = technicalSheets.find(
-          (sheet) =>
-            sheet.id === target.technicalSheetId &&
-            sheet.kind === 'PREPARO' &&
-            isTechnicalSheetVisibleForCompany(sheet, companyId),
-        ) ?? null
-        if (!targetSheet) {
-          return
-        }
-        const supplyResolution = resolveTechnicalSheetSupplyRoute(targetSheet, targetCenter)
-        if (
-          supplyResolution.status === 'resolved' &&
-          supplyResolution.supplierCenter &&
-          supplyResolution.supplierCenter.id !== targetCenter.id
-        ) {
-          const supplierMirrorKey = buildStockCenterMinimumEntryKey({
-            kind: 'PREPARO',
-            technicalSheetId: target.technicalSheetId,
-            productId: '',
-            serviceItemId: '',
-            packageId: null,
-          })
-          const cleanupKeys = mirrorCleanupKeysByCenter.get(supplyResolution.supplierCenter.id) ?? new Set<string>()
-          cleanupKeys.add(supplierMirrorKey)
-          mirrorCleanupKeysByCenter.set(supplyResolution.supplierCenter.id, cleanupKeys)
-          if (supplyResolution.supplierCenter.salesImportSettings.mirrorDependentMinimums !== true) {
-            return
-          }
-          const supplierEntries = suggestedMinimumByCenter.get(supplyResolution.supplierCenter.id) ?? []
-          const existingSupplierEntry =
-            supplierEntries.find(
-              (entry) => entry.kind === 'PREPARO' && entry.technicalSheetId === target.technicalSheetId,
-            ) ?? null
-          const nextSupplierQuantity = formatDecimal(
-            (parseDecimal(existingSupplierEntry?.suggestedMinimumQuantity ?? '') ?? 0) + consumerSuggestedMinimumValue,
-          )
-          addSuggestionEntry(supplyResolution.supplierCenter.id, {
-            kind: 'PREPARO',
-            technicalSheetId: target.technicalSheetId,
-            productId: '',
-            suggestedMinimumQuantity: nextSupplierQuantity,
-            suggestedContext: 'ESPELHO_ABASTECIMENTO',
-          })
-        }
-        return
-      }
-
-      if (target.kind === 'PRODUTO' && target.productId.trim()) {
-        const distributorCenter = findDistributorCenterForRequisitionLine(targetCenter, {
-          kind: 'PRODUTO',
-          productId: target.productId,
-        })
-        if (
-          distributorCenter &&
-          distributorCenter.id !== targetCenter.id
-        ) {
-          const supplierMirrorKey = buildStockCenterMinimumEntryKey({
-            kind: 'PRODUTO',
-            technicalSheetId: null,
-            productId: target.productId,
-            serviceItemId: '',
-            packageId: null,
-          })
-          const cleanupKeys = mirrorCleanupKeysByCenter.get(distributorCenter.id) ?? new Set<string>()
-          cleanupKeys.add(supplierMirrorKey)
-          mirrorCleanupKeysByCenter.set(distributorCenter.id, cleanupKeys)
-          if (distributorCenter.salesImportSettings.mirrorDependentMinimums !== true) {
-            return
-          }
-          const supplierEntries = suggestedMinimumByCenter.get(distributorCenter.id) ?? []
-          const existingSupplierEntry =
-            supplierEntries.find(
-              (entry) => entry.kind === 'PRODUTO' && entry.productId === target.productId,
-            ) ?? null
-          const nextSupplierQuantity = formatDecimal(
-            (parseDecimal(existingSupplierEntry?.suggestedMinimumQuantity ?? '') ?? 0) + consumerSuggestedMinimumValue,
-          )
-          addSuggestionEntry(distributorCenter.id, {
-            kind: 'PRODUTO',
-            technicalSheetId: null,
-            productId: target.productId,
-            suggestedMinimumQuantity: nextSupplierQuantity,
-            suggestedContext: 'ESPELHO_ABASTECIMENTO',
-          })
-        }
-      }
     })
-
-    if (suggestedMinimumByCenter.size === 0) {
-      return stockCenters
-    }
 
     const nextCenters = stockCenters.map((center) => {
       const centerSuggestions = suggestedMinimumByCenter.get(center.id) ?? null
-      const mirrorCleanupKeys = mirrorCleanupKeysByCenter.get(center.id) ?? null
-      if ((!centerSuggestions || centerSuggestions.length === 0) && (!mirrorCleanupKeys || mirrorCleanupKeys.size === 0)) {
+      const hasMirrorEntries = center.minimumStocks.some((entry) => entry.suggestedContext === 'ESPELHO_ABASTECIMENTO')
+      if ((!centerSuggestions || centerSuggestions.length === 0) && !hasMirrorEntries) {
         return center
       }
       const effectiveCenterSuggestions = centerSuggestions ?? []
 
-      const nextMinimumStocks = center.minimumStocks.filter((entry) => {
-        if (!mirrorCleanupKeys || mirrorCleanupKeys.size === 0) {
-          return true
-        }
-        const entryKey = buildStockCenterMinimumEntryKey(entry)
-        if (!mirrorCleanupKeys.has(entryKey)) {
-          return true
-        }
-        return entry.suggestedContext !== 'ESPELHO_ABASTECIMENTO'
-      })
+      const nextMinimumStocks = center.minimumStocks.filter((entry) => entry.suggestedContext !== 'ESPELHO_ABASTECIMENTO')
       effectiveCenterSuggestions.forEach((entry) => {
         const targetKey = buildStockCenterMinimumEntryKey({
           kind: entry.kind,
