@@ -27581,10 +27581,14 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
       safetyMarginPercent,
       targetCenterId,
     } = params
-    const targetCenter = stockCenters.find((center) => center.id === targetCenterId && center.companyId === companyId) ?? null
+    const targetCenter =
+      stockCenters.find(
+        (center) => center.id === targetCenterId && (center.companyId === companyId || isStockCenterVisibleForCompany(center, companyId)),
+      ) ?? null
     if (!targetCenter) {
       return stockCenters
     }
+    const targetCompanyId = targetCenter.companyId
 
     const importedDateKeys = [...importedRows.map((row) => row.consumedAt), ...fallbackDemandRows.map((row) => row.consumedAt)]
       .map((value) => normalizeSalesImportDateKey(value))
@@ -27669,7 +27673,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
 
     const stockTrackedProductsById = new Map(
       products
-        .filter((product) => product.isActive && isProductStockTracked(product) && isProductVisibleForCompany(product, companyId))
+        .filter((product) => product.isActive && isProductStockTracked(product) && isProductVisibleForCompany(product, targetCompanyId))
         .map((product) => [product.id, product] as const),
     )
     type MinimumSuggestionTarget = {
@@ -27809,7 +27813,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
           (sheet) =>
             sheet.id === target.technicalSheetId &&
             sheet.kind === 'PREPARO' &&
-            isTechnicalSheetVisibleForCompany(sheet, companyId),
+            isTechnicalSheetVisibleForCompany(sheet, center.companyId),
         ) ?? null
         if (!targetSheet) {
           return null
