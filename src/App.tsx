@@ -4524,6 +4524,49 @@ export default function App() {
       resolutionSource: 'none' as const,
     }
   }
+  function resolvePreparationSheetForCenterByProductId(
+    productId: string,
+    center: StockCenterRecord,
+  ): TechnicalSheetRecord | null {
+    const normalizedProductId = productId.trim()
+    if (!normalizedProductId) {
+      return null
+    }
+
+    const candidates = technicalSheets
+      .filter(
+        (sheet) =>
+          sheet.kind === 'PREPARO' &&
+          sheet.isActive &&
+          sheet.productId === normalizedProductId &&
+          isTechnicalSheetVisibleForCompany(sheet, center.companyId),
+      )
+      .sort((left, right) => left.id - right.id)
+
+    if (candidates.length === 0) {
+      return null
+    }
+
+    const producedHere = candidates.filter((sheet) => doesCenterProduceTechnicalSheet(center, sheet))
+    if (producedHere.length > 0) {
+      return producedHere[0]
+    }
+
+    const suppliedToCenter = candidates.filter((sheet) => {
+      const resolution = resolveTechnicalSheetSupplyRoute(sheet, center)
+      return resolution.status === 'resolved'
+    })
+    if (suppliedToCenter.length > 0) {
+      return suppliedToCenter[0]
+    }
+
+    const sameCompanyOwner = candidates.filter((sheet) => getTechnicalSheetOwnerCompanyId(sheet) === center.companyId)
+    if (sameCompanyOwner.length > 0) {
+      return sameCompanyOwner[0]
+    }
+
+    return candidates[0]
+  }
   function getTechnicalSheetExternalUseMinimumQuantityForCenter(
     sheet: TechnicalSheetRecord,
     supplierCenter: StockCenterRecord,
@@ -20126,18 +20169,6 @@ export default function App() {
 
     const lineMap = new Map<string, RequisitionLineRecord>()
     const plannedProductionRequests = new Map<string, { centerId: number; sheetId: number; desiredYield: number }>()
-    const dependencySheetByProductId = new Map(
-      technicalSheets
-        .filter(
-          (sheet) =>
-            isTechnicalSheetVisibleForCompany(sheet, currentCompanyId) &&
-            sheet.kind === 'PREPARO' &&
-            sheet.isActive &&
-            isTechnicalSheetStockTracked(sheet, products) &&
-            sheet.productId.trim() !== '',
-        )
-        .map((sheet) => [sheet.productId, sheet] as const),
-    )
     const activeProductById = new Map(
       products
         .filter((product) => isProductVisibleForCompany(product, currentCompanyId) && product.isActive && isProductStockTracked(product))
@@ -20290,7 +20321,7 @@ export default function App() {
       ;[...recipeData.ingredientMetrics, ...recipeData.garnishMetrics]
         .filter((ingredient) => ingredient.productId.trim() !== '' && ingredient.scaledInputQuantity > 0)
         .forEach((ingredient) => {
-          const dependencySheet = dependencySheetByProductId.get(ingredient.productId) ?? null
+          const dependencySheet = resolvePreparationSheetForCenterByProductId(ingredient.productId, stockCenter)
           const linkedProduct = activeProductById.get(ingredient.productId) ?? null
 
           if (linkedProduct && !isProductStockTracked(linkedProduct)) {
@@ -27609,17 +27640,6 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
       return stockCenters
     }
 
-    const prepSheetsByProductId = new Map(
-      technicalSheets
-        .filter(
-          (sheet) =>
-            isTechnicalSheetVisibleForCompany(sheet, companyId) &&
-            sheet.isActive &&
-            sheet.kind === 'PREPARO' &&
-            sheet.productId.trim() !== '',
-        )
-        .map((sheet) => [sheet.productId, sheet] as const),
-    )
     const activeBatchIds = new Set(
       currentCompanySalesImportBatches
         .filter(
@@ -27712,7 +27732,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
         return
       }
 
-      const linkedPrepSheet = prepSheetsByProductId.get(record.ingredientProductId) ?? null
+      const linkedPrepSheet = resolvePreparationSheetForCenterByProductId(record.ingredientProductId, targetCenter)
       if (linkedPrepSheet) {
         const itemKey = `PREPARO:${linkedPrepSheet.id}`
         const current = consumerDemandByItemKey.get(itemKey) ?? {
