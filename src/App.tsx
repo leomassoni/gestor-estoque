@@ -27115,7 +27115,39 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
       return
     }
 
+    const nextStockCenters = rebuildSalesImportSuggestedMinimumsForCompanyScope({
+      companyId: batch.companyId,
+      baseStockCenters: stockCenters,
+      availableBatches: salesImportBatches.map((item) => (item.id === batch.id ? updatedBatch : item)),
+      availableRows: salesImportRows,
+      availableConsumptions: salesConsumptions.map((item) =>
+        item.sourceBatchId === batch.id
+          ? {
+              ...item,
+              stockPostingStatus: 'CANCELLED',
+              postedAt: '',
+            }
+          : item,
+      ),
+    })
+    try {
+      await persistChangedStockCentersOnApi(stockCenters, nextStockCenters)
+    } catch (error) {
+      console.error(error)
+      setSaveFeedback({
+        status: 'error',
+        title: 'Falha ao cancelar lote',
+        message:
+          error instanceof Error
+            ? `O lote foi cancelado, mas nao foi possivel recalcular os minimos sugeridos: ${error.message}`
+            : 'O lote foi cancelado, mas nao foi possivel recalcular os minimos sugeridos.',
+      })
+      return
+    }
+
+    setStockCenters(nextStockCenters)
     await refreshAppSalesImportRecordsFromApi()
+    await refreshAppStockCenterRecordsFromApi()
     registerAuditEvent({
       companyId: batch.companyId,
       module: 'IMPORTAR_VENDAS',
@@ -27192,7 +27224,32 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
       return
     }
 
+    const nextStockCenters = rebuildSalesImportSuggestedMinimumsForCompanyScope({
+      companyId: batch.companyId,
+      baseStockCenters: stockCenters,
+      availableBatches: salesImportBatches.filter((item) => item.id !== batch.id),
+      availableRows: salesImportRows.filter((row) => row.batchId !== batch.id),
+      availableConsumptions: salesConsumptions.filter((consumption) => consumption.sourceBatchId !== batch.id),
+    })
+    try {
+      await persistChangedStockCentersOnApi(stockCenters, nextStockCenters)
+    } catch (error) {
+      console.error(error)
+      setSaveFeedback({
+        status: 'error',
+        title: 'Falha ao excluir lote',
+        message:
+          error instanceof Error
+            ? `O lote foi excluido, mas nao foi possivel recalcular os minimos sugeridos: ${error.message}`
+            : 'O lote foi excluido, mas nao foi possivel recalcular os minimos sugeridos.',
+      })
+      setProcessingSalesImportBatchAction(null)
+      return
+    }
+
+    setStockCenters(nextStockCenters)
     await refreshAppSalesImportRecordsFromApi()
+    await refreshAppStockCenterRecordsFromApi()
     if (selectedSalesImportBatchId === batch.id) {
       setSelectedSalesImportBatchId(null)
     }
@@ -27470,7 +27527,42 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
     }
 
     if (nextConsumptionsForRecalculation.length === 0) {
+      const rebuiltBatchRows: SalesImportRowRecord[] = batchRows.map((row, index) => ({
+        ...row,
+        consumedAt: rebuiltRows[index]?.consumedAt ?? row.consumedAt,
+        companyProductId: rebuiltRows[index]?.companyProductId ?? row.companyProductId,
+        quantity: rebuiltRows[index]?.quantity ?? row.quantity,
+        matchedTechnicalSheetId: rebuiltRows[index]?.matchedTechnicalSheetId ?? row.matchedTechnicalSheetId,
+        matchedKind: rebuiltRows[index]?.matchedKind ?? row.matchedKind,
+        status: rebuiltRows[index]?.status ?? row.status,
+        errorMessage: rebuiltRows[index]?.errorMessage ?? row.errorMessage,
+      }))
+      const nextStockCenters = rebuildSalesImportSuggestedMinimumsForCompanyScope({
+        companyId: batch.companyId,
+        baseStockCenters: stockCenters,
+        availableBatches: salesImportBatches,
+        availableRows: [...salesImportRows.filter((row) => row.batchId !== batch.id), ...rebuiltBatchRows],
+        availableConsumptions: salesConsumptions.filter((consumption) => consumption.sourceBatchId !== batch.id),
+      })
+      try {
+        await persistChangedStockCentersOnApi(stockCenters, nextStockCenters)
+      } catch (error) {
+        console.error(error)
+        setSaveFeedback({
+          status: 'error',
+          title: 'Falha ao reprocessar lote',
+          message:
+            error instanceof Error
+              ? error.message
+              : 'Nao foi possivel recalcular os minimos sugeridos deste lote.',
+        })
+        setSaveProgressState(null)
+        setProcessingSalesImportBatchAction(null)
+        return
+      }
+      setStockCenters(nextStockCenters)
       await refreshAppSalesImportRecordsFromApi()
+      await refreshAppStockCenterRecordsFromApi()
       setSaveFeedback({
         status: 'success',
         title: 'Linhas revisadas',
@@ -27483,18 +27575,25 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
       return
     }
 
-    const nextStockCenters = applySalesImportSuggestedMinimums({
+    const rebuiltBatchRows: SalesImportRowRecord[] = batchRows.map((row, index) => ({
+      ...row,
+      consumedAt: rebuiltRows[index]?.consumedAt ?? row.consumedAt,
+      companyProductId: rebuiltRows[index]?.companyProductId ?? row.companyProductId,
+      quantity: rebuiltRows[index]?.quantity ?? row.quantity,
+      matchedTechnicalSheetId: rebuiltRows[index]?.matchedTechnicalSheetId ?? row.matchedTechnicalSheetId,
+      matchedKind: rebuiltRows[index]?.matchedKind ?? row.matchedKind,
+      status: rebuiltRows[index]?.status ?? row.status,
+      errorMessage: rebuiltRows[index]?.errorMessage ?? row.errorMessage,
+    }))
+    const nextStockCenters = rebuildSalesImportSuggestedMinimumsForCompanyScope({
       companyId: batch.companyId,
-      targetCenterId: batch.stockCenterId,
-      historyMode: batch.historyMode,
-      historyMonths: batch.historyMonths,
-      coverageMode: getSalesImportBatchCoverageMode(batch),
-      coverageWeekStartsOn: getSalesImportBatchCoverageWeekStartsOn(batch),
-      safetyMarginPercent: batch.safetyMarginPercent,
-      importedRows: effectiveMatchedRows.length > 0 ? effectiveMatchedRows : rebuiltRows,
-      pendingMatchedRows: effectiveMatchedRows,
-      fallbackDemandRows: effectiveMatchedRows.length === 0 ? fallbackDemandRowsFromConsumptions : [],
-      replaceSourceBatchId: batch.id,
+      baseStockCenters: stockCenters,
+      availableBatches: salesImportBatches,
+      availableRows: [...salesImportRows.filter((row) => row.batchId !== batch.id), ...rebuiltBatchRows],
+      availableConsumptions: [
+        ...salesConsumptions.filter((consumption) => consumption.sourceBatchId !== batch.id),
+        ...nextConsumptionsForRecalculation,
+      ],
     })
 
     try {
@@ -27567,8 +27666,14 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
       quantityConsumed: number
     }>
     replaceSourceBatchId?: number | null
+    baseStockCenters?: StockCenterRecord[]
+    availableBatches?: SalesImportBatchRecord[]
+    availableRows?: SalesImportRowRecord[]
   }) {
     const {
+      availableBatches,
+      availableRows,
+      baseStockCenters,
       companyId,
       coverageMode,
       coverageWeekStartsOn,
@@ -27581,12 +27686,15 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
       safetyMarginPercent,
       targetCenterId,
     } = params
+    const workingStockCenters = baseStockCenters ?? stockCenters
+    const workingBatches = availableBatches ?? salesImportBatches
+    const workingRows = availableRows ?? salesImportRows
     const targetCenter =
-      stockCenters.find(
+      workingStockCenters.find(
         (center) => center.id === targetCenterId && (center.companyId === companyId || isStockCenterVisibleForCompany(center, companyId)),
       ) ?? null
     if (!targetCenter) {
-      return stockCenters
+      return workingStockCenters
     }
     const targetCompanyId = targetCenter.companyId
 
@@ -27595,11 +27703,11 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
       .filter((value): value is string => Boolean(value))
       .sort()
     if (importedDateKeys.length === 0) {
-      return stockCenters
+      return workingStockCenters
     }
 
     const activeBatchIds = new Set(
-      currentCompanySalesImportBatches
+      workingBatches
         .filter(
           (batch) =>
             batch.companyId === companyId &&
@@ -27609,7 +27717,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
         )
         .map((batch) => batch.id),
     )
-    const persistedMatchedRows = currentCompanySalesImportRows.filter(
+    const persistedMatchedRows = workingRows.filter(
       (row) =>
         row.companyId === companyId &&
         row.stockCenterId === targetCenterId &&
@@ -27636,7 +27744,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
       .filter((item): item is { record: { consumedAt: string; ingredientProductId: string; quantityConsumed: number }; dateKey: string } => Boolean(item.dateKey))
 
     if (normalizedConsumptionRows.length === 0) {
-      return stockCenters
+      return workingStockCenters
     }
 
     const importedStartDateKey = importedDateKeys[0]
@@ -27871,7 +27979,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
       })
     })
 
-    const nextCenters = stockCenters.map((center) => {
+    const nextCenters = workingStockCenters.map((center) => {
       const centerSuggestions = suggestedMinimumByCenter.get(center.id) ?? null
       const hasMirrorEntries = center.minimumStocks.some((entry) => entry.suggestedContext === 'ESPELHO_ABASTECIMENTO')
       if ((!centerSuggestions || centerSuggestions.length === 0) && !hasMirrorEntries) {
@@ -27934,6 +28042,135 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
     })
 
     return nextCenters
+  }
+
+  function rebuildSalesImportSuggestedMinimumsForCompanyScope(params: {
+    companyId: number
+    baseStockCenters?: StockCenterRecord[]
+    availableBatches?: SalesImportBatchRecord[]
+    availableRows?: SalesImportRowRecord[]
+    availableConsumptions?: SalesConsumptionRecord[]
+  }) {
+    const {
+      availableBatches = salesImportBatches,
+      availableConsumptions = salesConsumptions,
+      availableRows = salesImportRows,
+      baseStockCenters = stockCenters,
+      companyId,
+    } = params
+    const companyScopeIds = new Set(getCompanyLinkScopeIds(companyId))
+
+    const cleanedCenters = baseStockCenters.map((center) => {
+      if (!companyScopeIds.has(center.companyId)) {
+        return center
+      }
+
+      const nextMinimumStocks = center.minimumStocks
+        .map((entry) => {
+          const nextMinimumSource = entry.minimumSource === 'SUGERIDO_VENDAS' ? undefined : entry.minimumSource
+          const nextMinimumQuantity = entry.minimumSource === 'SUGERIDO_VENDAS' ? '' : entry.minimumQuantity.trim()
+          const shouldClearSuggestedReal =
+            entry.realMinimumSource === 'SUGERIDO_VENDAS' || entry.suggestedContext === 'ESPELHO_ABASTECIMENTO'
+          const nextSuggestedMinimumQuantity = shouldClearSuggestedReal
+            ? ''
+            : (entry.suggestedMinimumQuantity ?? '').trim()
+          const nextRealMinimumSource = shouldClearSuggestedReal ? undefined : entry.realMinimumSource
+          const nextSuggestedContext =
+            nextRealMinimumSource === 'MANUAL' || nextRealMinimumSource === 'SUGERIDO_VENDAS'
+              ? entry.suggestedContext === 'CONSUMO_PROPRIO'
+                ? 'CONSUMO_PROPRIO'
+                : undefined
+              : undefined
+
+          if (nextMinimumQuantity === '' && nextSuggestedMinimumQuantity === '') {
+            return null
+          }
+
+          return {
+            ...entry,
+            minimumQuantity: nextMinimumQuantity,
+            minimumSource: nextMinimumSource,
+            suggestedMinimumQuantity: nextSuggestedMinimumQuantity || undefined,
+            realMinimumSource: nextRealMinimumSource,
+            suggestedContext: nextSuggestedContext,
+            suggestedAt: nextSuggestedMinimumQuantity ? entry.suggestedAt : undefined,
+          } satisfies StockCenterMinimumStock
+        })
+        .filter((entry): entry is StockCenterMinimumStock => entry !== null)
+
+      return {
+        ...center,
+        minimumStocks: nextMinimumStocks,
+      }
+    })
+
+    const activeBatches = availableBatches
+      .filter((batch) => companyScopeIds.has(batch.companyId) && batch.status !== 'CANCELLED')
+      .sort(
+        (left, right) =>
+          left.importedAt.localeCompare(right.importedAt) ||
+          left.fileName.localeCompare(right.fileName, 'pt-BR') ||
+          left.id - right.id,
+      )
+
+    return activeBatches.reduce((nextCenters, batch) => {
+      const matchedRows = availableRows
+        .filter((row) => row.batchId === batch.id && row.status === 'MATCHED')
+        .map((row) => ({
+          sourceRowKey: row.sourceRowKey,
+          consumedAt: row.consumedAt,
+          companyProductId: row.companyProductId,
+          quantity: normalizeSalesImportQuantityValue(row.quantity, true),
+          matchedTechnicalSheetId: row.matchedTechnicalSheetId,
+          matchedKind: row.matchedKind,
+          status: 'MATCHED' as const,
+          errorMessage: '',
+        }))
+        .filter((row): row is SalesImportPreviewRow => typeof row.matchedTechnicalSheetId === 'number' && Boolean(row.matchedKind))
+
+      const fallbackDemandRows =
+        matchedRows.length === 0
+          ? availableConsumptions
+              .filter(
+                (consumption) =>
+                  consumption.sourceBatchId === batch.id && consumption.stockPostingStatus !== 'CANCELLED',
+              )
+              .map((consumption) => ({
+                consumedAt: consumption.consumedAt,
+                ingredientProductId: consumption.ingredientProductId,
+                quantityConsumed: parseDecimal(consumption.quantityConsumed) ?? 0,
+              }))
+              .filter((row) => row.quantityConsumed > 0)
+          : []
+
+      if (matchedRows.length === 0 && fallbackDemandRows.length === 0) {
+        return nextCenters
+      }
+
+      const importedRows =
+        matchedRows.length > 0
+          ? matchedRows
+          : fallbackDemandRows.map((row) => ({
+              consumedAt: row.consumedAt,
+            }))
+
+      return applySalesImportSuggestedMinimums({
+        companyId: batch.companyId,
+        targetCenterId: batch.stockCenterId,
+        historyMode: batch.historyMode,
+        historyMonths: batch.historyMonths,
+        coverageMode: getSalesImportBatchCoverageMode(batch),
+        coverageWeekStartsOn: getSalesImportBatchCoverageWeekStartsOn(batch),
+        safetyMarginPercent: batch.safetyMarginPercent,
+        importedRows,
+        pendingMatchedRows: matchedRows,
+        fallbackDemandRows,
+        replaceSourceBatchId: batch.id,
+        baseStockCenters: nextCenters,
+        availableBatches,
+        availableRows,
+      })
+    }, cleanedCenters)
   }
 
   function resetSalesImportDraft(preserveDefaults = true) {
@@ -28433,16 +28670,12 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
       }
     }
 
-    const nextStockCenters = applySalesImportSuggestedMinimums({
+    const nextStockCenters = rebuildSalesImportSuggestedMinimumsForCompanyScope({
       companyId: currentCompanyId,
-      targetCenterId: targetCenter.id,
-      historyMode: batchToSave.historyMode,
-      historyMonths: batchToSave.historyMonths,
-      coverageMode: batchToSave.coverageMode ?? 'WEEKLY',
-      coverageWeekStartsOn: batchToSave.coverageWeekStartsOn ?? 1,
-      safetyMarginPercent: batchToSave.safetyMarginPercent,
-      importedRows: validRows,
-      pendingMatchedRows: validRows,
+      baseStockCenters: stockCenters,
+      availableBatches: [...salesImportBatches, batchToSave],
+      availableRows: [...salesImportRows, ...rowsToSave],
+      availableConsumptions: [...salesConsumptions, ...normalizedConsumptionsToSave],
     })
     try {
       await persistChangedStockCentersOnApi(stockCenters, nextStockCenters)
