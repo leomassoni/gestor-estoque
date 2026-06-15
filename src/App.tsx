@@ -4437,11 +4437,77 @@ export default function App() {
   function getTechnicalSheetSupplyRoutes(sheet: TechnicalSheetRecord) {
     return normalizeTechnicalSheetSupplyRoutes(sheet.supplyRoutes)
   }
-  function doesCenterProduceTechnicalSheet(center: StockCenterRecord, sheet: TechnicalSheetRecord) {
+  function doesCenterDirectlyProduceTechnicalSheet(center: StockCenterRecord, sheet: TechnicalSheetRecord) {
     return (
       center.producedTechnicalSheetIds.includes(sheet.id) ||
       (sheet.productionCenters ?? []).some((assignment) => assignment.stockCenterId === center.id)
     )
+  }
+  function doesCenterProduceTechnicalSheet(center: StockCenterRecord, sheet: TechnicalSheetRecord) {
+    if (doesCenterDirectlyProduceTechnicalSheet(center, sheet)) {
+      return true
+    }
+
+    if (sheet.kind !== 'PREPARO') {
+      return false
+    }
+
+    const normalizedProductId = sheet.productId.trim()
+    if (!normalizedProductId || !isTechnicalSheetVisibleForCompany(sheet, center.companyId)) {
+      return false
+    }
+
+    return technicalSheets.some(
+      (candidate) =>
+        candidate.kind === 'PREPARO' &&
+        candidate.isActive &&
+        candidate.productId === normalizedProductId &&
+        isTechnicalSheetVisibleForCompany(candidate, center.companyId) &&
+        doesCenterDirectlyProduceTechnicalSheet(center, candidate),
+    )
+  }
+  function getProducedPreparationSheetsForCenter(center: StockCenterRecord, companyId: number | null) {
+    if (companyId === null) {
+      return [] as TechnicalSheetRecord[]
+    }
+
+    const visibleProducedSheets = technicalSheets.filter(
+      (sheet) =>
+        sheet.kind === 'PREPARO' &&
+        sheet.isActive &&
+        isTechnicalSheetVisibleForCompany(sheet, companyId) &&
+        isTechnicalSheetVisibleForCompany(sheet, center.companyId) &&
+        doesCenterProduceTechnicalSheet(center, sheet),
+    )
+
+    const canonicalByProductId = new Map<string, TechnicalSheetRecord>()
+    visibleProducedSheets.forEach((sheet) => {
+      const current = canonicalByProductId.get(sheet.productId) ?? null
+      if (!current) {
+        canonicalByProductId.set(sheet.productId, sheet)
+        return
+      }
+
+      const candidateDirect = doesCenterDirectlyProduceTechnicalSheet(center, sheet)
+      const currentDirect = doesCenterDirectlyProduceTechnicalSheet(center, current)
+      if (candidateDirect !== currentDirect) {
+        canonicalByProductId.set(sheet.productId, candidateDirect ? sheet : current)
+        return
+      }
+
+      const candidateSameOwner = getTechnicalSheetOwnerCompanyId(sheet) === center.companyId
+      const currentSameOwner = getTechnicalSheetOwnerCompanyId(current) === center.companyId
+      if (candidateSameOwner !== currentSameOwner) {
+        canonicalByProductId.set(sheet.productId, candidateSameOwner ? sheet : current)
+        return
+      }
+
+      if (sheet.id < current.id) {
+        canonicalByProductId.set(sheet.productId, sheet)
+      }
+    })
+
+    return Array.from(canonicalByProductId.values()).sort((left, right) => left.name.localeCompare(right.name, 'pt-BR'))
   }
   function getTechnicalSheetProducerCenterCandidates(sheet: TechnicalSheetRecord, consumerCenter: StockCenterRecord) {
     const allowedCompanyIds = new Set(getCompanyLinkScopeIds(consumerCenter.companyId))
@@ -4549,7 +4615,16 @@ export default function App() {
 
     const producedHere = candidates.filter((sheet) => doesCenterProduceTechnicalSheet(center, sheet))
     if (producedHere.length > 0) {
-      return producedHere[0]
+      const directlyProducedHere = producedHere.filter((sheet) => doesCenterDirectlyProduceTechnicalSheet(center, sheet))
+      const preferredProducedHere = (directlyProducedHere.length > 0 ? directlyProducedHere : producedHere).sort((left, right) => {
+        const leftSameOwner = getTechnicalSheetOwnerCompanyId(left) === center.companyId ? 0 : 1
+        const rightSameOwner = getTechnicalSheetOwnerCompanyId(right) === center.companyId ? 0 : 1
+        if (leftSameOwner !== rightSameOwner) {
+          return leftSameOwner - rightSameOwner
+        }
+        return left.id - right.id
+      })
+      return preferredProducedHere[0]
     }
 
     const suppliedToCenter = candidates.filter((sheet) => {
@@ -4682,6 +4757,161 @@ export default function App() {
         })
       })
     return pendingDemandBySheetId
+  }
+  function buildPreparationDemandContext(center: StockCenterRecord, companyId: number | null) {
+    if (companyId === null) {
+      return null
+    }
+
+    const producedSheets = getProducedPreparationSheetsForCenter(center, companyId)
+    const sheetById = new Map(producedSheets.map((sheet) => [sheet.id, sheet] as const))
+    const currentQuantityBySheetId = new Map<number, number>()
+    producedSheets.forEach((sheet) => {
+      const aggregationKey = buildInventoryAggregationKey({
+        kind: 'PREPARO',
+        technicalSheetId: sheet.id,
+        productId: '',
+        serviceItemId: '',
+      })
+      currentQuantityBySheetId.set(
+        sheet.id,
+        latestInventoryQuantityByCenterAndAggregation.get(`${center.id}:${aggregationKey}`) ?? 0,
+      )
+    })
+
+    const useMinimumBySheetId = new Map<number, number>(
+      producedSheets.map((sheet) => {
+        const minimumEntry = findStockCenterMinimumEntry(center.minimumStocks, {
+          kind: 'PREPARO',
+          technicalSheetId: sheet.id,
+          productId: '',
+          serviceItemId: '',
+          packageId: null,
+        })
+        return [sheet.id, getMinimumUseQuantityValue(minimumEntry) * getStockCenterBaseQuantity(sheet)] as const
+      }),
+    )
+
+    const realMinimumBySheetId = new Map<number, number>(
+      producedSheets.map((sheet) => {
+        const minimumEntry = findStockCenterMinimumEntry(center.minimumStocks, {
+          kind: 'PREPARO',
+          technicalSheetId: sheet.id,
+          productId: '',
+          serviceItemId: '',
+          packageId: null,
+        })
+        return [
+          sheet.id,
+          (parseDecimal(getRealMinimumQuantityText(minimumEntry)) ?? 0) * getStockCenterBaseQuantity(sheet),
+        ] as const
+      }),
+    )
+
+    const externalUseMinimumBySheetId = new Map<number, number>()
+    producedSheets.forEach((sheet) => {
+      externalUseMinimumBySheetId.set(sheet.id, getTechnicalSheetExternalUseMinimumQuantityForCenter(sheet, center))
+    })
+
+    const pendingSupplyDemandBySheetId = buildPendingRequisitionDemandBySheetIdForSupplierCenter(center)
+    producedSheets.forEach((sheet) => {
+      currentQuantityBySheetId.set(
+        sheet.id,
+        (currentQuantityBySheetId.get(sheet.id) ?? 0) - (pendingSupplyDemandBySheetId.get(sheet.id) ?? 0),
+      )
+    })
+
+    const effectiveMinimumMemo = new Map<number, number>()
+    const priorityMemo = new Map<number, number>()
+    const resolveInternalDependencySheet = (productId: string) => {
+      const dependencySheet = resolvePreparationSheetForCenterByProductId(productId, center)
+      if (!dependencySheet || !sheetById.has(dependencySheet.id)) {
+        return null
+      }
+      return dependencySheet
+    }
+
+    const computeEffectiveMinimum = (sheetId: number, visiting = new Set<number>()): number => {
+      if (effectiveMinimumMemo.has(sheetId)) {
+        return effectiveMinimumMemo.get(sheetId) ?? 0
+      }
+
+      if (visiting.has(sheetId)) {
+        return useMinimumBySheetId.get(sheetId) ?? 0
+      }
+
+      const targetSheet = sheetById.get(sheetId) ?? null
+      if (!targetSheet) {
+        return 0
+      }
+
+      const nextVisiting = new Set(visiting)
+      nextVisiting.add(sheetId)
+      const ownUseMinimum = useMinimumBySheetId.get(sheetId) ?? 0
+      const ownRealMinimum = realMinimumBySheetId.get(sheetId) ?? 0
+      const externalUseMinimum = externalUseMinimumBySheetId.get(sheetId) ?? 0
+
+      const productionContribution = producedSheets.reduce((sum, candidateSheet) => {
+        if (candidateSheet.id === sheetId) {
+          return sum
+        }
+
+        const ingredient = candidateSheet.ingredients.find((item) => item.isActive && item.productId === targetSheet.productId)
+        if (!ingredient) {
+          return sum
+        }
+
+        const candidateRequiredOutput = computeEffectiveMinimum(candidateSheet.id, nextVisiting)
+        const candidateBaseYield = getTechnicalSheetBaseYield(candidateSheet)
+        if (candidateRequiredOutput <= 0 || candidateBaseYield <= 0) {
+          return sum
+        }
+
+        return sum + candidateRequiredOutput * ((parseDecimal(ingredient.quantity) ?? 0) / candidateBaseYield)
+      }, 0)
+
+      const total = ownUseMinimum + ownRealMinimum + externalUseMinimum + productionContribution
+      effectiveMinimumMemo.set(sheetId, total)
+      return total
+    }
+
+    const computePriority = (sheetId: number, visiting = new Set<number>()): number => {
+      if (priorityMemo.has(sheetId)) {
+        return priorityMemo.get(sheetId) ?? 0
+      }
+
+      if (visiting.has(sheetId)) {
+        return 0
+      }
+
+      const sheet = sheetById.get(sheetId) ?? null
+      if (!sheet) {
+        return 0
+      }
+
+      const nextVisiting = new Set(visiting)
+      nextVisiting.add(sheetId)
+      const dependencyDepth = sheet.ingredients
+        .filter((ingredient) => ingredient.isActive)
+        .map((ingredient) => resolveInternalDependencySheet(ingredient.productId))
+        .filter((dependencySheet): dependencySheet is TechnicalSheetRecord => Boolean(dependencySheet))
+        .reduce((maxDepth, dependencySheet) => Math.max(maxDepth, 1 + computePriority(dependencySheet.id, nextVisiting)), 0)
+
+      priorityMemo.set(sheetId, dependencyDepth)
+      return dependencyDepth
+    }
+
+    return {
+      producedSheets,
+      sheetById,
+      currentQuantityBySheetId,
+      useMinimumBySheetId,
+      realMinimumBySheetId,
+      externalUseMinimumBySheetId,
+      pendingSupplyDemandBySheetId,
+      computeEffectiveMinimum,
+      computePriority,
+    }
   }
   function getUserMembershipForCompany(user: AppUserRecord, companyId: number | null) {
     if (companyId === null) {
@@ -5355,6 +5585,7 @@ export default function App() {
       return [] as ProductionRequestRow[]
     }
 
+    const demandContext = buildPreparationDemandContext(selectedProductionCenter, currentCompanyId)
     const manualRequestSheetIds = new Set(
       manualProductionRequests
         .filter((request) => request.companyId === currentCompanyId && request.centerId === selectedProductionCenter.id)
@@ -5366,21 +5597,15 @@ export default function App() {
         .map((draft) => draft.sheetId),
     )
     const producedSheets = technicalSheets
-      .filter((sheet) => {
-        if (!isTechnicalSheetVisibleForCompany(sheet, currentCompanyId) || !sheet.isActive || sheet.kind !== 'PREPARO') {
-          return false
-        }
-
-        return (
-          doesCenterProduceTechnicalSheet(selectedProductionCenter, sheet) ||
-          manualRequestSheetIds.has(sheet.id) ||
-          draftSheetIds.has(sheet.id)
-        )
-      })
+      .filter(
+        (sheet) =>
+          isTechnicalSheetVisibleForCompany(sheet, currentCompanyId) &&
+          sheet.isActive &&
+          sheet.kind === 'PREPARO' &&
+          ((demandContext?.sheetById.has(sheet.id) ?? false) || manualRequestSheetIds.has(sheet.id) || draftSheetIds.has(sheet.id)),
+      )
       .sort((a, b) => a.name.localeCompare(b.name, 'pt-BR'))
 
-    const sheetById = new Map(producedSheets.map((sheet) => [sheet.id, sheet] as const))
-    const sheetByProductId = new Map(producedSheets.map((sheet) => [sheet.productId, sheet] as const))
     const manualRequestIdsBySheetId = new Map<number, number[]>()
     const cancellableManualRequestIdsBySheetId = new Map<number, number[]>()
     const manualRequestedQuantityBySheetId = new Map<number, number>()
@@ -5399,142 +5624,22 @@ export default function App() {
           (manualRequestedQuantityBySheetId.get(request.sheetId) ?? 0) + (parseDecimal(request.desiredYield) ?? 0),
         )
       })
-    const currentQuantityBySheetId = new Map<number, number>()
-    producedSheets.forEach((sheet) => {
-      const aggregationKey = buildInventoryAggregationKey({
-        kind: 'PREPARO',
-        technicalSheetId: sheet.id,
-        productId: '',
-        serviceItemId: '',
-      })
-      currentQuantityBySheetId.set(
-        sheet.id,
-        latestInventoryQuantityByCenterAndAggregation.get(`${selectedProductionCenter.id}:${aggregationKey}`) ?? 0,
-      )
-    })
-
-    const useMinimumBySheetId = new Map<number, number>(
-      producedSheets.map((sheet) => {
-        const minimumEntry = findStockCenterMinimumEntry(selectedProductionCenter.minimumStocks, {
-          kind: 'PREPARO',
-          technicalSheetId: sheet.id,
-          productId: '',
-          serviceItemId: '',
-          packageId: null,
-        })
-        const configuredMinimum = getMinimumUseQuantityValue(minimumEntry)
-        return [sheet.id, configuredMinimum * getStockCenterBaseQuantity(sheet)] as const
-      }),
-    )
-    const realMinimumBySheetId = new Map<number, number>(
-      producedSheets.map((sheet) => {
-        const minimumEntry = findStockCenterMinimumEntry(selectedProductionCenter.minimumStocks, {
-          kind: 'PREPARO',
-          technicalSheetId: sheet.id,
-          productId: '',
-          serviceItemId: '',
-          packageId: null,
-        })
-        return [
-          sheet.id,
-          (parseDecimal(getRealMinimumQuantityText(minimumEntry)) ?? 0) * getStockCenterBaseQuantity(sheet),
-        ] as const
-      }),
-    )
-    const externalUseMinimumBySheetId = new Map<number, number>()
-    producedSheets.forEach((sheet) => {
-      externalUseMinimumBySheetId.set(
-        sheet.id,
-        getTechnicalSheetExternalUseMinimumQuantityForCenter(sheet, selectedProductionCenter),
-      )
-    })
-    const pendingSupplyDemandBySheetId = buildPendingRequisitionDemandBySheetIdForSupplierCenter(selectedProductionCenter)
-    producedSheets.forEach((sheet) => {
-      currentQuantityBySheetId.set(
-        sheet.id,
-        (currentQuantityBySheetId.get(sheet.id) ?? 0) - (pendingSupplyDemandBySheetId.get(sheet.id) ?? 0),
-      )
-    })
-
-    const effectiveMinimumMemo = new Map<number, number>()
-    const priorityMemo = new Map<number, number>()
-
-    const computeEffectiveMinimum = (sheetId: number, visiting = new Set<number>()): number => {
-      if (effectiveMinimumMemo.has(sheetId)) {
-        return effectiveMinimumMemo.get(sheetId) ?? 0
-      }
-
-      if (visiting.has(sheetId)) {
-        return useMinimumBySheetId.get(sheetId) ?? 0
-      }
-
-      const targetSheet = sheetById.get(sheetId) ?? null
-      if (!targetSheet) {
-        return 0
-      }
-
-      const nextVisiting = new Set(visiting)
-      nextVisiting.add(sheetId)
-      const ownUseMinimum = useMinimumBySheetId.get(sheetId) ?? 0
-      const ownRealMinimum = realMinimumBySheetId.get(sheetId) ?? 0
-      const externalUseMinimum = externalUseMinimumBySheetId.get(sheetId) ?? 0
-
-      const productionContribution = producedSheets.reduce((sum, candidateSheet) => {
-        if (candidateSheet.id === sheetId) {
-          return sum
-        }
-
-        const ingredient = candidateSheet.ingredients.find(
-          (item) => item.isActive && item.productId === targetSheet.productId,
-        )
-        if (!ingredient) {
-          return sum
-        }
-
-        const candidateRequiredOutput = computeEffectiveMinimum(candidateSheet.id, nextVisiting)
-        const candidateBaseYield = getTechnicalSheetBaseYield(candidateSheet)
-        if (candidateRequiredOutput <= 0 || candidateBaseYield <= 0) {
-          return sum
-        }
-
-        return sum + candidateRequiredOutput * ((parseDecimal(ingredient.quantity) ?? 0) / candidateBaseYield)
-      }, 0)
-
-      const total = ownUseMinimum + ownRealMinimum + externalUseMinimum + productionContribution
-      effectiveMinimumMemo.set(sheetId, total)
-      return total
-    }
-
-    const computePriority = (sheetId: number, visiting = new Set<number>()): number => {
-      if (priorityMemo.has(sheetId)) {
-        return priorityMemo.get(sheetId) ?? 0
-      }
-      if (visiting.has(sheetId)) {
-        return 0
-      }
-
-      const sheet = sheetById.get(sheetId) ?? null
-      if (!sheet) {
-        return 0
-      }
-
-      const nextVisiting = new Set(visiting)
-      nextVisiting.add(sheetId)
-      const dependencyDepth = sheet.ingredients
-        .filter((ingredient) => ingredient.isActive)
-        .map((ingredient) => sheetByProductId.get(ingredient.productId) ?? null)
-        .filter((dependencySheet): dependencySheet is TechnicalSheetRecord => Boolean(dependencySheet))
-        .reduce((maxDepth, dependencySheet) => Math.max(maxDepth, 1 + computePriority(dependencySheet.id, nextVisiting)), 0)
-
-      priorityMemo.set(sheetId, dependencyDepth)
-      return dependencyDepth
-    }
 
     return producedSheets
       .map((sheet) => {
-        const currentQuantity = currentQuantityBySheetId.get(sheet.id) ?? 0
-        const useMinimumQuantity = useMinimumBySheetId.get(sheet.id) ?? 0
-        const realMinimumQuantity = computeEffectiveMinimum(sheet.id)
+        const currentQuantity =
+          demandContext?.currentQuantityBySheetId.get(sheet.id) ??
+          latestInventoryQuantityByCenterAndAggregation.get(
+            `${selectedProductionCenter.id}:${buildInventoryAggregationKey({
+              kind: 'PREPARO',
+              technicalSheetId: sheet.id,
+              productId: '',
+              serviceItemId: '',
+            })}`,
+          ) ??
+          0
+        const useMinimumQuantity = demandContext?.useMinimumBySheetId.get(sheet.id) ?? 0
+        const realMinimumQuantity = demandContext?.computeEffectiveMinimum(sheet.id) ?? 0
         const automaticSuggestedQuantity = Math.max(realMinimumQuantity - currentQuantity, 0)
         const manualRequestedQuantity = manualRequestedQuantityBySheetId.get(sheet.id) ?? 0
         const manualRequestIds = manualRequestIdsBySheetId.get(sheet.id) ?? []
@@ -5543,8 +5648,11 @@ export default function App() {
         const shortagePlan =
           suggestedProductionQuantity > 0
             ? buildManualProductionShortageLines(selectedProductionCenter, sheet, suggestedProductionQuantity)
-            : { shortageLines: [] as RequisitionLineRecord[], dependencyRequests: [] as Array<{ centerId: number; sheetId: number; desiredYield: number }> }
-        const priority = computePriority(sheet.id)
+            : {
+                shortageLines: [] as RequisitionLineRecord[],
+                dependencyRequests: [] as Array<{ centerId: number; sheetId: number; desiredYield: number }>,
+              }
+        const priority = demandContext?.computePriority(sheet.id) ?? 0
         const inProgressDraft = productionInProgressDraftByKey.get(`${selectedProductionCenter.id}:${sheet.id}`) ?? null
         const hasManualRequests = manualRequestIds.length > 0
 
@@ -5581,13 +5689,10 @@ export default function App() {
       )
       .filter((row) => {
         const search = normalizeFreeText(productionSearch)
-        return (
-          search === '' ||
-          [row.sheetName, row.internalId, row.family, row.statusLabel].some((value) => normalizeFreeText(value).includes(search))
-        )
+        return search === '' || [row.sheetName, row.internalId, row.family, row.statusLabel].some((value) => normalizeFreeText(value).includes(search))
       })
       .sort((a, b) => a.priority - b.priority || a.sheetName.localeCompare(b.sheetName, 'pt-BR'))
-  }, [currentCompanyId, isTechnicalSheetVisibleForCompany, latestInventoryQuantityByCenterAndAggregation, manualProductionRequests, productionInProgressDraftByKey, productionSearch, requisitions, selectedProductionCenter, technicalSheets])
+  }, [currentCompanyId, isTechnicalSheetVisibleForCompany, latestInventoryQuantityByCenterAndAggregation, manualProductionRequests, productionInProgressDraftByKey, productionInProgressDrafts, productionSearch, requisitions, selectedProductionCenter, technicalSheets])
   const selectedProductionSheet = useMemo(
     () =>
       productionDraftState
@@ -9613,160 +9718,17 @@ export default function App() {
     return reportEligibleStockCenters
       .filter((center) => center.isProducer)
       .flatMap((center) => {
-        const producedSheets = technicalSheets
-          .filter(
-            (sheet) =>
-              isTechnicalSheetVisibleForCompany(sheet, currentCompanyId) &&
-              sheet.isActive &&
-              sheet.kind === 'PREPARO' &&
-              doesCenterProduceTechnicalSheet(center, sheet),
-          )
-          .sort((a, b) => a.name.localeCompare(b.name, 'pt-BR'))
-
-        const sheetById = new Map(producedSheets.map((sheet) => [sheet.id, sheet] as const))
-        const sheetByProductId = new Map(producedSheets.map((sheet) => [sheet.productId, sheet] as const))
-        const currentQuantityBySheetId = new Map<number, number>()
-        producedSheets.forEach((sheet) => {
-          const aggregationKey = buildInventoryAggregationKey({
-            kind: 'PREPARO',
-            technicalSheetId: sheet.id,
-            productId: '',
-            serviceItemId: '',
-          })
-          currentQuantityBySheetId.set(
-            sheet.id,
-            latestInventoryQuantityByCenterAndAggregation.get(`${center.id}:${aggregationKey}`) ?? 0,
-          )
-        })
-
-    const useMinimumBySheetId = new Map<number, number>(
-      producedSheets.map((sheet) => {
-        const minimumEntry = findStockCenterMinimumEntry(center.minimumStocks, {
-          kind: 'PREPARO',
-          technicalSheetId: sheet.id,
-          productId: '',
-          serviceItemId: '',
-          packageId: null,
-        })
-        const configuredMinimum = getMinimumUseQuantityValue(minimumEntry)
-        return [sheet.id, configuredMinimum * getStockCenterBaseQuantity(sheet)] as const
-      }),
-    )
-    const realMinimumBySheetId = new Map<number, number>(
-      producedSheets.map((sheet) => {
-        const minimumEntry = findStockCenterMinimumEntry(center.minimumStocks, {
-          kind: 'PREPARO',
-          technicalSheetId: sheet.id,
-          productId: '',
-          serviceItemId: '',
-          packageId: null,
-        })
-        return [
-          sheet.id,
-          (parseDecimal(getRealMinimumQuantityText(minimumEntry)) ?? 0) * getStockCenterBaseQuantity(sheet),
-        ] as const
-      }),
-    )
-
-        const externalUseMinimumBySheetId = new Map<number, number>()
-        producedSheets.forEach((sheet) => {
-          externalUseMinimumBySheetId.set(
-            sheet.id,
-            getTechnicalSheetExternalUseMinimumQuantityForCenter(sheet, center),
-          )
-        })
-
-        const pendingSupplyDemandBySheetId = buildPendingRequisitionDemandBySheetIdForSupplierCenter(center)
-
-        producedSheets.forEach((sheet) => {
-          currentQuantityBySheetId.set(
-            sheet.id,
-            (currentQuantityBySheetId.get(sheet.id) ?? 0) - (pendingSupplyDemandBySheetId.get(sheet.id) ?? 0),
-          )
-        })
-
-        const effectiveMinimumMemo = new Map<number, number>()
-        const priorityMemo = new Map<number, number>()
-
-        const computeEffectiveMinimum = (sheetId: number, visiting = new Set<number>()): number => {
-          if (effectiveMinimumMemo.has(sheetId)) {
-            return effectiveMinimumMemo.get(sheetId) ?? 0
-          }
-
-          if (visiting.has(sheetId)) {
-            return useMinimumBySheetId.get(sheetId) ?? 0
-          }
-
-          const targetSheet = sheetById.get(sheetId) ?? null
-          if (!targetSheet) {
-            return 0
-          }
-
-          const nextVisiting = new Set(visiting)
-          nextVisiting.add(sheetId)
-          const ownUseMinimum = useMinimumBySheetId.get(sheetId) ?? 0
-          const ownRealMinimum = realMinimumBySheetId.get(sheetId) ?? 0
-          const externalUseMinimum = externalUseMinimumBySheetId.get(sheetId) ?? 0
-
-          const productionContribution = producedSheets.reduce((sum, candidateSheet) => {
-            if (candidateSheet.id === sheetId) {
-              return sum
-            }
-
-            const ingredient = candidateSheet.ingredients.find(
-              (item) => item.isActive && item.productId === targetSheet.productId,
-            )
-            if (!ingredient) {
-              return sum
-            }
-
-            const candidateRequiredOutput = computeEffectiveMinimum(candidateSheet.id, nextVisiting)
-            const candidateBaseYield = getTechnicalSheetBaseYield(candidateSheet)
-            if (candidateRequiredOutput <= 0 || candidateBaseYield <= 0) {
-              return sum
-            }
-
-            return sum + candidateRequiredOutput * ((parseDecimal(ingredient.quantity) ?? 0) / candidateBaseYield)
-          }, 0)
-
-          const total = ownUseMinimum + ownRealMinimum + externalUseMinimum + productionContribution
-          effectiveMinimumMemo.set(sheetId, total)
-          return total
-        }
-
-        const computePriority = (sheetId: number, visiting = new Set<number>()): number => {
-          if (priorityMemo.has(sheetId)) {
-            return priorityMemo.get(sheetId) ?? 0
-          }
-          if (visiting.has(sheetId)) {
-            return 0
-          }
-
-          const sheet = sheetById.get(sheetId) ?? null
-          if (!sheet) {
-            return 0
-          }
-
-          const nextVisiting = new Set(visiting)
-          nextVisiting.add(sheetId)
-          const dependencyDepth = sheet.ingredients
-            .filter((ingredient) => ingredient.isActive)
-            .map((ingredient) => sheetByProductId.get(ingredient.productId) ?? null)
-            .filter((dependencySheet): dependencySheet is TechnicalSheetRecord => Boolean(dependencySheet))
-            .reduce((maxDepth, dependencySheet) => Math.max(maxDepth, 1 + computePriority(dependencySheet.id, nextVisiting)), 0)
-
-          priorityMemo.set(sheetId, dependencyDepth)
-          return dependencyDepth
-        }
+        const demandContext = buildPreparationDemandContext(center, currentCompanyId)
+        const producedSheets = demandContext?.producedSheets ?? []
 
         return producedSheets.map((sheet) => {
-          const currentQuantity = currentQuantityBySheetId.get(sheet.id) ?? 0
-          const useMinimumQuantity = useMinimumBySheetId.get(sheet.id) ?? 0
-          const externalUseMinimumQuantity = externalUseMinimumBySheetId.get(sheet.id) ?? 0
-          const committedQuantity = pendingSupplyDemandBySheetId.get(sheet.id) ?? 0
-          const realMinimumQuantity = computeEffectiveMinimum(sheet.id)
+          const currentQuantity = demandContext?.currentQuantityBySheetId.get(sheet.id) ?? 0
+          const useMinimumQuantity = demandContext?.useMinimumBySheetId.get(sheet.id) ?? 0
+          const externalUseMinimumQuantity = demandContext?.externalUseMinimumBySheetId.get(sheet.id) ?? 0
+          const committedQuantity = demandContext?.pendingSupplyDemandBySheetId.get(sheet.id) ?? 0
+          const realMinimumQuantity = demandContext?.computeEffectiveMinimum(sheet.id) ?? 0
           const suggestedProductionQuantity = Math.max(realMinimumQuantity - currentQuantity, 0)
-          const priority = computePriority(sheet.id)
+          const priority = demandContext?.computePriority(sheet.id) ?? 0
 
           return {
             sheetId: sheet.id,
@@ -17872,36 +17834,12 @@ export default function App() {
       return baseLines.sort((a, b) => a.itemName.localeCompare(b.itemName, 'pt-BR'))
     }
 
-    const producedSheets = technicalSheets
-      .filter(
-        (sheet) =>
-          isTechnicalSheetVisibleForCompany(sheet, currentCompanyId) &&
-          sheet.kind === 'PREPARO' &&
-          sheet.isActive &&
-          doesCenterProduceTechnicalSheet(center, sheet),
-      )
-      .sort((a, b) => a.name.localeCompare(b.name, 'pt-BR'))
+    const demandContext = buildPreparationDemandContext(center, currentCompanyId)
+    const producedSheets = demandContext?.producedSheets ?? []
 
     const productionShortageLines = producedSheets.flatMap((sheet) => {
-      const currentQuantity =
-        latestInventoryQuantityByCenterAndAggregation.get(
-          `${center.id}:${buildInventoryAggregationKey({
-            kind: 'PREPARO',
-            technicalSheetId: sheet.id,
-            productId: '',
-            serviceItemId: '',
-          })}`,
-        ) ?? 0
-      const minimumEntry = findStockCenterMinimumEntry(center.minimumStocks, {
-        kind: 'PREPARO',
-        technicalSheetId: sheet.id,
-        productId: '',
-        serviceItemId: '',
-        packageId: null,
-      })
-      const useMinimumQuantity = getMinimumUseQuantityValue(minimumEntry) * getStockCenterBaseQuantity(sheet)
-      const externalUseMinimumQuantity = getTechnicalSheetExternalUseMinimumQuantityForCenter(sheet, center)
-      const realMinimumQuantity = useMinimumQuantity + externalUseMinimumQuantity
+      const currentQuantity = demandContext?.currentQuantityBySheetId.get(sheet.id) ?? 0
+      const realMinimumQuantity = demandContext?.computeEffectiveMinimum(sheet.id) ?? 0
       const suggestedProductionQuantity = Math.max(realMinimumQuantity - currentQuantity, 0)
       if (suggestedProductionQuantity <= 0) {
         return []
