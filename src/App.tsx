@@ -28060,13 +28060,12 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
     } = params
     const companyScopeIds = new Set(getCompanyLinkScopeIds(companyId))
 
-    const cleanedCenters = baseStockCenters.map((center) => {
+    const cleanedCenters: StockCenterRecord[] = baseStockCenters.map((center) => {
       if (!companyScopeIds.has(center.companyId)) {
         return center
       }
 
-      const nextMinimumStocks = center.minimumStocks
-        .map((entry) => {
+      const mappedMinimumStocks = center.minimumStocks.map((entry) => {
           const nextMinimumSource = entry.minimumSource === 'SUGERIDO_VENDAS' ? undefined : entry.minimumSource
           const nextMinimumQuantity = entry.minimumSource === 'SUGERIDO_VENDAS' ? '' : entry.minimumQuantity.trim()
           const shouldClearSuggestedReal =
@@ -28096,7 +28095,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
             suggestedAt: nextSuggestedMinimumQuantity ? entry.suggestedAt : undefined,
           } satisfies StockCenterMinimumStock
         })
-        .filter((entry): entry is StockCenterMinimumStock => entry !== null)
+      const nextMinimumStocks = mappedMinimumStocks.filter((entry) => entry !== null) as StockCenterMinimumStock[]
 
       return {
         ...center,
@@ -28113,8 +28112,8 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
           left.id - right.id,
       )
 
-    return activeBatches.reduce((nextCenters, batch) => {
-      const matchedRows = availableRows
+    return activeBatches.reduce<StockCenterRecord[]>((nextCenters, batch) => {
+      const mappedMatchedRows = availableRows
         .filter((row) => row.batchId === batch.id && row.status === 'MATCHED')
         .map((row) => ({
           sourceRowKey: row.sourceRowKey,
@@ -28126,7 +28125,9 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
           status: 'MATCHED' as const,
           errorMessage: '',
         }))
-        .filter((row): row is SalesImportPreviewRow => typeof row.matchedTechnicalSheetId === 'number' && Boolean(row.matchedKind))
+      const matchedRows = mappedMatchedRows.filter(
+        (row) => typeof row.matchedTechnicalSheetId === 'number' && Boolean(row.matchedKind),
+      ) as SalesImportPreviewRow[]
 
       const fallbackDemandRows =
         matchedRows.length === 0
