@@ -8240,19 +8240,6 @@ export default function App() {
         .sort((a, b) => a.name.localeCompare(b.name, 'pt-BR')),
     [currentCompanyId, isTechnicalSheetVisibleForCompany, products, technicalSheets],
   )
-  const stockCenterMinimumCountableSheets = useMemo(
-    () =>
-      technicalSheets
-        .filter(
-          (sheet) =>
-            isTechnicalSheetVisibleForCompany(sheet, currentCompanyId) &&
-            sheet.isActive &&
-            sheet.kind === 'PREPARO' &&
-            isTechnicalSheetStockTracked(sheet, products),
-        )
-        .sort((a, b) => a.name.localeCompare(b.name, 'pt-BR')),
-    [currentCompanyId, isTechnicalSheetVisibleForCompany, products, technicalSheets],
-  )
   const inventoryCountableProducts = useMemo(
     () =>
       products
@@ -9272,32 +9259,28 @@ export default function App() {
     const nextMap = new Map<string, number>()
 
     reportEligibleStockCenters.forEach((center) => {
-      const rowsByKey = new Map(
-        technicalSheets
-          .filter(
-            (sheet) =>
-              isTechnicalSheetVisibleForCompany(sheet, center.companyId) &&
-              sheet.isActive &&
-              sheet.kind === 'PREPARO' &&
-              isTechnicalSheetStockTracked(sheet, products),
-          )
-          .map((sheet) => [
-            buildStockCenterMinimumEntryKey({
-              kind: 'PREPARO',
-              technicalSheetId: sheet.id,
-              productId: '',
-              serviceItemId: '',
-              packageId: null,
-            }),
+      const rowEntries: Array<readonly [string, StockCenterMinimumRow]> = []
+      technicalSheets
+        .filter(
+          (sheet) =>
+            isTechnicalSheetVisibleForCompany(sheet, center.companyId) &&
+            sheet.isActive &&
+            sheet.kind === 'PREPARO' &&
+            isTechnicalSheetStockTracked(sheet, products),
+        )
+        .forEach((sheet) => {
+          const key = buildStockCenterMinimumEntryKey({
+            kind: 'PREPARO',
+            technicalSheetId: sheet.id,
+            productId: '',
+            serviceItemId: '',
+            packageId: null,
+          })
+          rowEntries.push([
+            key,
             {
-              key: buildStockCenterMinimumEntryKey({
-                kind: 'PREPARO',
-                technicalSheetId: sheet.id,
-                productId: '',
-                serviceItemId: '',
-                packageId: null,
-              }),
-              kind: 'PREPARO' as const,
+              key,
+              kind: 'PREPARO',
               name: sheet.name,
               typeLabel: 'Pre-preparo',
               family: sheet.family,
@@ -9310,84 +9293,75 @@ export default function App() {
               packageId: null,
             } satisfies StockCenterMinimumRow,
           ] as const)
-          .concat(
-            products
-              .filter(
-                (product) =>
-                  isProductVisibleForCompany(product, center.companyId) &&
-                  product.isActive &&
-                  isProductStockTracked(product) &&
-                  typeof product.technicalSheetId !== 'number' &&
-                  product.controlUnit !== 'COMBO',
-              )
-              .flatMap((product) =>
-                product.packages
-                  .filter((item) => item.isActive)
-                  .map((item) => [
-                    buildStockCenterMinimumEntryKey({
-                      kind: 'PRODUTO',
-                      technicalSheetId: null,
-                      productId: product.id,
-                      serviceItemId: '',
-                      packageId: item.id,
-                    }),
-                    {
-                      key: buildStockCenterMinimumEntryKey({
-                        kind: 'PRODUTO',
-                        technicalSheetId: null,
-                        productId: product.id,
-                        serviceItemId: '',
-                        packageId: item.id,
-                      }),
-                      kind: 'PRODUTO' as const,
-                      name: product.name,
-                      typeLabel: 'Produto',
-                      family: product.family,
-                      referenceLabel: buildProductPackageLabel(product, item),
-                      baseQuantity: calculateNormalizedPackageQuantity(item, product.controlUnit),
-                      baseUnit: product.controlUnit,
-                      technicalSheetId: null,
-                      productId: product.id,
-                      serviceItemId: '',
-                      packageId: item.id,
-                    } satisfies StockCenterMinimumRow,
-                  ] as const),
-              ),
-          )
-          .concat(
-            serviceItems
-              .filter((item) => item.companyId === center.companyId && item.isActive)
-              .map((item) => [
-                buildStockCenterMinimumEntryKey({
-                  kind: 'ITEM',
-                  technicalSheetId: null,
-                  productId: '',
-                  serviceItemId: item.id,
-                  packageId: null,
-                }),
+        })
+      products
+        .filter(
+          (product) =>
+            isProductVisibleForCompany(product, center.companyId) &&
+            product.isActive &&
+            isProductStockTracked(product) &&
+            typeof product.technicalSheetId !== 'number' &&
+            product.controlUnit !== 'COMBO',
+        )
+        .forEach((product) => {
+          product.packages
+            .filter((item) => item.isActive)
+            .forEach((item) => {
+              const key = buildStockCenterMinimumEntryKey({
+                kind: 'PRODUTO',
+                technicalSheetId: null,
+                productId: product.id,
+                serviceItemId: '',
+                packageId: item.id,
+              })
+              rowEntries.push([
+                key,
                 {
-                  key: buildStockCenterMinimumEntryKey({
-                    kind: 'ITEM',
-                    technicalSheetId: null,
-                    productId: '',
-                    serviceItemId: item.id,
-                    packageId: null,
-                  }),
-                  kind: 'ITEM' as const,
-                  name: item.name,
-                  typeLabel: buildServiceItemInventoryLabel(item),
-                  family: item.family,
-                  referenceLabel: '1 UN',
-                  baseQuantity: 1,
-                  baseUnit: 'UNIT' as const,
+                  key,
+                  kind: 'PRODUTO',
+                  name: product.name,
+                  typeLabel: 'Produto',
+                  family: product.family,
+                  referenceLabel: buildProductPackageLabel(product, item),
+                  baseQuantity: calculateNormalizedPackageQuantity(item, product.controlUnit),
+                  baseUnit: product.controlUnit,
                   technicalSheetId: null,
-                  productId: '',
-                  serviceItemId: item.id,
-                  packageId: null,
+                  productId: product.id,
+                  serviceItemId: '',
+                  packageId: item.id,
                 } satisfies StockCenterMinimumRow,
-              ] as const),
-          ),
-      )
+              ] as const)
+            })
+        })
+      serviceItems
+        .filter((item) => item.companyId === center.companyId && item.isActive)
+        .forEach((item) => {
+          const key = buildStockCenterMinimumEntryKey({
+            kind: 'ITEM',
+            technicalSheetId: null,
+            productId: '',
+            serviceItemId: item.id,
+            packageId: null,
+          })
+          rowEntries.push([
+            key,
+            {
+              key,
+              kind: 'ITEM',
+              name: item.name,
+              typeLabel: buildServiceItemInventoryLabel(item),
+              family: item.family,
+              referenceLabel: '1 UN',
+              baseQuantity: 1,
+              baseUnit: 'UNIT',
+              technicalSheetId: null,
+              productId: '',
+              serviceItemId: item.id,
+              packageId: null,
+            } satisfies StockCenterMinimumRow,
+          ] as const)
+        })
+      const rowsByKey = new Map(rowEntries)
       center.minimumStocks.forEach((stock) => {
         const row = rowsByKey.get(buildStockCenterMinimumEntryKey(stock)) ?? null
         if (!row) {
