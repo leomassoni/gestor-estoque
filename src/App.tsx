@@ -20233,7 +20233,17 @@ export default function App() {
       })
     }
 
-    const consumeOrRegisterShortage = (sheet: TechnicalSheetRecord, requiredYield: number, sourceCenterId: number) => {
+    const consumeOrRegisterShortage = (
+      sheet: TechnicalSheetRecord,
+      requiredYield: number,
+      sourceCenterId: number,
+      visiting = new Set<number>(),
+    ) => {
+      if (requiredYield <= 0 || visiting.has(sheet.id)) {
+        return
+      }
+      const nextVisiting = new Set(visiting)
+      nextVisiting.add(sheet.id)
       const recipeCount = requiredYield > 0 ? requiredYield / getTechnicalSheetBaseYield(sheet) : 0
       const recipeData = buildRecipePanelDataForSheet(sheet, requiredYield, recipeCount)
       ;[...recipeData.ingredientMetrics, ...recipeData.garnishMetrics]
@@ -20269,6 +20279,19 @@ export default function App() {
 
           if (dependencySheet) {
             const producerCenter = resolveDependencyProducerCenter(dependencySheet.id, sourceCenterId)
+            const isProducedByCurrentCenter = doesCenterProduceTechnicalSheet(stockCenter, dependencySheet)
+
+            if (isProducedByCurrentCenter) {
+              const requestKey = `${stockCenter.id}:${dependencySheet.id}`
+              const existingRequest = plannedProductionRequests.get(requestKey) ?? null
+              plannedProductionRequests.set(requestKey, {
+                centerId: stockCenter.id,
+                sheetId: dependencySheet.id,
+                desiredYield: (existingRequest?.desiredYield ?? 0) + shortageQuantity,
+              })
+              consumeOrRegisterShortage(dependencySheet, shortageQuantity, stockCenter.id, nextVisiting)
+              return
+            }
 
             addPreparationShortageLine(dependencySheet, shortageQuantity, existingLine, lineKey, producerCenter)
             return
