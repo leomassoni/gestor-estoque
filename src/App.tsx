@@ -27100,7 +27100,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
     const batchRows = currentCompanySalesImportRows.filter((row) => row.batchId === batch.id)
     const candidateSheets = technicalSheets.filter(
       (sheet) =>
-        sheet.companyId === batch.companyId &&
+        isTechnicalSheetVisibleForCompany(sheet, batch.companyId) &&
         sheet.isActive &&
         (sheet.kind === 'EXECUCAO' || sheet.kind === 'VENDA') &&
         normalizeRegistrationText(sheet.companyProductId).length > 0,
@@ -27152,6 +27152,32 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
       stockCenters.find((center) => center.id === batch.stockCenterId && center.companyId === batch.companyId) ?? null
     const duplicatePolicy = targetCenter?.salesImportSettings.duplicateRowPolicy ?? 'BLOCK'
     const { validRows: matchedRows, duplicatedRows } = getSalesImportProcessableMatchedRows(rebuiltRows, duplicatePolicy)
+    const preservedMatchedRows = batchRows
+      .filter((row) => row.status === 'MATCHED' && typeof row.matchedTechnicalSheetId === 'number')
+      .map((row) => {
+        const matchedSheet =
+          technicalSheets.find(
+            (sheet) =>
+              sheet.id === row.matchedTechnicalSheetId &&
+              sheet.isActive &&
+              (sheet.kind === 'EXECUCAO' || sheet.kind === 'VENDA'),
+          ) ?? null
+        if (!matchedSheet) {
+          return null
+        }
+        return {
+          sourceRowKey: row.sourceRowKey,
+          consumedAt: row.consumedAt,
+          companyProductId: row.companyProductId,
+          quantity: normalizeSalesImportQuantityValue(row.quantity, true),
+          matchedTechnicalSheetId: matchedSheet.id,
+          matchedKind: row.matchedKind || (matchedSheet.kind === 'EXECUCAO' ? 'EXECUCAO' : 'VENDA'),
+          status: 'MATCHED' as const,
+          errorMessage: '',
+        } satisfies SalesImportPreviewRow
+      })
+      .filter((row): row is SalesImportPreviewRow => row !== null)
+    const effectiveMatchedRows = matchedRows.length > 0 ? matchedRows : preservedMatchedRows
     const hasPostedConsumptions = relatedConsumptions.some(
       (consumption) => consumption.stockPostingStatus === 'POSTED' || consumption.stockMovementId !== null,
     )
@@ -27165,7 +27191,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
       setProcessingSalesImportBatchAction(null)
       return
     }
-    if (matchedRows.length === 0) {
+    if (effectiveMatchedRows.length === 0) {
       if (rowsToUpdate.length > 0) {
         try {
           const rowUpdateResponses = await Promise.all(
@@ -27218,7 +27244,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
         stockCenterId: batch.stockCenterId,
         batchId: batch.id,
         postingMode: batch.postingMode,
-        validRows: matchedRows,
+        validRows: effectiveMatchedRows,
         startingConsumptionId: nextConsumptionId,
       })
 
@@ -27323,8 +27349,8 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
       coverageMode: getSalesImportBatchCoverageMode(batch),
       coverageWeekStartsOn: getSalesImportBatchCoverageWeekStartsOn(batch),
       safetyMarginPercent: batch.safetyMarginPercent,
-      importedRows: matchedRows,
-      pendingMatchedRows: matchedRows,
+      importedRows: effectiveMatchedRows,
+      pendingMatchedRows: effectiveMatchedRows,
       replaceSourceBatchId: batch.id,
     })
 
@@ -27362,7 +27388,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
       result: 'SUCCESS',
       details: {
         stockCenterId: batch.stockCenterId,
-        importedRows: matchedRows.length,
+        importedRows: effectiveMatchedRows.length,
         relatedConsumptions: nextConsumptionsForRecalculation.length,
         rowsUpdated: rowsToUpdate.length,
         newlyMatchedRows,
