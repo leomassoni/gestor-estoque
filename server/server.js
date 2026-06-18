@@ -2649,6 +2649,9 @@ function normalizeRequisitionPayload(value) {
   const stockCenterId = parseIntegerParam(record.stockCenterId)
   const supplyCenterId = record.supplyCenterId === null ? null : parseIntegerParam(record.supplyCenterId)
   const supplyCompanyId = record.supplyCompanyId === null ? null : parseIntegerParam(record.supplyCompanyId)
+  const planningRootRequestId = record.planningRootRequestId === null ? null : parseIntegerParam(record.planningRootRequestId)
+  const planningSourceCenterId = record.planningSourceCenterId === null ? null : parseIntegerParam(record.planningSourceCenterId)
+  const planningSourceSheetId = record.planningSourceSheetId === null ? null : parseIntegerParam(record.planningSourceSheetId)
   const createdByUserId = record.createdByUserId === null ? null : parseIntegerParam(record.createdByUserId)
   const approvedByUserId = record.approvedByUserId === null ? null : parseIntegerParam(record.approvedByUserId)
   const sentByUserId = record.sentByUserId === null ? null : parseIntegerParam(record.sentByUserId)
@@ -2687,6 +2690,14 @@ function normalizeRequisitionPayload(value) {
     id,
     companyId,
     requisitionGroupId: requisitionGroupId ?? id,
+    planningRootRequestId,
+    planningSourceKind:
+      record.planningSourceKind === 'PREPARO' || record.planningSourceKind === 'EXECUCAO' ? record.planningSourceKind : '',
+    planningSourceCenterId,
+    planningSourceCenterName: typeof record.planningSourceCenterName === 'string' ? record.planningSourceCenterName : '',
+    planningSourceSheetId,
+    planningSourceSheetName: typeof record.planningSourceSheetName === 'string' ? record.planningSourceSheetName : '',
+    planningSourceQuantityLabel: typeof record.planningSourceQuantityLabel === 'string' ? record.planningSourceQuantityLabel : '',
     stockCenterId,
     stockCenterName: record.stockCenterName,
     supplyCenterId,
@@ -2763,6 +2774,8 @@ function normalizeManualProductionRequestPayload(value) {
   const companyId = parseIntegerParam(record.companyId)
   const centerId = parseIntegerParam(record.centerId)
   const sheetId = parseIntegerParam(record.sheetId)
+  const planningSourceCenterId = record.planningSourceCenterId === null ? null : parseIntegerParam(record.planningSourceCenterId)
+  const planningSourceSheetId = record.planningSourceSheetId === null ? null : parseIntegerParam(record.planningSourceSheetId)
   const createdByUserId = record.createdByUserId === null ? null : parseIntegerParam(record.createdByUserId)
   const rootRequestId = parseIntegerParam(record.rootRequestId)
   const parentRequestId = record.parentRequestId === null ? null : parseIntegerParam(record.parentRequestId)
@@ -2793,6 +2806,13 @@ function normalizeManualProductionRequestPayload(value) {
     rootRequestId,
     parentRequestId,
     isDependencyRequest: record.isDependencyRequest,
+    planningSourceKind:
+      record.planningSourceKind === 'PREPARO' || record.planningSourceKind === 'EXECUCAO' ? record.planningSourceKind : '',
+    planningSourceCenterId,
+    planningSourceCenterName: typeof record.planningSourceCenterName === 'string' ? record.planningSourceCenterName : '',
+    planningSourceSheetId,
+    planningSourceSheetName: typeof record.planningSourceSheetName === 'string' ? record.planningSourceSheetName : '',
+    planningSourceQuantityLabel: typeof record.planningSourceQuantityLabel === 'string' ? record.planningSourceQuantityLabel : '',
   }
 }
 

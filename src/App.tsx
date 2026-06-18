@@ -735,6 +735,13 @@ type RequisitionRecord = {
   id: number
   companyId: number
   requisitionGroupId: number
+  planningRootRequestId?: number | null
+  planningSourceKind?: 'PREPARO' | 'EXECUCAO' | ''
+  planningSourceCenterId?: number | null
+  planningSourceCenterName?: string
+  planningSourceSheetId?: number | null
+  planningSourceSheetName?: string
+  planningSourceQuantityLabel?: string
   stockCenterId: number
   stockCenterName: string
   supplyCenterId: number | null
@@ -836,6 +843,27 @@ type ManualProductionRequestRecord = {
   rootRequestId: number
   parentRequestId: number | null
   isDependencyRequest: boolean
+  planningSourceKind?: 'PREPARO' | 'EXECUCAO' | ''
+  planningSourceCenterId?: number | null
+  planningSourceCenterName?: string
+  planningSourceSheetId?: number | null
+  planningSourceSheetName?: string
+  planningSourceQuantityLabel?: string
+}
+
+type ExecutionProductionPlanningRow = {
+  rootRequestId: number
+  centerId: number
+  centerName: string
+  executionSheetId: number
+  executionSheetName: string
+  requestedQuantityLabel: string
+  createdAt: string
+  createdByUserName: string
+  productionCount: number
+  requisitionCount: number
+  cancellableRequisitionCount: number
+  movedRequisitionCount: number
 }
 
 type ManualProductionPreviewProductionEntry = {
@@ -4049,6 +4077,7 @@ export default function App() {
   const [isProductionStartConfirmOpen, setIsProductionStartConfirmOpen] = useState(false)
   const [isProductionFinishConfirmOpen, setIsProductionFinishConfirmOpen] = useState(false)
   const [pendingProductionCancelRow, setPendingProductionCancelRow] = useState<ProductionRequestRow | null>(null)
+  const [pendingExecutionPlanningCancelRow, setPendingExecutionPlanningCancelRow] = useState<ExecutionProductionPlanningRow | null>(null)
   const [recipePanelTab, setRecipePanelTab] = useState<RecipePanelTab>('PREPARO')
   const [recipePanelSearch, setRecipePanelSearch] = useState<Record<RecipePanelTab, string>>({
     PREPARO: '',
@@ -5804,6 +5833,51 @@ export default function App() {
       })
       .sort((a, b) => a.priority - b.priority || a.sheetName.localeCompare(b.sheetName, 'pt-BR'))
   }, [currentCompanyId, isTechnicalSheetVisibleForCompany, latestInventoryQuantityByCenterAndAggregation, manualProductionRequests, productionInProgressDraftByKey, productionInProgressDrafts, productionSearch, requisitions, selectedProductionCenter, technicalSheets])
+  const executionProductionPlanningRows = useMemo(() => {
+    if (currentCompanyId === null) {
+      return [] as ExecutionProductionPlanningRow[]
+    }
+
+    const rootRequests = manualProductionRequests.filter(
+      (request) =>
+        request.companyId === currentCompanyId &&
+        request.planningSourceKind === 'EXECUCAO' &&
+        !request.isDependencyRequest &&
+        request.parentRequestId === null,
+    )
+
+    return rootRequests
+      .map((request) => {
+        const relatedRequests = manualProductionRequests.filter(
+          (candidate) => candidate.companyId === currentCompanyId && candidate.rootRequestId === request.rootRequestId,
+        )
+        const relatedRequisitions = requisitions.filter(
+          (record) => record.companyId === currentCompanyId && record.planningRootRequestId === request.rootRequestId,
+        )
+        const cancellableRequisitionCount = relatedRequisitions.filter(
+          (record) => record.status === 'PENDING_APPROVAL' || record.status === 'APPROVED' || record.status === 'SENT_TO_SUPPLIES',
+        ).length
+        const movedRequisitionCount = relatedRequisitions.filter(
+          (record) => record.status === 'READY_TO_RECEIVE' || record.status === 'RECEIVED',
+        ).length
+
+        return {
+          rootRequestId: request.rootRequestId,
+          centerId: request.planningSourceCenterId ?? request.centerId,
+          centerName: request.planningSourceCenterName ?? stockCenters.find((center) => center.id === request.centerId)?.name ?? `CENTRO ${request.centerId}`,
+          executionSheetId: request.planningSourceSheetId ?? request.sheetId,
+          executionSheetName: request.planningSourceSheetName ?? technicalSheets.find((sheet) => sheet.id === request.sheetId)?.name ?? `FICHA ${request.sheetId}`,
+          requestedQuantityLabel: request.planningSourceQuantityLabel ?? request.desiredYield,
+          createdAt: request.createdAt,
+          createdByUserName: request.createdByUserName,
+          productionCount: relatedRequests.length,
+          requisitionCount: relatedRequisitions.length,
+          cancellableRequisitionCount,
+          movedRequisitionCount,
+        } satisfies ExecutionProductionPlanningRow
+      })
+      .sort((left, right) => right.createdAt.localeCompare(left.createdAt))
+  }, [currentCompanyId, manualProductionRequests, requisitions, stockCenters, technicalSheets])
   const selectedProductionSheet = useMemo(
     () =>
       productionDraftState
@@ -21827,6 +21901,13 @@ export default function App() {
     centerId: number
     centerName: string
     shortageLines: RequisitionLineRecord[]
+    planningRootRequestId?: number | null
+    planningSourceKind?: 'PREPARO' | 'EXECUCAO'
+    planningSourceCenterId?: number | null
+    planningSourceCenterName?: string
+    planningSourceSheetId?: number | null
+    planningSourceSheetName?: string
+    planningSourceQuantityLabel?: string
   }) {
     if (currentCompanyId === null || params.shortageLines.length === 0) {
       return false
@@ -21841,6 +21922,13 @@ export default function App() {
       id: requisitionId,
       companyId: currentCompanyId,
       requisitionGroupId: requisitionId,
+      planningRootRequestId: params.planningRootRequestId ?? null,
+      planningSourceKind: params.planningSourceKind ?? '',
+      planningSourceCenterId: params.planningSourceCenterId ?? null,
+      planningSourceCenterName: params.planningSourceCenterName ?? '',
+      planningSourceSheetId: params.planningSourceSheetId ?? null,
+      planningSourceSheetName: params.planningSourceSheetName ?? '',
+      planningSourceQuantityLabel: params.planningSourceQuantityLabel ?? '',
       stockCenterId: params.centerId,
       stockCenterName: params.centerName,
       supplyCenterId: null,
@@ -21905,6 +21993,12 @@ export default function App() {
       rootRequestId: requestId,
       parentRequestId: entry.isDependencyRequest ? requestId : null,
       isDependencyRequest: entry.isDependencyRequest,
+      planningSourceKind: manualProductionPreviewState.sourceKind,
+      planningSourceCenterId: manualProductionPreviewState.centerId,
+      planningSourceCenterName: manualProductionPreviewState.centerName,
+      planningSourceSheetId: manualProductionPreviewState.sheetId,
+      planningSourceSheetName: manualProductionPreviewState.sheetName,
+      planningSourceQuantityLabel: manualProductionPreviewState.desiredYieldLabel,
     }))
     if (nextRequests.length > 0) {
       setManualProductionRequests((current) => [...nextRequests, ...current])
@@ -21919,6 +22013,13 @@ export default function App() {
           centerId: group.centerId,
           centerName: group.centerName,
           shortageLines: group.lines,
+          planningRootRequestId: manualProductionPreviewState.sourceKind === 'EXECUCAO' ? requestId : null,
+          planningSourceKind: manualProductionPreviewState.sourceKind,
+          planningSourceCenterId: manualProductionPreviewState.centerId,
+          planningSourceCenterName: manualProductionPreviewState.centerName,
+          planningSourceSheetId: manualProductionPreviewState.sheetId,
+          planningSourceSheetName: manualProductionPreviewState.sheetName,
+          planningSourceQuantityLabel: manualProductionPreviewState.desiredYieldLabel,
         }) || createdAny
       )
     }, false)
@@ -22233,6 +22334,10 @@ export default function App() {
     setPendingProductionCancelRow(row)
   }
 
+  function requestCancelExecutionPlanning(row: ExecutionProductionPlanningRow) {
+    setPendingExecutionPlanningCancelRow(row)
+  }
+
   function confirmCancelProductionRow() {
     if (!pendingProductionCancelRow) {
       return
@@ -22256,6 +22361,47 @@ export default function App() {
           : targetRow.statusLabel === 'A produzir'
             ? 'A solicitacao manual dessa producao foi retirada da fila.'
             : 'A solicitacao manual vinculada a essa producao foi cancelada.',
+    })
+  }
+
+  function confirmCancelExecutionPlanning() {
+    if (!pendingExecutionPlanningCancelRow || currentCompanyId === null) {
+      return
+    }
+
+    const rootRequestId = pendingExecutionPlanningCancelRow.rootRequestId
+    setManualProductionRequests((current) =>
+      current.filter((request) => !(request.companyId === currentCompanyId && request.rootRequestId === rootRequestId)),
+    )
+    setRequisitions((current) =>
+      current.map((record) => {
+        if (record.companyId !== currentCompanyId || record.planningRootRequestId !== rootRequestId) {
+          return record
+        }
+        if (
+          record.status !== 'PENDING_APPROVAL' &&
+          record.status !== 'APPROVED' &&
+          record.status !== 'SENT_TO_SUPPLIES'
+        ) {
+          return record
+        }
+        return {
+          ...record,
+          status: 'CANCELLED',
+          lastUpdatedAt: new Date().toISOString(),
+          lastUpdatedByUserId: currentAppUser?.id ?? null,
+          lastUpdatedByUserName: currentAppUser?.fullName ?? 'Administrador do sistema',
+        }
+      }),
+    )
+    setPendingExecutionPlanningCancelRow(null)
+    setSaveFeedback({
+      status: 'success',
+      title: 'Planejamento cancelado',
+      message:
+        pendingExecutionPlanningCancelRow.movedRequisitionCount > 0
+          ? 'As producoes pendentes foram retiradas da fila e as requisicoes ou suprimentos ainda nao movimentados foram cancelados. Itens ja movidos permaneceram ativos.'
+          : 'As producoes pendentes foram retiradas da fila e as requisicoes ou suprimentos vinculados que ainda nao avancaram tambem foram cancelados.',
     })
   }
 
@@ -39708,6 +39854,40 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
           <section className="panel">
             {productionEligibleCenters.length > 0 ? (
               <>
+                {executionProductionPlanningRows.length > 0 ? (
+                  <div className="inner-panel">
+                    <div className="section-heading section-heading-inline">
+                      <div>
+                        <p className="kicker">Planejamentos por ficha</p>
+                        <h2>Origens criadas por ficha de execucao</h2>
+                      </div>
+                    </div>
+                    <p className="context-copy">
+                      As producoes continuam na fila normal abaixo. Este bloco serve para rastrear e cancelar a origem completa da demanda enquanto ela ainda estiver pendente.
+                    </p>
+                    <div className="selector-list company-management-list">
+                      {executionProductionPlanningRows.map((row) => (
+                        <article key={`execution-planning-${row.rootRequestId}`} className="list-row">
+                          <strong>{row.executionSheetName}</strong>
+                          <div className="row-meta">
+                            <span><strong className="meta-label">Centro:</strong> {row.centerName}</span>
+                            <span><strong className="meta-label">Quantidade:</strong> {row.requestedQuantityLabel}</span>
+                            <span><strong className="meta-label">Producoes:</strong> {row.productionCount}</span>
+                            <span><strong className="meta-label">Requisicoes:</strong> {row.requisitionCount}</span>
+                            <span><strong className="meta-label">Pendentes para cancelamento:</strong> {row.cancellableRequisitionCount}</span>
+                            <span><strong className="meta-label">Ja movidas/recebidas:</strong> {row.movedRequisitionCount}</span>
+                          </div>
+                          <div className="table-actions">
+                            <button type="button" className="danger-button" onClick={() => requestCancelExecutionPlanning(row)}>
+                              Cancelar planejamento
+                            </button>
+                          </div>
+                        </article>
+                      ))}
+                    </div>
+                  </div>
+                ) : null}
+
                 <form className="form-grid company-form-grid" onSubmit={(event) => event.preventDefault()}>
                   <label className="field company-field-wide">
                     <span>Centro produtor *</span>
@@ -42785,6 +42965,21 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
             />
           )
         })()
+      ) : null}
+
+      {pendingExecutionPlanningCancelRow ? (
+        <ConfirmationModal
+          title="Cancelar planejamento por ficha?"
+          message={
+            pendingExecutionPlanningCancelRow.movedRequisitionCount > 0
+              ? `Deseja cancelar o planejamento de ${pendingExecutionPlanningCancelRow.executionSheetName}? As producoes pendentes serao retiradas da fila e ${pendingExecutionPlanningCancelRow.cancellableRequisitionCount} requisicao(oes)/suprimento(s) ainda nao movimentado(s) serao cancelados. ${pendingExecutionPlanningCancelRow.movedRequisitionCount} item(ns) ja movido(s) ou recebido(s) permanecera(ao) ativo(s).`
+              : `Deseja cancelar o planejamento de ${pendingExecutionPlanningCancelRow.executionSheetName}? Isso retirara as producoes pendentes da fila e cancelara automaticamente ${pendingExecutionPlanningCancelRow.cancellableRequisitionCount} requisicao(oes)/suprimento(s) vinculados que ainda nao avancaram no fluxo.`
+          }
+          actionClass="danger-button"
+          actionLabel="Cancelar planejamento"
+          onCancel={() => setPendingExecutionPlanningCancelRow(null)}
+          onConfirm={confirmCancelExecutionPlanning}
+        />
       ) : null}
 
       {productDiscardState ? (
@@ -49871,6 +50066,16 @@ function normalizeManualProductionRequestRecord(value: unknown): ManualProductio
     rootRequestId: isSafePersistedIntId(record.rootRequestId) ? record.rootRequestId : record.id,
     parentRequestId: isSafePersistedIntId(record.parentRequestId) ? record.parentRequestId : null,
     isDependencyRequest: record.isDependencyRequest === true,
+    planningSourceKind:
+      record.planningSourceKind === 'PREPARO' || record.planningSourceKind === 'EXECUCAO' ? record.planningSourceKind : '',
+    planningSourceCenterId: isSafePersistedIntId(record.planningSourceCenterId) ? record.planningSourceCenterId : null,
+    planningSourceCenterName:
+      typeof record.planningSourceCenterName === 'string' ? normalizeRegistrationText(record.planningSourceCenterName) : '',
+    planningSourceSheetId: isSafePersistedIntId(record.planningSourceSheetId) ? record.planningSourceSheetId : null,
+    planningSourceSheetName:
+      typeof record.planningSourceSheetName === 'string' ? normalizeRegistrationText(record.planningSourceSheetName) : '',
+    planningSourceQuantityLabel:
+      typeof record.planningSourceQuantityLabel === 'string' ? normalizeRegistrationText(record.planningSourceQuantityLabel) : '',
   }
 }
 
@@ -50892,6 +51097,17 @@ function normalizeRequisitionRecord(value: unknown): RequisitionRecord | null {
   return {
     id: record.id,
     companyId: record.companyId,
+    planningRootRequestId: isSafePersistedIntId(record.planningRootRequestId) ? record.planningRootRequestId : null,
+    planningSourceKind:
+      record.planningSourceKind === 'PREPARO' || record.planningSourceKind === 'EXECUCAO' ? record.planningSourceKind : '',
+    planningSourceCenterId: isSafePersistedIntId(record.planningSourceCenterId) ? record.planningSourceCenterId : null,
+    planningSourceCenterName:
+      typeof record.planningSourceCenterName === 'string' ? normalizeRegistrationText(record.planningSourceCenterName) : '',
+    planningSourceSheetId: isSafePersistedIntId(record.planningSourceSheetId) ? record.planningSourceSheetId : null,
+    planningSourceSheetName:
+      typeof record.planningSourceSheetName === 'string' ? normalizeRegistrationText(record.planningSourceSheetName) : '',
+    planningSourceQuantityLabel:
+      typeof record.planningSourceQuantityLabel === 'string' ? normalizeRegistrationText(record.planningSourceQuantityLabel) : '',
     requisitionGroupId: isSafePersistedIntId(record.requisitionGroupId) ? record.requisitionGroupId : record.id,
     stockCenterId: record.stockCenterId,
     stockCenterName: normalizeRegistrationText(record.stockCenterName),
