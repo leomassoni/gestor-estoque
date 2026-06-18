@@ -46317,6 +46317,18 @@ function getRequisitionDraftColumnSortLabels(key: RequisitionDraftColumnKey) {
   return getSortLabels(isNumericRequisitionDraftColumn(key))
 }
 
+function formatRequisitionDraftColumnQuantity(
+  line: RequisitionDraftLine,
+  quantityValue: string,
+  unitLabel: string,
+) {
+  const quantity = parseDecimal(quantityValue) ?? 0
+  if (line.kind === 'PRODUTO') {
+    return `${formatDecimal(quantity)} de ${unitLabel}`
+  }
+  return `${formatDecimal(quantity)} ${unitLabel}`
+}
+
 function getRequisitionDraftColumnValue(line: RequisitionDraftLine, key: RequisitionDraftColumnKey) {
   switch (key) {
     case 'item':
@@ -46324,13 +46336,21 @@ function getRequisitionDraftColumnValue(line: RequisitionDraftLine, key: Requisi
     case 'type':
       return line.itemTypeLabel
     case 'current':
-      return formatRequisitionEffectiveQuantity(line, line.currentQuantity)
+      return formatRequisitionDraftColumnQuantity(line, line.currentQuantity, line.currentUnitLabel)
     case 'minimum':
       return line.minimumDefinitionLabel
     case 'suggestion':
-      return formatRequisitionEffectiveQuantity(line, line.suggestedQuantity)
+      return formatRequisitionDraftColumnQuantity(
+        line,
+        line.suggestedQuantity,
+        line.kind === 'PRODUTO' ? line.currentUnitLabel : line.requestUnitLabel,
+      )
     case 'requested':
-      return formatRequisitionEffectiveQuantity(line, line.requestedQuantity)
+      return formatRequisitionDraftColumnQuantity(
+        line,
+        line.requestedQuantity,
+        line.kind === 'PRODUTO' ? line.currentUnitLabel : line.requestUnitLabel,
+      )
     case 'destination':
       return line.destinationLabel
   }
