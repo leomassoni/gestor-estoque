@@ -28403,25 +28403,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
     }
 
     const relevantDemandRows = activeBatchesForCenter.flatMap((batch) => {
-      const matchedRowsForBatch = workingRows.filter(
-        (row) =>
-          row.batchId === batch.id &&
-          row.companyId === companyId &&
-          row.stockCenterId === targetCenterId &&
-          row.status === 'MATCHED',
-      )
-      if (matchedRowsForBatch.length > 0) {
-        return buildSalesImportIngredientDemandRows(
-          matchedRowsForBatch.map((row) => ({
-            consumedAt: row.consumedAt,
-            matchedTechnicalSheetId: row.matchedTechnicalSheetId,
-            quantity: row.quantity,
-            status: row.status,
-          })),
-        )
-      }
-
-      return workingConsumptions
+      const persistedConsumptionsForBatch = workingConsumptions
         .filter(
           (consumption) =>
             consumption.sourceBatchId === batch.id &&
@@ -28435,6 +28417,30 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
           quantityConsumed: parseDecimal(consumption.quantityConsumed) ?? 0,
         }))
         .filter((row) => row.quantityConsumed > 0)
+
+      if (persistedConsumptionsForBatch.length > 0) {
+        return persistedConsumptionsForBatch
+      }
+
+      const matchedRowsForBatch = workingRows.filter(
+        (row) =>
+          row.batchId === batch.id &&
+          row.companyId === companyId &&
+          row.stockCenterId === targetCenterId &&
+          row.status === 'MATCHED',
+      )
+      if (matchedRowsForBatch.length === 0) {
+        return []
+      }
+
+      return buildSalesImportIngredientDemandRows(
+        matchedRowsForBatch.map((row) => ({
+          consumedAt: row.consumedAt,
+          matchedTechnicalSheetId: row.matchedTechnicalSheetId,
+          quantity: row.quantity,
+          status: row.status,
+        })),
+      )
     })
     const normalizedConsumptionRows = relevantDemandRows
       .map((record) => ({
