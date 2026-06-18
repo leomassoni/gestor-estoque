@@ -5059,9 +5059,6 @@ export default function App() {
   function getCompanyTradeName(companyId: number) {
     return companies.find((item) => item.id === companyId)?.tradeName ?? `EMPRESA ${companyId}`
   }
-  function isStockCenterVisibleForCompany(center: StockCenterRecord, companyId: number | null) {
-    return companyId !== null && getCompanyLinkScopeIds(center.companyId).includes(companyId)
-  }
   function buildRequisitionLineSemanticKey(line: Pick<RequisitionLineRecord, 'kind' | 'technicalSheetId' | 'productId' | 'serviceItemId' | 'packageId' | 'destinationType' | 'destinationCenterId' | 'supplierCenterId'>) {
     return [
       line.kind,
