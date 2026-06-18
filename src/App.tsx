@@ -503,7 +503,7 @@ type StockCenterMinimumRow = {
   packageId: number | null
 }
 
-type StockCenterMinimumColumnKey = 'sheet' | 'type' | 'family' | 'reference' | 'yield' | 'minimum' | 'realMinimum'
+type StockCenterMinimumColumnKey = 'sheet' | 'type' | 'family' | 'reference' | 'yield' | 'minimum' | 'realMinimum' | 'consolidatedMinimum'
 type InventorySummaryColumnKey = 'date' | 'location' | 'product' | 'type' | 'recipient' | 'closed' | 'open' | 'total' | 'user'
 type ClosedInventoryColumnKey = 'id' | 'center' | 'date' | 'startedBy' | 'closedBy' | 'startedAt' | 'closedAt'
 type InventoryReviewColumnKey = 'product' | 'internalId' | 'companyId' | 'type' | 'family' | 'total' | 'unit' | 'status'
@@ -2220,6 +2220,7 @@ const stockCenterMinimumColumnOptions: Array<[StockCenterMinimumColumnKey, strin
   ['yield', 'Rendimento base'],
   ['minimum', 'Minimo de uso'],
   ['realMinimum', 'Minimo real'],
+  ['consolidatedMinimum', 'Consolidado'],
 ]
 const defaultStockCenterMinimumColumnVisibility: Record<StockCenterMinimumColumnKey, boolean> = {
   sheet: true,
@@ -2229,6 +2230,7 @@ const defaultStockCenterMinimumColumnVisibility: Record<StockCenterMinimumColumn
   yield: true,
   minimum: true,
   realMinimum: true,
+  consolidatedMinimum: true,
 }
 const defaultStockCenterMinimumColumnFilters: Partial<Record<StockCenterMinimumColumnKey, string[]>> = {}
 const inventorySummaryColumnOptions: Array<[InventorySummaryColumnKey, string]> = [
@@ -4660,7 +4662,7 @@ export default function App() {
         const directEntry = findStockCenterMinimumEntry(center.minimumStocks, {
           kind: 'PREPARO',
           technicalSheetId: targetSheet.id,
-          productId: '',
+          productId: targetSheet.productId,
           serviceItemId: '',
           packageId: null,
         })
@@ -4677,7 +4679,7 @@ export default function App() {
       const directEntry = findStockCenterMinimumEntry(center.minimumStocks, {
         kind: 'PREPARO',
         technicalSheetId: targetSheet.id,
-        productId: '',
+        productId: targetSheet.productId,
         serviceItemId: '',
         packageId: null,
       })
@@ -4784,7 +4786,7 @@ export default function App() {
         const minimumEntry = findStockCenterMinimumEntry(center.minimumStocks, {
           kind: 'PREPARO',
           technicalSheetId: sheet.id,
-          productId: '',
+          productId: sheet.productId,
           serviceItemId: '',
           packageId: null,
         })
@@ -4797,7 +4799,7 @@ export default function App() {
         const minimumEntry = findStockCenterMinimumEntry(center.minimumStocks, {
           kind: 'PREPARO',
           technicalSheetId: sheet.id,
-          productId: '',
+          productId: sheet.productId,
           serviceItemId: '',
           packageId: null,
         })
@@ -8303,6 +8305,36 @@ export default function App() {
         .filter((value): value is string => Boolean(value)),
     [stockCenterForm.suppliedCenterIds, stockCenterSuppliableCenters],
   )
+  const stockCenterPreviewRecord = useMemo<StockCenterRecord | null>(() => {
+    if (currentCompanyId === null) {
+      return null
+    }
+
+    return {
+      id: editingStockCenterId ?? 0,
+      companyId: currentCompanyId,
+      name: stockCenterForm.name,
+      code: stockCenterForm.code,
+      sector: stockCenterForm.sector,
+      userIds: [...stockCenterForm.userIds],
+      responsibleUserIds: stockCenterForm.responsibleUserIds
+        .map((value) => Number.parseInt(value, 10))
+        .filter((value) => Number.isInteger(value) && value > 0),
+      isProducer: stockCenterForm.isProducer,
+      producedTechnicalSheetIds: stockCenterForm.producedTechnicalSheetIds
+        .map((value) => Number.parseInt(value, 10))
+        .filter((value) => Number.isInteger(value) && value > 0),
+      isDistributor: stockCenterForm.isDistributor,
+      distributesAllProducts: stockCenterForm.distributesAllProducts,
+      distributedProductIds: [...stockCenterForm.distributedProductIds],
+      suppliedCenterIds: stockCenterForm.suppliedCenterIds
+        .map((value) => Number.parseInt(value, 10))
+        .filter((value) => Number.isInteger(value) && value > 0),
+      minimumStocks: stockCenterForm.minimumStocks.map((item) => ({ ...item })),
+      salesImportSettings: { ...stockCenterForm.salesImportSettings },
+      isActive: editingStockCenterId === null ? true : stockCenters.find((center) => center.id === editingStockCenterId)?.isActive ?? true,
+    } satisfies StockCenterRecord
+  }, [currentCompanyId, editingStockCenterId, stockCenterForm, stockCenters])
   const inventoryCountableServiceItems = useMemo(
     () =>
       serviceItems
@@ -9190,7 +9222,7 @@ export default function App() {
               baseQuantity: getStockCenterBaseQuantity(sheet),
               baseUnit: sheet.outputUnit,
               technicalSheetId: sheet.id,
-              productId: '',
+              productId: sheet.productId,
               serviceItemId: '',
               packageId: null,
             }) satisfies StockCenterMinimumRow,
@@ -9255,6 +9287,22 @@ export default function App() {
     },
     [currentCompanyId, isProductVisibleForCompany, isTechnicalSheetVisibleForCompany, products, serviceItems, technicalSheets],
   )
+  const getStockCenterConsolidatedMinimumText = (row: StockCenterMinimumRow) => {
+    if (!stockCenterPreviewRecord || row.kind !== 'PREPARO' || row.technicalSheetId === null) {
+      return ''
+    }
+    const technicalSheet =
+      technicalSheets.find((sheet) => sheet.id === row.technicalSheetId && sheet.kind === 'PREPARO') ?? null
+    if (!technicalSheet) {
+      return ''
+    }
+    const consolidatedBaseQuantity = getTechnicalSheetExternalUseMinimumQuantityForCenter(technicalSheet, stockCenterPreviewRecord)
+    if (consolidatedBaseQuantity <= 0) {
+      return ''
+    }
+    const rowQuantity = row.baseQuantity > 0 ? consolidatedBaseQuantity / row.baseQuantity : consolidatedBaseQuantity
+    return formatStockCenterMinimumDefinition(formatDecimal(rowQuantity), row, { baseUnit: row.baseUnit })
+  }
   const minimumBaseQuantityByCenterAndAggregation = useMemo(() => {
     const nextMap = new Map<string, number>()
 
@@ -9288,7 +9336,7 @@ export default function App() {
               baseQuantity: getStockCenterBaseQuantity(sheet),
               baseUnit: sheet.outputUnit,
               technicalSheetId: sheet.id,
-              productId: '',
+              productId: sheet.productId,
               serviceItemId: '',
               packageId: null,
             } satisfies StockCenterMinimumRow,
@@ -11888,6 +11936,7 @@ export default function App() {
         stockCenterMinimumRows.filter((row) => {
           const search = stockCenterMinimumSearch.trim().toLowerCase()
           const minimumEntry = findStockCenterMinimumEntry(stockCenterForm.minimumStocks, row)
+          const consolidatedMinimumText = getStockCenterConsolidatedMinimumText(row)
           const matchesSearch =
             search === '' ||
             row.name.toLowerCase().includes(search) ||
@@ -11901,13 +11950,16 @@ export default function App() {
             }
 
             const key = rawKey as StockCenterMinimumColumnKey
-            return selectedValues.includes(getStockCenterMinimumColumnValue(row, minimumEntry, key))
+            return selectedValues.includes(getStockCenterMinimumColumnValue(row, minimumEntry, key, { consolidatedMinimumText }))
           })
 
           return matchesSearch && matchesFilters
         }),
         stockCenterMinimumColumnSort,
-        (row, key) => getStockCenterMinimumColumnValue(row, findStockCenterMinimumEntry(stockCenterForm.minimumStocks, row), key),
+        (row, key) =>
+          getStockCenterMinimumColumnValue(row, findStockCenterMinimumEntry(stockCenterForm.minimumStocks, row), key, {
+            consolidatedMinimumText: getStockCenterConsolidatedMinimumText(row),
+          }),
       ),
     [stockCenterForm.minimumStocks, stockCenterMinimumColumnFilters, stockCenterMinimumColumnSort, stockCenterMinimumRows, stockCenterMinimumSearch],
   )
@@ -11924,11 +11976,12 @@ export default function App() {
                     row,
                     findStockCenterMinimumEntry(stockCenterForm.minimumStocks, row),
                     key,
+                    { consolidatedMinimumText: getStockCenterConsolidatedMinimumText(row) },
                   ),
                 ),
               ),
             ),
-            key === 'yield' || key === 'minimum' || key === 'realMinimum',
+            key === 'yield' || key === 'minimum' || key === 'realMinimum' || key === 'consolidatedMinimum',
           ),
         ]),
       ) as Record<StockCenterMinimumColumnKey, string[]>,
@@ -17843,9 +17896,6 @@ export default function App() {
   }
 
   function buildRequisitionDraftLines(center: StockCenterRecord): RequisitionDraftLine[] {
-    const minimumByKey = new Map(
-      center.minimumStocks.map((minimumStock) => [buildStockCenterMinimumEntryKey(minimumStock), minimumStock] as const),
-    )
     const centerMinimumRows = [
       ...technicalSheets
         .filter(
@@ -17870,13 +17920,13 @@ export default function App() {
               typeLabel: 'Pre-preparo',
               family: sheet.family,
               referenceLabel: 'PORCAO BASE',
-              baseQuantity: getStockCenterBaseQuantity(sheet),
-              baseUnit: sheet.outputUnit,
-              technicalSheetId: sheet.id,
-              productId: '',
-              serviceItemId: '',
-              packageId: null,
-            }) satisfies StockCenterMinimumRow,
+                  baseQuantity: getStockCenterBaseQuantity(sheet),
+                  baseUnit: sheet.outputUnit,
+                  technicalSheetId: sheet.id,
+                  productId: sheet.productId,
+                  serviceItemId: '',
+                  packageId: null,
+                }) satisfies StockCenterMinimumRow,
         ),
       ...products
         .filter(
@@ -17950,7 +18000,7 @@ export default function App() {
         return !technicalSheet || !doesCenterProduceTechnicalSheet(center, technicalSheet)
       })
       .map((row) => {
-        const minimumStock = minimumByKey.get(row.key) ?? null
+        const minimumStock = findStockCenterMinimumEntry(center.minimumStocks, row)
         const manualUseMinimum = getMinimumUseQuantityValue(minimumStock)
         const suggestedRealMinimum = parseDecimal(minimumStock?.suggestedMinimumQuantity ?? '') ?? 0
         const requiredBaseQuantity = (manualUseMinimum + suggestedRealMinimum) * row.baseQuantity
@@ -22584,6 +22634,20 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                         setStockCenterMinimumColumnSort,
                       )
                     : null}
+                  {stockCenterMinimumColumnVisibility.consolidatedMinimum
+                    ? renderStockCenterMinimumColumnHeader(
+                        'consolidatedMinimum',
+                        'Consolidado',
+                        openStockCenterMinimumColumnMenu,
+                        setOpenStockCenterMinimumColumnMenu,
+                        stockCenterMinimumColumnFilters,
+                        distinctStockCenterMinimumColumnValues,
+                        setStockCenterMinimumColumnFilters,
+                        setStockCenterMinimumColumnVisibility,
+                        stockCenterMinimumColumnSort,
+                        setStockCenterMinimumColumnSort,
+                      )
+                    : null}
                 </tr>
               </thead>
               <tbody>
@@ -22591,6 +22655,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                   const minimumStockEntry = findStockCenterMinimumEntry(stockCenterForm.minimumStocks, row)
                   const minimumStock = getMinimumUseQuantityText(minimumStockEntry)
                   const realMinimum = getRealMinimumQuantityText(minimumStockEntry)
+                  const consolidatedMinimum = getStockCenterConsolidatedMinimumText(row)
                   return (
                     <tr key={row.key}>
                       {stockCenterMinimumColumnVisibility.sheet ? (
@@ -22624,6 +22689,9 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                             <p className="helper-text">Sugestao automatica do sistema.</p>
                           ) : null}
                         </td>
+                      ) : null}
+                      {stockCenterMinimumColumnVisibility.consolidatedMinimum ? (
+                        <td>{consolidatedMinimum || '-'}</td>
                       ) : null}
                     </tr>
                   )
@@ -45821,7 +45889,7 @@ function getItemColumnSortLabels(key: ItemColumnKey) {
 }
 
 function isNumericStockCenterMinimumColumn(key: StockCenterMinimumColumnKey) {
-  return key === 'yield' || key === 'minimum' || key === 'realMinimum'
+  return key === 'yield' || key === 'minimum' || key === 'realMinimum' || key === 'consolidatedMinimum'
 }
 
 function getStockCenterMinimumColumnSortLabels(key: StockCenterMinimumColumnKey) {
@@ -47184,7 +47252,16 @@ function findStockCenterMinimumEntry(
   },
 ) {
   const key = buildStockCenterMinimumEntryKey(target)
-  return minimumStocks.find((item) => buildStockCenterMinimumEntryKey(item) === key) ?? null
+  const directEntry = minimumStocks.find((item) => buildStockCenterMinimumEntryKey(item) === key) ?? null
+  if (directEntry) {
+    return directEntry
+  }
+
+  if (target.kind === 'PREPARO' && target.productId.trim() !== '') {
+    return minimumStocks.find((item) => item.kind === 'PREPARO' && item.productId.trim() === target.productId.trim()) ?? null
+  }
+
+  return null
 }
 
 function formatStockCenterMinimumDefinition(
@@ -47308,6 +47385,9 @@ function getStockCenterMinimumColumnValue(
   row: StockCenterMinimumRow,
   minimumEntry: StockCenterMinimumStock | null,
   key: StockCenterMinimumColumnKey,
+  options: {
+    consolidatedMinimumText?: string
+  } = {},
 ) {
   switch (key) {
     case 'sheet':
@@ -47324,6 +47404,8 @@ function getStockCenterMinimumColumnValue(
       return getMinimumUseQuantityText(minimumEntry)
     case 'realMinimum':
       return getRealMinimumQuantityText(minimumEntry)
+    case 'consolidatedMinimum':
+      return options.consolidatedMinimumText ?? ''
   }
 }
 
