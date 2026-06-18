@@ -28366,79 +28366,76 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
   function applySalesImportSuggestedMinimums(params: {
     companyId: number
     targetCenterId: number
-    historyMode: SalesImportBatchRecord['historyMode']
-    historyMonths: number | null
-    coverageMode: SalesImportCoverageMode
-    coverageWeekStartsOn: number
-    safetyMarginPercent: string
-    pendingMatchedRows: SalesImportPreviewRow[]
-    fallbackDemandRows?: Array<{
-      consumedAt: string
-      ingredientProductId: string
-      quantityConsumed: number
-    }>
-    replaceSourceBatchId?: number | null
     baseStockCenters?: StockCenterRecord[]
     availableBatches?: SalesImportBatchRecord[]
     availableRows?: SalesImportRowRecord[]
+    availableConsumptions?: SalesConsumptionRecord[]
   }) {
     const {
       availableBatches,
+      availableConsumptions,
       availableRows,
       baseStockCenters,
       companyId,
-      coverageMode,
-      coverageWeekStartsOn,
-      historyMode,
-      historyMonths,
-      pendingMatchedRows,
-      fallbackDemandRows = [],
-      replaceSourceBatchId,
-      safetyMarginPercent,
       targetCenterId,
     } = params
     const workingStockCenters = baseStockCenters ?? stockCenters
     const workingBatches = availableBatches ?? salesImportBatches
     const workingRows = availableRows ?? salesImportRows
+    const workingConsumptions = availableConsumptions ?? salesConsumptions
     const targetCenter =
       workingStockCenters.find(
-        (center) => center.id === targetCenterId && (center.companyId === companyId || isStockCenterVisibleForCompany(center, companyId)),
+        (center) => center.id === targetCenterId && center.companyId === companyId,
       ) ?? null
     if (!targetCenter) {
       return workingStockCenters
     }
     const targetCompanyId = targetCenter.companyId
 
-    const activeBatchIds = new Set(
-      workingBatches
-        .filter(
-          (batch) =>
-            batch.companyId === companyId &&
-            batch.stockCenterId === targetCenterId &&
-            batch.status !== 'CANCELLED' &&
-            (replaceSourceBatchId === null || replaceSourceBatchId === undefined || batch.id !== replaceSourceBatchId),
+    const activeBatchesForCenter = workingBatches.filter(
+      (batch) =>
+        batch.companyId === companyId &&
+        batch.stockCenterId === targetCenterId &&
+        batch.status !== 'CANCELLED',
+    )
+    if (activeBatchesForCenter.length === 0) {
+      return workingStockCenters
+    }
+
+    const relevantDemandRows = activeBatchesForCenter.flatMap((batch) => {
+      const matchedRowsForBatch = workingRows.filter(
+        (row) =>
+          row.batchId === batch.id &&
+          row.companyId === companyId &&
+          row.stockCenterId === targetCenterId &&
+          row.status === 'MATCHED',
+      )
+      if (matchedRowsForBatch.length > 0) {
+        return buildSalesImportIngredientDemandRows(
+          matchedRowsForBatch.map((row) => ({
+            consumedAt: row.consumedAt,
+            matchedTechnicalSheetId: row.matchedTechnicalSheetId,
+            quantity: row.quantity,
+            status: row.status,
+          })),
         )
-        .map((batch) => batch.id),
-    )
-    const persistedMatchedRows = workingRows.filter(
-      (row) =>
-        row.companyId === companyId &&
-        row.stockCenterId === targetCenterId &&
-        row.status === 'MATCHED' &&
-        activeBatchIds.has(row.batchId),
-    )
-    const relevantDemandRows = [
-      ...buildSalesImportIngredientDemandRows(
-        persistedMatchedRows.map((row) => ({
-          consumedAt: row.consumedAt,
-          matchedTechnicalSheetId: row.matchedTechnicalSheetId,
-          quantity: row.quantity,
-          status: row.status,
-        })),
-      ),
-      ...buildSalesImportIngredientDemandRows(pendingMatchedRows),
-      ...fallbackDemandRows,
-    ]
+      }
+
+      return workingConsumptions
+        .filter(
+          (consumption) =>
+            consumption.sourceBatchId === batch.id &&
+            consumption.companyId === companyId &&
+            consumption.stockCenterId === targetCenterId &&
+            consumption.stockPostingStatus !== 'CANCELLED',
+        )
+        .map((consumption) => ({
+          consumedAt: consumption.consumedAt,
+          ingredientProductId: consumption.ingredientProductId,
+          quantityConsumed: parseDecimal(consumption.quantityConsumed) ?? 0,
+        }))
+        .filter((row) => row.quantityConsumed > 0)
+    })
     const normalizedConsumptionRows = relevantDemandRows
       .map((record) => ({
         record,
@@ -28451,27 +28448,32 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
     }
 
     const availableDateKeys = normalizedConsumptionRows.map((item) => item.dateKey).sort()
-    const importedStartDateKey = availableDateKeys[0]
-    const importedEndDateKey = availableDateKeys[availableDateKeys.length - 1]
+    const importedStartDateKey = availableDateKeys[0] ?? ''
+    const importedEndDateKey = availableDateKeys[availableDateKeys.length - 1] ?? ''
     const fullPeriodStartDateKey = availableDateKeys[0]
     const rollingEndDateKey = importedEndDateKey
+    const centerHistoryMode = targetCenter.salesImportSettings.historyMode
+    const centerHistoryMonths = centerHistoryMode === 'ROLLING_MONTHS' ? Math.max(1, targetCenter.salesImportSettings.historyMonths) : null
+    const centerCoverageMode = targetCenter.salesImportSettings.coverageMode
+    const centerCoverageWeekStartsOn = targetCenter.salesImportSettings.coverageWeekStartsOn
+    const centerSafetyMarginPercent = targetCenter.salesImportSettings.safetyMarginPercent.trim() || '20'
     const rollingStartDateKey =
-      historyMode === 'ROLLING_MONTHS'
-        ? addSalesImportDateKeyMonths(rollingEndDateKey, -Math.max(1, historyMonths ?? 1))
+      centerHistoryMode === 'ROLLING_MONTHS'
+        ? addSalesImportDateKeyMonths(rollingEndDateKey, -Math.max(1, centerHistoryMonths ?? 1))
         : fullPeriodStartDateKey
     const comparisonStartDateKey =
-      historyMode === 'SAME_PERIOD_LAST_YEAR'
+      centerHistoryMode === 'SAME_PERIOD_LAST_YEAR'
         ? shiftSalesImportDateKeyByYears(importedStartDateKey, -1)
         : importedStartDateKey
     const comparisonEndDateKey =
-      historyMode === 'SAME_PERIOD_LAST_YEAR'
+      centerHistoryMode === 'SAME_PERIOD_LAST_YEAR'
         ? shiftSalesImportDateKeyByYears(importedEndDateKey, -1)
         : importedEndDateKey
 
     const [windowStartDateKey, windowEndDateKey] =
-      historyMode === 'FULL_PERIOD'
+      centerHistoryMode === 'FULL_PERIOD'
         ? [fullPeriodStartDateKey, rollingEndDateKey]
-        : historyMode === 'SAME_PERIOD_LAST_YEAR'
+        : centerHistoryMode === 'SAME_PERIOD_LAST_YEAR'
           ? [comparisonStartDateKey, comparisonEndDateKey]
           : [rollingStartDateKey, rollingEndDateKey]
 
@@ -28558,12 +28560,8 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
     }
 
     const computeSuggestedMinimumQuantity = (center: StockCenterRecord, target: MinimumSuggestionTarget) => {
-      const centerHistoryMode = center.salesImportSettings.historyMode
-      const centerHistoryMonths = centerHistoryMode === 'ROLLING_MONTHS' ? Math.max(1, center.salesImportSettings.historyMonths) : null
-      const centerCoverageMode = center.salesImportSettings.coverageMode ?? coverageMode
-      const centerCoverageWeekStartsOn = center.salesImportSettings.coverageWeekStartsOn ?? coverageWeekStartsOn
       const centerSafetyMultiplier =
-        1 + Math.max(0, parseDecimal(center.salesImportSettings.safetyMarginPercent.trim() || safetyMarginPercent) ?? 0) / 100
+        1 + Math.max(0, parseDecimal(center.salesImportSettings.safetyMarginPercent.trim() || centerSafetyMarginPercent) ?? 0) / 100
 
       const availableDateKeys = Array.from(target.demandByDate.keys()).sort()
       if (availableDateKeys.length === 0) {
@@ -28761,10 +28759,9 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
       baseStockCenters = stockCenters,
       companyId,
     } = params
-    const companyScopeIds = new Set(getCompanyLinkScopeIds(companyId))
 
     const cleanedCenters: StockCenterRecord[] = baseStockCenters.map((center) => {
-      if (!companyScopeIds.has(center.companyId)) {
+      if (center.companyId !== companyId) {
         return center
       }
 
@@ -28807,7 +28804,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
     })
 
     const activeBatches = availableBatches
-      .filter((batch) => companyScopeIds.has(batch.companyId) && batch.status !== 'CANCELLED')
+      .filter((batch) => batch.companyId === companyId && batch.status !== 'CANCELLED')
       .sort(
         (left, right) =>
           left.importedAt.localeCompare(right.importedAt) ||
@@ -28815,56 +28812,15 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
           left.id - right.id,
       )
 
-    return activeBatches.reduce<StockCenterRecord[]>((nextCenters, batch) => {
-      const mappedMatchedRows = availableRows
-        .filter((row) => row.batchId === batch.id && row.status === 'MATCHED')
-        .map((row) => ({
-          sourceRowKey: row.sourceRowKey,
-          consumedAt: row.consumedAt,
-          companyProductId: row.companyProductId,
-          quantity: normalizeSalesImportQuantityValue(row.quantity, true),
-          matchedTechnicalSheetId: row.matchedTechnicalSheetId,
-          matchedKind: row.matchedKind,
-          status: 'MATCHED' as const,
-          errorMessage: '',
-        }))
-      const matchedRows = mappedMatchedRows.filter(
-        (row) => typeof row.matchedTechnicalSheetId === 'number' && Boolean(row.matchedKind),
-      ) as SalesImportPreviewRow[]
-
-      const fallbackDemandRows =
-        matchedRows.length === 0
-          ? availableConsumptions
-              .filter(
-                (consumption) =>
-                  consumption.sourceBatchId === batch.id && consumption.stockPostingStatus !== 'CANCELLED',
-              )
-              .map((consumption) => ({
-                consumedAt: consumption.consumedAt,
-                ingredientProductId: consumption.ingredientProductId,
-                quantityConsumed: parseDecimal(consumption.quantityConsumed) ?? 0,
-              }))
-              .filter((row) => row.quantityConsumed > 0)
-          : []
-
-      if (matchedRows.length === 0 && fallbackDemandRows.length === 0) {
-        return nextCenters
-      }
-
+    const targetCenterIds = Array.from(new Set(activeBatches.map((batch) => batch.stockCenterId)))
+    return targetCenterIds.reduce<StockCenterRecord[]>((nextCenters, targetCenterId) => {
       return applySalesImportSuggestedMinimums({
-        companyId: batch.companyId,
-        targetCenterId: batch.stockCenterId,
-        historyMode: batch.historyMode,
-        historyMonths: batch.historyMonths,
-        coverageMode: getSalesImportBatchCoverageMode(batch),
-        coverageWeekStartsOn: getSalesImportBatchCoverageWeekStartsOn(batch),
-        safetyMarginPercent: batch.safetyMarginPercent,
-        pendingMatchedRows: matchedRows,
-        fallbackDemandRows,
-        replaceSourceBatchId: batch.id,
+        companyId,
+        targetCenterId,
         baseStockCenters: nextCenters,
         availableBatches,
         availableRows,
+        availableConsumptions,
       })
     }, cleanedCenters)
   }
