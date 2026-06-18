@@ -21212,19 +21212,6 @@ export default function App() {
     setIsExecutionProductionModalOpen(true)
   }
 
-  function buildRequisitionLineSemanticKey(line: RequisitionLineRecord) {
-    return [
-      line.kind,
-      line.technicalSheetId ?? '',
-      line.productId,
-      line.serviceItemId,
-      line.packageId ?? '',
-      line.destinationType,
-      line.destinationCenterId ?? '',
-      line.supplierCenterId ?? '',
-    ].join(':')
-  }
-
   function mergeRequisitionLines(lines: RequisitionLineRecord[]) {
     const merged = new Map<string, RequisitionLineRecord>()
     lines.forEach((line) => {
