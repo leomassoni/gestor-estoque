@@ -18893,17 +18893,36 @@ export default function App() {
         lastUpdatedByUserId: currentAppUser?.id ?? null,
         lastUpdatedByUserName: currentAppUser?.fullName ?? 'Administrador do sistema',
       }
-      setRequisitions((current) => [nextRequisition, ...current])
+      const splitDraftResult = buildSplitRequisitionsForDraft(nextRequisition)
+      if (splitDraftResult.error) {
+        setSaveFeedback({
+          status: 'error',
+          title: 'Destino da requisicao indefinido',
+          message: splitDraftResult.error,
+        })
+        return
+      }
+
+      if (splitDraftResult.requisitions.length === 0) {
+        setSaveFeedback({
+          status: 'error',
+          title: 'Requisicao vazia',
+          message: 'Nao foi possivel separar os itens da requisicao por destino operacional.',
+        })
+        return
+      }
+
+      setRequisitions((current) => [...splitDraftResult.requisitions, ...current])
       registerAuditEvent({
         companyId: nextRequisition.companyId,
         module: 'REQUISICOES',
         actionKey: 'CREATE_REQUISITION',
         actionLabel: 'Cadastro de requisicao',
         targetType: 'REQUISITION',
-        targetId: String(nextRequisition.id),
+        targetId: String(nextRequisition.requisitionGroupId),
         targetLabel: `${nextRequisition.stockCenterName} • ${formatDateForDisplay(nextRequisition.countedAt)}`,
         summary: `Requisicao criada para o centro ${nextRequisition.stockCenterName}.`,
-        impactSummary: `${linesToSave.length} item(ns) registrado(s) para abastecimento.`,
+        impactSummary: `${splitDraftResult.requisitions.length} requisicao(oes) registrada(s) por destino operacional.`,
         severity: 'MEDIUM',
         result: 'SUCCESS',
         relatedCompanyIds: Array.from(
@@ -18916,13 +18935,17 @@ export default function App() {
         details: {
           stockCenterId: nextRequisition.stockCenterId,
           lineCount: linesToSave.length,
+          requisitionCount: splitDraftResult.requisitions.length,
           destinations: Array.from(new Set(linesToSave.map((line) => line.destinationType))),
         },
       })
       setSaveFeedback({
         status: 'success',
         title: 'Requisicao criada com sucesso',
-        message: 'A requisicao foi criada e agora aguarda aprovacao do responsavel pelo centro de estoque.',
+        message:
+          splitDraftResult.requisitions.length === 1
+            ? 'A requisicao foi criada e agora aguarda aprovacao do responsavel pelo centro de estoque.'
+            : `${splitDraftResult.requisitions.length} requisicoes foram criadas, uma para cada destino operacional, e agora aguardam aprovacao.`,
       })
     } else {
       const currentRecord = requisitions.find((record) => record.id === editingRequisitionId) ?? null
@@ -19196,6 +19219,119 @@ export default function App() {
       error: '',
       requisitions: splitRequisitions,
       remainingPurchaseLines: purchaseLines,
+    }
+  }
+
+  function buildSplitRequisitionsForDraft(record: RequisitionRecord) {
+    const productionLines = record.lines.filter((line) => line.destinationType === 'PRODUCOES')
+    const supplyLines = record.lines.filter((line) => line.destinationType === 'SUPRIMENTOS')
+    const purchaseLines = record.lines.filter((line) => line.destinationType === 'COMPRAS')
+    const unresolvedProductionLines = productionLines.filter((line) => getLineDestinationCenter(line) === null)
+    const unresolvedSupplyLines = supplyLines.filter((line) => line.supplierCenterId === null || typeof line.supplierCenterId !== 'number')
+
+    if (unresolvedProductionLines.length > 0) {
+      return {
+        error: `Existem pre-preparos sem centro produtor unico definido: ${unresolvedProductionLines
+          .map((line) => line.itemName)
+          .join(', ')}.`,
+        requisitions: [] as RequisitionRecord[],
+      }
+    }
+
+    if (unresolvedSupplyLines.length > 0) {
+      return {
+        error: `Existem produtos sem centro distribuidor valido: ${unresolvedSupplyLines
+          .map((line) => line.itemName)
+          .join(', ')}.`,
+        requisitions: [] as RequisitionRecord[],
+      }
+    }
+
+    const now = new Date().toISOString()
+    const nextSplitRequisitionId = getNextPersistedIntId([
+      ...requisitions.map((item) => item.id),
+      ...requisitions.map((item) => item.requisitionGroupId),
+      record.id,
+      record.requisitionGroupId,
+    ])
+    const nextRecords: RequisitionRecord[] = []
+    let nextIdOffset = 0
+
+    const pushSplitRecord = (
+      supplyCenterId: number | null,
+      supplyCenterName: string,
+      supplyCompanyId: number | null,
+      supplyCompanyName: string,
+      lines: RequisitionLineRecord[],
+    ) => {
+      if (lines.length === 0) {
+        return
+      }
+
+      nextRecords.push({
+        ...record,
+        id: nextSplitRequisitionId + nextIdOffset,
+        requisitionGroupId: record.requisitionGroupId,
+        supplyCenterId,
+        supplyCenterName,
+        supplyCompanyId,
+        supplyCompanyName,
+        status: 'PENDING_APPROVAL',
+        editScope: 'LINES_ONLY',
+        lines,
+        approvedAt: '',
+        approvedByUserId: null,
+        approvedByUserName: '',
+        sentAt: '',
+        sentByUserId: null,
+        sentByUserName: '',
+        preparedAt: '',
+        preparedByUserId: null,
+        preparedByUserName: '',
+        receivedAt: '',
+        receivedByUserId: null,
+        receivedByUserName: '',
+        lastUpdatedAt: now,
+        lastUpdatedByUserId: currentAppUser?.id ?? null,
+        lastUpdatedByUserName: currentAppUser?.fullName ?? 'Administrador do sistema',
+      })
+      nextIdOffset += 1
+    }
+
+    const linesBySupplyCenter = new Map<number, RequisitionLineRecord[]>()
+    productionLines.forEach((line) => {
+      if (line.destinationCenterId === null) {
+        return
+      }
+      linesBySupplyCenter.set(line.destinationCenterId, [...(linesBySupplyCenter.get(line.destinationCenterId) ?? []), line])
+    })
+    supplyLines.forEach((line) => {
+      if (line.supplierCenterId === null || typeof line.supplierCenterId !== 'number') {
+        return
+      }
+      linesBySupplyCenter.set(line.supplierCenterId, [...(linesBySupplyCenter.get(line.supplierCenterId) ?? []), line])
+    })
+
+    Array.from(linesBySupplyCenter.entries())
+      .sort((a, b) => a[0] - b[0])
+      .forEach(([centerId, lines]) => {
+        const center = stockCenters.find((item) => item.id === centerId) ?? null
+        pushSplitRecord(
+          centerId,
+          center?.name ?? '',
+          center?.companyId ?? null,
+          center ? getCompanyTradeName(center.companyId) : '',
+          lines,
+        )
+      })
+
+    if (purchaseLines.length > 0) {
+      pushSplitRecord(null, '', null, '', purchaseLines)
+    }
+
+    return {
+      error: '',
+      requisitions: nextRecords,
     }
   }
 
