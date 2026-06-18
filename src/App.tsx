@@ -3680,6 +3680,7 @@ export default function App() {
   const remoteAppStatePollingIntervalRef = useRef<number | null>(null)
   const lastRemoteAppStateUpdatedAtRef = useRef<string | null>(null)
   const lastRemoteAppStatePayloadSignatureRef = useRef('')
+  const isReconcilingSalesImportMinimumsRef = useRef(false)
   const syncedRequisitionRecordMapRef = useRef<Map<number, string>>(new Map())
   const syncedRequisitionNotificationMapRef = useRef<Map<number, string>>(new Map())
   const syncedManualProductionRequestMapRef = useRef<Map<number, string>>(new Map())
@@ -3835,6 +3836,8 @@ export default function App() {
   const [selectedSalesImportBatchIds, setSelectedSalesImportBatchIds] = useState<number[]>([])
   const [showCancelledSalesImportBatches, setShowCancelledSalesImportBatches] = useState(false)
   const [isSalesImportConfirmationOpen, setIsSalesImportConfirmationOpen] = useState(false)
+  const [hasLoadedStockCenterRecords, setHasLoadedStockCenterRecords] = useState(false)
+  const [hasLoadedSalesImportRecords, setHasLoadedSalesImportRecords] = useState(false)
   const [processingSalesImportBatchAction, setProcessingSalesImportBatchAction] = useState<{
     batchId: number
     action: 'REPROCESS'
@@ -6044,6 +6047,7 @@ export default function App() {
     if (missingStockCenters) {
       await Promise.all(localStockCenters.map((stockCenter) => upsertStockCenterRecordOnApi(stockCenter)))
       setStockCenters(localStockCenters)
+      setHasLoadedStockCenterRecords(true)
       logRemoteAppStateMessage(
         'Os centros de estoque deste navegador foram usados para restaurar dados ausentes no servidor.',
       )
@@ -6051,6 +6055,7 @@ export default function App() {
     }
 
     setStockCenters(nextStockCenters)
+    setHasLoadedStockCenterRecords(true)
   }
 
   async function loadStockCenterRecordsSnapshotFromApi() {
@@ -6150,6 +6155,7 @@ export default function App() {
     setSalesImportBatches(nextBatches)
     setSalesImportRows(nextRows)
     setSalesConsumptions(nextConsumptions)
+    setHasLoadedSalesImportRecords(true)
   }
 
   async function loadSalesImportRecordsSnapshotFromApi() {
@@ -7136,6 +7142,66 @@ export default function App() {
       window.removeEventListener('focus', handleFocus)
     }
   }, [])
+
+  useEffect(() => {
+    if (
+      currentCompanyId === null ||
+      !hasLoadedSalesImportRecords ||
+      !hasLoadedStockCenterRecords ||
+      isReconcilingSalesImportMinimumsRef.current
+    ) {
+      return
+    }
+
+    let isCancelled = false
+
+    const reconcile = async () => {
+      isReconcilingSalesImportMinimumsRef.current = true
+      try {
+        const nextStockCenters = rebuildSalesImportSuggestedMinimumsForCompanyScope({
+          companyId: currentCompanyId,
+          baseStockCenters: stockCenters,
+          availableBatches: salesImportBatches,
+          availableRows: salesImportRows,
+          availableConsumptions: salesConsumptions,
+        })
+
+        const hasChanges = nextStockCenters.some(
+          (center, index) => JSON.stringify(center) !== JSON.stringify(stockCenters[index]),
+        )
+        if (!hasChanges || isCancelled) {
+          return
+        }
+
+        await persistChangedStockCentersOnApi(stockCenters, nextStockCenters)
+        if (isCancelled) {
+          return
+        }
+        setStockCenters(nextStockCenters)
+      } catch (error) {
+        console.error(error)
+      } finally {
+        if (!isCancelled) {
+          isReconcilingSalesImportMinimumsRef.current = false
+        }
+      }
+    }
+
+    void reconcile()
+
+    return () => {
+      isCancelled = true
+      isReconcilingSalesImportMinimumsRef.current = false
+    }
+  }, [
+    currentCompanyId,
+    hasLoadedSalesImportRecords,
+    hasLoadedStockCenterRecords,
+    salesConsumptions,
+    salesImportBatches,
+    salesImportRows,
+    stockCenters,
+  ])
 
   useEffect(() => {
     let isCancelled = false
