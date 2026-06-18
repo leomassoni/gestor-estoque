@@ -510,6 +510,13 @@ model AppRequisitionRecord {
   id                  Int      @id
   companyId           Int
   requisitionGroupId  Int
+  planningRootRequestId Int?
+  planningSourceKind  String   @default("")
+  planningSourceCenterId Int?
+  planningSourceCenterName String @default("")
+  planningSourceSheetId Int?
+  planningSourceSheetName String @default("")
+  planningSourceQuantityLabel String @default("")
   stockCenterId       Int
   stockCenterName     String
   supplyCenterId      Int?
@@ -575,6 +582,12 @@ model AppManualProductionRequestRecord {
   rootRequestId   Int
   parentRequestId Int?
   isDependencyRequest Boolean @default(false)
+  planningSourceKind String   @default("")
+  planningSourceCenterId Int?
+  planningSourceCenterName String @default("")
+  planningSourceSheetId Int?
+  planningSourceSheetName String @default("")
+  planningSourceQuantityLabel String @default("")
   createdAtRecord DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
