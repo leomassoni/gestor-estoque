@@ -20565,7 +20565,9 @@ export default function App() {
       lineKey: string,
       producerCenter: StockCenterRecord | null,
     ) => {
-      const nextRequestedQuantity = (parseDecimal(existingLine?.requestedQuantity ?? '0') ?? 0) + shortageQuantity
+      const baseQuantity = Math.max(getStockCenterBaseQuantity(dependencySheet), 1)
+      const nextRequestedQuantity =
+        (parseDecimal(existingLine?.requestedQuantity ?? '0') ?? 0) + (shortageQuantity / baseQuantity)
       lineMap.set(lineKey, {
         key: existingLine?.key ?? `${lineKey}:${Date.now()}:${lineMap.size}`,
         kind: 'PREPARO',
@@ -21759,6 +21761,9 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
   function formatRequisitionEffectiveQuantity(line: RequisitionLineRecord, quantityValue: string) {
     const quantity = parseDecimal(quantityValue) ?? 0
     const config = getRequisitionEffectiveQuantityConfig(line)
+    if (line.kind === 'PRODUTO') {
+      return `${formatDecimal(quantity)} embalagem(ns) de ${config.unitLabel}`
+    }
     return `${formatDecimal(quantity * config.multiplier)} ${config.unitLabel}`
   }
 
