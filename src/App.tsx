@@ -838,14 +838,31 @@ type ManualProductionRequestRecord = {
   isDependencyRequest: boolean
 }
 
-type ManualProductionPreviewState = {
+type ManualProductionPreviewProductionEntry = {
   centerId: number
   centerName: string
   sheetId: number
   sheetName: string
   desiredYield: number
-  dependencyRequests: Array<{ centerId: number; sheetId: number; desiredYield: number }>
-  shortageLines: RequisitionLineRecord[]
+  isDependencyRequest: boolean
+}
+
+type ManualProductionPreviewShortageGroup = {
+  centerId: number
+  centerName: string
+  lines: RequisitionLineRecord[]
+}
+
+type ManualProductionPreviewState = {
+  sourceKind: 'PREPARO' | 'EXECUCAO'
+  centerId: number
+  centerName: string
+  sheetId: number
+  sheetName: string
+  desiredYield: number
+  desiredYieldLabel: string
+  plannedProductions: ManualProductionPreviewProductionEntry[]
+  shortageGroups: ManualProductionPreviewShortageGroup[]
 }
 
 type TechnicalSheetShareCascadePreviewState = {
@@ -4011,6 +4028,10 @@ export default function App() {
   const [manualProductionSheetId, setManualProductionSheetId] = useState('')
   const [manualProductionRecipeCount, setManualProductionRecipeCount] = useState('1')
   const [manualProductionDesiredYield, setManualProductionDesiredYield] = useState('')
+  const [isExecutionProductionModalOpen, setIsExecutionProductionModalOpen] = useState(false)
+  const [executionProductionCenterId, setExecutionProductionCenterId] = useState('')
+  const [executionProductionSheetId, setExecutionProductionSheetId] = useState('')
+  const [executionProductionQuantity, setExecutionProductionQuantity] = useState('1')
   const [manualProductionRequests, setManualProductionRequests] = useState<ManualProductionRequestRecord[]>(
     () => loadManualProductionRequestsState(),
   )
@@ -7584,6 +7605,10 @@ export default function App() {
     () => productionEligibleCenters.find((center) => String(center.id) === manualProductionCenterId) ?? null,
     [manualProductionCenterId, productionEligibleCenters],
   )
+  const executionProductionCenter = useMemo(
+    () => inventoryEligibleStockCenters.find((center) => String(center.id) === executionProductionCenterId) ?? null,
+    [executionProductionCenterId, inventoryEligibleStockCenters],
+  )
   const manualProductionSheets = useMemo(
     () =>
       technicalSheets
@@ -7597,6 +7622,19 @@ export default function App() {
         )
         .sort((a, b) => a.name.localeCompare(b.name, 'pt-BR')),
     [currentCompanyId, isTechnicalSheetVisibleForCompany, manualProductionCenter, technicalSheets],
+  )
+  const executionProductionSheets = useMemo(
+    () =>
+      technicalSheets
+        .filter(
+          (sheet) =>
+            currentCompanyId !== null &&
+            isTechnicalSheetVisibleForCompany(sheet, currentCompanyId) &&
+            sheet.kind === 'EXECUCAO' &&
+            sheet.isActive,
+        )
+        .sort((a, b) => a.name.localeCompare(b.name, 'pt-BR')),
+    [currentCompanyId, isTechnicalSheetVisibleForCompany, technicalSheets],
   )
   const manualSupplySourceCenter = useMemo(
     () => supplyResponsibleCenters.find((center) => String(center.id) === manualSupplySourceCenterId) ?? null,
@@ -21165,6 +21203,73 @@ export default function App() {
     setIsManualProductionModalOpen(true)
   }
 
+  function openExecutionProductionModal() {
+    const nextCenterId = productionCenterId || (inventoryEligibleStockCenters[0] ? String(inventoryEligibleStockCenters[0].id) : '')
+    const nextSheetId = executionProductionSheets[0] ? String(executionProductionSheets[0].id) : ''
+    setExecutionProductionCenterId(nextCenterId)
+    setExecutionProductionSheetId(nextSheetId)
+    setExecutionProductionQuantity('1')
+    setIsExecutionProductionModalOpen(true)
+  }
+
+  function buildRequisitionLineSemanticKey(line: RequisitionLineRecord) {
+    return [
+      line.kind,
+      line.technicalSheetId ?? '',
+      line.productId,
+      line.serviceItemId,
+      line.packageId ?? '',
+      line.destinationType,
+      line.destinationCenterId ?? '',
+      line.supplierCenterId ?? '',
+    ].join(':')
+  }
+
+  function mergeRequisitionLines(lines: RequisitionLineRecord[]) {
+    const merged = new Map<string, RequisitionLineRecord>()
+    lines.forEach((line) => {
+      const key = buildRequisitionLineSemanticKey(line)
+      const existingLine = merged.get(key) ?? null
+      if (!existingLine) {
+        merged.set(key, { ...line })
+        return
+      }
+
+      const nextSuggestedQuantity = (parseDecimal(existingLine.suggestedQuantity) ?? 0) + (parseDecimal(line.suggestedQuantity) ?? 0)
+      const nextRequestedQuantity = (parseDecimal(existingLine.requestedQuantity) ?? 0) + (parseDecimal(line.requestedQuantity) ?? 0)
+      merged.set(key, {
+        ...existingLine,
+        suggestedQuantity: formatDecimal(nextSuggestedQuantity),
+        requestedQuantity: formatDecimal(nextRequestedQuantity),
+      })
+    })
+    return Array.from(merged.values())
+  }
+
+  function mergeProductionEntries(entries: ManualProductionPreviewProductionEntry[]) {
+    const merged = new Map<string, ManualProductionPreviewProductionEntry>()
+    entries.forEach((entry) => {
+      const key = `${entry.centerId}:${entry.sheetId}:${entry.isDependencyRequest ? 'DEPENDENCY' : 'ROOT'}`
+      const existingEntry = merged.get(key) ?? null
+      if (!existingEntry) {
+        merged.set(key, { ...entry })
+        return
+      }
+
+      merged.set(key, {
+        ...existingEntry,
+        desiredYield: existingEntry.desiredYield + entry.desiredYield,
+      })
+    })
+
+    return Array.from(merged.values()).sort(
+      (left, right) =>
+        left.centerName.localeCompare(right.centerName, 'pt-BR') ||
+        Number(left.isDependencyRequest) - Number(right.isDependencyRequest) ||
+        left.sheetName.localeCompare(right.sheetName, 'pt-BR'),
+    )
+  }
+
   function buildManualProductionShortageLines(
     stockCenter: StockCenterRecord,
     targetSheet: TechnicalSheetRecord,
@@ -21407,6 +21512,252 @@ export default function App() {
     }
   }
 
+  function buildManualProductionPreviewForPreparation(
+    stockCenter: StockCenterRecord,
+    targetSheet: TechnicalSheetRecord,
+    desiredYield: number,
+  ) {
+    const { shortageLines, dependencyRequests } = buildManualProductionShortageLines(stockCenter, targetSheet, desiredYield)
+    const plannedProductions = mergeProductionEntries([
+      {
+        centerId: stockCenter.id,
+        centerName: stockCenter.name,
+        sheetId: targetSheet.id,
+        sheetName: targetSheet.name,
+        desiredYield,
+        isDependencyRequest: false,
+      },
+      ...dependencyRequests.map((request) => {
+        const dependencySheet = technicalSheets.find((sheet) => sheet.id === request.sheetId) ?? null
+        const dependencyCenter = stockCenters.find((center) => center.id === request.centerId) ?? null
+        return {
+          centerId: request.centerId,
+          centerName: dependencyCenter?.name ?? `CENTRO ${request.centerId}`,
+          sheetId: request.sheetId,
+          sheetName: dependencySheet?.name ?? `PRE-PREPARO ${request.sheetId}`,
+          desiredYield: request.desiredYield,
+          isDependencyRequest: true,
+        } satisfies ManualProductionPreviewProductionEntry
+      }),
+    ])
+
+    return {
+      sourceKind: 'PREPARO' as const,
+      centerId: stockCenter.id,
+      centerName: stockCenter.name,
+      sheetId: targetSheet.id,
+      sheetName: targetSheet.name,
+      desiredYield,
+      desiredYieldLabel: `${formatDecimal(desiredYield)} ${formatControlUnitShort(targetSheet.outputUnit)}`,
+      plannedProductions,
+      shortageGroups:
+        shortageLines.length > 0
+          ? [
+              {
+                centerId: stockCenter.id,
+                centerName: stockCenter.name,
+                lines: mergeRequisitionLines(shortageLines),
+              },
+            ]
+          : [],
+    } satisfies ManualProductionPreviewState
+  }
+
+  function buildManualProductionPreviewForExecution(
+    consumerCenter: StockCenterRecord,
+    executionSheet: TechnicalSheetRecord,
+    desiredQuantity: number,
+  ) {
+    const companyId = consumerCenter.companyId
+    const activeProductById = new Map(
+      products
+        .filter(
+          (product) =>
+            isProductVisibleForCompany(product, companyId) &&
+            product.isActive &&
+            isProductStockTracked(product),
+        )
+        .map((product) => [product.id, product] as const),
+    )
+    const availableByAggregationKey = new Map<string, number>()
+    latestInventoryQuantityByCenterAndAggregation.forEach((value, centerAggregationKey) => {
+      if (centerAggregationKey.startsWith(`${consumerCenter.id}:`)) {
+        availableByAggregationKey.set(centerAggregationKey.slice(String(consumerCenter.id).length + 1), value)
+      }
+    })
+
+    const rootPreparationRequests = new Map<string, ManualProductionPreviewProductionEntry>()
+    const directShortageLines: RequisitionLineRecord[] = []
+    const executionDesiredYield = getTechnicalSheetBaseYield(executionSheet) * desiredQuantity
+    const recipeData = buildRecipePanelDataForSheet(executionSheet, executionDesiredYield, desiredQuantity)
+    const directIngredients = [...recipeData.ingredientMetrics, ...recipeData.garnishMetrics]
+      .filter((ingredient) => ingredient.productId.trim() !== '' && ingredient.scaledInputQuantity > 0)
+
+    directIngredients.forEach((ingredient) => {
+      const dependencySheet = resolvePreparationSheetForCenterByProductId(ingredient.productId, consumerCenter)
+      const linkedProduct = activeProductById.get(ingredient.productId) ?? null
+      if (linkedProduct && !isProductStockTracked(linkedProduct)) {
+        return
+      }
+
+      const aggregationKey = buildInventoryAggregationKey({
+        kind: dependencySheet ? 'PREPARO' : 'PRODUTO',
+        technicalSheetId: dependencySheet?.id ?? null,
+        productId: dependencySheet ? '' : ingredient.productId,
+        serviceItemId: '',
+      })
+      const availableQuantity = availableByAggregationKey.get(aggregationKey) ?? 0
+      const requiredQuantity = ingredient.scaledInputQuantity
+      const consumedQuantity = Math.min(availableQuantity, requiredQuantity)
+      if (consumedQuantity > 0) {
+        availableByAggregationKey.set(aggregationKey, availableQuantity - consumedQuantity)
+      }
+      const shortageQuantity = Math.max(requiredQuantity - availableQuantity, 0)
+      if (shortageQuantity <= 0) {
+        return
+      }
+
+      if (dependencySheet) {
+        if (doesCenterProduceTechnicalSheet(consumerCenter, dependencySheet)) {
+          const rootKey = `${consumerCenter.id}:${dependencySheet.id}`
+          const currentRequest = rootPreparationRequests.get(rootKey) ?? null
+          rootPreparationRequests.set(rootKey, {
+            centerId: consumerCenter.id,
+            centerName: consumerCenter.name,
+            sheetId: dependencySheet.id,
+            sheetName: dependencySheet.name,
+            desiredYield: (currentRequest?.desiredYield ?? 0) + shortageQuantity,
+            isDependencyRequest: false,
+          })
+          return
+        }
+
+        const supplyResolution = resolveTechnicalSheetSupplyRoute(dependencySheet, consumerCenter)
+        if (supplyResolution.status !== 'resolved' || !supplyResolution.supplierCenter) {
+          return
+        }
+
+        const baseQuantity = Math.max(getStockCenterBaseQuantity(dependencySheet), 1)
+        directShortageLines.push({
+          key: `EXECUTION-PREPARO:${consumerCenter.id}:${dependencySheet.id}:${directShortageLines.length}`,
+          kind: 'PREPARO',
+          technicalSheetId: dependencySheet.id,
+          productId: '',
+          serviceItemId: '',
+          packageId: null,
+          itemName: dependencySheet.name,
+          itemTypeLabel: 'PRE-PREPARO',
+          family: dependencySheet.family,
+          suggestedQuantity: formatDecimal(shortageQuantity / baseQuantity),
+          requestedQuantity: formatDecimal(shortageQuantity / baseQuantity),
+          requestUnitLabel: formatControlUnitShort(dependencySheet.outputUnit),
+          currentQuantity: '0',
+          currentUnitLabel: formatControlUnitShort(dependencySheet.outputUnit),
+          minimumDefinitionLabel: '-',
+          destinationType: 'PRODUCOES',
+          destinationCenterId: supplyResolution.supplierCenter.id,
+          destinationCenterName: supplyResolution.supplierCenter.name,
+          destinationLabel: `CENTRO PRODUTOR: ${supplyResolution.supplierCenter.name} • ${getCompanyTradeName(supplyResolution.supplierCenter.companyId)}`,
+          supplierCenterId: null,
+          supplierCenterName: '',
+          supplierCompanyId: supplyResolution.supplierCenter.companyId,
+          supplierCompanyName: getCompanyTradeName(supplyResolution.supplierCenter.companyId),
+          receiptStatus: 'PENDING',
+        })
+        return
+      }
+
+      if (!linkedProduct) {
+        return
+      }
+
+      const requesterCenter = stockCenters.find((center) => center.id === consumerCenter.id) ?? null
+      const distributorCenter =
+        requesterCenter
+          ? findDistributorCenterForRequisitionLine(requesterCenter, { kind: 'PRODUTO', productId: linkedProduct.id })
+          : null
+      const selectedPackage = linkedProduct.packages.find((item) => item.isActive) ?? null
+      const packageQuantity =
+        selectedPackage ? calculateNormalizedPackageQuantity(selectedPackage, linkedProduct.controlUnit) : 1
+      const requestedQuantity = packageQuantity > 0 ? shortageQuantity / packageQuantity : shortageQuantity
+      directShortageLines.push({
+        key: `EXECUTION-PRODUTO:${consumerCenter.id}:${linkedProduct.id}:${directShortageLines.length}`,
+        kind: 'PRODUTO',
+        technicalSheetId: null,
+        productId: linkedProduct.id,
+        serviceItemId: '',
+        packageId: selectedPackage?.id ?? null,
+        itemName: linkedProduct.name,
+        itemTypeLabel: 'PRODUTO',
+        family: linkedProduct.family,
+        suggestedQuantity: formatDecimal(requestedQuantity),
+        requestedQuantity: formatDecimal(requestedQuantity),
+        requestUnitLabel: 'EMBALAGENS',
+        currentQuantity: '0',
+        currentUnitLabel: selectedPackage
+          ? `${formatDecimal(parseDecimal(selectedPackage.packageQuantity) ?? 0)} ${formatUnit(selectedPackage.packageUnit)}`
+          : formatControlUnitShort(linkedProduct.controlUnit),
+        minimumDefinitionLabel: '-',
+        destinationType: distributorCenter ? 'SUPRIMENTOS' : 'COMPRAS',
+        destinationCenterId: null,
+        destinationCenterName: '',
+        destinationLabel: distributorCenter ? `CENTRO DISTRIBUIDOR: ${distributorCenter.name}` : 'COMPRAS',
+        supplierCenterId: distributorCenter?.id ?? null,
+        supplierCenterName: distributorCenter?.name ?? '',
+        supplierCompanyId: distributorCenter?.companyId ?? null,
+        supplierCompanyName: distributorCenter ? getCompanyTradeName(distributorCenter.companyId) : '',
+        receiptStatus: 'PENDING',
+      })
+    })
+
+    const plannedProductions: ManualProductionPreviewProductionEntry[] = []
+    const shortageGroupsMap = new Map<number, ManualProductionPreviewShortageGroup>()
+    const appendShortageGroupLines = (centerId: number, centerName: string, lines: RequisitionLineRecord[]) => {
+      if (lines.length === 0) {
+        return
+      }
+      const existingGroup = shortageGroupsMap.get(centerId) ?? null
+      if (!existingGroup) {
+        shortageGroupsMap.set(centerId, {
+          centerId,
+          centerName,
+          lines: mergeRequisitionLines(lines),
+        })
+        return
+      }
+      existingGroup.lines = mergeRequisitionLines([...existingGroup.lines, ...lines])
+    }
+
+    appendShortageGroupLines(consumerCenter.id, consumerCenter.name, directShortageLines)
+
+    Array.from(rootPreparationRequests.values()).forEach((request) => {
+      const targetCenter = stockCenters.find((center) => center.id === request.centerId) ?? null
+      const targetSheet = technicalSheets.find((sheet) => sheet.id === request.sheetId && sheet.kind === 'PREPARO') ?? null
+      if (!targetCenter || !targetSheet) {
+        return
+      }
+
+      plannedProductions.push(request)
+      const productionPlan = buildManualProductionPreviewForPreparation(targetCenter, targetSheet, request.desiredYield)
+      productionPlan.plannedProductions
+        .filter((entry) => entry.isDependencyRequest)
+        .forEach((entry) => plannedProductions.push(entry))
+      productionPlan.shortageGroups.forEach((group) => appendShortageGroupLines(group.centerId, group.centerName, group.lines))
+    })
+
+    return {
+      sourceKind: 'EXECUCAO' as const,
+      centerId: consumerCenter.id,
+      centerName: consumerCenter.name,
+      sheetId: executionSheet.id,
+      sheetName: executionSheet.name,
+      desiredYield: desiredQuantity,
+      desiredYieldLabel: `${formatDecimal(desiredQuantity)} UN`,
+      plannedProductions: mergeProductionEntries(plannedProductions),
+      shortageGroups: Array.from(shortageGroupsMap.values()).sort((left, right) => left.centerName.localeCompare(right.centerName, 'pt-BR')),
+    } satisfies ManualProductionPreviewState
+  }
+
   function prepareManualProductionPlan() {
     if (!manualProductionCenter || !manualProductionSheetId) {
       setSaveFeedback({
@@ -21438,21 +21789,7 @@ export default function App() {
       return null
     }
 
-    const { shortageLines, dependencyRequests } = buildManualProductionShortageLines(
-      manualProductionCenter,
-      targetSheet,
-      desiredYield,
-    )
-
-    return {
-      centerId: manualProductionCenter.id,
-      centerName: manualProductionCenter.name,
-      sheetId: targetSheet.id,
-      sheetName: targetSheet.name,
-      desiredYield,
-      dependencyRequests,
-      shortageLines,
-    } satisfies ManualProductionPreviewState
+    return buildManualProductionPreviewForPreparation(manualProductionCenter, targetSheet, desiredYield)
   }
 
   function requestSaveManualProduction() {
@@ -21461,6 +21798,41 @@ export default function App() {
       return
     }
 
+    setManualProductionPreviewState(plan)
+  }
+
+  function requestSaveExecutionProduction() {
+    if (!executionProductionCenter || !executionProductionSheetId || currentCompanyId === null) {
+      setSaveFeedback({
+        status: 'error',
+        title: 'Nova producao incompleta',
+        message: 'Selecione o centro consumidor e a ficha de execucao para continuar.',
+      })
+      return
+    }
+
+    const desiredQuantity = parseDecimal(executionProductionQuantity) ?? 0
+    if (desiredQuantity <= 0) {
+      setSaveFeedback({
+        status: 'error',
+        title: 'Nova producao incompleta',
+        message: 'Informe uma quantidade valida da ficha de execucao para continuar.',
+      })
+      return
+    }
+
+    const executionSheet =
+      technicalSheets.find(
+        (sheet) =>
+          isTechnicalSheetVisibleForCompany(sheet, currentCompanyId) &&
+          sheet.kind === 'EXECUCAO' &&
+          sheet.id === Number(executionProductionSheetId),
+      ) ?? null
+    if (!executionSheet) {
+      return
+    }
+
+    const plan = buildManualProductionPreviewForExecution(executionProductionCenter, executionSheet, desiredQuantity)
     setManualProductionPreviewState(plan)
   }
 
@@ -21512,7 +21884,16 @@ export default function App() {
       lastUpdatedByUserId: currentAppUser?.id ?? null,
       lastUpdatedByUserName: currentAppUser?.fullName ?? 'Administrador do sistema',
     }
-    setRequisitions((current) => [nextRequisition, ...current])
+    const splitDraftResult = buildSplitRequisitionsForDraft(nextRequisition)
+    if (splitDraftResult.error) {
+      setSaveFeedback({
+        status: 'error',
+        title: 'Requisicao incompleta',
+        message: splitDraftResult.error,
+      })
+      return false
+    }
+    setRequisitions((current) => [...splitDraftResult.requisitions, ...current])
     return true
   }
 
@@ -21524,69 +21905,54 @@ export default function App() {
     const requestId = getNextPersistedIntId(
       manualProductionRequests.flatMap((record) => [record.id, record.rootRequestId, record.parentRequestId]),
     )
-    setManualProductionRequests((current) => [
-      {
-        id: requestId,
-        companyId: currentCompanyId,
-        centerId: manualProductionPreviewState.centerId,
-        sheetId: manualProductionPreviewState.sheetId,
-        desiredYield: formatDecimal(manualProductionPreviewState.desiredYield),
-        createdAt: new Date().toISOString(),
-        createdByUserId: currentAppUser?.id ?? null,
-        createdByUserName: currentAppUser?.fullName ?? 'Administrador do sistema',
-        rootRequestId: requestId,
-        parentRequestId: null,
-        isDependencyRequest: false,
-      },
-      ...current,
-    ])
+    const createdAt = new Date().toISOString()
+    const nextRequests = manualProductionPreviewState.plannedProductions.map((entry, index) => ({
+      id: requestId + index,
+      companyId: currentCompanyId,
+      centerId: entry.centerId,
+      sheetId: entry.sheetId,
+      desiredYield: formatDecimal(entry.desiredYield),
+      createdAt,
+      createdByUserId: currentAppUser?.id ?? null,
+      createdByUserName: currentAppUser?.fullName ?? 'Administrador do sistema',
+      rootRequestId: requestId,
+      parentRequestId: entry.isDependencyRequest ? requestId : null,
+      isDependencyRequest: entry.isDependencyRequest,
+    }))
+    if (nextRequests.length > 0) {
+      setManualProductionRequests((current) => [...nextRequests, ...current])
+    }
 
-    const { shortageLines, dependencyRequests } = manualProductionPreviewState
-    if (dependencyRequests.length > 0) {
-      setManualProductionRequests((current) => [
-        ...dependencyRequests.map((request, index) => ({
-          id: requestId + 1 + index,
-          companyId: currentCompanyId,
-          centerId: request.centerId,
-          sheetId: request.sheetId,
-          desiredYield: formatDecimal(request.desiredYield),
-          createdAt: new Date().toISOString(),
-          createdByUserId: currentAppUser?.id ?? null,
-          createdByUserName: currentAppUser?.fullName ?? 'Administrador do sistema',
-          rootRequestId: requestId,
-          parentRequestId: requestId,
-          isDependencyRequest: true,
-        })),
-        ...current,
-      ])
-    }
-    if (shortageLines.length > 0) {
-      createProductionShortageRequisition({
-        centerId: manualProductionPreviewState.centerId,
-        centerName: manualProductionPreviewState.centerName,
-        shortageLines,
-      })
-      setSaveFeedback({
-        status: 'success',
-        title: 'Producao registrada',
-        message:
-          dependencyRequests.length > 0
-            ? 'A producao foi incluida na fila, as producoes dependentes tambem entraram na fila e uma requisicao foi criada para os itens faltantes.'
-            : 'A producao foi incluida na fila e uma requisicao foi criada para os itens faltantes.',
-      })
-    } else {
-      setSaveFeedback({
-        status: 'success',
-        title: 'Producao registrada',
-        message:
-          dependencyRequests.length > 0
-            ? 'A producao foi incluida na fila e as producoes dependentes tambem entraram automaticamente na fila.'
-            : 'A producao foi incluida na fila e ja pode ser iniciada pelo botao Produzir.',
-      })
-    }
+    const requisitionCreated = manualProductionPreviewState.shortageGroups.reduce((createdAny, group) => {
+      if (group.lines.length === 0) {
+        return createdAny
+      }
+      return (
+        createProductionShortageRequisition({
+          centerId: group.centerId,
+          centerName: group.centerName,
+          shortageLines: group.lines,
+        }) || createdAny
+      )
+    }, false)
+
+    const dependencyCount = manualProductionPreviewState.plannedProductions.filter((entry) => entry.isDependencyRequest).length
+    setSaveFeedback({
+      status: 'success',
+      title: 'Producao registrada',
+      message:
+        requisitionCreated
+          ? dependencyCount > 0
+            ? 'As producoes foram incluidas na fila, as dependencias tambem entraram automaticamente e as requisicoes necessarias foram criadas.'
+            : 'As producoes foram incluidas na fila e as requisicoes necessarias foram criadas.'
+          : dependencyCount > 0
+            ? 'As producoes foram incluidas na fila e as dependencias tambem entraram automaticamente.'
+            : 'As producoes foram incluidas na fila e ja podem ser iniciadas.',
+    })
 
     setManualProductionPreviewState(null)
     setIsManualProductionModalOpen(false)
+    setIsExecutionProductionModalOpen(false)
   }
 
   function openManualSupplyModal() {
@@ -39339,6 +39705,9 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                 <h2>Entrada de producoes</h2>
               </div>
               <div className="toolbar-actions">
+                <button type="button" className="ghost-button" onClick={openExecutionProductionModal}>
+                  Producao por ficha
+                </button>
                 <button type="button" className="primary-button" onClick={openManualProductionModal}>
                   Nova producao
                 </button>
@@ -41874,6 +42243,55 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
         </div>
       ) : null}
 
+      {isExecutionProductionModalOpen ? (
+        <div className="modal-backdrop" role="presentation" onClick={() => setIsExecutionProductionModalOpen(false)}>
+          <section className="modal-card modal-card-compact" role="dialog" aria-modal="true" aria-labelledby="execution-production-title" onClick={(event) => event.stopPropagation()}>
+            <div className="section-heading">
+              <div>
+                <p className="kicker">Entrada de producoes</p>
+                <h2 id="execution-production-title">Nova producao por ficha de execucao</h2>
+              </div>
+              <button type="button" className="ghost-button" onClick={() => setIsExecutionProductionModalOpen(false)}>Fechar</button>
+            </div>
+            <form className="form-grid company-form-grid" onSubmit={(event) => event.preventDefault()}>
+              <label className="field company-field-wide">
+                <span>Centro consumidor</span>
+                <select value={executionProductionCenterId} onChange={(event) => setExecutionProductionCenterId(event.target.value)}>
+                  <option value="">Selecione</option>
+                  {inventoryEligibleStockCenters.map((center) => (
+                    <option key={center.id} value={String(center.id)}>{center.name}</option>
+                  ))}
+                </select>
+              </label>
+              <label className="field company-field-wide">
+                <span>Ficha de execucao</span>
+                <select value={executionProductionSheetId} onChange={(event) => setExecutionProductionSheetId(event.target.value)}>
+                  <option value="">Selecione</option>
+                  {executionProductionSheets.map((sheet) => (
+                    <option key={sheet.id} value={String(sheet.id)}>{sheet.name}</option>
+                  ))}
+                </select>
+              </label>
+              <label className="field company-field-wide">
+                <span>Quantidade desejada</span>
+                <input
+                  value={executionProductionQuantity}
+                  onChange={(event) => setExecutionProductionQuantity(event.target.value)}
+                  placeholder="50"
+                />
+              </label>
+            </form>
+            <p className="helper-text">
+              A previa mostra os pre-preparos necessarios, os centros produtores envolvidos e as requisicoes que precisarao ser criadas para abastecer a operacao.
+            </p>
+            <div className="modal-actions">
+              <button type="button" className="ghost-button" onClick={() => setIsExecutionProductionModalOpen(false)}>Cancelar</button>
+              <button type="button" className="primary-button" onClick={requestSaveExecutionProduction}>Ver previa</button>
+            </div>
+          </section>
+        </div>
+      ) : null}
+
       {manualProductionPreviewState ? (
         <div className="modal-backdrop modal-backdrop-front" role="presentation" onClick={() => setManualProductionPreviewState(null)}>
           <section
@@ -41892,42 +42310,45 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
 
             <div className="requisition-draft-overview">
               <div className="pill requisition-overview-pill">Centro: {manualProductionPreviewState.centerName}</div>
-              <div className="pill requisition-overview-pill">Producao: {manualProductionPreviewState.sheetName}</div>
-              <div className="pill requisition-overview-pill">Quantidade: {formatDecimal(manualProductionPreviewState.desiredYield)}</div>
+              <div className="pill requisition-overview-pill">
+                {manualProductionPreviewState.sourceKind === 'EXECUCAO' ? 'Ficha' : 'Producao'}: {manualProductionPreviewState.sheetName}
+              </div>
+              <div className="pill requisition-overview-pill">Quantidade: {manualProductionPreviewState.desiredYieldLabel}</div>
             </div>
 
             <section className="inner-panel">
               <div className="section-heading section-heading-inline">
                 <div>
-                  <p className="kicker">Dependencias</p>
-                  <h2>Producoes relacionadas</h2>
+                  <p className="kicker">Planejamento</p>
+                  <h2>Producoes que serao encaminhadas</h2>
                 </div>
               </div>
-              {manualProductionPreviewState.dependencyRequests.length > 0 ? (
+              {manualProductionPreviewState.plannedProductions.length > 0 ? (
                 <>
                   <p className="context-copy">
-                    Esta producao depende dos pre-preparos abaixo. Se nao houver saldo disponivel deles no centro produtor, estas quantidades entrarao automaticamente na fila de producoes.
+                    Estas producoes entrarao automaticamente nas filas dos centros correspondentes. Dependencias adicionais produzidas pelos proprios centros tambem sao consideradas.
                   </p>
                   <div className="selector-list company-management-list">
-                    {manualProductionPreviewState.dependencyRequests.map((request) => {
+                    {manualProductionPreviewState.plannedProductions.map((request) => {
                       const dependencySheet =
                         technicalSheets.find((sheet) => sheet.id === request.sheetId && isTechnicalSheetVisibleForCompany(sheet, currentCompanyId)) ?? null
-                      const dependencyCenter =
-                        stockCenters.find((center) => center.id === request.centerId) ?? null
                       return (
                         <article
-                          key={`manual-production-dependency-${request.centerId}-${request.sheetId}`}
+                          key={`manual-production-dependency-${request.centerId}-${request.sheetId}-${request.isDependencyRequest ? 'dependency' : 'root'}`}
                           className="list-row"
                         >
                           <strong>{dependencySheet?.name ?? `PRE-PREPARO ${request.sheetId}`}</strong>
                           <div className="row-meta">
                             <span>
-                              <strong className="meta-label">Centro:</strong> {dependencyCenter?.name ?? `CENTRO ${request.centerId}`}
+                              <strong className="meta-label">Centro:</strong> {request.centerName}
                             </span>
                             <span>
                               <strong className="meta-label">Quantidade:</strong>{' '}
                               {formatDecimal(request.desiredYield)}{' '}
                               {dependencySheet ? formatControlUnitShort(dependencySheet.outputUnit) : ''}
+                            </span>
+                            <span>
+                              <strong className="meta-label">Origem:</strong> {request.isDependencyRequest ? 'Dependencia' : 'Demanda principal'}
                             </span>
                           </div>
                         </article>
@@ -41936,7 +42357,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                   </div>
                 </>
               ) : (
-                <p className="context-copy">Esta producao nao depende de outros pre-preparos faltantes.</p>
+                <p className="context-copy">Nenhuma producao adicional sera criada automaticamente.</p>
               )}
             </section>
 
@@ -41947,33 +42368,43 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                   <h2>Ingredientes faltantes</h2>
                 </div>
               </div>
-              {manualProductionPreviewState.shortageLines.length > 0 ? (
+              {manualProductionPreviewState.shortageGroups.length > 0 ? (
                 <>
                   <p className="context-copy">
-                    O centro nao possui saldo suficiente destes ingredientes. As quantidades abaixo serao enviadas automaticamente para requisicao.
+                    Os centros abaixo nao possuem saldo suficiente para cobrir esta necessidade. Ao confirmar, o sistema criara as requisicoes correspondentes para abastecimento, compras ou envio ao centro produtor.
                   </p>
-                  <div className="table-wrap">
-                    <table className="product-table">
-                      <thead>
-                        <tr>
-                          <th>Ingrediente</th>
-                          <th>Tipo</th>
-                          <th>Quantidade</th>
-                          <th>Destino</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {manualProductionPreviewState.shortageLines.map((line) => (
-                          <tr key={`manual-production-shortage-${line.key}`}>
-                            <td className="sticky-product-cell"><strong>{line.itemName}</strong></td>
-                            <td>{line.itemTypeLabel}</td>
-                            <td>{formatRequisitionEffectiveQuantity(line, line.requestedQuantity)}</td>
-                            <td>{line.destinationLabel}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
+                  {manualProductionPreviewState.shortageGroups.map((group) => (
+                    <div key={`manual-production-shortage-group-${group.centerId}`} className="inner-panel">
+                      <div className="section-heading section-heading-inline">
+                        <div>
+                          <p className="kicker">Centro requisitante</p>
+                          <h2>{group.centerName}</h2>
+                        </div>
+                      </div>
+                      <div className="table-wrap">
+                        <table className="product-table">
+                          <thead>
+                            <tr>
+                              <th>Ingrediente</th>
+                              <th>Tipo</th>
+                              <th>Quantidade</th>
+                              <th>Destino</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {group.lines.map((line) => (
+                              <tr key={`manual-production-shortage-${group.centerId}-${line.key}`}>
+                                <td className="sticky-product-cell"><strong>{line.itemName}</strong></td>
+                                <td>{line.itemTypeLabel}</td>
+                                <td>{formatRequisitionEffectiveQuantity(line, line.requestedQuantity)}</td>
+                                <td>{line.destinationLabel}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  ))}
                 </>
               ) : (
                 <p className="context-copy">Nao sera necessario criar requisicao para ingredientes desta producao.</p>
