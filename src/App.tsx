@@ -4644,6 +4644,52 @@ export default function App() {
 
     return candidates[0]
   }
+  function resolvePreparationSheetForCenterMinimumByProductId(
+    productId: string,
+    center: StockCenterRecord,
+  ): TechnicalSheetRecord | null {
+    const normalizedProductId = productId.trim()
+    if (!normalizedProductId) {
+      return null
+    }
+
+    const candidates = technicalSheets
+      .filter(
+        (sheet) =>
+          sheet.kind === 'PREPARO' &&
+          sheet.isActive &&
+          sheet.productId === normalizedProductId &&
+          isTechnicalSheetVisibleForCompany(sheet, center.companyId),
+      )
+      .sort((left, right) => left.id - right.id)
+
+    if (candidates.length === 0) {
+      return null
+    }
+
+    const sameOwnerCandidates = candidates.filter((sheet) => getTechnicalSheetOwnerCompanyId(sheet) === center.companyId)
+    if (sameOwnerCandidates.length > 0) {
+      const directlyProducedHere = sameOwnerCandidates.filter((sheet) => doesCenterDirectlyProduceTechnicalSheet(center, sheet))
+      if (directlyProducedHere.length > 0) {
+        return directlyProducedHere[0]
+      }
+
+      const producedHere = sameOwnerCandidates.filter((sheet) => doesCenterProduceTechnicalSheet(center, sheet))
+      if (producedHere.length > 0) {
+        return producedHere[0]
+      }
+
+      return sameOwnerCandidates[0]
+    }
+
+    const producedHere = candidates.filter((sheet) => doesCenterProduceTechnicalSheet(center, sheet))
+    if (producedHere.length > 0) {
+      const directlyProducedHere = producedHere.filter((sheet) => doesCenterDirectlyProduceTechnicalSheet(center, sheet))
+      return (directlyProducedHere.length > 0 ? directlyProducedHere : producedHere)[0]
+    }
+
+    return candidates[0]
+  }
   function getTechnicalSheetExternalUseMinimumQuantityForCenter(
     sheet: TechnicalSheetRecord,
     supplierCenter: StockCenterRecord,
@@ -5394,7 +5440,7 @@ export default function App() {
   const inventoryAccessibleStockCenters = useMemo(
     () =>
       stockCenters
-        .filter((center) => isStockCenterVisibleForCompany(center, currentCompanyId))
+        .filter((center) => center.companyId === currentCompanyId)
         .filter((center) => isSystemAdmin || (currentAppUser ? center.userIds.includes(currentAppUser.id) : false))
         .sort((a, b) => a.name.localeCompare(b.name, 'pt-BR')),
     [currentAppUser, currentCompanyId, isSystemAdmin, stockCenters],
@@ -5413,7 +5459,7 @@ export default function App() {
   const requisitionApprovalCenters = useMemo(
     () =>
       stockCenters
-        .filter((center) => isStockCenterVisibleForCompany(center, currentCompanyId) && center.isActive)
+        .filter((center) => center.companyId === currentCompanyId && center.isActive)
         .filter((center) => isSystemAdmin || (currentAppUser ? center.responsibleUserIds.includes(currentAppUser.id) : false))
         .sort((a, b) => a.name.localeCompare(b.name, 'pt-BR')),
     [currentAppUser, currentCompanyId, isSystemAdmin, stockCenters],
@@ -5421,7 +5467,7 @@ export default function App() {
   const supplyResponsibleCenters = useMemo(
     () =>
       stockCenters
-        .filter((center) => isStockCenterVisibleForCompany(center, currentCompanyId) && center.isActive)
+        .filter((center) => center.companyId === currentCompanyId && center.isActive)
         .filter((center) => isSystemAdmin || (currentAppUser ? center.responsibleUserIds.includes(currentAppUser.id) : false))
         .sort((a, b) => a.name.localeCompare(b.name, 'pt-BR')),
     [currentAppUser, currentCompanyId, isSystemAdmin, stockCenters],
@@ -5429,7 +5475,7 @@ export default function App() {
   const productionEligibleCenters = useMemo(
     () =>
       stockCenters
-        .filter((center) => isStockCenterVisibleForCompany(center, currentCompanyId) && center.isActive && center.isProducer)
+        .filter((center) => center.companyId === currentCompanyId && center.isActive && center.isProducer)
         .filter((center) => isSystemAdmin || (currentAppUser ? center.userIds.includes(currentAppUser.id) : false))
         .sort((a, b) => a.name.localeCompare(b.name, 'pt-BR')),
     [currentAppUser, currentCompanyId, isSystemAdmin, stockCenters],
@@ -28107,7 +28153,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
         return
       }
 
-      const linkedPrepSheet = resolvePreparationSheetForCenterByProductId(record.ingredientProductId, targetCenter)
+      const linkedPrepSheet = resolvePreparationSheetForCenterMinimumByProductId(record.ingredientProductId, targetCenter)
       if (linkedPrepSheet) {
         const itemKey = `PREPARO:${linkedPrepSheet.id}`
         const current = consumerDemandByItemKey.get(itemKey) ?? {
