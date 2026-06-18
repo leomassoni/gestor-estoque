@@ -6053,6 +6053,20 @@ export default function App() {
     setStockCenters(nextStockCenters)
   }
 
+  async function loadStockCenterRecordsSnapshotFromApi() {
+    const response = await fetch('/api/stock-centers', { cache: 'no-store' })
+    if (!response.ok) {
+      throw new Error('Falha ao carregar centros de estoque pelo backend.')
+    }
+
+    const data = await response.json()
+    return Array.isArray(data?.stockCenters)
+      ? (data.stockCenters as unknown[])
+          .map(normalizeStockCenterRecord)
+          .filter((item): item is StockCenterRecord => item !== null)
+      : []
+  }
+
   async function refreshAppSalesImportRecordsFromApi() {
     const [templatesResponse, batchesResponse, rowsResponse, consumptionsResponse] = await Promise.all([
       fetch('/api/sales-import-templates', { cache: 'no-store' }),
@@ -6136,6 +6150,61 @@ export default function App() {
     setSalesImportBatches(nextBatches)
     setSalesImportRows(nextRows)
     setSalesConsumptions(nextConsumptions)
+  }
+
+  async function loadSalesImportRecordsSnapshotFromApi() {
+    const [templatesResponse, batchesResponse, rowsResponse, consumptionsResponse] = await Promise.all([
+      fetch('/api/sales-import-templates', { cache: 'no-store' }),
+      fetch('/api/sales-import-batches', { cache: 'no-store' }),
+      fetch('/api/sales-import-rows', { cache: 'no-store' }),
+      fetch('/api/sales-consumptions', { cache: 'no-store' }),
+    ])
+
+    if (!templatesResponse.ok || !batchesResponse.ok || !rowsResponse.ok || !consumptionsResponse.ok) {
+      throw new Error('Falha ao carregar a base de importacao de vendas pelo backend.')
+    }
+
+    const [templatesData, batchesData, rowsData, consumptionsData] = await Promise.all([
+      templatesResponse.json(),
+      batchesResponse.json(),
+      rowsResponse.json(),
+      consumptionsResponse.json(),
+    ])
+
+    const nextTemplates = Array.isArray(templatesData?.templates)
+      ? (templatesData.templates as unknown[]).filter((item): item is SalesImportTemplateRecord => {
+          const template = item as Partial<SalesImportTemplateRecord>
+          return Boolean(item) && typeof item === 'object' && typeof template.id === 'number' && typeof template.companyId === 'number' && typeof template.name === 'string'
+        })
+      : []
+
+    const nextBatches = Array.isArray(batchesData?.batches)
+      ? (batchesData.batches as unknown[]).filter((item): item is SalesImportBatchRecord => {
+          const batch = item as Partial<SalesImportBatchRecord>
+          return Boolean(item) && typeof item === 'object' && typeof batch.id === 'number' && typeof batch.companyId === 'number' && typeof batch.stockCenterId === 'number' && typeof batch.fileName === 'string'
+        })
+      : []
+
+    const nextRows = Array.isArray(rowsData?.rows)
+      ? (rowsData.rows as unknown[]).filter((item): item is SalesImportRowRecord => {
+          const row = item as Partial<SalesImportRowRecord>
+          return Boolean(item) && typeof item === 'object' && typeof row.id === 'number' && typeof row.batchId === 'number' && typeof row.companyId === 'number' && typeof row.stockCenterId === 'number' && typeof row.sourceRowKey === 'string' && typeof row.consumedAt === 'string' && typeof row.companyProductId === 'string' && typeof row.quantity === 'string' && typeof row.errorMessage === 'string'
+        })
+      : []
+
+    const nextConsumptions = Array.isArray(consumptionsData?.consumptions)
+      ? (consumptionsData.consumptions as unknown[]).filter((item): item is SalesConsumptionRecord => {
+          const consumption = item as Partial<SalesConsumptionRecord>
+          return Boolean(item) && typeof item === 'object' && typeof consumption.id === 'number' && typeof consumption.companyId === 'number' && typeof consumption.stockCenterId === 'number' && typeof consumption.ingredientProductId === 'string'
+        })
+      : []
+
+    return {
+      templates: nextTemplates,
+      batches: nextBatches,
+      rows: nextRows,
+      consumptions: nextConsumptions,
+    }
   }
 
   async function refreshAppRequisitionRecordsFromApi() {
@@ -27818,10 +27887,36 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
       title: 'Reprocessando lote importado',
       message: 'Reprocessando, aguarde. Nao feche a tela nem clique novamente em reprocessar.',
     })
-    const batchRows = currentCompanySalesImportRows.filter((row) => row.batchId === batch.id)
+    let salesImportSnapshot: Awaited<ReturnType<typeof loadSalesImportRecordsSnapshotFromApi>>
+    let stockCenterSnapshot: StockCenterRecord[]
+    try {
+      ;[salesImportSnapshot, stockCenterSnapshot] = await Promise.all([
+        loadSalesImportRecordsSnapshotFromApi(),
+        loadStockCenterRecordsSnapshotFromApi(),
+      ])
+    } catch (error) {
+      console.error(error)
+      setSaveFeedback({
+        status: 'error',
+        title: 'Falha ao reprocessar lote',
+        message:
+          error instanceof Error
+            ? error.message
+            : 'Nao foi possivel carregar os dados atuais antes de reprocessar o lote.',
+      })
+      setSaveProgressState(null)
+      setProcessingSalesImportBatchAction(null)
+      return
+    }
+
+    const snapshotBatches = salesImportSnapshot.batches
+    const snapshotRows = salesImportSnapshot.rows
+    const snapshotConsumptions = salesImportSnapshot.consumptions
+    const snapshotBatch = snapshotBatches.find((item) => item.id === batch.id) ?? batch
+    const batchRows = snapshotRows.filter((row) => row.batchId === batch.id)
     const candidateSheets = technicalSheets.filter(
       (sheet) =>
-        isTechnicalSheetVisibleForCompany(sheet, batch.companyId) &&
+        isTechnicalSheetVisibleForCompany(sheet, snapshotBatch.companyId) &&
         sheet.isActive &&
         (sheet.kind === 'EXECUCAO' || sheet.kind === 'VENDA') &&
         normalizeRegistrationText(sheet.companyProductId).length > 0,
@@ -27864,13 +27959,13 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
       })
       .filter((row): row is SalesImportRowRecord => row !== null)
 
-    const relatedConsumptions = currentCompanySalesConsumptions.filter(
+    const relatedConsumptions = snapshotConsumptions.filter(
       (consumption) =>
         consumption.sourceBatchId === batch.id &&
         consumption.stockPostingStatus !== 'CANCELLED',
     )
     const targetCenter =
-      stockCenters.find((center) => center.id === batch.stockCenterId && center.companyId === batch.companyId) ?? null
+      stockCenterSnapshot.find((center) => center.id === snapshotBatch.stockCenterId && center.companyId === snapshotBatch.companyId) ?? null
     const duplicatePolicy = targetCenter?.salesImportSettings.duplicateRowPolicy ?? 'BLOCK'
     const { validRows: matchedRows, duplicatedRows } = getSalesImportProcessableMatchedRows(rebuiltRows, duplicatePolicy)
     const preservedMatchedRows: SalesImportPreviewRow[] = batchRows
@@ -27965,13 +28060,13 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
 
     if (!hasPostedConsumptions && effectiveMatchedRows.length > 0) {
       const nextConsumptionId = getNextPersistedIntId(
-        salesConsumptions.map((item) => item.id).concat([batch.id + 2000]),
+        snapshotConsumptions.map((item) => item.id).concat([batch.id + 2000]),
       )
       const rebuiltConsumptions = buildSalesImportConsumptionsForMatchedRows({
-        companyId: batch.companyId,
-        stockCenterId: batch.stockCenterId,
+        companyId: snapshotBatch.companyId,
+        stockCenterId: snapshotBatch.stockCenterId,
         batchId: batch.id,
-        postingMode: batch.postingMode,
+        postingMode: snapshotBatch.postingMode,
         validRows: effectiveMatchedRows,
         startingConsumptionId: nextConsumptionId,
       })
@@ -28067,14 +28162,14 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
         errorMessage: rebuiltRows[index]?.errorMessage ?? row.errorMessage,
       }))
       const nextStockCenters = rebuildSalesImportSuggestedMinimumsForCompanyScope({
-        companyId: batch.companyId,
-        baseStockCenters: stockCenters,
-        availableBatches: salesImportBatches,
-        availableRows: [...salesImportRows.filter((row) => row.batchId !== batch.id), ...rebuiltBatchRows],
-        availableConsumptions: salesConsumptions.filter((consumption) => consumption.sourceBatchId !== batch.id),
+        companyId: snapshotBatch.companyId,
+        baseStockCenters: stockCenterSnapshot,
+        availableBatches: snapshotBatches,
+        availableRows: [...snapshotRows.filter((row) => row.batchId !== batch.id), ...rebuiltBatchRows],
+        availableConsumptions: snapshotConsumptions.filter((consumption) => consumption.sourceBatchId !== batch.id),
       })
       try {
-        await persistChangedStockCentersOnApi(stockCenters, nextStockCenters)
+        await persistChangedStockCentersOnApi(stockCenterSnapshot, nextStockCenters)
       } catch (error) {
         console.error(error)
         setSaveFeedback({
@@ -28115,18 +28210,18 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
       errorMessage: rebuiltRows[index]?.errorMessage ?? row.errorMessage,
     }))
     const nextStockCenters = rebuildSalesImportSuggestedMinimumsForCompanyScope({
-      companyId: batch.companyId,
-      baseStockCenters: stockCenters,
-      availableBatches: salesImportBatches,
-      availableRows: [...salesImportRows.filter((row) => row.batchId !== batch.id), ...rebuiltBatchRows],
+      companyId: snapshotBatch.companyId,
+      baseStockCenters: stockCenterSnapshot,
+      availableBatches: snapshotBatches,
+      availableRows: [...snapshotRows.filter((row) => row.batchId !== batch.id), ...rebuiltBatchRows],
       availableConsumptions: [
-        ...salesConsumptions.filter((consumption) => consumption.sourceBatchId !== batch.id),
+        ...snapshotConsumptions.filter((consumption) => consumption.sourceBatchId !== batch.id),
         ...nextConsumptionsForRecalculation,
       ],
     })
 
     try {
-      await persistChangedStockCentersOnApi(stockCenters, nextStockCenters)
+      await persistChangedStockCentersOnApi(stockCenterSnapshot, nextStockCenters)
     } catch (error) {
       console.error(error)
       setSaveFeedback({
