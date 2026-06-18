@@ -4771,6 +4771,9 @@ export default function App() {
       if (!isTechnicalSheetVisibleForCompany(sheet, consumerCenter.companyId)) {
         return sum
       }
+      if (doesCenterProduceTechnicalSheet(consumerCenter, sheet)) {
+        return sum
+      }
 
       const demandedQuantity = getCenterPreparationRealMinimumQuantity(consumerCenter, sheet)
       if (demandedQuantity <= 0) {
