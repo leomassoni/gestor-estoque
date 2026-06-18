@@ -5845,7 +5845,7 @@ export default function App() {
   const reportEligibleStockCenters = useMemo(
     () =>
       stockCenters
-        .filter((center) => isStockCenterVisibleForCompany(center, currentCompanyId) && center.isActive)
+        .filter((center) => center.companyId === currentCompanyId && center.isActive)
         .filter(
           (center) =>
             isSystemAdmin ||
