@@ -86,6 +86,53 @@ Fluxos locais:
 - Frontend: `http://localhost:5174`
 - API: `http://localhost:4001`
 
+### 6. Espelhar os dados do online no ambiente local
+
+Para validar fluxos operacionais antes de subir mudancas, sincronize a API publicada para o backend local:
+
+```bash
+npm run sync:online-to-local
+```
+
+Padroes atuais:
+
+- origem: `https://gestor-estoque-zqw9.onrender.com/api`
+- destino local: `http://localhost:4001/api`
+
+Se precisar apontar para outro ambiente:
+
+```bash
+GESTOR_REMOTE_BASE_URL="https://outro-ambiente.onrender.com/api" \
+GESTOR_LOCAL_BASE_URL="http://localhost:4001/api" \
+npm run sync:online-to-local
+```
+
+### 7. Validacao local recomendada para import de vendas
+
+Antes de sugerir ou subir mudancas nesse fluxo:
+
+1. sincronize os dados do online para o local
+2. abra o frontend local em `http://localhost:5174`
+3. valide no centro consumidor:
+   - `Atualizar centro de estoque`
+   - `Minimo real`
+   - `Entrada de producoes`
+   - `Requisicao`
+4. valide no centro produtor:
+   - `Entrada de producoes`
+   - dependencias em cascata
+   - `Requisicao` de produtos e pre-preparos externos
+5. confira se o `Relatorio de vendas importadas` bate com os lotes ativos e com o periodo configurado
+
+Quando houver divergencia:
+
+- primeiro compare o dado persistido via API local:
+  - `GET /api/sales-import-batches`
+  - `GET /api/sales-import-rows`
+  - `GET /api/sales-consumptions`
+  - `GET /api/stock-centers`
+- so depois proponha mudanca no online
+
 ## Build de producao
 
 ```bash
