@@ -18069,6 +18069,18 @@ export default function App() {
         const technicalSheet = technicalSheets.find((sheet) => sheet.id === row.technicalSheetId && sheet.kind === 'PREPARO') ?? null
         return !technicalSheet || !doesCenterProduceTechnicalSheet(center, technicalSheet)
       })
+      .filter((row) => {
+        if (row.kind !== 'PREPARO' || row.technicalSheetId === null) {
+          return true
+        }
+        const technicalSheet =
+          technicalSheets.find((sheet) => sheet.id === row.technicalSheetId && sheet.kind === 'PREPARO') ?? null
+        if (!technicalSheet) {
+          return false
+        }
+        const supplyResolution = resolveTechnicalSheetSupplyRoute(technicalSheet, center)
+        return supplyResolution.status !== 'missing'
+      })
       .map((row) => {
         const minimumStock = findStockCenterMinimumEntry(center.minimumStocks, row)
         const manualUseMinimum = getMinimumUseQuantityValue(minimumStock)
