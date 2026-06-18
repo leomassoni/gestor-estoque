@@ -10248,7 +10248,6 @@ export default function App() {
           row.stockCenterId,
           matchedSheet?.kind ?? 'IMPORT',
           matchedSheet?.productId || '',
-          matchedSheet?.serviceItemId || '',
           matchedSheet?.id ?? `UNMATCHED:${row.companyProductId}`,
         ].join(':')
         const coverageLabel =
