@@ -5394,7 +5394,7 @@ export default function App() {
   const inventoryAccessibleStockCenters = useMemo(
     () =>
       stockCenters
-        .filter((center) => center.companyId === currentCompanyId)
+        .filter((center) => isStockCenterVisibleForCompany(center, currentCompanyId))
         .filter((center) => isSystemAdmin || (currentAppUser ? center.userIds.includes(currentAppUser.id) : false))
         .sort((a, b) => a.name.localeCompare(b.name, 'pt-BR')),
     [currentAppUser, currentCompanyId, isSystemAdmin, stockCenters],
@@ -5413,7 +5413,7 @@ export default function App() {
   const requisitionApprovalCenters = useMemo(
     () =>
       stockCenters
-        .filter((center) => center.companyId === currentCompanyId && center.isActive)
+        .filter((center) => isStockCenterVisibleForCompany(center, currentCompanyId) && center.isActive)
         .filter((center) => isSystemAdmin || (currentAppUser ? center.responsibleUserIds.includes(currentAppUser.id) : false))
         .sort((a, b) => a.name.localeCompare(b.name, 'pt-BR')),
     [currentAppUser, currentCompanyId, isSystemAdmin, stockCenters],
@@ -5421,7 +5421,7 @@ export default function App() {
   const supplyResponsibleCenters = useMemo(
     () =>
       stockCenters
-        .filter((center) => center.companyId === currentCompanyId && center.isActive)
+        .filter((center) => isStockCenterVisibleForCompany(center, currentCompanyId) && center.isActive)
         .filter((center) => isSystemAdmin || (currentAppUser ? center.responsibleUserIds.includes(currentAppUser.id) : false))
         .sort((a, b) => a.name.localeCompare(b.name, 'pt-BR')),
     [currentAppUser, currentCompanyId, isSystemAdmin, stockCenters],
@@ -5429,7 +5429,7 @@ export default function App() {
   const productionEligibleCenters = useMemo(
     () =>
       stockCenters
-        .filter((center) => center.companyId === currentCompanyId && center.isActive && center.isProducer)
+        .filter((center) => isStockCenterVisibleForCompany(center, currentCompanyId) && center.isActive && center.isProducer)
         .filter((center) => isSystemAdmin || (currentAppUser ? center.userIds.includes(currentAppUser.id) : false))
         .sort((a, b) => a.name.localeCompare(b.name, 'pt-BR')),
     [currentAppUser, currentCompanyId, isSystemAdmin, stockCenters],
@@ -5455,24 +5455,38 @@ export default function App() {
     const quantities = new Map<string, number>()
     const snapshotsByCenter = new Map<number, Map<string, Map<string, number>>>()
     const relevantCenterIds = new Set<number>()
+    const companyScopeIds = new Set(getCompanyLinkScopeIds(currentCompanyId))
+
+    if (companyScopeIds.size === 0) {
+      return {
+        latestDateByCenter,
+        quantities,
+        snapshotsByCenter,
+      }
+    }
 
     inventoryCounts
-      .filter((record) => record.companyId === currentCompanyId)
+      .filter((record) => companyScopeIds.has(record.companyId))
       .forEach((record) => relevantCenterIds.add(record.stockCenterId))
     inventoryRecords
-      .filter((record) => record.companyId === currentCompanyId)
+      .filter((record) => companyScopeIds.has(record.companyId))
       .forEach((record) => relevantCenterIds.add(record.stockCenterId))
     stockCenters
-      .filter((center) => center.companyId === currentCompanyId && center.isActive)
+      .filter((center) => companyScopeIds.has(center.companyId) && center.isActive)
       .forEach((center) => relevantCenterIds.add(center.id))
 
     relevantCenterIds.forEach((centerId) => {
+      const center = stockCenters.find((candidate) => candidate.id === centerId) ?? null
+      if (!center || !companyScopeIds.has(center.companyId)) {
+        return
+      }
+
       const centerRecords = inventoryCounts.filter(
-        (record) => record.companyId === currentCompanyId && record.stockCenterId === centerId,
+        (record) => record.companyId === center.companyId && record.stockCenterId === centerId,
       )
       const centerInventories = inventoryRecords.filter(
         (record) =>
-          record.companyId === currentCompanyId &&
+          record.companyId === center.companyId &&
           record.stockCenterId === centerId &&
           record.isClosed,
       )
@@ -8310,9 +8324,15 @@ export default function App() {
       return null
     }
 
+    const existingCenter =
+      editingStockCenterId === null
+        ? null
+        : stockCenters.find((center) => center.id === editingStockCenterId) ?? null
+    const previewCompanyId = existingCenter?.companyId ?? currentCompanyId
+
     return {
       id: editingStockCenterId ?? 0,
-      companyId: currentCompanyId,
+      companyId: previewCompanyId,
       name: stockCenterForm.name,
       code: stockCenterForm.code,
       sector: stockCenterForm.sector,
@@ -8332,7 +8352,7 @@ export default function App() {
         .filter((value) => Number.isInteger(value) && value > 0),
       minimumStocks: stockCenterForm.minimumStocks.map((item) => ({ ...item })),
       salesImportSettings: { ...stockCenterForm.salesImportSettings },
-      isActive: editingStockCenterId === null ? true : stockCenters.find((center) => center.id === editingStockCenterId)?.isActive ?? true,
+      isActive: existingCenter?.isActive ?? true,
     } satisfies StockCenterRecord
   }, [currentCompanyId, editingStockCenterId, stockCenterForm, stockCenters])
   const inventoryCountableServiceItems = useMemo(
@@ -9175,7 +9195,7 @@ export default function App() {
   )
   const stockCenterMinimumRows = useMemo(
     () => {
-      const companyId = currentCompanyId
+      const companyId = stockCenterPreviewRecord?.companyId ?? currentCompanyId
       if (companyId === null) {
         return [] as StockCenterMinimumRow[]
       }
@@ -9285,7 +9305,7 @@ export default function App() {
         return a.referenceLabel.localeCompare(b.referenceLabel, 'pt-BR')
       })
     },
-    [currentCompanyId, isProductVisibleForCompany, isTechnicalSheetVisibleForCompany, products, serviceItems, technicalSheets],
+    [currentCompanyId, isProductVisibleForCompany, isTechnicalSheetVisibleForCompany, products, serviceItems, stockCenterPreviewRecord?.companyId, technicalSheets],
   )
   const getStockCenterConsolidatedMinimumText = (row: StockCenterMinimumRow) => {
     if (!stockCenterPreviewRecord || row.kind !== 'PREPARO' || row.technicalSheetId === null) {
@@ -17755,10 +17775,14 @@ export default function App() {
     }
 
     const normalizedCode = normalizeRegistrationText(generatedStockCenterCode)
+    const existingCenter = editingStockCenterId === null
+      ? null
+      : stockCenters.find((center) => center.id === editingStockCenterId) ?? null
+    const targetCompanyId = existingCenter?.companyId ?? currentCompanyId
 
     const centerToSave: StockCenterRecord = {
       id: editingStockCenterId ?? getNextPersistedIntId(stockCenters.map((center) => center.id)),
-      companyId: currentCompanyId,
+      companyId: targetCompanyId,
       name: normalizeRegistrationText(stockCenterForm.name),
       sector: normalizedStockCenterSector,
       code: normalizedCode,
@@ -17792,7 +17816,7 @@ export default function App() {
         coverageDays: getSalesImportCoverageModeLegacyDays(stockCenterForm.salesImportSettings.coverageMode),
         safetyMarginPercent: stockCenterForm.salesImportSettings.safetyMarginPercent.trim() || '20',
       },
-      isActive: editingStockCenterId === null ? true : stockCenters.find((center) => center.id === editingStockCenterId)?.isActive ?? true,
+      isActive: existingCenter?.isActive ?? true,
     }
     const nextStockCenters =
       editingStockCenterId === null
@@ -28061,7 +28085,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
       isSalesImportDateKeyWithinRange(dateKey, windowStartDateKey, windowEndDateKey),
     )
     if (relevantConsumptions.length === 0) {
-      return stockCenters
+      return workingStockCenters
     }
 
     const stockTrackedProductsById = new Map(
@@ -28089,7 +28113,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
         const current = consumerDemandByItemKey.get(itemKey) ?? {
           kind: 'PREPARO' as const,
           technicalSheetId: linkedPrepSheet.id,
-          productId: '',
+          productId: linkedPrepSheet.productId,
           demandByDate: new Map<string, number>(),
         }
         current.demandByDate.set(dateKey, (current.demandByDate.get(dateKey) ?? 0) + quantityConsumed)
@@ -28114,7 +28138,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
     })
 
     if (consumerDemandByItemKey.size === 0) {
-      return stockCenters
+      return workingStockCenters
     }
 
     const buildWindowEndDateKey = (windowKey: string, mode: SalesImportCoverageMode) => {
