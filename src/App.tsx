@@ -3832,6 +3832,7 @@ export default function App() {
   const [salesImportPreviewFilter, setSalesImportPreviewFilter] = useState<'ALL' | 'MATCHED' | 'UNMATCHED' | 'ERROR' | 'IGNORED'>('ALL')
   const [salesImportIgnoredSourceRowKeys, setSalesImportIgnoredSourceRowKeys] = useState<string[]>([])
   const [selectedSalesImportBatchId, setSelectedSalesImportBatchId] = useState<number | null>(null)
+  const [selectedSalesImportBatchIds, setSelectedSalesImportBatchIds] = useState<number[]>([])
   const [showCancelledSalesImportBatches, setShowCancelledSalesImportBatches] = useState(false)
   const [isSalesImportConfirmationOpen, setIsSalesImportConfirmationOpen] = useState(false)
   const [processingSalesImportBatchAction, setProcessingSalesImportBatchAction] = useState<{
@@ -7954,6 +7955,17 @@ export default function App() {
       }),
     [visibleCompanySalesImportBatches],
   )
+  const reprocessableSalesImportBatchIds = useMemo(
+    () => currentCompanySalesImportBatchesSorted.filter((batch) => batch.status !== 'CANCELLED').map((batch) => batch.id),
+    [currentCompanySalesImportBatchesSorted],
+  )
+  const selectedReprocessableSalesImportBatchIds = useMemo(
+    () => selectedSalesImportBatchIds.filter((batchId) => reprocessableSalesImportBatchIds.includes(batchId)),
+    [reprocessableSalesImportBatchIds, selectedSalesImportBatchIds],
+  )
+  const areAllVisibleSalesImportBatchesSelected =
+    reprocessableSalesImportBatchIds.length > 0 &&
+    reprocessableSalesImportBatchIds.every((batchId) => selectedSalesImportBatchIds.includes(batchId))
   const currentCompanySalesConsumptions = useMemo(
     () => salesConsumptions.filter((consumption) => consumption.companyId === currentCompanyId),
     [currentCompanyId, salesConsumptions],
@@ -27770,6 +27782,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
     if (selectedSalesImportBatchId === batch.id) {
       setSelectedSalesImportBatchId(null)
     }
+    setSelectedSalesImportBatchIds((current) => current.filter((batchId) => batchId !== batch.id))
     registerAuditEvent({
       companyId: batch.companyId,
       module: 'IMPORTAR_VENDAS',
@@ -28165,6 +28178,29 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
     })
     setSaveProgressState(null)
     setProcessingSalesImportBatchAction(null)
+  }
+
+  async function reprocessSelectedSalesImportBatches() {
+    const selectedBatches = currentCompanySalesImportBatchesSorted.filter(
+      (batch) => selectedReprocessableSalesImportBatchIds.includes(batch.id) && batch.status !== 'CANCELLED',
+    )
+    if (selectedBatches.length === 0) {
+      setSaveFeedback({
+        status: 'error',
+        title: 'Nenhum lote selecionado',
+        message: 'Selecione pelo menos um lote ativo para reprocessar.',
+      })
+      return
+    }
+
+    for (const batch of selectedBatches) {
+      // eslint-disable-next-line no-await-in-loop
+      await reprocessSalesImportBatch(batch)
+    }
+
+    setSelectedSalesImportBatchIds((current) =>
+      current.filter((batchId) => !selectedBatches.some((batch) => batch.id === batchId)),
+    )
   }
 
   function applySalesImportSuggestedMinimums(params: {
@@ -37657,6 +37693,20 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                       <p className="kicker">Historico</p>
                       <h2>Lotes importados</h2>
                     </div>
+                    {currentCompanySalesImportBatchesSorted.length > 0 ? (
+                      <div className="toolbar-actions">
+                        <button
+                          type="button"
+                          className="secondary-button"
+                          disabled={selectedReprocessableSalesImportBatchIds.length === 0}
+                          onClick={() => void reprocessSelectedSalesImportBatches()}
+                        >
+                          {selectedReprocessableSalesImportBatchIds.length > 0
+                            ? `Reprocessar selecionados (${selectedReprocessableSalesImportBatchIds.length})`
+                            : 'Reprocessar selecionados'}
+                        </button>
+                      </div>
+                    ) : null}
                   </div>
                   <label className="checkbox-row">
                     <input
@@ -37672,6 +37722,21 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                         <table className="product-table">
                           <thead>
                           <tr>
+                              <th>
+                                <input
+                                  type="checkbox"
+                                  aria-label="Selecionar todos os lotes reprocessaveis"
+                                  checked={areAllVisibleSalesImportBatchesSelected}
+                                  onChange={(event) =>
+                                    setSelectedSalesImportBatchIds((current) => {
+                                      if (event.target.checked) {
+                                        return Array.from(new Set([...current, ...reprocessableSalesImportBatchIds]))
+                                      }
+                                      return current.filter((batchId) => !reprocessableSalesImportBatchIds.includes(batchId))
+                                    })
+                                  }
+                                />
+                              </th>
                             <th>Arquivo</th>
                             <th>Centro</th>
                             <th>Historico</th>
@@ -37686,6 +37751,21 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                           <tbody>
                             {currentCompanySalesImportBatchesSorted.map((batch) => (
                               <tr key={batch.id}>
+                                <td>
+                                  <input
+                                    type="checkbox"
+                                    aria-label={`Selecionar lote ${batch.fileName}`}
+                                    checked={selectedSalesImportBatchIds.includes(batch.id)}
+                                    disabled={batch.status === 'CANCELLED'}
+                                    onChange={(event) =>
+                                      setSelectedSalesImportBatchIds((current) =>
+                                        event.target.checked
+                                          ? Array.from(new Set([...current, batch.id]))
+                                          : current.filter((batchId) => batchId !== batch.id),
+                                      )
+                                    }
+                                  />
+                                </td>
                                 <td>{batch.fileName}</td>
                                 <td>{stockCenters.find((center) => center.id === batch.stockCenterId)?.name ?? `CENTRO ${batch.stockCenterId}`}</td>
                                 <td>{getSalesImportHistoryModeLabel(batch.historyMode, batch.historyMonths)}</td>
