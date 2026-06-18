@@ -2529,10 +2529,18 @@ function normalizeStockCenterPayload(value) {
             typeof item.suggestedMinimumQuantity === 'string' ? item.suggestedMinimumQuantity.trim() : undefined,
           minimumSource:
             item.minimumSource === 'SUGERIDO_VENDAS' || item.minimumSource === 'MANUAL' ? item.minimumSource : undefined,
+          realMinimumSource:
+            item.realMinimumSource === 'SUGERIDO_VENDAS' || item.realMinimumSource === 'MANUAL'
+              ? item.realMinimumSource
+              : undefined,
+          suggestedContext:
+            item.suggestedContext === 'CONSUMO_PROPRIO' || item.suggestedContext === 'ESPELHO_ABASTECIMENTO'
+              ? item.suggestedContext
+              : undefined,
           suggestedAt: typeof item.suggestedAt === 'string' ? item.suggestedAt : undefined,
           overriddenAt: typeof item.overriddenAt === 'string' ? item.overriddenAt : undefined,
         }))
-        .filter((item) => item.minimumQuantity !== '')
+        .filter((item) => item.minimumQuantity !== '' || (item.suggestedMinimumQuantity ?? '') !== '')
     : []
   const salesImportSettings =
     record.salesImportSettings && typeof record.salesImportSettings === 'object'
