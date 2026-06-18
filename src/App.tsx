@@ -21762,7 +21762,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
     const quantity = parseDecimal(quantityValue) ?? 0
     const config = getRequisitionEffectiveQuantityConfig(line)
     if (line.kind === 'PRODUTO') {
-      return `${formatDecimal(quantity)} embalagem(ns) de ${config.unitLabel}`
+      return `${formatDecimal(quantity)} de ${config.unitLabel}`
     }
     return `${formatDecimal(quantity * config.multiplier)} ${config.unitLabel}`
   }
@@ -21812,7 +21812,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
       const selectedPackage = product?.packages.find((item) => item.id === line.packageId) ?? null
       if (product && selectedPackage) {
         const packageQuantity = calculateNormalizedPackageQuantity(selectedPackage, product.controlUnit)
-        return `${formatDecimal(availableQuantity)} x ${formatDecimal(packageQuantity)} ${formatControlUnitShort(product.controlUnit)}`
+        return `${formatDecimal(availableQuantity)} de ${formatDecimal(packageQuantity)} ${formatControlUnitShort(product.controlUnit)}`
       }
     }
 
@@ -46312,13 +46312,13 @@ function getRequisitionDraftColumnValue(line: RequisitionDraftLine, key: Requisi
     case 'type':
       return line.itemTypeLabel
     case 'current':
-      return `${line.currentQuantity} ${line.currentUnitLabel}`
+      return formatRequisitionEffectiveQuantity(line, line.currentQuantity)
     case 'minimum':
       return line.minimumDefinitionLabel
     case 'suggestion':
-      return `${line.suggestedQuantity} ${line.requestUnitLabel}`
+      return formatRequisitionEffectiveQuantity(line, line.suggestedQuantity)
     case 'requested':
-      return `${line.requestedQuantity} ${line.requestUnitLabel}`
+      return formatRequisitionEffectiveQuantity(line, line.requestedQuantity)
     case 'destination':
       return line.destinationLabel
   }
