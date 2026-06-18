@@ -21698,6 +21698,17 @@ export default function App() {
           return
         }
 
+        const supplierRootKey = `${supplyResolution.supplierCenter.id}:${dependencySheet.id}`
+        const existingSupplierRequest = rootPreparationRequests.get(supplierRootKey) ?? null
+        rootPreparationRequests.set(supplierRootKey, {
+          centerId: supplyResolution.supplierCenter.id,
+          centerName: supplyResolution.supplierCenter.name,
+          sheetId: dependencySheet.id,
+          sheetName: dependencySheet.name,
+          desiredYield: (existingSupplierRequest?.desiredYield ?? 0) + shortageQuantity,
+          isDependencyRequest: false,
+        })
+
         const baseQuantity = Math.max(getStockCenterBaseQuantity(dependencySheet), 1)
         directShortageLines.push({
           key: `EXECUTION-PREPARO:${consumerCenter.id}:${dependencySheet.id}:${directShortageLines.length}`,
