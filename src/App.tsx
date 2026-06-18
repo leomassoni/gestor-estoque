@@ -8062,14 +8062,14 @@ export default function App() {
         : stockModuleSettings.find((record) => record.companyId === currentCompanyId) ?? null,
     [currentCompanyId, stockModuleSettings],
   )
-  const currentCompanySalesImportTemplates = useMemo(() => {
-    const companyScopeIds = new Set(getCompanyLinkScopeIds(currentCompanyId))
-    return salesImportTemplates.filter((template) => companyScopeIds.has(template.companyId))
-  }, [currentCompanyId, salesImportTemplates])
-  const currentCompanySalesImportBatches = useMemo(() => {
-    const companyScopeIds = new Set(getCompanyLinkScopeIds(currentCompanyId))
-    return salesImportBatches.filter((batch) => companyScopeIds.has(batch.companyId))
-  }, [currentCompanyId, salesImportBatches])
+  const currentCompanySalesImportTemplates = useMemo(
+    () => salesImportTemplates.filter((template) => template.companyId === currentCompanyId),
+    [currentCompanyId, salesImportTemplates],
+  )
+  const currentCompanySalesImportBatches = useMemo(
+    () => salesImportBatches.filter((batch) => batch.companyId === currentCompanyId),
+    [currentCompanyId, salesImportBatches],
+  )
   const visibleCompanySalesImportBatches = useMemo(
     () =>
       currentCompanySalesImportBatches.filter(
@@ -8077,10 +8077,10 @@ export default function App() {
       ),
     [currentCompanySalesImportBatches, showCancelledSalesImportBatches],
   )
-  const currentCompanySalesImportRows = useMemo(() => {
-    const companyScopeIds = new Set(getCompanyLinkScopeIds(currentCompanyId))
-    return salesImportRows.filter((row) => companyScopeIds.has(row.companyId))
-  }, [currentCompanyId, salesImportRows])
+  const currentCompanySalesImportRows = useMemo(
+    () => salesImportRows.filter((row) => row.companyId === currentCompanyId),
+    [currentCompanyId, salesImportRows],
+  )
   const currentCompanySalesImportBatchesSorted = useMemo(
     () =>
       [...visibleCompanySalesImportBatches].sort((a, b) => {
@@ -8101,10 +8101,10 @@ export default function App() {
   const areAllVisibleSalesImportBatchesSelected =
     reprocessableSalesImportBatchIds.length > 0 &&
     reprocessableSalesImportBatchIds.every((batchId) => selectedSalesImportBatchIds.includes(batchId))
-  const currentCompanySalesConsumptions = useMemo(() => {
-    const companyScopeIds = new Set(getCompanyLinkScopeIds(currentCompanyId))
-    return salesConsumptions.filter((consumption) => companyScopeIds.has(consumption.companyId))
-  }, [currentCompanyId, salesConsumptions])
+  const currentCompanySalesConsumptions = useMemo(
+    () => salesConsumptions.filter((consumption) => consumption.companyId === currentCompanyId),
+    [currentCompanyId, salesConsumptions],
+  )
   const salesImportCurrentSheet = useMemo(
     () => salesImportWorkbookSheets.find((sheet) => sheet.name === salesImportSheetName) ?? null,
     [salesImportSheetName, salesImportWorkbookSheets],
