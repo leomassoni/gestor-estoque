@@ -10147,8 +10147,52 @@ export default function App() {
     [inventoryMovementTimeline.movementRows],
   )
   const stockImportedSalesReportRows = useMemo(() => {
-    return currentCompanySalesImportRows
-      .map((row) => {
+    const activeBatchIds = new Set(
+      currentCompanySalesImportBatches
+        .filter((batch) => batch.status !== 'CANCELLED')
+        .map((batch) => batch.id),
+    )
+    const filteredRows = currentCompanySalesImportRows.filter((row) => {
+      if (!activeBatchIds.has(row.batchId)) {
+        return false
+      }
+      const rowDateKey = normalizeSalesImportDateKey(row.consumedAt) ?? row.consumedAt
+      if (stockReportStartDate !== '' && rowDateKey < stockReportStartDate) {
+        return false
+      }
+      if (stockReportEndDate !== '' && rowDateKey > stockReportEndDate) {
+        return false
+      }
+      return true
+    })
+
+    type SalesImportReportAggregation = {
+      id: string
+      main: string
+      internalId: string
+      companyId: string
+      kind: string
+      family: string
+      center: string
+      unit: string
+      userNames: Set<string>
+      fileBreakdown: Map<string, number>
+      ingredientBreakdown: Map<string, number>
+      ingredientOrder: string[]
+      ingredientCount: number
+      coverageLabels: Set<string>
+      statuses: Set<string>
+      soldQuantity: number
+      firstDate: string
+      lastDate: string
+      latestDate: string
+      latestBatchName: string
+      totalConsumedQuantity: number
+    }
+
+    const grouped = new Map<string, SalesImportReportAggregation>()
+
+    filteredRows.forEach((row) => {
         const batch = currentCompanySalesImportBatches.find((item) => item.id === row.batchId) ?? null
         const matchedSheet =
           row.matchedTechnicalSheetId === null
@@ -10164,9 +10208,6 @@ export default function App() {
             normalizeSalesImportDateKey(consumption.consumedAt) === normalizeSalesImportDateKey(row.consumedAt) &&
             consumption.stockPostingStatus !== 'CANCELLED',
         )
-        const uniqueIngredients = new Set(
-          relatedConsumptions.map((consumption) => consumption.ingredientProductId).filter(Boolean),
-        )
         const soldQuantity = parseSalesImportQuantityValue(row.quantity) ?? 0
         const recipeData =
           matchedSheet && soldQuantity > 0
@@ -10178,9 +10219,6 @@ export default function App() {
             : null
         const lineBreakdownMetrics = recipeData ? [...recipeData.ingredientMetrics, ...recipeData.garnishMetrics] : []
         const lineConsumedQuantity = lineBreakdownMetrics.reduce((sum, ingredient) => sum + ingredient.scaledInputQuantity, 0)
-        const lineConsumptionBreakdown = lineBreakdownMetrics
-          .map((ingredient) => `${ingredient.label}: ${formatDecimal(ingredient.scaledInputQuantity)} ${ingredient.unitLabel}`)
-          .join(' • ')
         const uniquePostingStatuses = Array.from(new Set(relatedConsumptions.map((consumption) => consumption.stockPostingStatus)))
         const postingStatus =
           relatedConsumptions.length === 0
@@ -10193,40 +10231,142 @@ export default function App() {
               ? getSalesImportPostingStatusLabel(uniquePostingStatuses[0])
               : 'Consumo pendente'
 
+        const rowDateKey = normalizeSalesImportDateKey(row.consumedAt) ?? row.consumedAt
+        const aggregationKey = [
+          row.stockCenterId,
+          matchedSheet?.kind ?? 'IMPORT',
+          matchedSheet?.productId || '',
+          matchedSheet?.serviceItemId || '',
+          matchedSheet?.id ?? `UNMATCHED:${row.companyProductId}`,
+        ].join(':')
+        const coverageLabel =
+          batch !== null
+            ? `${getSalesImportCoverageModeLabel(getSalesImportBatchCoverageMode(batch), getSalesImportBatchCoverageWeekStartsOn(batch))} • ${batch.safetyMarginPercent}% margem`
+            : ''
+        const batchName = batch?.fileName?.trim() || 'LOTE IMPORTADO'
+        const fileQuantity = parseSalesImportQuantityValue(row.quantity) ?? 0
+        const nextAggregation: SalesImportReportAggregation =
+          grouped.get(aggregationKey) ?? {
+            id: `sales-import-group-${aggregationKey}`,
+            main: matchedSheet?.name ?? row.companyProductId ?? 'ITEM SEM MATCH',
+            internalId: matchedSheet?.productId ?? '',
+            companyId: row.companyProductId,
+            kind: matchedSheet ? getTechnicalSheetKindLabel(matchedSheet.kind) : 'Venda importada',
+            family: matchedSheet?.family ?? '',
+            center: centerName,
+            unit: 'UN',
+            userNames: new Set<string>(),
+            fileBreakdown: new Map<string, number>(),
+            ingredientBreakdown: new Map<string, number>(),
+            ingredientOrder: [],
+            ingredientCount: 0,
+            coverageLabels: new Set<string>(),
+            statuses: new Set<string>(),
+            soldQuantity: 0,
+            firstDate: rowDateKey,
+            lastDate: rowDateKey,
+            latestDate: rowDateKey,
+            latestBatchName: batchName,
+            totalConsumedQuantity: 0,
+          }
+
+        nextAggregation.soldQuantity += fileQuantity
+        nextAggregation.totalConsumedQuantity += lineConsumedQuantity
+        nextAggregation.ingredientCount = Math.max(nextAggregation.ingredientCount, lineBreakdownMetrics.length)
+        nextAggregation.statuses.add(postingStatus)
+        if (coverageLabel) {
+          nextAggregation.coverageLabels.add(coverageLabel)
+        }
+        if (batch?.uploadedByUserName) {
+          nextAggregation.userNames.add(batch.uploadedByUserName)
+        }
+        nextAggregation.fileBreakdown.set(batchName, (nextAggregation.fileBreakdown.get(batchName) ?? 0) + fileQuantity)
+        lineBreakdownMetrics.forEach((ingredient) => {
+          const ingredientKey = `${ingredient.label}|||${ingredient.unitLabel}`
+          if (!nextAggregation.ingredientBreakdown.has(ingredientKey)) {
+            nextAggregation.ingredientOrder.push(ingredientKey)
+          }
+          nextAggregation.ingredientBreakdown.set(
+            ingredientKey,
+            (nextAggregation.ingredientBreakdown.get(ingredientKey) ?? 0) + ingredient.scaledInputQuantity,
+          )
+        })
+        if (rowDateKey < nextAggregation.firstDate) {
+          nextAggregation.firstDate = rowDateKey
+        }
+        if (rowDateKey > nextAggregation.lastDate) {
+          nextAggregation.lastDate = rowDateKey
+        }
+        if (rowDateKey >= nextAggregation.latestDate) {
+          nextAggregation.latestDate = rowDateKey
+          nextAggregation.latestBatchName = batchName
+        }
+
+        grouped.set(aggregationKey, nextAggregation)
+      })
+
+    return Array.from(grouped.values())
+      .map((group) => {
+        const fileBreakdownLabel = Array.from(group.fileBreakdown.entries())
+          .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0], 'pt-BR'))
+          .map(([fileName, quantity]) => `${fileName}: ${formatDecimal(quantity)} UN`)
+          .join(' • ')
+        const ingredientBreakdownLabel = group.ingredientOrder
+          .map((ingredientKey) => {
+            const [label, unitLabel] = ingredientKey.split('|||')
+            const quantity = group.ingredientBreakdown.get(ingredientKey) ?? 0
+            return `${label}: ${formatDecimal(quantity)} ${unitLabel}`
+          })
+          .join(' • ')
+        const uniqueStatuses = Array.from(group.statuses)
+        const statusLabel =
+          uniqueStatuses.length === 0
+            ? '-'
+            : uniqueStatuses.length === 1
+              ? uniqueStatuses[0]
+              : `${uniqueStatuses.length} status no periodo`
+        const coverageLabel =
+          group.coverageLabels.size === 0
+            ? ''
+            : group.coverageLabels.size === 1
+              ? Array.from(group.coverageLabels)[0] ?? ''
+              : `${group.coverageLabels.size} configuracoes de cobertura`
+        const dateLabel =
+          group.firstDate === group.lastDate
+            ? formatDateForDisplay(group.firstDate)
+            : `${formatDateForDisplay(group.firstDate)} a ${formatDateForDisplay(group.lastDate)}`
+
         return {
-          id: `sales-import-${row.id}`,
-          main: matchedSheet?.name ?? row.companyProductId ?? 'ITEM SEM MATCH',
-          secondary: batch?.fileName ?? '',
-          internalId: matchedSheet?.productId ?? '',
-          companyId: row.companyProductId,
+          id: group.id,
+          main: group.main,
+          secondary: fileBreakdownLabel,
+          internalId: group.internalId,
+          companyId: group.companyId,
           packageId: '',
-          kind: matchedSheet ? getTechnicalSheetKindLabel(matchedSheet.kind) : 'Venda importada',
-          family: matchedSheet?.family ?? '',
-          center: centerName,
-          date: formatDateForDisplay(normalizeSalesImportDateKey(row.consumedAt) ?? row.consumedAt),
-          status: postingStatus,
-          operation: batch?.fileName ?? 'LOTE IMPORTADO',
-          recorded: String(uniqueIngredients.size),
-          quantity: row.quantity,
+          kind: group.kind,
+          family: group.family,
+          center: group.center,
+          date: dateLabel,
+          status: statusLabel,
+          operation: fileBreakdownLabel || group.latestBatchName,
+          recorded: String(group.fileBreakdown.size),
+          quantity: formatDecimal(group.soldQuantity),
           position:
-            lineBreakdownMetrics.length > 0
-              ? `${lineBreakdownMetrics.length} ingrediente(s) • ${lineConsumptionBreakdown}`
-              : row.errorMessage || '-',
-          minimum:
-            batch !== null
-              ? `${getSalesImportCoverageModeLabel(getSalesImportBatchCoverageMode(batch), getSalesImportBatchCoverageWeekStartsOn(batch))} • ${batch.safetyMarginPercent}% margem`
-              : '',
-          unit: 'UN',
-          user: batch?.uploadedByUserName ?? '',
+            ingredientBreakdownLabel !== ''
+              ? `${group.ingredientOrder.length} ingrediente(s) • ${ingredientBreakdownLabel}`
+              : 'Sem composicao calculada',
+          minimum: coverageLabel,
+          unit: group.unit,
+          user: Array.from(group.userNames).join(' • '),
           sortValues: {
-            date: normalizeSalesImportDateKey(row.consumedAt) ?? row.consumedAt,
-            quantity: parseSalesImportQuantityValue(row.quantity) ?? 0,
-            recorded: uniqueIngredients.size,
-            position: lineConsumedQuantity,
+            date: group.latestDate,
+            quantity: group.soldQuantity,
+            recorded: group.fileBreakdown.size,
+            position: group.totalConsumedQuantity,
           },
         } satisfies StockReportRow
       })
-      .sort((a, b) => String(b.sortValues?.date ?? '').localeCompare(String(a.sortValues?.date ?? '')))
+      .sort((a, b) => String(b.sortValues?.date ?? '').localeCompare(String(a.sortValues?.date ?? '')) || a.main.localeCompare(b.main, 'pt-BR'))
   }, [
     currentCompanyId,
     currentCompanySalesConsumptions,
@@ -10235,6 +10375,8 @@ export default function App() {
     isTechnicalSheetVisibleForCompany,
     products,
     stockCenters,
+    stockReportEndDate,
+    stockReportStartDate,
     technicalSheets,
   ])
   const stockMinimumReportRows = useMemo(() => {
@@ -28033,7 +28175,6 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
     coverageMode: SalesImportCoverageMode
     coverageWeekStartsOn: number
     safetyMarginPercent: string
-    importedRows: Array<Pick<SalesImportPreviewRow, 'consumedAt'>>
     pendingMatchedRows: SalesImportPreviewRow[]
     fallbackDemandRows?: Array<{
       consumedAt: string
@@ -28054,7 +28195,6 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
       coverageWeekStartsOn,
       historyMode,
       historyMonths,
-      importedRows,
       pendingMatchedRows,
       fallbackDemandRows = [],
       replaceSourceBatchId,
@@ -28072,14 +28212,6 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
       return workingStockCenters
     }
     const targetCompanyId = targetCenter.companyId
-
-    const importedDateKeys = [...importedRows.map((row) => row.consumedAt), ...fallbackDemandRows.map((row) => row.consumedAt)]
-      .map((value) => normalizeSalesImportDateKey(value))
-      .filter((value): value is string => Boolean(value))
-      .sort()
-    if (importedDateKeys.length === 0) {
-      return workingStockCenters
-    }
 
     const activeBatchIds = new Set(
       workingBatches
@@ -28122,9 +28254,9 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
       return workingStockCenters
     }
 
-    const importedStartDateKey = importedDateKeys[0]
-    const importedEndDateKey = importedDateKeys[importedDateKeys.length - 1]
     const availableDateKeys = normalizedConsumptionRows.map((item) => item.dateKey).sort()
+    const importedStartDateKey = availableDateKeys[0]
+    const importedEndDateKey = availableDateKeys[availableDateKeys.length - 1]
     const fullPeriodStartDateKey = availableDateKeys[0]
     const rollingEndDateKey = importedEndDateKey
     const rollingStartDateKey =
@@ -28523,13 +28655,6 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
         return nextCenters
       }
 
-      const importedRows =
-        matchedRows.length > 0
-          ? matchedRows
-          : fallbackDemandRows.map((row) => ({
-              consumedAt: row.consumedAt,
-            }))
-
       return applySalesImportSuggestedMinimums({
         companyId: batch.companyId,
         targetCenterId: batch.stockCenterId,
@@ -28538,7 +28663,6 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
         coverageMode: getSalesImportBatchCoverageMode(batch),
         coverageWeekStartsOn: getSalesImportBatchCoverageWeekStartsOn(batch),
         safetyMarginPercent: batch.safetyMarginPercent,
-        importedRows,
         pendingMatchedRows: matchedRows,
         fallbackDemandRows,
         replaceSourceBatchId: batch.id,
