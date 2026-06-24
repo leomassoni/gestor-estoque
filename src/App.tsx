@@ -29,6 +29,7 @@ type AppSection =
   | 'Configuracoes'
   | 'CentrosEstoque'
   | 'Inventario'
+  | 'Desperdicio'
   | 'ConfiguracoesEstoque'
   | 'Requisicoes'
   | 'Suprimentos'
@@ -457,6 +458,7 @@ const catalogEntityPollingIntervalMs = 60000
 const remoteSnapshotSyncEnabled = false
 
 type StockCountableKind = 'PREPARO' | 'PRODUTO' | 'ITEM'
+type WasteCountableKind = StockCountableKind | 'EXECUCAO'
 type SalesImportHistoryMode = 'ROLLING_MONTHS' | 'FULL_PERIOD' | 'SAME_PERIOD_LAST_YEAR'
 type SalesImportConsumptionMethod = 'SIMPLE_AVERAGE' | 'MEDIAN_DAILY'
 type SalesImportCoverageMode = 'DAILY' | 'WEEKLY' | 'FORTNIGHTLY' | 'MONTHLY'
@@ -693,6 +695,45 @@ type InventoryCountableItem = {
   internalId: string
   controlUnit: Exclude<ControlUnit, 'COMBO'>
   baseQuantity: number
+}
+
+type WasteCountableItem = {
+  key: string
+  kind: WasteCountableKind
+  technicalSheetId: number | null
+  productId: string
+  serviceItemId: string
+  companyProductId: string
+  name: string
+  family: string
+  internalId: string
+  controlUnit: Exclude<ControlUnit, 'COMBO'>
+  baseQuantity: number
+}
+
+type WasteMovementEntry = {
+  kind: StockCountableKind
+  technicalSheetId: number | null
+  productId: string
+  serviceItemId: string
+  packageId: number | null
+  technicalSheetName: string
+  technicalSheetKind: StockCountableKind
+  totalQuantity: number
+  totalUnit: 'MILLILITER' | 'GRAM' | 'UNIT'
+}
+
+type WasteHistoryRow = {
+  key: string
+  status: 'APLICADO' | 'PENDENTE'
+  centerName: string
+  countedAt: string
+  createdAt: string
+  createdByUserName: string
+  locationLabel: string
+  title: string
+  itemCount: number
+  records: InventoryCountRecord[]
 }
 
 type RequisitionStatus =
@@ -2128,6 +2169,7 @@ const estoqueAccessSectionOptions: Array<{ key: AppSection; label: string }> = [
   { key: 'Requisicoes', label: 'Requisicao' },
   { key: 'Suprimentos', label: 'Suprimentos' },
   { key: 'Inventario', label: 'Inventario' },
+  { key: 'Desperdicio', label: 'Desperdicio' },
   { key: 'CentrosEstoque', label: 'Centros de estoque' },
   { key: 'ConfiguracoesEstoque', label: 'Importar vendas' },
   { key: 'RelatoriosEstoque', label: 'Relatorios' },
@@ -2658,6 +2700,7 @@ const defaultSectionAccessByRole = (role: CompanyUserRole): UserSectionAccess =>
       Configuracoes: true,
       CentrosEstoque: true,
       Inventario: true,
+      Desperdicio: true,
       ConfiguracoesEstoque: true,
       Requisicoes: true,
       Suprimentos: true,
@@ -2678,6 +2721,7 @@ const defaultSectionAccessByRole = (role: CompanyUserRole): UserSectionAccess =>
       Configuracoes: true,
       CentrosEstoque: true,
       Inventario: true,
+      Desperdicio: true,
       ConfiguracoesEstoque: true,
       Requisicoes: true,
       Suprimentos: true,
@@ -2697,6 +2741,7 @@ const defaultSectionAccessByRole = (role: CompanyUserRole): UserSectionAccess =>
     Configuracoes: false,
     CentrosEstoque: false,
     Inventario: false,
+    Desperdicio: false,
     ConfiguracoesEstoque: false,
     Requisicoes: false,
     Suprimentos: false,
@@ -2896,6 +2941,7 @@ const emptyAccessProfileForm = (): AccessProfileFormState => ({
     Configuracoes: false,
     CentrosEstoque: false,
     Inventario: false,
+    Desperdicio: false,
     ConfiguracoesEstoque: false,
     Requisicoes: false,
     Suprimentos: false,
@@ -3736,6 +3782,8 @@ export default function App() {
   const technicalSheetServiceItemListId = useId()
   const stockCenterListId = useId()
   const stockCenterMinimumListId = useId()
+  const wasteTechnicalSheetListId = useId()
+  const wasteStorageLocationListId = useId()
   const packageListId = useId()
   const replacementSectorListId = useId()
   const replacementTaxonomyListId = useId()
@@ -3918,6 +3966,8 @@ export default function App() {
   const [stockCenterForm, setStockCenterForm] = useState<StockCenterFormState>(emptyStockCenterForm())
   const [inventoryForm, setInventoryForm] = useState<InventoryFormState>(emptyInventoryForm())
   const [inventoryErrors, setInventoryErrors] = useState<Partial<Record<keyof InventoryFormState, string>>>({})
+  const [wasteForm, setWasteForm] = useState<InventoryFormState>(emptyInventoryForm())
+  const [wasteErrors, setWasteErrors] = useState<Partial<Record<keyof InventoryFormState, string>>>({})
   const [editingInventoryCountId, setEditingInventoryCountId] = useState<number | null>(null)
   const [inventoryDraftBeforeEdit, setInventoryDraftBeforeEdit] = useState<InventoryFormState | null>(null)
   const [selectedInventoryId, setSelectedInventoryId] = useState<number | null>(null)
@@ -4301,6 +4351,7 @@ export default function App() {
         'Requisicoes',
         'Suprimentos',
         'Inventario',
+        'Desperdicio',
         'CentrosEstoque',
         'RelatoriosEstoque',
         'PainelMaster',
@@ -4320,6 +4371,7 @@ export default function App() {
         'Requisicoes',
         'Suprimentos',
         'Inventario',
+        'Desperdicio',
         'CentrosEstoque',
         'RelatoriosEstoque',
         'Empresa',
@@ -4339,7 +4391,7 @@ export default function App() {
     [allowedSections, cadastroSections],
   )
   const estoqueSections = useMemo<AppSection[]>(
-    () => ['EntradaProducoes', 'Requisicoes', 'Suprimentos', 'Inventario', 'CentrosEstoque', 'ConfiguracoesEstoque', 'RelatoriosEstoque'],
+    () => ['EntradaProducoes', 'Requisicoes', 'Suprimentos', 'Inventario', 'Desperdicio', 'CentrosEstoque', 'ConfiguracoesEstoque', 'RelatoriosEstoque'],
     [],
   )
   const allowedEstoqueSections = useMemo(
@@ -4358,6 +4410,7 @@ export default function App() {
     if (section === 'Requisicoes') return 'Requisicao'
     if (section === 'RelatoriosEstoque') return 'Relatorios'
     if (section === 'EntradaProducoes') return 'Entrada de producoes'
+    if (section === 'Desperdicio') return 'Desperdicio'
     if (section === 'PainelMaster') return 'Painel master'
     return section
   }
@@ -5683,12 +5736,9 @@ export default function App() {
         })
         const previousQuantity = balanceByAggregation.get(aggregationKey) ?? 0
         const movementQuantity = getInventoryTrackedMovementQuantity(event.record)
-        const nextQuantity =
-          event.record.storageLocation === 'SAIDA PARA REQUISICAO' ||
-          event.record.storageLocation === 'SAIDA PARA PRODUCAO' ||
-          event.record.storageLocation === 'SAIDA POR VENDAS IMPORTADAS'
-            ? previousQuantity - movementQuantity
-            : previousQuantity + movementQuantity
+        const nextQuantity = isOutboundOperationalInventoryMovementLocation(event.record.storageLocation)
+          ? previousQuantity - movementQuantity
+          : previousQuantity + movementQuantity
         balanceByAggregation.set(aggregationKey, nextQuantity)
         latestDateByCenter.set(centerId, event.countedAt)
       })
@@ -8773,6 +8823,94 @@ export default function App() {
       })),
     [inventoryCountableItems],
   )
+  const wasteCountableExecutionSheets = useMemo(
+    () =>
+      technicalSheets
+        .filter(
+          (sheet) =>
+            isTechnicalSheetVisibleForCompany(sheet, currentCompanyId) &&
+            sheet.isActive &&
+            sheet.kind === 'EXECUCAO',
+        )
+        .sort((a, b) => a.name.localeCompare(b.name, 'pt-BR')),
+    [currentCompanyId, isTechnicalSheetVisibleForCompany, technicalSheets],
+  )
+  const wasteCountableItems = useMemo(
+    () =>
+      [
+        ...inventoryCountableItems.map(
+          (item) =>
+            ({
+              ...item,
+              kind: item.kind,
+            }) satisfies WasteCountableItem,
+        ),
+        ...wasteCountableExecutionSheets.map(
+          (sheet) =>
+            ({
+              key: buildWasteCountableItemKey({
+                kind: 'EXECUCAO',
+                technicalSheetId: sheet.id,
+                productId: '',
+                serviceItemId: '',
+              }),
+              kind: 'EXECUCAO',
+              technicalSheetId: sheet.id,
+              productId: '',
+              serviceItemId: '',
+              companyProductId: sheet.companyProductId,
+              name: sheet.name,
+              family: sheet.family,
+              internalId: sheet.productId,
+              controlUnit: 'UNIT',
+              baseQuantity: 1,
+            }) satisfies WasteCountableItem,
+        ),
+      ].sort((a, b) => {
+        const nameCompare = a.name.localeCompare(b.name, 'pt-BR')
+        if (nameCompare !== 0) {
+          return nameCompare
+        }
+        return getWasteCountableKindLabel(a.kind).localeCompare(getWasteCountableKindLabel(b.kind), 'pt-BR')
+      }),
+    [inventoryCountableItems, wasteCountableExecutionSheets],
+  )
+  const wasteTechnicalSheetOptions = useMemo(
+    () =>
+      wasteCountableItems.map((item) => ({
+        id: item.key,
+        label: `${item.name} ${getWasteCountableKindLabel(item.kind).toUpperCase()}`,
+      })),
+    [wasteCountableItems],
+  )
+  const wasteSheetIdByLabel = useMemo(
+    () => new Map(wasteTechnicalSheetOptions.map((option) => [normalizeRegistrationText(option.label), option.id])),
+    [wasteTechnicalSheetOptions],
+  )
+  const wasteTechnicalSheetSuggestions = useMemo(
+    () => normalizeSuggestionSet(wasteTechnicalSheetOptions.map((option) => option.label)),
+    [wasteTechnicalSheetOptions],
+  )
+  const wasteSheetIdBySearchValue = useMemo(() => {
+    const nextMap = new Map<string, string[]>()
+    wasteCountableItems.forEach((item) => {
+      normalizeSearchTokens(
+        [
+          item.name,
+          item.internalId,
+          item.companyProductId,
+          getWasteCountableKindLabel(item.kind),
+          wasteTechnicalSheetOptions.find((option) => option.id === item.key)?.label ?? '',
+        ].join(' '),
+      ).forEach((token) => {
+        const current = nextMap.get(token) ?? []
+        if (!current.includes(item.key)) {
+          nextMap.set(token, [...current, item.key])
+        }
+      })
+    })
+    return nextMap
+  }, [wasteCountableItems, wasteTechnicalSheetOptions])
   const inventorySheetIdByLabel = useMemo(
     () => new Map(inventoryTechnicalSheetOptions.map((option) => [normalizeRegistrationText(option.label), option.id])),
     [inventoryTechnicalSheetOptions],
@@ -8839,6 +8977,60 @@ export default function App() {
     }
     return null
   }, [inventoryCountableItems, inventoryForm.productId, inventoryForm.serviceItemId, inventoryForm.technicalSheetId])
+  const selectedWasteCenter = useMemo(
+    () => inventoryEligibleStockCenters.find((center) => String(center.id) === wasteForm.stockCenterId) ?? null,
+    [inventoryEligibleStockCenters, wasteForm.stockCenterId],
+  )
+  const selectedWasteSheet = useMemo(
+    () =>
+      wasteForm.technicalSheetId === null
+        ? null
+        : technicalSheets.find((sheet) => sheet.id === wasteForm.technicalSheetId && sheet.isActive) ?? null,
+    [technicalSheets, wasteForm.technicalSheetId],
+  )
+  const selectedWasteProduct = useMemo(
+    () =>
+      wasteForm.productId
+        ? inventoryCountableProducts.find((product) => product.id === wasteForm.productId) ?? null
+        : null,
+    [inventoryCountableProducts, wasteForm.productId],
+  )
+  const selectedWasteServiceItem = useMemo(
+    () =>
+      wasteForm.serviceItemId
+        ? inventoryCountableServiceItems.find((item) => item.id === wasteForm.serviceItemId) ?? null
+        : null,
+    [inventoryCountableServiceItems, wasteForm.serviceItemId],
+  )
+  const selectedWasteCountableItem = useMemo(() => {
+    if (selectedWasteSheet?.kind === 'EXECUCAO') {
+      return wasteCountableItems.find(
+        (item) => item.kind === 'EXECUCAO' && item.technicalSheetId === selectedWasteSheet.id,
+      ) ?? null
+    }
+    if (wasteForm.technicalSheetId !== null) {
+      return wasteCountableItems.find(
+        (item) => item.kind === 'PREPARO' && item.technicalSheetId === wasteForm.technicalSheetId,
+      ) ?? null
+    }
+    if (wasteForm.productId) {
+      return wasteCountableItems.find(
+        (item) => item.kind === 'PRODUTO' && item.productId === wasteForm.productId,
+      ) ?? null
+    }
+    if (wasteForm.serviceItemId) {
+      return wasteCountableItems.find(
+        (item) => item.kind === 'ITEM' && item.serviceItemId === wasteForm.serviceItemId,
+      ) ?? null
+    }
+    return null
+  }, [
+    selectedWasteSheet,
+    wasteCountableItems,
+    wasteForm.productId,
+    wasteForm.serviceItemId,
+    wasteForm.technicalSheetId,
+  ])
   const serviceItemsById = useMemo(
     () => new Map(serviceItems.filter((item) => item.companyId === currentCompanyId).map((item) => [item.id, item])),
     [currentCompanyId, serviceItems],
@@ -9038,10 +9230,190 @@ export default function App() {
     selectedInventoryRecipient?.referenceQuantity,
     selectedInventorySheet,
   ])
+  const wasteRecipientOptions = useMemo(() => {
+    if (selectedWasteCountableItem?.kind === 'EXECUCAO') {
+      return []
+    }
+
+    return buildInventoryRecipientOptionsForContext({
+      countableItem:
+        selectedWasteCountableItem && selectedWasteCountableItem.kind !== 'EXECUCAO'
+          ? {
+              key: selectedWasteCountableItem.key,
+              kind: selectedWasteCountableItem.kind,
+              technicalSheetId: selectedWasteCountableItem.technicalSheetId,
+              productId: selectedWasteCountableItem.productId,
+              serviceItemId: selectedWasteCountableItem.serviceItemId,
+              companyProductId: selectedWasteCountableItem.companyProductId,
+              name: selectedWasteCountableItem.name,
+              family: selectedWasteCountableItem.family,
+              internalId: selectedWasteCountableItem.internalId,
+              controlUnit: selectedWasteCountableItem.controlUnit,
+              baseQuantity: selectedWasteCountableItem.baseQuantity,
+            }
+          : null,
+      sheet: selectedWasteSheet?.kind === 'PREPARO' ? selectedWasteSheet : null,
+      product: selectedWasteProduct,
+      serviceItem: selectedWasteServiceItem,
+      serviceItemsById,
+    })
+  }, [selectedWasteCountableItem, selectedWasteProduct, selectedWasteServiceItem, selectedWasteSheet, serviceItemsById])
+  const wasteRecipientIdByLabel = useMemo(
+    () => new Map(wasteRecipientOptions.map((option) => [normalizeRegistrationText(option.label), option.id] as const)),
+    [wasteRecipientOptions],
+  )
+  const selectedWasteRecipient = useMemo(
+    () => wasteRecipientOptions.find((recipient) => recipient.id === wasteForm.recipientItemId) ?? null,
+    [wasteForm.recipientItemId, wasteRecipientOptions],
+  )
+  const wasteHasRecipientOptions = wasteRecipientOptions.length > 0
+  const wasteDensityFactor = useMemo(() => {
+    if (selectedWasteSheet?.kind === 'PREPARO') {
+      const volume = parseDecimal(selectedWasteSheet.densitySampleVolume)
+      const weight = parseDecimal(selectedWasteSheet.densitySampleWeight)
+      if (volume && volume > 0 && weight && weight > 0) {
+        return weight / volume
+      }
+      return 1
+    }
+
+    if (selectedWasteProduct) {
+      return getProductDensityFactor(selectedWasteProduct)
+    }
+
+    return 1
+  }, [selectedWasteProduct, selectedWasteSheet])
+  const wasteClosedQuantity = parseDecimal(wasteForm.closedItemsQuantity) ?? 0
+  const wasteOpenGrossWeight = parseDecimal(wasteForm.openItemsGrossWeight) ?? 0
+  const wasteOpenContainerQuantity = parseDecimal(wasteForm.openItemsContainerQuantity) ?? 0
+  const wasteOpenNetWeight = useMemo(
+    () => Math.max(wasteOpenGrossWeight - (selectedWasteRecipient?.emptyWeight ?? 0) * wasteOpenContainerQuantity, 0),
+    [selectedWasteRecipient?.emptyWeight, wasteOpenContainerQuantity, wasteOpenGrossWeight],
+  )
+  const wasteOpenPhysicalQuantity = useMemo(() => {
+    return calculateInventoryOpenPhysicalQuantityForContext({
+      countableItem:
+        selectedWasteCountableItem && selectedWasteCountableItem.kind !== 'EXECUCAO'
+          ? {
+              key: selectedWasteCountableItem.key,
+              kind: selectedWasteCountableItem.kind,
+              technicalSheetId: selectedWasteCountableItem.technicalSheetId,
+              productId: selectedWasteCountableItem.productId,
+              serviceItemId: selectedWasteCountableItem.serviceItemId,
+              companyProductId: selectedWasteCountableItem.companyProductId,
+              name: selectedWasteCountableItem.name,
+              family: selectedWasteCountableItem.family,
+              internalId: selectedWasteCountableItem.internalId,
+              controlUnit: selectedWasteCountableItem.controlUnit,
+              baseQuantity: selectedWasteCountableItem.baseQuantity,
+            }
+          : null,
+      hasOpenItems: wasteForm.hasOpenItems === 'true',
+      openItemsGrossWeight: wasteForm.openItemsGrossWeight,
+      openItemsContainerQuantity: wasteForm.openItemsContainerQuantity,
+      recipient: selectedWasteRecipient,
+      densityFactor: wasteDensityFactor,
+    })
+  }, [selectedWasteCountableItem, selectedWasteRecipient, wasteDensityFactor, wasteForm.hasOpenItems, wasteForm.openItemsContainerQuantity, wasteForm.openItemsGrossWeight])
+  const wasteTotalCountedQuantity = useMemo(() => {
+    if (selectedWasteCountableItem?.kind === 'EXECUCAO') {
+      return wasteClosedQuantity
+    }
+
+    return calculateInventoryTotalCountedQuantityForContext({
+      countableItem:
+        selectedWasteCountableItem && selectedWasteCountableItem.kind !== 'EXECUCAO'
+          ? {
+              key: selectedWasteCountableItem.key,
+              kind: selectedWasteCountableItem.kind,
+              technicalSheetId: selectedWasteCountableItem.technicalSheetId,
+              productId: selectedWasteCountableItem.productId,
+              serviceItemId: selectedWasteCountableItem.serviceItemId,
+              companyProductId: selectedWasteCountableItem.companyProductId,
+              name: selectedWasteCountableItem.name,
+              family: selectedWasteCountableItem.family,
+              internalId: selectedWasteCountableItem.internalId,
+              controlUnit: selectedWasteCountableItem.controlUnit,
+              baseQuantity: selectedWasteCountableItem.baseQuantity,
+            }
+          : null,
+      sheet: selectedWasteSheet?.kind === 'PREPARO' ? selectedWasteSheet : null,
+      hasRecipientOptions: wasteHasRecipientOptions,
+      recipient: selectedWasteRecipient,
+      closedItemsQuantity: wasteForm.closedItemsQuantity,
+      hasOpenItems: wasteForm.hasOpenItems === 'true',
+      openPhysicalQuantity: wasteOpenPhysicalQuantity,
+    })
+  }, [
+    selectedWasteCountableItem,
+    selectedWasteRecipient,
+    selectedWasteSheet,
+    wasteClosedQuantity,
+    wasteForm.closedItemsQuantity,
+    wasteForm.hasOpenItems,
+    wasteHasRecipientOptions,
+    wasteOpenPhysicalQuantity,
+  ])
   const inventoryStockCenterNameById = useMemo(
     () => new Map(inventoryAccessibleStockCenters.map((center) => [center.id, center.name])),
     [inventoryAccessibleStockCenters],
   )
+  const wasteHistoryRows = useMemo<WasteHistoryRow[]>(() => {
+    const appliedRows = Array.from(
+      inventoryCounts
+        .filter((record) => record.companyId === currentCompanyId && isWasteInventoryMovementLocation(record.storageLocation))
+        .reduce<Map<number, InventoryCountRecord[]>>((current, record) => {
+          const existing = current.get(record.sessionId) ?? []
+          current.set(record.sessionId, [...existing, record])
+          return current
+        }, new Map()),
+    ).map(([sessionId, records]) => {
+      const session = inventoryCountSessions.find((sessionRecord) => sessionRecord.id === sessionId) ?? null
+      const firstRecord = records[0]
+      return {
+        key: `applied-waste-${sessionId}`,
+        status: 'APLICADO',
+        centerName: inventoryStockCenterNameById.get(firstRecord.stockCenterId) ?? `CENTRO ${firstRecord.stockCenterId}`,
+        countedAt: firstRecord.countedAt,
+        createdAt: session?.closedAt || session?.startedAt || `${firstRecord.countedAt}T00:00:00.000Z`,
+        createdByUserName: firstRecord.createdByUserName,
+        locationLabel: extractWasteOccurrenceLocationLabel(firstRecord.storageLocation),
+        title: firstRecord.recipientLabel || firstRecord.technicalSheetName,
+        itemCount: records.length,
+        records: [...records].sort((left, right) => left.technicalSheetName.localeCompare(right.technicalSheetName, 'pt-BR')),
+      } satisfies WasteHistoryRow
+    })
+
+    const pendingRows = pendingInventoryMovements
+      .filter(
+        (movement) =>
+          movement.companyId === currentCompanyId &&
+          movement.records.length > 0 &&
+          movement.records.every((record) => isWasteInventoryMovementLocation(record.storageLocation)),
+      )
+      .map((movement) => {
+        const firstRecord = movement.records[0]
+        return {
+          key: `pending-waste-${movement.id}`,
+          status: 'PENDENTE',
+          centerName: inventoryStockCenterNameById.get(movement.stockCenterId) ?? `CENTRO ${movement.stockCenterId}`,
+          countedAt: firstRecord?.countedAt ?? movement.session.countedAt,
+          createdAt: movement.createdAt,
+          createdByUserName: movement.createdByUserName,
+          locationLabel: firstRecord ? extractWasteOccurrenceLocationLabel(firstRecord.storageLocation) : 'SEM LOCAL INFORMADO',
+          title: firstRecord?.recipientLabel || movement.description,
+          itemCount: movement.records.length,
+          records: [...movement.records].sort((left, right) => left.technicalSheetName.localeCompare(right.technicalSheetName, 'pt-BR')),
+        } satisfies WasteHistoryRow
+      })
+
+    return [...pendingRows, ...appliedRows].sort(
+      (left, right) =>
+        right.countedAt.localeCompare(left.countedAt) ||
+        right.createdAt.localeCompare(left.createdAt) ||
+        left.key.localeCompare(right.key),
+    )
+  }, [currentCompanyId, inventoryCountSessions, inventoryCounts, inventoryStockCenterNameById, pendingInventoryMovements])
   const visibleFilteredClosedInventoryRecords = useMemo(
     () =>
       sortRecordsByColumn(
@@ -10137,12 +10509,9 @@ export default function App() {
         })
         const previousQuantity = balanceByAggregation.get(aggregationKey) ?? 0
         const movementQuantity = getInventoryTrackedMovementQuantity(event.record)
-        const nextQuantity =
-          event.record.storageLocation === 'SAIDA PARA REQUISICAO' ||
-          event.record.storageLocation === 'SAIDA PARA PRODUCAO' ||
-          event.record.storageLocation === 'SAIDA POR VENDAS IMPORTADAS'
-            ? previousQuantity - movementQuantity
-            : previousQuantity + movementQuantity
+        const nextQuantity = isOutboundOperationalInventoryMovementLocation(event.record.storageLocation)
+          ? previousQuantity - movementQuantity
+          : previousQuantity + movementQuantity
         const signedMovementQuantity = nextQuantity - previousQuantity
         const metadata = inventoryAggregationMetadataByKey.get(aggregationKey)
 
@@ -10183,10 +10552,12 @@ export default function App() {
                   ? 'Producao iniciada'
                 : event.record.storageLocation === 'SAIDA PARA REQUISICAO'
                   ? 'Transferencia de saida'
-                  : event.record.storageLocation === 'SAIDA POR VENDAS IMPORTADAS'
+                : event.record.storageLocation === 'SAIDA POR VENDAS IMPORTADAS'
                     ? 'Saida por vendas importadas'
                     : event.record.storageLocation === 'ESTORNO DE VENDAS IMPORTADAS'
                       ? 'Estorno de vendas importadas'
+                  : isWasteInventoryMovementLocation(event.record.storageLocation)
+                    ? 'Desperdicio operacional'
                   : 'Transferencia de entrada',
             operation: event.record.storageLocation,
             recorded: formatDecimal(movementQuantity),
@@ -13907,6 +14278,19 @@ export default function App() {
     serviceItems,
     technicalSheets,
   ])
+  const wasteExecutionPreviewEntries = useMemo(
+    () =>
+      selectedWasteCenter &&
+      selectedWasteSheet?.kind === 'EXECUCAO' &&
+      (parseDecimal(wasteForm.closedItemsQuantity) ?? 0) > 0
+        ? buildWasteMovementEntriesForExecution(
+            selectedWasteCenter,
+            selectedWasteSheet,
+            parseDecimal(wasteForm.closedItemsQuantity) ?? 0,
+          )
+        : [],
+    [selectedWasteCenter, selectedWasteSheet, wasteForm.closedItemsQuantity],
+  )
   const recipePanelPreparationModeParts = useMemo(
     () =>
       recipePanelData
@@ -14976,6 +15360,56 @@ export default function App() {
   ])
 
   useEffect(() => {
+    if (
+      selectedWasteCountableItem?.kind !== 'PRODUTO' &&
+      selectedWasteCountableItem?.kind !== 'PREPARO' &&
+      selectedWasteCountableItem?.kind !== 'ITEM'
+    ) {
+      return
+    }
+
+    if (wasteForm.recipientItemId || wasteForm.recipientLabel.trim()) {
+      return
+    }
+
+    const autoSelectedOption =
+      selectedWasteCountableItem.kind === 'PRODUTO'
+        ? wasteRecipientOptions.filter((option) => option.packageId !== null).length === 1
+          ? wasteRecipientOptions.find((option) => option.packageId !== null) ?? null
+          : null
+        : wasteRecipientOptions.find((option) => option.isFallbackOption) ?? null
+
+    if (!autoSelectedOption) {
+      return
+    }
+
+    setWasteForm((current) => {
+      const sameSelectedItem =
+        selectedWasteCountableItem.kind === 'PRODUTO'
+          ? current.productId === selectedWasteCountableItem.productId
+          : selectedWasteCountableItem.kind === 'PREPARO'
+            ? current.technicalSheetId === selectedWasteCountableItem.technicalSheetId
+            : current.serviceItemId === selectedWasteCountableItem.serviceItemId
+
+      if (!sameSelectedItem) {
+        return current
+      }
+
+      return {
+        ...current,
+        recipientItemId: autoSelectedOption.id,
+        recipientLabel: autoSelectedOption.label,
+      }
+    })
+    setWasteErrors((current) => ({ ...current, recipientLabel: '' }))
+  }, [
+    selectedWasteCountableItem,
+    wasteForm.recipientItemId,
+    wasteForm.recipientLabel,
+    wasteRecipientOptions,
+  ])
+
+  useEffect(() => {
     saveInventoryStorageLocationsState(inventoryStorageLocations)
   }, [inventoryStorageLocations])
 
@@ -15138,6 +15572,26 @@ export default function App() {
       setInventoryForm((current) => ({ ...current, stockCenterId: String(inventoryEligibleStockCenters[0].id) }))
     }
   }, [inventoryEligibleStockCenters, inventoryForm.stockCenterId])
+
+  useEffect(() => {
+    if (inventoryEligibleStockCenters.length === 0) {
+      if (wasteForm.stockCenterId !== '') {
+        setWasteForm((current) => ({ ...current, stockCenterId: '' }))
+      }
+      return
+    }
+
+    const currentSelectionStillValid = inventoryEligibleStockCenters.some(
+      (center) => String(center.id) === wasteForm.stockCenterId,
+    )
+    if (currentSelectionStillValid) {
+      return
+    }
+
+    if (inventoryEligibleStockCenters.length === 1) {
+      setWasteForm((current) => ({ ...current, stockCenterId: String(inventoryEligibleStockCenters[0].id) }))
+    }
+  }, [inventoryEligibleStockCenters, wasteForm.stockCenterId])
 
   useEffect(() => {
     if (requisitionEligibleStockCenters.length === 0) {
@@ -17580,6 +18034,340 @@ export default function App() {
     })
 
     setInventoryErrors((current) => ({ ...current, [field]: '' }))
+  }
+
+  function updateWasteFormField<K extends keyof InventoryFormState>(field: K, value: InventoryFormState[K]) {
+    setWasteForm((current) => {
+      const normalizedValue =
+        (field === 'storageLocation' || field === 'technicalSheetLabel') && typeof value === 'string'
+          ? normalizeRegistrationText(value)
+          : value
+      const next = { ...current, [field]: normalizedValue }
+
+      if (field === 'technicalSheetLabel') {
+        const normalizedSearch = typeof normalizedValue === 'string' ? normalizeRegistrationText(normalizedValue) : ''
+        const exactLabelMatchKey =
+          typeof normalizedValue === 'string'
+            ? wasteSheetIdByLabel.get(normalizeRegistrationText(normalizedValue)) ?? null
+            : null
+        const searchMatches = normalizedSearch ? wasteSheetIdBySearchValue.get(normalizedSearch) ?? [] : []
+        const matchedItemKey = exactLabelMatchKey ?? (searchMatches.length === 1 ? searchMatches[0] : null)
+        const matchedItem = matchedItemKey
+          ? wasteCountableItems.find((item) => item.key === matchedItemKey) ?? null
+          : null
+        next.technicalSheetId =
+          matchedItem?.kind === 'PREPARO' || matchedItem?.kind === 'EXECUCAO' ? matchedItem.technicalSheetId : null
+        next.productId = matchedItem?.kind === 'PRODUTO' ? matchedItem.productId : ''
+        next.serviceItemId = matchedItem?.kind === 'ITEM' ? matchedItem.serviceItemId : ''
+        next.recipientLabel = ''
+        next.recipientItemId = ''
+        next.hasOpenItems = matchedItem?.kind === 'ITEM' || matchedItem?.kind === 'EXECUCAO' ? 'false' : ''
+        next.openItemsGrossWeight = ''
+        next.openItemsContainerQuantity = ''
+      }
+
+      if (field === 'recipientLabel') {
+        next.recipientItemId =
+          typeof value === 'string' ? wasteRecipientIdByLabel.get(normalizeRegistrationText(value)) ?? '' : ''
+      }
+
+      if (field === 'hasOpenItems' && value !== 'true') {
+        next.openItemsGrossWeight = ''
+        next.openItemsContainerQuantity = ''
+      }
+
+      return next
+    })
+
+    setWasteErrors((current) => ({ ...current, [field]: '' }))
+  }
+
+  function buildWasteMovementEntriesForExecution(
+    center: StockCenterRecord,
+    executionSheet: TechnicalSheetRecord,
+    executionQuantity: number,
+  ): WasteMovementEntry[] {
+    if (executionSheet.kind !== 'EXECUCAO' || executionQuantity <= 0) {
+      return []
+    }
+
+    const desiredYield = getTechnicalSheetBaseYield(executionSheet) * executionQuantity
+    const recipeData = buildRecipePanelDataForSheet(executionSheet, desiredYield, executionQuantity)
+    const aggregatedEntries = new Map<string, WasteMovementEntry>()
+
+    ;[...recipeData.ingredientMetrics, ...recipeData.garnishMetrics]
+      .filter((ingredient) => ingredient.productId.trim() !== '' && ingredient.scaledInputQuantity > 0)
+      .forEach((ingredient) => {
+        const linkedPreparation = resolvePreparationSheetForCenterByProductId(ingredient.productId, center)
+        const linkedProduct = products.find((entry) => entry.id === ingredient.productId) ?? null
+
+        if (linkedPreparation && !isTechnicalSheetStockTracked(linkedPreparation, products)) {
+          return
+        }
+
+        if (!linkedPreparation && (!linkedProduct || !isProductStockTracked(linkedProduct))) {
+          return
+        }
+
+        const entryKey = linkedPreparation
+          ? buildInventoryAggregationKey({
+              kind: 'PREPARO',
+              technicalSheetId: linkedPreparation.id,
+              productId: '',
+              serviceItemId: '',
+            })
+          : buildInventoryAggregationKey({
+              kind: 'PRODUTO',
+              technicalSheetId: null,
+              productId: linkedProduct?.id ?? '',
+              serviceItemId: '',
+            })
+        const current = aggregatedEntries.get(entryKey) ?? null
+        const nextUnit: WasteMovementEntry['totalUnit'] = linkedPreparation
+          ? linkedPreparation.outputUnit === 'GRAM'
+            ? 'GRAM'
+            : linkedPreparation.outputUnit === 'UNIT'
+              ? 'UNIT'
+              : 'MILLILITER'
+          : linkedProduct?.controlUnit === 'GRAM'
+            ? 'GRAM'
+            : linkedProduct?.controlUnit === 'UNIT'
+              ? 'UNIT'
+              : 'MILLILITER'
+        aggregatedEntries.set(entryKey, {
+          kind: linkedPreparation ? 'PREPARO' : 'PRODUTO',
+          technicalSheetId: linkedPreparation?.id ?? null,
+          productId: linkedPreparation ? '' : linkedProduct?.id ?? '',
+          serviceItemId: '',
+          packageId: null,
+          technicalSheetName: linkedPreparation?.name ?? linkedProduct?.name ?? ingredient.label,
+          technicalSheetKind: linkedPreparation ? 'PREPARO' : 'PRODUTO',
+          totalQuantity: (current?.totalQuantity ?? 0) + ingredient.scaledInputQuantity,
+          totalUnit: nextUnit,
+        })
+      })
+
+    return Array.from(aggregatedEntries.values()).sort((left, right) =>
+      left.technicalSheetName.localeCompare(right.technicalSheetName, 'pt-BR'),
+    )
+  }
+
+  function validateWasteForm() {
+    const nextErrors: Partial<Record<keyof InventoryFormState, string>> = {}
+    const selectedCenter = selectedWasteCenter
+    const selectedItem = selectedWasteCountableItem
+    const locationExists = inventoryStorageLocationSuggestions.includes(normalizeRegistrationText(wasteForm.storageLocation))
+
+    if (!selectedCenter) {
+      nextErrors.stockCenterId = 'Selecione um centro de estoque valido.'
+    }
+    if (!wasteForm.countedAt) {
+      nextErrors.countedAt = 'Informe a data do desperdicio.'
+    }
+    if (!wasteForm.storageLocation.trim()) {
+      nextErrors.storageLocation = 'Informe o local da ocorrencia.'
+    } else if (!locationExists && !canCreateSectors) {
+      nextErrors.storageLocation = 'Voce nao tem permissao para criar novos locais de armazenamento.'
+    }
+    if (!selectedItem) {
+      nextErrors.technicalSheetLabel = 'Selecione um item valido para registrar o desperdicio.'
+    }
+
+    if (selectedItem?.kind === 'EXECUCAO') {
+      if ((parseDecimal(wasteForm.closedItemsQuantity) ?? 0) <= 0) {
+        nextErrors.closedItemsQuantity = 'Informe quantas unidades da ficha foram desperdicadas.'
+      }
+      if (!selectedWasteSheet || selectedWasteSheet.kind !== 'EXECUCAO') {
+        nextErrors.technicalSheetLabel = 'Selecione uma ficha de execucao valida.'
+      } else if (
+        selectedCenter &&
+        buildWasteMovementEntriesForExecution(
+          selectedCenter,
+          selectedWasteSheet,
+          parseDecimal(wasteForm.closedItemsQuantity) ?? 0,
+        ).length === 0
+      ) {
+        nextErrors.technicalSheetLabel = 'Esta ficha nao possui insumos rastreaveis de estoque para gerar desperdicio.'
+      }
+      nextErrors.hasOpenItems = ''
+    } else {
+      if (selectedItem?.kind === 'PRODUTO' && !wasteForm.recipientItemId) {
+        nextErrors.recipientLabel = 'Selecione uma embalagem valida para o produto.'
+      } else if (selectedItem?.kind === 'ITEM' && !wasteForm.recipientItemId) {
+        nextErrors.recipientLabel = 'Selecione unidade ou uma embalagem valida para o item.'
+      } else if (
+        selectedItem?.kind === 'PREPARO' &&
+        wasteHasRecipientOptions &&
+        (!wasteForm.recipientItemId || !wasteRecipientOptions.some((item) => item.id === wasteForm.recipientItemId))
+      ) {
+        nextErrors.recipientLabel = 'Selecione um recipiente vinculado a ficha tecnica.'
+      }
+      if ((parseDecimal(wasteForm.closedItemsQuantity) ?? 0) < 0) {
+        nextErrors.closedItemsQuantity = 'Informe uma quantidade valida de itens fechados.'
+      }
+      if (!wasteForm.hasOpenItems) {
+        nextErrors.hasOpenItems = 'Selecione se existem itens abertos.'
+      }
+      if (wasteForm.hasOpenItems === 'true') {
+        if (selectedItem?.kind === 'ITEM') {
+          nextErrors.hasOpenItems = 'Itens abertos nao se aplicam a utensilios e recipientes.'
+        } else if (selectedItem?.kind === 'PRODUTO' && selectedItem.controlUnit === 'UNIT') {
+          nextErrors.hasOpenItems = 'Itens abertos nao se aplicam a produtos controlados em unidade.'
+        } else if (!wasteHasRecipientOptions) {
+          nextErrors.recipientLabel = 'Nao e possivel registrar itens abertos sem recipiente vinculado.'
+        }
+        if ((parseDecimal(wasteForm.openItemsGrossWeight) ?? 0) <= 0) {
+          nextErrors.openItemsGrossWeight = 'Informe o peso total pesado dos itens abertos.'
+        }
+        if ((parseDecimal(wasteForm.openItemsContainerQuantity) ?? 0) <= 0) {
+          nextErrors.openItemsContainerQuantity = 'Informe quantos itens abertos estao sendo pesados.'
+        }
+      }
+      if ((selectedItem === null || selectedItem.kind !== 'EXECUCAO') && wasteTotalCountedQuantity <= 0) {
+        nextErrors.closedItemsQuantity = 'Informe uma quantidade maior que zero para registrar o desperdicio.'
+      }
+    }
+
+    setWasteErrors(nextErrors)
+    return Object.keys(nextErrors).length === 0
+  }
+
+  function saveWasteRecord() {
+    if (currentCompanyId === null || !validateWasteForm() || !selectedWasteCenter || !selectedWasteCountableItem) {
+      return
+    }
+
+    const normalizedLocation = normalizeRegistrationText(wasteForm.storageLocation)
+    const movementSessionId = getNextPersistedIntId([
+      ...inventoryCountSessions.map((record) => record.id),
+      ...inventoryCounts.map((record) => record.id),
+      ...pendingInventoryMovements.map((record) => record.id),
+    ])
+    const now = new Date().toISOString()
+    const movementLocation = buildWasteMovementLocationLabel(normalizedLocation)
+    const session: InventoryCountSessionRecord = {
+      id: movementSessionId,
+      inventoryId: null,
+      companyId: currentCompanyId,
+      stockCenterId: selectedWasteCenter.id,
+      countedAt: wasteForm.countedAt,
+      isClosed: true,
+      startedAt: now,
+      startedByUserId: currentAppUser?.id ?? null,
+      startedByUserName: currentAppUser?.fullName ?? 'Administrador do sistema',
+      closedAt: now,
+      closedByUserId: currentAppUser?.id ?? null,
+      closedByUserName: currentAppUser?.fullName ?? 'Administrador do sistema',
+    }
+
+    let movementRecords: InventoryCountRecord[] = []
+    if (selectedWasteCountableItem.kind === 'EXECUCAO') {
+      const selectedExecutionSheet = selectedWasteSheet?.kind === 'EXECUCAO' ? selectedWasteSheet : null
+      if (!selectedExecutionSheet) {
+        return
+      }
+      const executionQuantity = parseDecimal(wasteForm.closedItemsQuantity) ?? 0
+      const wasteEntries = buildWasteMovementEntriesForExecution(selectedWasteCenter, selectedExecutionSheet, executionQuantity)
+      movementRecords = wasteEntries.map((entry, index) => ({
+        id: movementSessionId + index + 1,
+        inventoryId: null,
+        sessionId: movementSessionId,
+        companyId: currentCompanyId,
+        stockCenterId: selectedWasteCenter.id,
+        countedAt: wasteForm.countedAt,
+        storageLocation: movementLocation,
+        technicalSheetId: entry.technicalSheetId,
+        productId: entry.productId,
+        serviceItemId: entry.serviceItemId,
+        packageId: entry.packageId,
+        technicalSheetName: entry.technicalSheetName,
+        technicalSheetKind: entry.technicalSheetKind,
+        recipientItemId: '',
+        recipientLabel: `DESPERDICIO • ${selectedExecutionSheet.name} • ${formatDecimal(executionQuantity)} UN`,
+        closedItemsQuantity: formatDecimal(-entry.totalQuantity),
+        hasOpenItems: false,
+        openItemsGrossWeight: '',
+        openItemsContainerQuantity: '',
+        openItemsNetQuantity: '',
+        totalCountedQuantity: formatDecimal(-entry.totalQuantity),
+        totalCountedUnit: entry.totalUnit,
+        createdByUserId: currentAppUser?.id ?? null,
+        createdByUserName: currentAppUser?.fullName ?? 'Administrador do sistema',
+      }))
+    } else {
+      const totalCountedUnit =
+        selectedWasteCountableItem.kind === 'ITEM'
+          ? 'UNIT'
+          : selectedWasteCountableItem.controlUnit === 'GRAM'
+            ? 'GRAM'
+            : selectedWasteCountableItem.controlUnit === 'UNIT'
+              ? 'UNIT'
+              : 'MILLILITER'
+      movementRecords = [
+        {
+          id: movementSessionId + 1,
+          inventoryId: null,
+          sessionId: movementSessionId,
+          companyId: currentCompanyId,
+          stockCenterId: selectedWasteCenter.id,
+          countedAt: wasteForm.countedAt,
+          storageLocation: movementLocation,
+          technicalSheetId: selectedWasteCountableItem.kind === 'PREPARO' ? selectedWasteCountableItem.technicalSheetId : null,
+          productId: selectedWasteCountableItem.kind === 'PRODUTO' ? selectedWasteCountableItem.productId : '',
+          serviceItemId: selectedWasteCountableItem.kind === 'ITEM' ? selectedWasteCountableItem.serviceItemId : '',
+          packageId:
+            selectedWasteCountableItem.kind === 'PRODUTO' || selectedWasteCountableItem.kind === 'ITEM'
+              ? selectedWasteRecipient?.packageId ?? null
+              : null,
+          technicalSheetName: selectedWasteCountableItem.name,
+          technicalSheetKind: selectedWasteCountableItem.kind,
+          recipientItemId: selectedWasteRecipient?.id ?? '',
+          recipientLabel: `DESPERDICIO • ${selectedWasteCountableItem.name}`,
+          closedItemsQuantity: formatDecimal(-wasteTotalCountedQuantity),
+          hasOpenItems: wasteForm.hasOpenItems === 'true',
+          openItemsGrossWeight: wasteForm.hasOpenItems === 'true' ? wasteForm.openItemsGrossWeight : '',
+          openItemsContainerQuantity: wasteForm.hasOpenItems === 'true' ? wasteForm.openItemsContainerQuantity : '',
+          openItemsNetQuantity: wasteForm.hasOpenItems === 'true' ? formatDecimal(wasteOpenPhysicalQuantity) : '',
+          totalCountedQuantity: formatDecimal(-wasteTotalCountedQuantity),
+          totalCountedUnit,
+          createdByUserId: currentAppUser?.id ?? null,
+          createdByUserName: currentAppUser?.fullName ?? 'Administrador do sistema',
+        },
+      ]
+    }
+
+    if (movementRecords.length === 0) {
+      setSaveFeedback({
+        status: 'error',
+        title: 'Nenhum item rastreavel encontrado',
+        message: 'Nao foi possivel transformar o desperdicio em consumo de estoque.',
+      })
+      return
+    }
+
+    const movementResult = registerOperationalInventoryMovement(
+      selectedWasteCenter.id,
+      `SAIDA POR DESPERDICIO • ${selectedWasteCountableItem.name}`,
+      session,
+      movementRecords,
+    )
+
+    setWasteForm((current) => ({
+      ...emptyInventoryForm(),
+      stockCenterId: current.stockCenterId,
+      countedAt: current.countedAt,
+      storageLocation: normalizedLocation,
+      hasOpenItems: '',
+    }))
+    setWasteErrors({})
+    setSaveFeedback({
+      status: 'success',
+      title: movementResult === 'queued' ? 'Desperdicio pendente no inventario' : 'Desperdicio registrado com sucesso',
+      message:
+        movementResult === 'queued'
+          ? 'O centro esta com inventario aberto. O desperdicio foi guardado como movimentacao pendente e sera aplicado ao estoque quando esse inventario for finalizado.'
+          : 'A perda operacional foi registrada como saida direta do estoque do centro.',
+    })
   }
 
   function validateInventoryForm() {
@@ -38207,6 +38995,326 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
             </section>
           ) : null}
         </>
+      ) : activeSection === 'Desperdicio' ? (
+        <>
+          <section className="panel">
+            <div className="section-heading">
+              <div>
+                <p className="kicker">Estoque</p>
+                <h2>Desperdicio</h2>
+              </div>
+            </div>
+            <p className="context-copy">
+              Registre perdas operacionais como saida direta do estoque do centro. Para fichas de execucao, o sistema explode automaticamente os insumos rastreados consumidos no centro.
+            </p>
+          </section>
+
+          <section className="panel">
+            <div className="section-heading">
+              <div>
+                <p className="kicker">Perda operacional</p>
+                <h2>Novo desperdicio</h2>
+              </div>
+            </div>
+
+            {inventoryEligibleStockCenters.length === 0 ? (
+              <div className="empty-state">
+                <strong>Nenhum centro de estoque disponivel para este usuario.</strong>
+                <p>Vincule o usuario a pelo menos um centro de estoque para registrar perdas operacionais.</p>
+              </div>
+            ) : (
+              <>
+                <form className="form-grid company-form-grid" onSubmit={(event) => event.preventDefault()}>
+                  <label className="field">
+                    <span>Centro de estoque *</span>
+                    <select
+                      value={wasteForm.stockCenterId}
+                      onChange={(event) => updateWasteFormField('stockCenterId', event.target.value)}
+                    >
+                      <option value="">Selecione</option>
+                      {inventoryEligibleStockCenters.map((center) => (
+                        <option key={center.id} value={String(center.id)}>
+                          {getStockCenterSelectionLabel(center)}
+                        </option>
+                      ))}
+                    </select>
+                    {wasteErrors.stockCenterId ? <p className="compact-feedback feedback error">{wasteErrors.stockCenterId}</p> : null}
+                  </label>
+
+                  <label className="field">
+                    <span>Data do desperdicio *</span>
+                    <input
+                      type="date"
+                      value={wasteForm.countedAt}
+                      onChange={(event) => updateWasteFormField('countedAt', event.target.value)}
+                    />
+                    {wasteErrors.countedAt ? <p className="compact-feedback feedback error">{wasteErrors.countedAt}</p> : null}
+                  </label>
+
+                  <label className="field company-field-wide">
+                    <span>Local da ocorrencia *</span>
+                    <input
+                      list={wasteStorageLocationListId}
+                      value={wasteForm.storageLocation}
+                      onChange={(event) => updateWasteFormField('storageLocation', event.target.value)}
+                      placeholder="Ex.: COPA BAR, ESTACAO 1, CAMARA FRIA"
+                    />
+                    <datalist id={wasteStorageLocationListId}>
+                      {inventoryStorageLocationSuggestions.map((value) => (
+                        <option key={value} value={value} />
+                      ))}
+                    </datalist>
+                    {wasteErrors.storageLocation ? <p className="compact-feedback feedback error">{wasteErrors.storageLocation}</p> : null}
+                  </label>
+
+                  <label className="field company-field-wide">
+                    <span>Item ou ficha de execucao *</span>
+                    <input
+                      list={wasteTechnicalSheetListId}
+                      value={wasteForm.technicalSheetLabel}
+                      onChange={(event) => updateWasteFormField('technicalSheetLabel', event.target.value)}
+                      placeholder="Busque por nome, ID interno ou ID empresa"
+                    />
+                    <datalist id={wasteTechnicalSheetListId}>
+                      {wasteTechnicalSheetSuggestions.map((value) => (
+                        <option key={value} value={value} />
+                      ))}
+                    </datalist>
+                    {wasteErrors.technicalSheetLabel ? <p className="compact-feedback feedback error">{wasteErrors.technicalSheetLabel}</p> : null}
+                  </label>
+
+                  {selectedWasteCountableItem && selectedWasteCountableItem.kind !== 'EXECUCAO' ? (
+                    <label className="field company-field-wide">
+                      <span>{selectedWasteCountableItem.kind === 'PRODUTO' ? 'Embalagem' : selectedWasteCountableItem.kind === 'ITEM' ? 'Unidade/embalagem' : 'Recipiente'}</span>
+                      <input
+                        list={packageListId}
+                        value={wasteForm.recipientLabel}
+                        onChange={(event) => updateWasteFormField('recipientLabel', event.target.value)}
+                        placeholder={selectedWasteCountableItem.kind === 'PRODUTO' ? 'Selecione a embalagem' : 'Selecione a referencia'}
+                      />
+                      <datalist id={packageListId}>
+                        {wasteRecipientOptions.map((option) => (
+                          <option key={option.id} value={option.label} />
+                        ))}
+                      </datalist>
+                      {wasteErrors.recipientLabel ? <p className="compact-feedback feedback error">{wasteErrors.recipientLabel}</p> : null}
+                    </label>
+                  ) : null}
+                </form>
+
+                {selectedWasteCountableItem ? (
+                  <div className="receituario-summary-grid receituario-summary-grid-metrics">
+                    <article className="receituario-metric-card">
+                      <span>Tipo</span>
+                      <strong>{getWasteCountableKindLabel(selectedWasteCountableItem.kind)}</strong>
+                    </article>
+                    <article className="receituario-metric-card">
+                      <span>Centro</span>
+                      <strong>{selectedWasteCenter?.name ?? '-'}</strong>
+                    </article>
+                    <article className="receituario-metric-card">
+                      <span>Baixa calculada</span>
+                      <strong>
+                        {selectedWasteCountableItem.kind === 'EXECUCAO'
+                          ? `${formatDecimal(parseDecimal(wasteForm.closedItemsQuantity) ?? 0)} UN`
+                          : `${formatDecimal(wasteTotalCountedQuantity)} ${formatControlUnitShort(selectedWasteCountableItem.controlUnit)}`}
+                      </strong>
+                    </article>
+                    <article className="receituario-metric-card">
+                      <span>Aplicacao</span>
+                      <strong>Saida direta do estoque</strong>
+                    </article>
+                  </div>
+                ) : null}
+
+                <div className="section-heading section-heading-inline stock-center-subheading">
+                  <div>
+                    <p className="kicker">Quantidade</p>
+                    <h2>{selectedWasteCountableItem?.kind === 'EXECUCAO' ? 'Unidades perdidas' : 'Itens fechados'}</h2>
+                  </div>
+                </div>
+
+                <form className="form-grid company-form-grid" onSubmit={(event) => event.preventDefault()}>
+                  <label className="field company-field-wide">
+                    <span>{selectedWasteCountableItem?.kind === 'EXECUCAO' ? 'Quantidade de unidades da ficha *' : 'Quantidade de itens fechados *'}</span>
+                    <input
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      value={wasteForm.closedItemsQuantity}
+                      onChange={(event) => updateWasteFormField('closedItemsQuantity', event.target.value)}
+                      placeholder="0"
+                    />
+                    {wasteErrors.closedItemsQuantity ? <p className="compact-feedback feedback error">{wasteErrors.closedItemsQuantity}</p> : null}
+                  </label>
+                </form>
+
+                {selectedWasteCountableItem &&
+                selectedWasteCountableItem.kind !== 'EXECUCAO' &&
+                selectedWasteCountableItem.kind !== 'ITEM' &&
+                !(selectedWasteCountableItem.kind === 'PRODUTO' && selectedWasteCountableItem.controlUnit === 'UNIT') ? (
+                  <>
+                    <div className="section-heading section-heading-inline stock-center-subheading">
+                      <div>
+                        <p className="kicker">Abertos</p>
+                        <h2>Itens abertos</h2>
+                      </div>
+                    </div>
+
+                    <div className="field field-span-all">
+                      <span>Existem itens abertos deste item? *</span>
+                      <div className="checkbox-grid stock-center-user-grid inventory-open-items-row">
+                        <label className="checkbox-row stock-center-user-option">
+                          <input
+                            type="radio"
+                            name="waste-open-items"
+                            checked={wasteForm.hasOpenItems === 'true'}
+                            onChange={() => updateWasteFormField('hasOpenItems', 'true')}
+                          />
+                          <span>Sim</span>
+                        </label>
+                        <label className="checkbox-row stock-center-user-option">
+                          <input
+                            type="radio"
+                            name="waste-open-items"
+                            checked={wasteForm.hasOpenItems === 'false'}
+                            onChange={() => updateWasteFormField('hasOpenItems', 'false')}
+                          />
+                          <span>Nao</span>
+                        </label>
+                      </div>
+                      {wasteErrors.hasOpenItems ? <p className="compact-feedback feedback error">{wasteErrors.hasOpenItems}</p> : null}
+                    </div>
+
+                    {wasteForm.hasOpenItems === 'true' ? (
+                      <form className="form-grid company-form-grid" onSubmit={(event) => event.preventDefault()}>
+                        <label className="field company-field-wide">
+                          <span>Peso total pesado dos itens abertos (g) *</span>
+                          <input
+                            type="number"
+                            min="0"
+                            step="0.01"
+                            value={wasteForm.openItemsGrossWeight}
+                            onChange={(event) => updateWasteFormField('openItemsGrossWeight', event.target.value)}
+                            placeholder="0,00"
+                          />
+                          {wasteErrors.openItemsGrossWeight ? <p className="compact-feedback feedback error">{wasteErrors.openItemsGrossWeight}</p> : null}
+                        </label>
+                        <label className="field company-field-wide">
+                          <span>Quantidade de recipientes pesados *</span>
+                          <input
+                            type="number"
+                            min="0"
+                            step="0.01"
+                            value={wasteForm.openItemsContainerQuantity}
+                            onChange={(event) => updateWasteFormField('openItemsContainerQuantity', event.target.value)}
+                            placeholder="0,00"
+                          />
+                          {wasteErrors.openItemsContainerQuantity ? <p className="compact-feedback feedback error">{wasteErrors.openItemsContainerQuantity}</p> : null}
+                        </label>
+                      </form>
+                    ) : null}
+                  </>
+                ) : null}
+
+                {selectedWasteCountableItem?.kind === 'EXECUCAO' ? (
+                  <div className="section-heading section-heading-inline stock-center-subheading">
+                    <div>
+                      <p className="kicker">Impacto no estoque</p>
+                      <h2>Consumos gerados pela ficha</h2>
+                    </div>
+                  </div>
+                ) : null}
+
+                {selectedWasteCountableItem?.kind === 'EXECUCAO' ? (
+                  wasteExecutionPreviewEntries.length > 0 ? (
+                    <div className="selector-list company-management-list">
+                      {wasteExecutionPreviewEntries.map((entry) => (
+                        <article key={`waste-preview-${entry.kind}-${entry.technicalSheetId ?? entry.productId}`} className="list-row user-list-row">
+                          <div className="user-row-header">
+                            <div className="user-title-group">
+                              <strong>{entry.technicalSheetName}</strong>
+                              <span className="status-pill status-active">{getStockCountableKindLabel(entry.technicalSheetKind)}</span>
+                            </div>
+                          </div>
+                          <div className="row-meta user-row-meta">
+                            <div className="user-meta-line">
+                              <span><strong className="meta-label">Baixa:</strong> {formatDecimal(entry.totalQuantity)} {formatControlUnitShort(entry.totalUnit)}</span>
+                              <span><strong className="meta-label">Origem:</strong> {selectedWasteSheet?.name ?? '-'}</span>
+                            </div>
+                          </div>
+                        </article>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="empty-state">
+                      <strong>Nenhuma baixa rastreavel sera criada.</strong>
+                      <p>Selecione uma ficha de execucao e informe uma quantidade para ver os insumos que serao consumidos no centro.</p>
+                    </div>
+                  )
+                ) : null}
+
+                <div className="sticky-form-actions">
+                  <button type="button" className="primary-button" onClick={saveWasteRecord}>
+                    Registrar desperdicio
+                  </button>
+                </div>
+              </>
+            )}
+          </section>
+
+          <section className="panel">
+            <div className="section-heading">
+              <div>
+                <p className="kicker">Historico</p>
+                <h2>Desperdicios registrados</h2>
+              </div>
+            </div>
+
+            {wasteHistoryRows.length > 0 ? (
+              <div className="selector-list company-management-list">
+                {wasteHistoryRows.map((row) => (
+                  <article key={row.key} className="list-row user-list-row">
+                    <div className="user-row-header">
+                      <div className="user-title-group">
+                        <strong>{row.title}</strong>
+                        <span className={row.status === 'PENDENTE' ? 'status-pill status-warning' : 'status-pill status-active'}>
+                          {row.status}
+                        </span>
+                      </div>
+                    </div>
+                    <div className="row-meta user-row-meta">
+                      <div className="user-meta-line">
+                        <span><strong className="meta-label">Centro:</strong> {row.centerName}</span>
+                        <span><strong className="meta-label">Data:</strong> {formatDateForDisplay(row.countedAt)}</span>
+                        <span><strong className="meta-label">Local:</strong> {row.locationLabel}</span>
+                        <span><strong className="meta-label">Itens afetados:</strong> {String(row.itemCount)}</span>
+                        <span><strong className="meta-label">Por:</strong> {row.createdByUserName}</span>
+                      </div>
+                      <div className="pending-movement-items">
+                        {row.records.map((record) => (
+                          <span key={`waste-history-record-${row.key}-${record.id}`} className="pending-movement-item-chip">
+                            {record.technicalSheetName}: {formatDecimal(Math.abs(parseDecimal(record.totalCountedQuantity) ?? 0))}{' '}
+                            {record.totalCountedUnit === 'GRAM'
+                              ? 'G'
+                              : record.totalCountedUnit === 'UNIT'
+                                ? 'UN'
+                                : 'ML'}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  </article>
+                ))}
+              </div>
+            ) : (
+              <div className="empty-state">
+                <strong>Nenhum desperdicio registrado.</strong>
+                <p>As perdas operacionais registradas neste painel aparecerao aqui e ja passam a compor o saldo do centro.</p>
+              </div>
+            )}
+          </section>
+        </>
       ) : activeSection === 'ConfiguracoesEstoque' ? (
         <>
           <section className="panel">
@@ -48405,6 +49513,14 @@ function getStockCountableKindLabel(kind: StockCountableKind | 'VENDA') {
   }
 }
 
+function getWasteCountableKindLabel(kind: WasteCountableKind) {
+  if (kind === 'EXECUCAO') {
+    return 'Execucao'
+  }
+
+  return getStockCountableKindLabel(kind)
+}
+
 function buildStockCenterMinimumEntryKey(entry: {
   kind: StockCountableKind
   technicalSheetId: number | null
@@ -48438,6 +49554,19 @@ function buildInventoryCountableItemKey(item: {
   }
 
   return `ITEM:${item.serviceItemId}`
+}
+
+function buildWasteCountableItemKey(item: {
+  kind: WasteCountableKind
+  technicalSheetId: number | null
+  productId: string
+  serviceItemId: string
+}) {
+  if (item.kind === 'EXECUCAO') {
+    return `EXECUCAO:${item.technicalSheetId ?? ''}`
+  }
+
+  return buildInventoryCountableItemKey(item)
 }
 
 function getProductDensityFactor(product: ProductRecord) {
@@ -48525,14 +49654,45 @@ function buildServiceItemInventoryLabel(item: ServiceItemRecord) {
 }
 
 function isOperationalInventoryMovementLocation(value: string) {
+  const normalizedValue = normalizeRegistrationText(value)
   return (
-    value === 'ENTRADA DE PRODUCAO' ||
-    value === 'SAIDA PARA PRODUCAO' ||
-    value === 'SAIDA PARA REQUISICAO' ||
-    value === 'SAIDA POR VENDAS IMPORTADAS' ||
-    value === 'ESTORNO DE VENDAS IMPORTADAS' ||
-    value === 'RECEBIMENTO DE REQUISICAO'
+    normalizedValue === 'ENTRADA DE PRODUCAO' ||
+    normalizedValue === 'SAIDA PARA PRODUCAO' ||
+    normalizedValue === 'SAIDA PARA REQUISICAO' ||
+    normalizedValue === 'SAIDA POR VENDAS IMPORTADAS' ||
+    normalizedValue === 'ESTORNO DE VENDAS IMPORTADAS' ||
+    normalizedValue === 'RECEBIMENTO DE REQUISICAO' ||
+    normalizedValue.startsWith('SAIDA POR DESPERDICIO')
   )
+}
+
+function isOutboundOperationalInventoryMovementLocation(value: string) {
+  const normalizedValue = normalizeRegistrationText(value)
+  return (
+    normalizedValue === 'SAIDA PARA PRODUCAO' ||
+    normalizedValue === 'SAIDA PARA REQUISICAO' ||
+    normalizedValue === 'SAIDA POR VENDAS IMPORTADAS' ||
+    normalizedValue.startsWith('SAIDA POR DESPERDICIO')
+  )
+}
+
+function isWasteInventoryMovementLocation(value: string) {
+  return normalizeRegistrationText(value).startsWith('SAIDA POR DESPERDICIO')
+}
+
+function buildWasteMovementLocationLabel(location: string) {
+  const normalizedLocation = normalizeRegistrationText(location)
+  return normalizedLocation ? `SAIDA POR DESPERDICIO • ${normalizedLocation}` : 'SAIDA POR DESPERDICIO'
+}
+
+function extractWasteOccurrenceLocationLabel(value: string) {
+  const normalizedValue = normalizeRegistrationText(value)
+  if (!normalizedValue.startsWith('SAIDA POR DESPERDICIO')) {
+    return normalizedValue
+  }
+
+  const [, ...parts] = normalizedValue.split('•')
+  return parts.join('•').trim() || 'SEM LOCAL INFORMADO'
 }
 
 function getInventoryTrackedMovementQuantity(record: InventoryCountRecord) {
@@ -50746,14 +51906,15 @@ function normalizeSessionUser(value: unknown): AppUserRecord | null {
             Configuracoes: user.sectionAccess.Configuracoes === true,
             CentrosEstoque: user.sectionAccess.CentrosEstoque === true,
             Inventario: user.sectionAccess.Inventario === true,
-          ConfiguracoesEstoque: user.sectionAccess.ConfiguracoesEstoque === true,
-          Requisicoes: user.sectionAccess.Requisicoes === true,
-          Suprimentos: user.sectionAccess.Suprimentos === true,
-          EntradaProducoes: user.sectionAccess.EntradaProducoes === true,
-          RelatoriosEstoque: user.sectionAccess.RelatoriosEstoque === true,
-          Empresa: user.sectionAccess.Empresa === true,
-          Usuarios: user.sectionAccess.Usuarios === true,
-        }
+            Desperdicio: user.sectionAccess.Desperdicio === true,
+            ConfiguracoesEstoque: user.sectionAccess.ConfiguracoesEstoque === true,
+            Requisicoes: user.sectionAccess.Requisicoes === true,
+            Suprimentos: user.sectionAccess.Suprimentos === true,
+            EntradaProducoes: user.sectionAccess.EntradaProducoes === true,
+            RelatoriosEstoque: user.sectionAccess.RelatoriosEstoque === true,
+            Empresa: user.sectionAccess.Empresa === true,
+            Usuarios: user.sectionAccess.Usuarios === true,
+          }
       : defaultSectionAccessByRole(baseRole)
   const normalizedRecipePanelAccess = normalizeRecipePanelAccess(user.recipePanelAccess)
   const normalizedCatalogAccess =
@@ -50807,6 +51968,7 @@ function normalizeSessionUser(value: unknown): AppUserRecord | null {
                     Configuracoes: membership.sectionAccess.Configuracoes === true,
                     CentrosEstoque: membership.sectionAccess.CentrosEstoque === true,
                     Inventario: membership.sectionAccess.Inventario === true,
+                    Desperdicio: membership.sectionAccess.Desperdicio === true,
                     ConfiguracoesEstoque: membership.sectionAccess.ConfiguracoesEstoque === true,
                     Requisicoes: membership.sectionAccess.Requisicoes === true,
                     Suprimentos: membership.sectionAccess.Suprimentos === true,
@@ -50899,6 +52061,7 @@ function normalizeAccessProfileRecord(value: unknown): AccessProfileRecord | nul
             Configuracoes: profile.sectionAccess.Configuracoes === true,
             CentrosEstoque: profile.sectionAccess.CentrosEstoque === true,
             Inventario: profile.sectionAccess.Inventario === true,
+            Desperdicio: profile.sectionAccess.Desperdicio === true,
             ConfiguracoesEstoque: profile.sectionAccess.ConfiguracoesEstoque === true,
             Requisicoes: profile.sectionAccess.Requisicoes === true,
             Suprimentos: profile.sectionAccess.Suprimentos === true,
