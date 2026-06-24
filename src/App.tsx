@@ -13597,13 +13597,13 @@ export default function App() {
             if (key === 'sectors') {
               return sheet.sectors.some((sector) => selectedValues.includes(sector))
             }
-            return selectedValues.includes(getTechnicalSheetColumnValue(sheet, key, technicalSheets, products, stockCenters))
+            return selectedValues.includes(getTechnicalSheetColumnValue(sheet, key, technicalSheets, products, stockCenters, companies))
           }),
         ),
         technicalSheetColumnSort,
-        (sheet, key) => getTechnicalSheetSortValue(sheet, key, technicalSheets, products, stockCenters),
+        (sheet, key) => getTechnicalSheetSortValue(sheet, key, technicalSheets, products, stockCenters, companies),
       ),
-    [products, stockCenters, technicalSheetColumnFilters, technicalSheetColumnSort, technicalSheets, visibleTechnicalSheets],
+    [companies, products, stockCenters, technicalSheetColumnFilters, technicalSheetColumnSort, technicalSheets, visibleTechnicalSheets],
   )
   const distinctTechnicalSheetColumnValues = useMemo(
     () =>
@@ -13622,14 +13622,14 @@ export default function App() {
                   new Set(
                     technicalSheets
                       .filter((sheet) => isTechnicalSheetVisibleForCompany(sheet, currentCompanyId))
-                      .map((sheet) => getTechnicalSheetColumnValue(sheet, key, technicalSheets, products, stockCenters)),
+                      .map((sheet) => getTechnicalSheetColumnValue(sheet, key, technicalSheets, products, stockCenters, companies)),
                   ),
                 )
 
           return [key, sortDistinctValues(values, isNumericTechnicalSheetColumn(key))]
         }),
       ) as Record<TechnicalSheetColumnKey, string[]>,
-    [currentCompanyId, products, stockCenters, technicalSheets],
+    [companies, currentCompanyId, products, stockCenters, technicalSheets],
   )
   useEffect(() => {
     setTechnicalSheetColumnFilters((current) => {
@@ -35118,16 +35118,16 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                           {technicalSheetColumnVisibility.internalId ? <td>{sheet.productId}</td> : null}
                           {technicalSheetColumnVisibility.companyId ? <td>{sheet.companyProductId || '-'}</td> : null}
                           {technicalSheetColumnVisibility.productionCenters ? (
-                            <td>{getTechnicalSheetColumnValue(sheet, 'productionCenters', technicalSheets, products, stockCenters) || '-'}</td>
+                            <td>{getTechnicalSheetColumnValue(sheet, 'productionCenters', technicalSheets, products, stockCenters, companies) || '-'}</td>
                           ) : null}
                           {technicalSheetColumnVisibility.costPerYield ? (
-                            <td>{getTechnicalSheetColumnValue(sheet, 'costPerYield', technicalSheets, products, stockCenters) || '-'}</td>
+                            <td>{getTechnicalSheetColumnValue(sheet, 'costPerYield', technicalSheets, products, stockCenters, companies) || '-'}</td>
                           ) : null}
                           {technicalSheetColumnVisibility.finalSalePrice ? (
-                            <td>{getTechnicalSheetColumnValue(sheet, 'finalSalePrice', technicalSheets, products, stockCenters) || '-'}</td>
+                            <td>{getTechnicalSheetColumnValue(sheet, 'finalSalePrice', technicalSheets, products, stockCenters, companies) || '-'}</td>
                           ) : null}
                           {technicalSheetColumnVisibility.linkedCompanies ? (
-                            <td>{getTechnicalSheetColumnValue(sheet, 'linkedCompanies', technicalSheets, products, stockCenters) || '-'}</td>
+                            <td>{getTechnicalSheetColumnValue(sheet, 'linkedCompanies', technicalSheets, products, stockCenters, companies) || '-'}</td>
                           ) : null}
                           {technicalSheetColumnVisibility.sectors ? <td>{sheet.sectors.join(', ')}</td> : null}
                           {technicalSheetColumnVisibility.family ? <td>{sheet.family}</td> : null}
@@ -47268,6 +47268,7 @@ function getTechnicalSheetColumnValue(
   technicalSheets: TechnicalSheetRecord[] = [],
   products: ProductRecord[] = [],
   stockCenters: StockCenterRecord[] = [],
+  companies: CompanyRecord[] = [],
 ) {
   switch (key) {
     case 'product':
@@ -47290,8 +47291,9 @@ function getTechnicalSheetColumnValue(
     case 'finalSalePrice':
       return sheet.finalSalePrice.trim() ? `R$ ${formatMoney(parseDecimal(sheet.finalSalePrice) ?? 0)}` : '-'
     case 'linkedCompanies':
-      return getTechnicalSheetExplicitSharedCompanyIds(sheet)
-        .map((companyId) => getCompanyTradeName(companyId))
+      return (Array.isArray(sheet.sharedCompanyIds) ? sheet.sharedCompanyIds : [])
+        .filter((companyId): companyId is number => typeof companyId === 'number' && companyId > 0 && companyId !== (sheet.ownerCompanyId ?? sheet.companyId))
+        .map((companyId) => companies.find((company) => company.id === companyId)?.tradeName ?? `EMPRESA ${companyId}`)
         .join(', ')
     case 'family':
       return sheet.family
@@ -47325,6 +47327,7 @@ function getTechnicalSheetSortValue(
   technicalSheets: TechnicalSheetRecord[] = [],
   products: ProductRecord[] = [],
   stockCenters: StockCenterRecord[] = [],
+  companies: CompanyRecord[] = [],
 ) {
   switch (key) {
     case 'costPerYield': {
@@ -47339,7 +47342,7 @@ function getTechnicalSheetSortValue(
     case 'ingredients':
       return sheet.ingredients.filter((ingredient) => ingredient.isActive).length
     default:
-      return getTechnicalSheetColumnValue(sheet, key, technicalSheets, products, stockCenters)
+      return getTechnicalSheetColumnValue(sheet, key, technicalSheets, products, stockCenters, companies)
   }
 }
 
