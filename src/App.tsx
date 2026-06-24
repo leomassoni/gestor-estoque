@@ -4111,6 +4111,11 @@ export default function App() {
     useState<Partial<Record<TechnicalSheetColumnKey, string[]>>>(defaultTechnicalSheetColumnFilters)
   const [technicalSheetColumnSort, setTechnicalSheetColumnSort] =
     useState<ColumnSort<TechnicalSheetColumnKey> | null>(null)
+  const [technicalSheetColumnOrder, setTechnicalSheetColumnOrder] = useState<TechnicalSheetColumnKey[]>(
+    technicalSheetColumnOptions.map(([key]) => key),
+  )
+  const [draggedTechnicalSheetColumn, setDraggedTechnicalSheetColumn] = useState<TechnicalSheetColumnKey | null>(null)
+  const [technicalSheetColumnDropTarget, setTechnicalSheetColumnDropTarget] = useState<TechnicalSheetColumnKey | null>(null)
   const [technicalSheetForm, setTechnicalSheetForm] = useState<TechnicalSheetFormState>(emptyTechnicalSheetForm())
   const [technicalSheetOutputQuantityMode, setTechnicalSheetOutputQuantityMode] = useState<'auto' | 'manual'>('auto')
   const [technicalSheetSectorInput, setTechnicalSheetSectorInput] = useState('')
@@ -13659,6 +13664,10 @@ export default function App() {
     () => technicalSheetColumnOptions.filter(([key]) => !technicalSheetColumnVisibility[key]),
     [technicalSheetColumnVisibility],
   )
+  const orderedVisibleTechnicalSheetColumns = useMemo(
+    () => technicalSheetColumnOrder.filter((key) => technicalSheetColumnVisibility[key]),
+    [technicalSheetColumnOrder, technicalSheetColumnVisibility],
+  )
   const recipePanelSheetsByTab = useMemo<Record<RecipePanelTab, TechnicalSheetRecord[]>>(
     () => ({
       PREPARO: technicalSheets
@@ -14265,6 +14274,7 @@ export default function App() {
     setTechnicalSheetColumnVisibility(state.columnVisibility)
     setTechnicalSheetColumnFilters(state.columnFilters)
     setTechnicalSheetColumnSort(state.columnSort)
+    setTechnicalSheetColumnOrder(state.columnOrder)
   }, [])
 
   useEffect(() => {
@@ -14291,8 +14301,9 @@ export default function App() {
       columnVisibility: technicalSheetColumnVisibility,
       columnFilters: technicalSheetColumnFilters,
       columnSort: technicalSheetColumnSort,
+      columnOrder: technicalSheetColumnOrder,
     })
-  }, [technicalSheetColumnFilters, technicalSheetColumnSort, technicalSheetColumnVisibility, technicalSheetSearch])
+  }, [technicalSheetColumnFilters, technicalSheetColumnOrder, technicalSheetColumnSort, technicalSheetColumnVisibility, technicalSheetSearch])
 
   useEffect(() => {
     saveAuthState({
@@ -34922,235 +34933,112 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                 <table className="product-table">
                   <thead>
                     <tr>
-                      {technicalSheetColumnVisibility.product
-                        ? renderTechnicalSheetColumnHeader(
-                            'product',
-                            'Produto',
-                            openTechnicalSheetColumnMenu,
-                            setOpenTechnicalSheetColumnMenu,
-                            technicalSheetColumnFilters,
-                            distinctTechnicalSheetColumnValues,
-                            setTechnicalSheetColumnFilters,
-                            setTechnicalSheetColumnVisibility,
-                            technicalSheetColumnSort,
-                            setTechnicalSheetColumnSort,
-                          )
-                        : null}
-                      {technicalSheetColumnVisibility.internalId
-                        ? renderTechnicalSheetColumnHeader(
-                            'internalId',
-                            'ID interno',
-                            openTechnicalSheetColumnMenu,
-                            setOpenTechnicalSheetColumnMenu,
-                            technicalSheetColumnFilters,
-                            distinctTechnicalSheetColumnValues,
-                            setTechnicalSheetColumnFilters,
-                            setTechnicalSheetColumnVisibility,
-                            technicalSheetColumnSort,
-                            setTechnicalSheetColumnSort,
-                          )
-                        : null}
-                      {technicalSheetColumnVisibility.companyId
-                        ? renderTechnicalSheetColumnHeader(
-                            'companyId',
-                            'ID empresa',
-                            openTechnicalSheetColumnMenu,
-                            setOpenTechnicalSheetColumnMenu,
-                            technicalSheetColumnFilters,
-                            distinctTechnicalSheetColumnValues,
-                            setTechnicalSheetColumnFilters,
-                            setTechnicalSheetColumnVisibility,
-                            technicalSheetColumnSort,
-                            setTechnicalSheetColumnSort,
-                          )
-                        : null}
-                      {technicalSheetColumnVisibility.productionCenters
-                        ? renderTechnicalSheetColumnHeader(
-                            'productionCenters',
-                            'Centros produtores',
-                            openTechnicalSheetColumnMenu,
-                            setOpenTechnicalSheetColumnMenu,
-                            technicalSheetColumnFilters,
-                            distinctTechnicalSheetColumnValues,
-                            setTechnicalSheetColumnFilters,
-                            setTechnicalSheetColumnVisibility,
-                            technicalSheetColumnSort,
-                            setTechnicalSheetColumnSort,
-                          )
-                        : null}
-                      {technicalSheetColumnVisibility.costPerYield
-                        ? renderTechnicalSheetColumnHeader(
-                            'costPerYield',
-                            'Custo por rendimento',
-                            openTechnicalSheetColumnMenu,
-                            setOpenTechnicalSheetColumnMenu,
-                            technicalSheetColumnFilters,
-                            distinctTechnicalSheetColumnValues,
-                            setTechnicalSheetColumnFilters,
-                            setTechnicalSheetColumnVisibility,
-                            technicalSheetColumnSort,
-                            setTechnicalSheetColumnSort,
-                          )
-                        : null}
-                      {technicalSheetColumnVisibility.finalSalePrice
-                        ? renderTechnicalSheetColumnHeader(
-                            'finalSalePrice',
-                            'Valor final',
-                            openTechnicalSheetColumnMenu,
-                            setOpenTechnicalSheetColumnMenu,
-                            technicalSheetColumnFilters,
-                            distinctTechnicalSheetColumnValues,
-                            setTechnicalSheetColumnFilters,
-                            setTechnicalSheetColumnVisibility,
-                            technicalSheetColumnSort,
-                            setTechnicalSheetColumnSort,
-                          )
-                        : null}
-                      {technicalSheetColumnVisibility.linkedCompanies
-                        ? renderTechnicalSheetColumnHeader(
-                            'linkedCompanies',
-                            'Empresas vinculadas',
-                            openTechnicalSheetColumnMenu,
-                            setOpenTechnicalSheetColumnMenu,
-                            technicalSheetColumnFilters,
-                            distinctTechnicalSheetColumnValues,
-                            setTechnicalSheetColumnFilters,
-                            setTechnicalSheetColumnVisibility,
-                            technicalSheetColumnSort,
-                            setTechnicalSheetColumnSort,
-                          )
-                        : null}
-                      {technicalSheetColumnVisibility.sectors
-                        ? renderTechnicalSheetColumnHeader(
-                            'sectors',
-                            'Setores',
-                            openTechnicalSheetColumnMenu,
-                            setOpenTechnicalSheetColumnMenu,
-                            technicalSheetColumnFilters,
-                            distinctTechnicalSheetColumnValues,
-                            setTechnicalSheetColumnFilters,
-                            setTechnicalSheetColumnVisibility,
-                            technicalSheetColumnSort,
-                            setTechnicalSheetColumnSort,
-                          )
-                        : null}
-                      {technicalSheetColumnVisibility.family
-                        ? renderTechnicalSheetColumnHeader(
-                            'family',
-                            'Familia',
-                            openTechnicalSheetColumnMenu,
-                            setOpenTechnicalSheetColumnMenu,
-                            technicalSheetColumnFilters,
-                            distinctTechnicalSheetColumnValues,
-                            setTechnicalSheetColumnFilters,
-                            setTechnicalSheetColumnVisibility,
-                            technicalSheetColumnSort,
-                            setTechnicalSheetColumnSort,
-                          )
-                        : null}
-                      {technicalSheetColumnVisibility.subfamily
-                        ? renderTechnicalSheetColumnHeader(
-                            'subfamily',
-                            'Subfamilia',
-                            openTechnicalSheetColumnMenu,
-                            setOpenTechnicalSheetColumnMenu,
-                            technicalSheetColumnFilters,
-                            distinctTechnicalSheetColumnValues,
-                            setTechnicalSheetColumnFilters,
-                            setTechnicalSheetColumnVisibility,
-                            technicalSheetColumnSort,
-                            setTechnicalSheetColumnSort,
-                          )
-                        : null}
-                      {technicalSheetColumnVisibility.yield
-                        ? renderTechnicalSheetColumnHeader(
-                            'yield',
-                            'Rendimento',
-                            openTechnicalSheetColumnMenu,
-                            setOpenTechnicalSheetColumnMenu,
-                            technicalSheetColumnFilters,
-                            distinctTechnicalSheetColumnValues,
-                            setTechnicalSheetColumnFilters,
-                            setTechnicalSheetColumnVisibility,
-                            technicalSheetColumnSort,
-                            setTechnicalSheetColumnSort,
-                          )
-                        : null}
-                      {technicalSheetColumnVisibility.ingredients
-                        ? renderTechnicalSheetColumnHeader(
-                            'ingredients',
-                            'Ingredientes',
-                            openTechnicalSheetColumnMenu,
-                            setOpenTechnicalSheetColumnMenu,
-                            technicalSheetColumnFilters,
-                            distinctTechnicalSheetColumnValues,
-                            setTechnicalSheetColumnFilters,
-                            setTechnicalSheetColumnVisibility,
-                            technicalSheetColumnSort,
-                            setTechnicalSheetColumnSort,
-                          )
-                        : null}
-                      {technicalSheetColumnVisibility.status
-                        ? renderTechnicalSheetColumnHeader(
-                            'status',
-                            'Status',
-                            openTechnicalSheetColumnMenu,
-                            setOpenTechnicalSheetColumnMenu,
-                            technicalSheetColumnFilters,
-                            distinctTechnicalSheetColumnValues,
-                            setTechnicalSheetColumnFilters,
-                            setTechnicalSheetColumnVisibility,
-                            technicalSheetColumnSort,
-                            setTechnicalSheetColumnSort,
-                          )
-                        : null}
+                      {orderedVisibleTechnicalSheetColumns.map((key) =>
+                        renderTechnicalSheetColumnHeader(
+                          key,
+                          technicalSheetColumnOptions.find(([optionKey]) => optionKey === key)?.[1] ?? key,
+                          openTechnicalSheetColumnMenu,
+                          setOpenTechnicalSheetColumnMenu,
+                          technicalSheetColumnFilters,
+                          distinctTechnicalSheetColumnValues,
+                          setTechnicalSheetColumnFilters,
+                          setTechnicalSheetColumnVisibility,
+                          technicalSheetColumnSort,
+                          setTechnicalSheetColumnSort,
+                          {
+                            draggable: key !== 'product',
+                            isDragging: draggedTechnicalSheetColumn === key,
+                            isDropTarget: technicalSheetColumnDropTarget === key,
+                            onDragStart: () => {
+                              if (key !== 'product') {
+                                setDraggedTechnicalSheetColumn(key)
+                                setTechnicalSheetColumnDropTarget(null)
+                              }
+                            },
+                            onDragEnd: () => {
+                              setDraggedTechnicalSheetColumn(null)
+                              setTechnicalSheetColumnDropTarget(null)
+                            },
+                            onDragOver: (event) => {
+                              if (key !== 'product' && draggedTechnicalSheetColumn && draggedTechnicalSheetColumn !== key) {
+                                event.preventDefault()
+                                setTechnicalSheetColumnDropTarget(key)
+                              }
+                            },
+                            onDragLeave: () => {
+                              if (technicalSheetColumnDropTarget === key) {
+                                setTechnicalSheetColumnDropTarget(null)
+                              }
+                            },
+                            onDrop: (event) => {
+                              event.preventDefault()
+                              if (!draggedTechnicalSheetColumn || draggedTechnicalSheetColumn === key || key === 'product') {
+                                setDraggedTechnicalSheetColumn(null)
+                                setTechnicalSheetColumnDropTarget(null)
+                                return
+                              }
+
+                              setTechnicalSheetColumnOrder((current) => {
+                                const next = current.filter((columnKey) => columnKey !== draggedTechnicalSheetColumn)
+                                const targetIndex = next.indexOf(key)
+                                if (targetIndex < 0) {
+                                  return current
+                                }
+                                next.splice(targetIndex, 0, draggedTechnicalSheetColumn)
+                                return next
+                              })
+                              setDraggedTechnicalSheetColumn(null)
+                              setTechnicalSheetColumnDropTarget(null)
+                            },
+                          },
+                        ),
+                      )}
                       <th className="sticky-actions">Acoes</th>
                     </tr>
                   </thead>
                   <tbody>
                     {visibleTechnicalSheetsFiltered.map((sheet) => (
                         <tr key={sheet.id}>
-                          {technicalSheetColumnVisibility.product ? (
-                            <td className="sticky-product-cell">
-                              <strong>{sheet.name}</strong>
-                            </td>
-                          ) : null}
-                          {technicalSheetColumnVisibility.internalId ? <td>{sheet.productId}</td> : null}
-                          {technicalSheetColumnVisibility.companyId ? <td>{sheet.companyProductId || '-'}</td> : null}
-                          {technicalSheetColumnVisibility.productionCenters ? (
-                            <td>{getTechnicalSheetColumnValue(sheet, 'productionCenters', technicalSheets, products, stockCenters, companies) || '-'}</td>
-                          ) : null}
-                          {technicalSheetColumnVisibility.costPerYield ? (
-                            <td>{getTechnicalSheetColumnValue(sheet, 'costPerYield', technicalSheets, products, stockCenters, companies) || '-'}</td>
-                          ) : null}
-                          {technicalSheetColumnVisibility.finalSalePrice ? (
-                            <td>{getTechnicalSheetColumnValue(sheet, 'finalSalePrice', technicalSheets, products, stockCenters, companies) || '-'}</td>
-                          ) : null}
-                          {technicalSheetColumnVisibility.linkedCompanies ? (
-                            <td>{getTechnicalSheetColumnValue(sheet, 'linkedCompanies', technicalSheets, products, stockCenters, companies) || '-'}</td>
-                          ) : null}
-                          {technicalSheetColumnVisibility.sectors ? <td>{sheet.sectors.join(', ')}</td> : null}
-                          {technicalSheetColumnVisibility.family ? <td>{sheet.family}</td> : null}
-                          {technicalSheetColumnVisibility.subfamily ? <td>{sheet.subfamily}</td> : null}
-                          {technicalSheetColumnVisibility.yield ? (
-                            <td>{formatDecimal(calculateTechnicalSheetEffectiveYield(sheet))} {getTechnicalSheetYieldUnitLabel(sheet, technicalSheets, products)}</td>
-                          ) : null}
-                          {technicalSheetColumnVisibility.ingredients ? (
-                            <td>{String(sheet.ingredients.filter((ingredient) => ingredient.isActive).length)}</td>
-                          ) : null}
-                          {technicalSheetColumnVisibility.status ? (
-                            <td>
-                              <span
-                                className={
-                                  sheet.isActive
-                                    ? 'package-chip package-chip-success'
-                                    : 'package-chip package-chip-warning'
-                                }
-                              >
-                                {sheet.isActive ? 'Ativa' : 'Inativa'}
-                              </span>
-                            </td>
-                          ) : null}
+                          {orderedVisibleTechnicalSheetColumns.map((key) => {
+                            if (key === 'product') {
+                              return (
+                                <td key={`${sheet.id}-${key}`} className="sticky-product-cell">
+                                  <strong>{sheet.name}</strong>
+                                </td>
+                              )
+                            }
+                            if (key === 'status') {
+                              return (
+                                <td key={`${sheet.id}-${key}`}>
+                                  <span
+                                    className={
+                                      sheet.isActive
+                                        ? 'package-chip package-chip-success'
+                                        : 'package-chip package-chip-warning'
+                                    }
+                                  >
+                                    {sheet.isActive ? 'Ativa' : 'Inativa'}
+                                  </span>
+                                </td>
+                              )
+                            }
+                            if (key === 'yield') {
+                              return (
+                                <td key={`${sheet.id}-${key}`}>
+                                  {formatDecimal(calculateTechnicalSheetEffectiveYield(sheet))} {getTechnicalSheetYieldUnitLabel(sheet, technicalSheets, products)}
+                                </td>
+                              )
+                            }
+                            if (key === 'ingredients') {
+                              return <td key={`${sheet.id}-${key}`}>{String(sheet.ingredients.filter((ingredient) => ingredient.isActive).length)}</td>
+                            }
+
+                            return (
+                              <td key={`${sheet.id}-${key}`}>
+                                {getTechnicalSheetColumnValue(sheet, key, technicalSheets, products, stockCenters, companies) || '-'}
+                              </td>
+                            )
+                          })}
                           <td className="sticky-actions-cell">
                             <div className="table-actions">
                               <button
@@ -46084,6 +45972,16 @@ function renderTechnicalSheetColumnHeader(
   setColumnVisibility: Dispatch<SetStateAction<Record<TechnicalSheetColumnKey, boolean>>>,
   columnSort: ColumnSort<TechnicalSheetColumnKey> | null,
   setColumnSort: Dispatch<SetStateAction<ColumnSort<TechnicalSheetColumnKey> | null>>,
+  dragOptions?: {
+    draggable?: boolean
+    isDragging?: boolean
+    isDropTarget?: boolean
+    onDragStart?: () => void
+    onDragEnd?: () => void
+    onDragOver?: (event: DragEvent<HTMLTableCellElement>) => void
+    onDragLeave?: () => void
+    onDrop?: (event: DragEvent<HTMLTableCellElement>) => void
+  },
 ) {
   const activeFilters = columnFilters[key] ?? []
   const sortDirection = columnSort?.key === key ? columnSort.direction : null
@@ -46092,9 +45990,21 @@ function renderTechnicalSheetColumnHeader(
   return (
     <th
       key={key}
-      className={[openColumnMenu === key ? 'menu-open' : '', key === 'product' ? 'sticky-product' : '']
+      className={[
+        openColumnMenu === key ? 'menu-open' : '',
+        key === 'product' ? 'sticky-product' : '',
+        dragOptions?.draggable ? 'draggable-column-header' : '',
+        dragOptions?.isDragging ? 'dragging-column-header' : '',
+        dragOptions?.isDropTarget ? 'column-drop-target' : '',
+      ]
         .filter(Boolean)
         .join(' ')}
+      draggable={dragOptions?.draggable && openColumnMenu !== key}
+      onDragStart={dragOptions?.onDragStart}
+      onDragEnd={dragOptions?.onDragEnd}
+      onDragOver={dragOptions?.onDragOver}
+      onDragLeave={dragOptions?.onDragLeave}
+      onDrop={dragOptions?.onDrop}
     >
       <div className="header-cell">
         <span>
@@ -49190,6 +49100,7 @@ function loadTechnicalSheetListViewState(): {
   columnVisibility: Record<TechnicalSheetColumnKey, boolean>
   columnFilters: Partial<Record<TechnicalSheetColumnKey, string[]>>
   columnSort: ColumnSort<TechnicalSheetColumnKey> | null
+  columnOrder: TechnicalSheetColumnKey[]
 } {
   if (typeof window === 'undefined') {
     return {
@@ -49197,6 +49108,7 @@ function loadTechnicalSheetListViewState(): {
       columnVisibility: defaultTechnicalSheetColumnVisibility,
       columnFilters: defaultTechnicalSheetColumnFilters,
       columnSort: null,
+      columnOrder: technicalSheetColumnOptions.map(([key]) => key),
     }
   }
 
@@ -49208,6 +49120,7 @@ function loadTechnicalSheetListViewState(): {
         columnVisibility: defaultTechnicalSheetColumnVisibility,
         columnFilters: defaultTechnicalSheetColumnFilters,
         columnSort: null,
+        columnOrder: technicalSheetColumnOptions.map(([key]) => key),
       }
     }
 
@@ -49216,6 +49129,7 @@ function loadTechnicalSheetListViewState(): {
       columnVisibility: Partial<Record<TechnicalSheetColumnKey, unknown>>
       columnFilters: Partial<Record<TechnicalSheetColumnKey, unknown>>
       columnSort: Partial<Record<'key' | 'direction', unknown>>
+      columnOrder: unknown
     }>
 
     return {
@@ -49223,6 +49137,7 @@ function loadTechnicalSheetListViewState(): {
       columnVisibility: sanitizeTechnicalSheetColumnVisibility(parsed.columnVisibility),
       columnFilters: sanitizeTechnicalSheetColumnFilters(parsed.columnFilters),
       columnSort: sanitizeTechnicalSheetColumnSort(parsed.columnSort),
+      columnOrder: sanitizeTechnicalSheetColumnOrder(parsed.columnOrder),
     }
   } catch {
     return {
@@ -49230,6 +49145,7 @@ function loadTechnicalSheetListViewState(): {
       columnVisibility: defaultTechnicalSheetColumnVisibility,
       columnFilters: defaultTechnicalSheetColumnFilters,
       columnSort: null,
+      columnOrder: technicalSheetColumnOptions.map(([key]) => key),
     }
   }
 }
@@ -49273,6 +49189,7 @@ function saveTechnicalSheetListViewState(state: {
   columnVisibility: Record<TechnicalSheetColumnKey, boolean>
   columnFilters: Partial<Record<TechnicalSheetColumnKey, string[]>>
   columnSort: ColumnSort<TechnicalSheetColumnKey> | null
+  columnOrder: TechnicalSheetColumnKey[]
 }) {
   if (typeof window === 'undefined') {
     return
@@ -49283,6 +49200,21 @@ function saveTechnicalSheetListViewState(state: {
   } catch {
     return
   }
+}
+
+function sanitizeTechnicalSheetColumnOrder(value: unknown): TechnicalSheetColumnKey[] {
+  const defaultOrder = technicalSheetColumnOptions.map(([key]) => key)
+  if (!Array.isArray(value)) {
+    return defaultOrder
+  }
+
+  const validKeys = new Set<TechnicalSheetColumnKey>(defaultOrder)
+  const filteredKeys = value.filter(
+    (item): item is TechnicalSheetColumnKey => typeof item === 'string' && validKeys.has(item as TechnicalSheetColumnKey),
+  )
+  const uniqueKeys = Array.from(new Set(filteredKeys))
+  const missingKeys = defaultOrder.filter((key) => !uniqueKeys.includes(key))
+  return [...uniqueKeys, ...missingKeys]
 }
 
 function sanitizeStockReportColumnOrder(value: unknown, tab: StockReportTab = 'POSICAO'): StockReportColumnKey[] {
