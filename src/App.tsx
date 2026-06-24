@@ -411,6 +411,9 @@ type TechnicalSheetColumnKey =
   | 'internalId'
   | 'companyId'
   | 'productionCenters'
+  | 'costPerYield'
+  | 'finalSalePrice'
+  | 'linkedCompanies'
   | 'family'
   | 'subfamily'
   | 'sectors'
@@ -3068,6 +3071,9 @@ const technicalSheetColumnOptions: Array<[TechnicalSheetColumnKey, string]> = [
   ['internalId', 'ID interno'],
   ['companyId', 'ID empresa'],
   ['productionCenters', 'Centros produtores'],
+  ['costPerYield', 'Custo por rendimento'],
+  ['finalSalePrice', 'Valor final'],
+  ['linkedCompanies', 'Empresas vinculadas'],
   ['sectors', 'Setores'],
   ['family', 'Familia'],
   ['subfamily', 'Subfamilia'],
@@ -3081,6 +3087,9 @@ const defaultTechnicalSheetColumnVisibility: Record<TechnicalSheetColumnKey, boo
   internalId: true,
   companyId: true,
   productionCenters: true,
+  costPerYield: true,
+  finalSalePrice: true,
+  linkedCompanies: true,
   family: true,
   subfamily: true,
   sectors: true,
@@ -34969,6 +34978,48 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                             setTechnicalSheetColumnSort,
                           )
                         : null}
+                      {technicalSheetColumnVisibility.costPerYield
+                        ? renderTechnicalSheetColumnHeader(
+                            'costPerYield',
+                            'Custo por rendimento',
+                            openTechnicalSheetColumnMenu,
+                            setOpenTechnicalSheetColumnMenu,
+                            technicalSheetColumnFilters,
+                            distinctTechnicalSheetColumnValues,
+                            setTechnicalSheetColumnFilters,
+                            setTechnicalSheetColumnVisibility,
+                            technicalSheetColumnSort,
+                            setTechnicalSheetColumnSort,
+                          )
+                        : null}
+                      {technicalSheetColumnVisibility.finalSalePrice
+                        ? renderTechnicalSheetColumnHeader(
+                            'finalSalePrice',
+                            'Valor final',
+                            openTechnicalSheetColumnMenu,
+                            setOpenTechnicalSheetColumnMenu,
+                            technicalSheetColumnFilters,
+                            distinctTechnicalSheetColumnValues,
+                            setTechnicalSheetColumnFilters,
+                            setTechnicalSheetColumnVisibility,
+                            technicalSheetColumnSort,
+                            setTechnicalSheetColumnSort,
+                          )
+                        : null}
+                      {technicalSheetColumnVisibility.linkedCompanies
+                        ? renderTechnicalSheetColumnHeader(
+                            'linkedCompanies',
+                            'Empresas vinculadas',
+                            openTechnicalSheetColumnMenu,
+                            setOpenTechnicalSheetColumnMenu,
+                            technicalSheetColumnFilters,
+                            distinctTechnicalSheetColumnValues,
+                            setTechnicalSheetColumnFilters,
+                            setTechnicalSheetColumnVisibility,
+                            technicalSheetColumnSort,
+                            setTechnicalSheetColumnSort,
+                          )
+                        : null}
                       {technicalSheetColumnVisibility.sectors
                         ? renderTechnicalSheetColumnHeader(
                             'sectors',
@@ -35068,6 +35119,15 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                           {technicalSheetColumnVisibility.companyId ? <td>{sheet.companyProductId || '-'}</td> : null}
                           {technicalSheetColumnVisibility.productionCenters ? (
                             <td>{getTechnicalSheetColumnValue(sheet, 'productionCenters', technicalSheets, products, stockCenters) || '-'}</td>
+                          ) : null}
+                          {technicalSheetColumnVisibility.costPerYield ? (
+                            <td>{getTechnicalSheetColumnValue(sheet, 'costPerYield', technicalSheets, products, stockCenters) || '-'}</td>
+                          ) : null}
+                          {technicalSheetColumnVisibility.finalSalePrice ? (
+                            <td>{getTechnicalSheetColumnValue(sheet, 'finalSalePrice', technicalSheets, products, stockCenters) || '-'}</td>
+                          ) : null}
+                          {technicalSheetColumnVisibility.linkedCompanies ? (
+                            <td>{getTechnicalSheetColumnValue(sheet, 'linkedCompanies', technicalSheets, products, stockCenters) || '-'}</td>
                           ) : null}
                           {technicalSheetColumnVisibility.sectors ? <td>{sheet.sectors.join(', ')}</td> : null}
                           {technicalSheetColumnVisibility.family ? <td>{sheet.family}</td> : null}
@@ -47221,6 +47281,18 @@ function getTechnicalSheetColumnValue(
         .map((assignment) => stockCenters.find((center) => center.id === assignment.stockCenterId)?.name ?? '')
         .filter(Boolean)
         .join(', ')
+    case 'costPerYield': {
+      const totalCost = calculateTechnicalSheetCost(sheet, technicalSheets, products)
+      const effectiveYield = calculateTechnicalSheetEffectiveYield(sheet)
+      const costPerYield = effectiveYield > 0 ? totalCost / effectiveYield : totalCost
+      return `R$ ${formatMoney(costPerYield)}`
+    }
+    case 'finalSalePrice':
+      return sheet.finalSalePrice.trim() ? `R$ ${formatMoney(parseDecimal(sheet.finalSalePrice) ?? 0)}` : '-'
+    case 'linkedCompanies':
+      return getTechnicalSheetExplicitSharedCompanyIds(sheet)
+        .map((companyId) => getCompanyTradeName(companyId))
+        .join(', ')
     case 'family':
       return sheet.family
     case 'subfamily':
@@ -47255,6 +47327,13 @@ function getTechnicalSheetSortValue(
   stockCenters: StockCenterRecord[] = [],
 ) {
   switch (key) {
+    case 'costPerYield': {
+      const totalCost = calculateTechnicalSheetCost(sheet, technicalSheets, products)
+      const effectiveYield = calculateTechnicalSheetEffectiveYield(sheet)
+      return effectiveYield > 0 ? totalCost / effectiveYield : totalCost
+    }
+    case 'finalSalePrice':
+      return parseDecimal(sheet.finalSalePrice) ?? 0
     case 'yield':
       return calculateTechnicalSheetEffectiveYield(sheet)
     case 'ingredients':
@@ -47326,7 +47405,7 @@ function isNumericProductColumn(key: ColumnKey) {
 }
 
 function isNumericTechnicalSheetColumn(key: TechnicalSheetColumnKey) {
-  return key === 'yield' || key === 'ingredients'
+  return key === 'yield' || key === 'ingredients' || key === 'costPerYield' || key === 'finalSalePrice'
 }
 
 function isNumericItemColumn(key: ItemColumnKey) {
