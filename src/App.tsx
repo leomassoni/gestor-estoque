@@ -1079,6 +1079,8 @@ type AuditLogRecord = {
 type StockReportTab =
   | 'POSICAO'
   | 'MOVIMENTACOES'
+  | 'DESPERDICIO_CONSOLIDADO'
+  | 'DESPERDICIO_LANCAMENTOS'
   | 'VENDAS_IMPORTADAS'
   | 'VENDAS_IMPORTADAS_AUDITORIA'
   | 'SUGESTAO_MINIMO'
@@ -2586,6 +2588,16 @@ const stockReportTabDefinitions: Array<{ key: StockReportTab; label: string; des
     description: 'Entradas, saidas, transferencias, recebimentos e ajustes registrados no estoque.',
   },
   {
+    key: 'DESPERDICIO_CONSOLIDADO',
+    label: 'Desperdicio consolidado',
+    description: 'Consolida perdas operacionais por centro, item e periodo, com custo total e origem dos registros.',
+  },
+  {
+    key: 'DESPERDICIO_LANCAMENTOS',
+    label: 'Lancamentos de desperdicio',
+    description: 'Mostra item a item os registros de desperdicio aplicados ou pendentes, com centro, data e usuario.',
+  },
+  {
     key: 'VENDAS_IMPORTADAS',
     label: 'Vendas importadas consolidadas',
     description: 'Consolida vendas por centro de estoque, item vendido, periodo e origem dos arquivos importados.',
@@ -2678,6 +2690,8 @@ const stockReportTabDefinitions: Array<{ key: StockReportTab; label: string; des
 ]
 const stockReportTabsWithDateRange = new Set<StockReportTab>([
   'MOVIMENTACOES',
+  'DESPERDICIO_CONSOLIDADO',
+  'DESPERDICIO_LANCAMENTOS',
   'VENDAS_IMPORTADAS',
   'VENDAS_IMPORTADAS_AUDITORIA',
   'INVENTARIOS',
@@ -2692,6 +2706,8 @@ const stockReportTabsWithDateRange = new Set<StockReportTab>([
 ])
 const stockReportTabsWithCenterScope = new Set<StockReportTab>([
   'POSICAO',
+  'DESPERDICIO_CONSOLIDADO',
+  'DESPERDICIO_LANCAMENTOS',
   'VENDAS_IMPORTADAS',
   'VENDAS_IMPORTADAS_AUDITORIA',
   'SUGESTAO_MINIMO',
@@ -2708,6 +2724,8 @@ const stockReportTabsWithCenterScope = new Set<StockReportTab>([
 const stockReportAllowedColumnsByTab: Record<StockReportTab, StockReportColumnKey[]> = {
   POSICAO: ['main', 'date', 'center', 'internalId', 'companyId', 'packageId', 'kind', 'family', 'status', 'quantity', 'unit', 'minimum', 'unitCost', 'totalCost'],
   MOVIMENTACOES: ['main', 'date', 'center', 'internalId', 'companyId', 'packageId', 'kind', 'family', 'status', 'operation', 'recorded', 'quantity', 'unit', 'position', 'unitCost', 'totalCost', 'user'],
+  DESPERDICIO_CONSOLIDADO: ['main', 'date', 'center', 'internalId', 'companyId', 'packageId', 'kind', 'family', 'status', 'recorded', 'quantity', 'unit', 'unitCost', 'totalCost', 'user'],
+  DESPERDICIO_LANCAMENTOS: ['main', 'date', 'center', 'internalId', 'companyId', 'packageId', 'kind', 'family', 'status', 'operation', 'recorded', 'quantity', 'unit', 'unitCost', 'totalCost', 'user'],
   VENDAS_IMPORTADAS: ['main', 'date', 'center', 'internalId', 'companyId', 'kind', 'family', 'status', 'operation', 'recorded', 'quantity', 'position', 'minimum', 'unit', 'user'],
   VENDAS_IMPORTADAS_AUDITORIA: ['main', 'date', 'center', 'internalId', 'companyId', 'kind', 'family', 'status', 'operation', 'recorded', 'quantity', 'position', 'minimum', 'unit', 'user'],
   SUGESTAO_MINIMO: ['main', 'date', 'center', 'internalId', 'companyId', 'kind', 'family', 'status', 'recorded', 'quantity', 'minimum', 'unit'],
@@ -9516,6 +9534,23 @@ export default function App() {
         left.key.localeCompare(right.key),
     )
   }, [currentCompanyId, inventoryCountSessions, inventoryCounts, inventoryStockCenterNameById, pendingInventoryMovements])
+  const wasteReportEntries = useMemo(
+    () =>
+      wasteHistoryRows.flatMap((row) =>
+        row.records.map((record) => ({
+          historyKey: row.key,
+          historyStatus: row.status,
+          historyTitle: row.title,
+          centerName: row.centerName,
+          countedAt: row.countedAt,
+          createdAt: row.createdAt,
+          createdByUserName: row.createdByUserName,
+          locationLabel: row.locationLabel,
+          record,
+        })),
+      ),
+    [wasteHistoryRows],
+  )
   const visibleFilteredClosedInventoryRecords = useMemo(
     () =>
       sortRecordsByColumn(
@@ -10710,6 +10745,228 @@ export default function App() {
     stockUnitCostByAggregationKey,
   ])
   const inventoryTrackedPositionByRecordId = inventoryMovementTimeline.trackedPositions
+  const stockWasteEntryReportRows = useMemo(() => {
+    return wasteReportEntries
+      .filter((entry) => reportStockCenterById.has(entry.record.stockCenterId))
+      .map((entry) => {
+        const aggregationKey = buildInventoryAggregationKey({
+          kind: entry.record.technicalSheetKind === 'VENDA' ? 'PREPARO' : entry.record.technicalSheetKind,
+          technicalSheetId: entry.record.technicalSheetId,
+          productId: entry.record.productId,
+          serviceItemId: entry.record.serviceItemId,
+        })
+        const metadata = inventoryAggregationMetadataByKey.get(aggregationKey)
+        const centerName =
+          reportStockCenterById.get(entry.record.stockCenterId)?.name ??
+          `CENTRO ${entry.record.stockCenterId}`
+        const movementQuantity = parseDecimal(entry.record.totalCountedQuantity) ?? 0
+        const unitCost = stockUnitCostByAggregationKey.get(aggregationKey) ?? 0
+        const totalCost = movementQuantity * unitCost
+
+        return {
+          id: `waste-entry-${entry.historyKey}-${entry.record.id}`,
+          sessionId: entry.record.sessionId,
+          main: entry.record.technicalSheetName,
+          secondary: `${entry.locationLabel} • ${entry.historyTitle}`,
+          internalId:
+            entry.record.technicalSheetKind === 'PREPARO'
+              ? technicalSheets.find((sheet) => sheet.id === entry.record.technicalSheetId)?.productId ?? ''
+              : entry.record.technicalSheetKind === 'PRODUTO'
+                ? entry.record.productId
+                : entry.record.serviceItemId,
+          companyId:
+            entry.record.technicalSheetKind === 'PREPARO'
+              ? technicalSheets.find((sheet) => sheet.id === entry.record.technicalSheetId)?.companyProductId ?? ''
+              : entry.record.technicalSheetKind === 'PRODUTO'
+                ? products.find((product) => product.id === entry.record.productId)?.companyProductId ?? ''
+                : serviceItems.find((item) => item.id === entry.record.serviceItemId)?.companyProductId ?? '',
+          packageId:
+            entry.record.technicalSheetKind === 'PRODUTO' && entry.record.packageId !== null
+              ? products
+                  .find((product) => product.id === entry.record.productId)
+                  ?.packages.find((packageForm) => packageForm.id === entry.record.packageId)?.internalCode || `EMB-${entry.record.packageId}`
+              : '',
+          kind: getStockCountableKindLabel(entry.record.technicalSheetKind),
+          family: metadata?.family ?? '',
+          center: centerName,
+          date: formatDateForDisplay(entry.record.countedAt),
+          status: entry.historyStatus,
+          operation: 'DESPERDICIO',
+          recorded: entry.historyTitle,
+          quantity: formatDecimal(movementQuantity),
+          unitCost: formatCurrencyLabel(unitCost),
+          totalCost: formatCurrencyLabel(totalCost),
+          unit: formatControlUnitShort(entry.record.totalCountedUnit),
+          user: entry.record.createdByUserName,
+          sortValues: {
+            quantity: movementQuantity,
+            unitCost,
+            totalCost,
+            date: entry.createdAt,
+          },
+        } satisfies StockReportRow
+      })
+      .sort(
+        (a, b) =>
+          String(b.sortValues?.date ?? '').localeCompare(String(a.sortValues?.date ?? '')) ||
+          a.center.localeCompare(b.center, 'pt-BR') ||
+          a.main.localeCompare(b.main, 'pt-BR'),
+      )
+  }, [
+    inventoryAggregationMetadataByKey,
+    products,
+    reportStockCenterById,
+    serviceItems,
+    stockUnitCostByAggregationKey,
+    technicalSheets,
+    wasteReportEntries,
+  ])
+  const stockWasteConsolidatedReportRows = useMemo(() => {
+    const grouped = new Map<
+      string,
+      {
+        baseEntry: (typeof wasteReportEntries)[number]
+        centerName: string
+        internalId: string
+        companyId: string
+        packageId: string
+        kindLabel: string
+        family: string
+        unitLabel: string
+        quantity: number
+        unitCost: number
+        totalCost: number
+        records: number
+        latestCountedAt: string
+        latestCreatedAt: string
+        latestUser: string
+        statuses: Set<WasteHistoryRow['status']>
+      }
+    >()
+
+    wasteReportEntries
+      .filter((entry) => reportStockCenterById.has(entry.record.stockCenterId))
+      .forEach((entry) => {
+        const aggregationKey = buildInventoryAggregationKey({
+          kind: entry.record.technicalSheetKind === 'VENDA' ? 'PREPARO' : entry.record.technicalSheetKind,
+          technicalSheetId: entry.record.technicalSheetId,
+          productId: entry.record.productId,
+          serviceItemId: entry.record.serviceItemId,
+        })
+        const metadata = inventoryAggregationMetadataByKey.get(aggregationKey)
+        const centerName =
+          reportStockCenterById.get(entry.record.stockCenterId)?.name ??
+          `CENTRO ${entry.record.stockCenterId}`
+        const internalId =
+          entry.record.technicalSheetKind === 'PREPARO'
+            ? technicalSheets.find((sheet) => sheet.id === entry.record.technicalSheetId)?.productId ?? ''
+            : entry.record.technicalSheetKind === 'PRODUTO'
+              ? entry.record.productId
+              : entry.record.serviceItemId
+        const companyId =
+          entry.record.technicalSheetKind === 'PREPARO'
+            ? technicalSheets.find((sheet) => sheet.id === entry.record.technicalSheetId)?.companyProductId ?? ''
+            : entry.record.technicalSheetKind === 'PRODUTO'
+              ? products.find((product) => product.id === entry.record.productId)?.companyProductId ?? ''
+              : serviceItems.find((item) => item.id === entry.record.serviceItemId)?.companyProductId ?? ''
+        const packageId =
+          entry.record.technicalSheetKind === 'PRODUTO' && entry.record.packageId !== null
+            ? products
+                .find((product) => product.id === entry.record.productId)
+                ?.packages.find((packageForm) => packageForm.id === entry.record.packageId)?.internalCode || `EMB-${entry.record.packageId}`
+            : ''
+        const unitCost = stockUnitCostByAggregationKey.get(aggregationKey) ?? 0
+        const quantity = parseDecimal(entry.record.totalCountedQuantity) ?? 0
+        const groupKey = [
+          centerName,
+          entry.record.technicalSheetName,
+          internalId,
+          companyId,
+          packageId,
+          entry.record.technicalSheetKind,
+          entry.record.totalCountedUnit,
+        ].join('|')
+        const currentGroup = grouped.get(groupKey)
+
+        if (!currentGroup) {
+          grouped.set(groupKey, {
+            baseEntry: entry,
+            centerName,
+            internalId,
+            companyId,
+            packageId,
+            kindLabel: getStockCountableKindLabel(entry.record.technicalSheetKind),
+            family: metadata?.family ?? '',
+            unitLabel: formatControlUnitShort(entry.record.totalCountedUnit),
+            quantity,
+            unitCost,
+            totalCost: quantity * unitCost,
+            records: 1,
+            latestCountedAt: entry.record.countedAt,
+            latestCreatedAt: entry.createdAt,
+            latestUser: entry.record.createdByUserName,
+            statuses: new Set([entry.historyStatus]),
+          })
+          return
+        }
+
+        currentGroup.quantity += quantity
+        currentGroup.totalCost += quantity * unitCost
+        currentGroup.records += 1
+        currentGroup.latestCountedAt = currentGroup.latestCountedAt >= entry.record.countedAt ? currentGroup.latestCountedAt : entry.record.countedAt
+        currentGroup.latestCreatedAt = currentGroup.latestCreatedAt >= entry.createdAt ? currentGroup.latestCreatedAt : entry.createdAt
+        currentGroup.latestUser = currentGroup.latestCreatedAt === entry.createdAt ? entry.record.createdByUserName : currentGroup.latestUser
+        currentGroup.statuses.add(entry.historyStatus)
+      })
+
+    return Array.from(grouped.values())
+      .map((group) => {
+        const statusLabel =
+          group.statuses.size === 1
+            ? Array.from(group.statuses)[0]
+            : 'MISTO'
+        return {
+          id: `waste-consolidated-${group.centerName}-${group.internalId}-${group.packageId}-${group.baseEntry.record.technicalSheetName}`,
+          main: group.baseEntry.record.technicalSheetName,
+          secondary: `${group.records} lancamento(s) • ${group.baseEntry.locationLabel}`,
+          internalId: group.internalId,
+          companyId: group.companyId,
+          packageId: group.packageId,
+          kind: group.kindLabel,
+          family: group.family,
+          center: group.centerName,
+          date: formatDateForDisplay(group.latestCountedAt),
+          status: statusLabel,
+          recorded: String(group.records),
+          quantity: formatDecimal(group.quantity),
+          unitCost: formatCurrencyLabel(group.unitCost),
+          totalCost: formatCurrencyLabel(group.totalCost),
+          unit: group.unitLabel,
+          user: group.latestUser,
+          sortValues: {
+            recorded: group.records,
+            quantity: group.quantity,
+            unitCost: group.unitCost,
+            totalCost: group.totalCost,
+            date: group.latestCreatedAt,
+          },
+        } satisfies StockReportRow
+      })
+      .sort(
+        (a, b) =>
+          String(b.sortValues?.date ?? '').localeCompare(String(a.sortValues?.date ?? '')) ||
+          a.center.localeCompare(b.center, 'pt-BR') ||
+          a.main.localeCompare(b.main, 'pt-BR'),
+      )
+  }, [
+    inventoryAggregationMetadataByKey,
+    products,
+    reportStockCenterById,
+    serviceItems,
+    stockUnitCostByAggregationKey,
+    technicalSheets,
+    wasteReportEntries,
+  ])
   const stockProductionRequirementRows = useMemo(() => {
     if (currentCompanyId === null) {
       return []
@@ -13026,6 +13283,8 @@ export default function App() {
     () => ({
       POSICAO: stockPositionReportRows,
       MOVIMENTACOES: stockMovementReportRows,
+      DESPERDICIO_CONSOLIDADO: stockWasteConsolidatedReportRows,
+      DESPERDICIO_LANCAMENTOS: stockWasteEntryReportRows,
       VENDAS_IMPORTADAS: stockImportedSalesReportRows,
       VENDAS_IMPORTADAS_AUDITORIA: stockImportedSalesAuditReportRows,
       SUGESTAO_MINIMO: stockSuggestedMinimumReportRows,
@@ -13050,6 +13309,8 @@ export default function App() {
       stockCommittedReportRows,
       stockImportedSalesAuditReportRows,
       stockImportedSalesReportRows,
+      stockWasteConsolidatedReportRows,
+      stockWasteEntryReportRows,
       stockSuggestedMinimumReportRows,
       stockDependencyReportRows,
       stockInventoryDivergenceReportRows,
@@ -49601,6 +49862,22 @@ function getStockReportColumnSortableValue(row: StockReportRow, key: StockReport
 }
 
 function getStockReportColumnLabel(key: StockReportColumnKey, tab: StockReportTab) {
+  if (tab === 'DESPERDICIO_CONSOLIDADO' && key === 'recorded') {
+    return 'Lancamentos'
+  }
+
+  if (tab === 'DESPERDICIO_CONSOLIDADO' && key === 'quantity') {
+    return 'Desperdicio total'
+  }
+
+  if (tab === 'DESPERDICIO_LANCAMENTOS' && key === 'recorded') {
+    return 'Registro'
+  }
+
+  if (tab === 'DESPERDICIO_LANCAMENTOS' && key === 'quantity') {
+    return 'Desperdicio'
+  }
+
   if (tab === 'VENDAS_IMPORTADAS' && key === 'quantity') {
     return 'Vendas'
   }
