@@ -8894,20 +8894,21 @@ export default function App() {
   const wasteSheetIdBySearchValue = useMemo(() => {
     const nextMap = new Map<string, string[]>()
     wasteCountableItems.forEach((item) => {
-      normalizeSearchTokens(
-        [
-          item.name,
-          item.internalId,
-          item.companyProductId,
-          getWasteCountableKindLabel(item.kind),
-          wasteTechnicalSheetOptions.find((option) => option.id === item.key)?.label ?? '',
-        ].join(' '),
-      ).forEach((token) => {
+      [
+        item.name,
+        item.internalId,
+        item.companyProductId,
+        getWasteCountableKindLabel(item.kind),
+        wasteTechnicalSheetOptions.find((option) => option.id === item.key)?.label ?? '',
+      ]
+        .map((value) => normalizeRegistrationText(value))
+        .filter(Boolean)
+        .forEach((token) => {
         const current = nextMap.get(token) ?? []
         if (!current.includes(item.key)) {
           nextMap.set(token, [...current, item.key])
         }
-      })
+        })
     })
     return nextMap
   }, [wasteCountableItems, wasteTechnicalSheetOptions])
@@ -9235,23 +9236,25 @@ export default function App() {
       return []
     }
 
+    const stockCountableItem =
+      selectedWasteCountableItem && selectedWasteCountableItem.kind !== 'EXECUCAO'
+        ? {
+            key: selectedWasteCountableItem.key,
+            kind: selectedWasteCountableItem.kind,
+            technicalSheetId: selectedWasteCountableItem.technicalSheetId,
+            productId: selectedWasteCountableItem.productId,
+            serviceItemId: selectedWasteCountableItem.serviceItemId,
+            companyProductId: selectedWasteCountableItem.companyProductId,
+            name: selectedWasteCountableItem.name,
+            family: selectedWasteCountableItem.family,
+            internalId: selectedWasteCountableItem.internalId,
+            controlUnit: selectedWasteCountableItem.controlUnit,
+            baseQuantity: selectedWasteCountableItem.baseQuantity,
+          }
+        : null
+
     return buildInventoryRecipientOptionsForContext({
-      countableItem:
-        selectedWasteCountableItem && selectedWasteCountableItem.kind !== 'EXECUCAO'
-          ? {
-              key: selectedWasteCountableItem.key,
-              kind: selectedWasteCountableItem.kind,
-              technicalSheetId: selectedWasteCountableItem.technicalSheetId,
-              productId: selectedWasteCountableItem.productId,
-              serviceItemId: selectedWasteCountableItem.serviceItemId,
-              companyProductId: selectedWasteCountableItem.companyProductId,
-              name: selectedWasteCountableItem.name,
-              family: selectedWasteCountableItem.family,
-              internalId: selectedWasteCountableItem.internalId,
-              controlUnit: selectedWasteCountableItem.controlUnit,
-              baseQuantity: selectedWasteCountableItem.baseQuantity,
-            }
-          : null,
+      countableItem: stockCountableItem,
       sheet: selectedWasteSheet?.kind === 'PREPARO' ? selectedWasteSheet : null,
       product: selectedWasteProduct,
       serviceItem: selectedWasteServiceItem,
@@ -9286,28 +9289,25 @@ export default function App() {
   const wasteClosedQuantity = parseDecimal(wasteForm.closedItemsQuantity) ?? 0
   const wasteOpenGrossWeight = parseDecimal(wasteForm.openItemsGrossWeight) ?? 0
   const wasteOpenContainerQuantity = parseDecimal(wasteForm.openItemsContainerQuantity) ?? 0
-  const wasteOpenNetWeight = useMemo(
-    () => Math.max(wasteOpenGrossWeight - (selectedWasteRecipient?.emptyWeight ?? 0) * wasteOpenContainerQuantity, 0),
-    [selectedWasteRecipient?.emptyWeight, wasteOpenContainerQuantity, wasteOpenGrossWeight],
-  )
   const wasteOpenPhysicalQuantity = useMemo(() => {
+    const stockCountableItem =
+      selectedWasteCountableItem && selectedWasteCountableItem.kind !== 'EXECUCAO'
+        ? {
+            key: selectedWasteCountableItem.key,
+            kind: selectedWasteCountableItem.kind,
+            technicalSheetId: selectedWasteCountableItem.technicalSheetId,
+            productId: selectedWasteCountableItem.productId,
+            serviceItemId: selectedWasteCountableItem.serviceItemId,
+            companyProductId: selectedWasteCountableItem.companyProductId,
+            name: selectedWasteCountableItem.name,
+            family: selectedWasteCountableItem.family,
+            internalId: selectedWasteCountableItem.internalId,
+            controlUnit: selectedWasteCountableItem.controlUnit,
+            baseQuantity: selectedWasteCountableItem.baseQuantity,
+          }
+        : null
     return calculateInventoryOpenPhysicalQuantityForContext({
-      countableItem:
-        selectedWasteCountableItem && selectedWasteCountableItem.kind !== 'EXECUCAO'
-          ? {
-              key: selectedWasteCountableItem.key,
-              kind: selectedWasteCountableItem.kind,
-              technicalSheetId: selectedWasteCountableItem.technicalSheetId,
-              productId: selectedWasteCountableItem.productId,
-              serviceItemId: selectedWasteCountableItem.serviceItemId,
-              companyProductId: selectedWasteCountableItem.companyProductId,
-              name: selectedWasteCountableItem.name,
-              family: selectedWasteCountableItem.family,
-              internalId: selectedWasteCountableItem.internalId,
-              controlUnit: selectedWasteCountableItem.controlUnit,
-              baseQuantity: selectedWasteCountableItem.baseQuantity,
-            }
-          : null,
+      countableItem: stockCountableItem,
       hasOpenItems: wasteForm.hasOpenItems === 'true',
       openItemsGrossWeight: wasteForm.openItemsGrossWeight,
       openItemsContainerQuantity: wasteForm.openItemsContainerQuantity,
@@ -9320,23 +9320,24 @@ export default function App() {
       return wasteClosedQuantity
     }
 
+    const stockCountableItem =
+      selectedWasteCountableItem && selectedWasteCountableItem.kind !== 'EXECUCAO'
+        ? {
+            key: selectedWasteCountableItem.key,
+            kind: selectedWasteCountableItem.kind,
+            technicalSheetId: selectedWasteCountableItem.technicalSheetId,
+            productId: selectedWasteCountableItem.productId,
+            serviceItemId: selectedWasteCountableItem.serviceItemId,
+            companyProductId: selectedWasteCountableItem.companyProductId,
+            name: selectedWasteCountableItem.name,
+            family: selectedWasteCountableItem.family,
+            internalId: selectedWasteCountableItem.internalId,
+            controlUnit: selectedWasteCountableItem.controlUnit,
+            baseQuantity: selectedWasteCountableItem.baseQuantity,
+          }
+        : null
     return calculateInventoryTotalCountedQuantityForContext({
-      countableItem:
-        selectedWasteCountableItem && selectedWasteCountableItem.kind !== 'EXECUCAO'
-          ? {
-              key: selectedWasteCountableItem.key,
-              kind: selectedWasteCountableItem.kind,
-              technicalSheetId: selectedWasteCountableItem.technicalSheetId,
-              productId: selectedWasteCountableItem.productId,
-              serviceItemId: selectedWasteCountableItem.serviceItemId,
-              companyProductId: selectedWasteCountableItem.companyProductId,
-              name: selectedWasteCountableItem.name,
-              family: selectedWasteCountableItem.family,
-              internalId: selectedWasteCountableItem.internalId,
-              controlUnit: selectedWasteCountableItem.controlUnit,
-              baseQuantity: selectedWasteCountableItem.baseQuantity,
-            }
-          : null,
+      countableItem: stockCountableItem,
       sheet: selectedWasteSheet?.kind === 'PREPARO' ? selectedWasteSheet : null,
       hasRecipientOptions: wasteHasRecipientOptions,
       recipient: selectedWasteRecipient,
@@ -18223,7 +18224,7 @@ export default function App() {
           nextErrors.openItemsContainerQuantity = 'Informe quantos itens abertos estao sendo pesados.'
         }
       }
-      if ((selectedItem === null || selectedItem.kind !== 'EXECUCAO') && wasteTotalCountedQuantity <= 0) {
+      if (selectedItem !== null && wasteTotalCountedQuantity <= 0) {
         nextErrors.closedItemsQuantity = 'Informe uma quantidade maior que zero para registrar o desperdicio.'
       }
     }
@@ -49566,7 +49567,12 @@ function buildWasteCountableItemKey(item: {
     return `EXECUCAO:${item.technicalSheetId ?? ''}`
   }
 
-  return buildInventoryCountableItemKey(item)
+  return buildInventoryCountableItemKey({
+    kind: item.kind,
+    technicalSheetId: item.technicalSheetId,
+    productId: item.productId,
+    serviceItemId: item.serviceItemId,
+  })
 }
 
 function getProductDensityFactor(product: ProductRecord) {
