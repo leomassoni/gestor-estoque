@@ -15582,13 +15582,10 @@ export default function App() {
       return
     }
 
-    const draftRecords = inventoryCounts.filter((record) => record.sessionId === selectedWasteSession.id)
-    const firstRecord = draftRecords[0] ?? null
     setWasteForm((current) => ({
       ...current,
       stockCenterId: String(selectedWasteSession.stockCenterId),
       countedAt: selectedWasteSession.countedAt,
-      storageLocation: firstRecord ? extractWasteDraftOccurrenceLocationLabel(firstRecord.storageLocation) : current.storageLocation,
     }))
   }, [inventoryCounts, selectedWasteSession])
 
@@ -18155,18 +18152,12 @@ export default function App() {
     const nextErrors: Partial<Record<keyof InventoryFormState, string>> = {}
     const selectedCenter = selectedWasteCenter
     const selectedItem = selectedWasteCountableItem
-    const locationExists = inventoryStorageLocationSuggestions.includes(normalizeRegistrationText(wasteForm.storageLocation))
 
     if (!selectedCenter) {
       nextErrors.stockCenterId = 'Selecione um centro de estoque valido.'
     }
     if (!wasteForm.countedAt) {
       nextErrors.countedAt = 'Informe a data do desperdicio.'
-    }
-    if (!wasteForm.storageLocation.trim()) {
-      nextErrors.storageLocation = 'Informe o local da ocorrencia.'
-    } else if (!locationExists && !canCreateSectors) {
-      nextErrors.storageLocation = 'Voce nao tem permissao para criar novos locais de armazenamento.'
     }
     if (!selectedItem) {
       nextErrors.technicalSheetLabel = 'Selecione um item valido para registrar o desperdicio.'
@@ -39127,7 +39118,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
             ) : (
               <>
                 <form className="form-grid company-form-grid" onSubmit={(event) => event.preventDefault()}>
-                  <label className="field">
+                  <label className="field company-field-wide">
                     <span>Centro de estoque *</span>
                     <select
                       value={wasteForm.stockCenterId}
@@ -39143,7 +39134,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                     {wasteErrors.stockCenterId ? <p className="compact-feedback feedback error">{wasteErrors.stockCenterId}</p> : null}
                   </label>
 
-                  <label className="field">
+                  <label className="field company-field-wide">
                     <span>Data do desperdicio *</span>
                     <input
                       type="date"
@@ -39151,22 +39142,6 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                       onChange={(event) => updateWasteFormField('countedAt', event.target.value)}
                     />
                     {wasteErrors.countedAt ? <p className="compact-feedback feedback error">{wasteErrors.countedAt}</p> : null}
-                  </label>
-
-                  <label className="field company-field-wide">
-                    <span>Local da ocorrencia *</span>
-                    <input
-                      list={wasteStorageLocationListId}
-                      value={wasteForm.storageLocation}
-                      onChange={(event) => updateWasteFormField('storageLocation', event.target.value)}
-                      placeholder="Ex.: COPA BAR, ESTACAO 1, CAMARA FRIA"
-                    />
-                    <datalist id={wasteStorageLocationListId}>
-                      {inventoryStorageLocationSuggestions.map((value) => (
-                        <option key={value} value={value} />
-                      ))}
-                    </datalist>
-                    {wasteErrors.storageLocation ? <p className="compact-feedback feedback error">{wasteErrors.storageLocation}</p> : null}
                   </label>
                 </form>
 
