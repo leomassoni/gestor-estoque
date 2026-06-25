@@ -15470,37 +15470,50 @@ export default function App() {
       return
     }
 
-    const isWasteDraftSession = (sessionRecord: InventoryCountSessionRecord) => {
+    const isWasteSession = (sessionRecord: InventoryCountSessionRecord) => {
       if (sessionRecord.inventoryId !== null) {
         return false
       }
       const linkedRecords = inventoryCounts.filter((record) => record.sessionId === sessionRecord.id)
-      return linkedRecords.length === 0 || linkedRecords.every((record) => isWasteDraftInventoryMovementLocation(record.storageLocation))
+      return (
+        linkedRecords.length === 0 ||
+        linkedRecords.every(
+          (record) =>
+            isWasteDraftInventoryMovementLocation(record.storageLocation) ||
+            isWasteInventoryMovementLocation(record.storageLocation),
+        )
+      )
     }
 
-    const wasteDraftSessionIds = new Set(
-      inventoryCountSessions.filter((sessionRecord) => isWasteDraftSession(sessionRecord)).map((sessionRecord) => sessionRecord.id),
+    const wasteSessionIds = new Set(
+      inventoryCountSessions.filter((sessionRecord) => isWasteSession(sessionRecord)).map((sessionRecord) => sessionRecord.id),
+    )
+    const wasteDerivedInventoryRecordIds = new Set(
+      inventoryRecords.filter((inventoryRecord) => wasteSessionIds.has(inventoryRecord.id)).map((inventoryRecord) => inventoryRecord.id),
     )
     const needsSessionMigration = inventoryCountSessions.some(
-      (sessionRecord) => sessionRecord.inventoryId === null && !wasteDraftSessionIds.has(sessionRecord.id),
+      (sessionRecord) => sessionRecord.inventoryId === null && !wasteSessionIds.has(sessionRecord.id),
     )
     const needsCountMigration = inventoryCounts.some(
-      (record) => record.inventoryId === null && !wasteDraftSessionIds.has(record.sessionId),
+      (record) => record.inventoryId === null && !wasteSessionIds.has(record.sessionId),
     )
-    if (!needsSessionMigration && !needsCountMigration) {
+    if (!needsSessionMigration && !needsCountMigration && wasteDerivedInventoryRecordIds.size === 0) {
       return
     }
 
     const existingByScope = new Map<string, InventoryRecord>()
     inventoryRecords.forEach((record) => {
+      if (wasteDerivedInventoryRecordIds.has(record.id)) {
+        return
+      }
       existingByScope.set(`${record.companyId}:${record.stockCenterId}:${record.countedAt}`, record)
     })
 
-    const migratedInventoryRecords = [...inventoryRecords]
+    const migratedInventoryRecords = inventoryRecords.filter((record) => !wasteDerivedInventoryRecordIds.has(record.id))
     const inventoryIdByScope = new Map<string, number>()
 
     inventoryCountSessions.forEach((sessionRecord) => {
-      if (wasteDraftSessionIds.has(sessionRecord.id)) {
+      if (wasteSessionIds.has(sessionRecord.id)) {
         return
       }
       if (sessionRecord.inventoryId !== null) {
@@ -15545,7 +15558,7 @@ export default function App() {
     if (needsSessionMigration) {
       setInventoryCountSessions((current) =>
         current.map((sessionRecord) =>
-          sessionRecord.inventoryId !== null || wasteDraftSessionIds.has(sessionRecord.id)
+          sessionRecord.inventoryId !== null || wasteSessionIds.has(sessionRecord.id)
             ? sessionRecord
             : {
                 ...sessionRecord,
@@ -15561,7 +15574,7 @@ export default function App() {
       const sessionInventoryIdById = new Map(
         inventoryCountSessions.map((sessionRecord) => [
           sessionRecord.id,
-          wasteDraftSessionIds.has(sessionRecord.id)
+          wasteSessionIds.has(sessionRecord.id)
             ? null
             :
           sessionRecord.inventoryId ??
@@ -15571,7 +15584,7 @@ export default function App() {
       )
       setInventoryCounts((current) =>
         current.map((record) =>
-          record.inventoryId !== null || wasteDraftSessionIds.has(record.sessionId)
+          record.inventoryId !== null || wasteSessionIds.has(record.sessionId)
             ? record
             : {
                 ...record,
