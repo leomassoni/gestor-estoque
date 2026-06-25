@@ -6615,21 +6615,21 @@ export default function App() {
     const missingPendingMovements = nextPendingMovements.length === 0 && localPendingMovements.length > 0
 
     const localWasteDraftSessionIds = new Set(
-      inventoryCountSessions
+      localSessions
         .filter((sessionRecord) => {
           if (sessionRecord.inventoryId !== null || sessionRecord.isClosed) {
             return false
           }
-          const linkedRecords = inventoryCounts.filter((record) => record.sessionId === sessionRecord.id)
+          const linkedRecords = localCounts.filter((record) => record.sessionId === sessionRecord.id)
           return linkedRecords.length === 0 || linkedRecords.every((record) => isWasteDraftInventoryMovementLocation(record.storageLocation))
         })
         .map((sessionRecord) => sessionRecord.id),
     )
-    const preservedWasteDraftSessions = inventoryCountSessions.filter(
+    const preservedWasteDraftSessions = localSessions.filter(
       (sessionRecord) =>
         localWasteDraftSessionIds.has(sessionRecord.id) && !nextSessions.some((remoteSession) => remoteSession.id === sessionRecord.id),
     )
-    const preservedWasteDraftCounts = inventoryCounts.filter(
+    const preservedWasteDraftCounts = localCounts.filter(
       (record) => localWasteDraftSessionIds.has(record.sessionId) && !nextCounts.some((remoteRecord) => remoteRecord.id === record.id),
     )
     const mergedNextSessions = [...preservedWasteDraftSessions, ...nextSessions].sort(
