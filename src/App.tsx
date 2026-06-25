@@ -3967,6 +3967,7 @@ export default function App() {
   const [inventoryDeleteState, setInventoryDeleteState] = useState<InventoryDeleteState | null>(null)
   const [inventorySessionCloseState, setInventorySessionCloseState] = useState<InventorySessionCloseState | null>(null)
   const [inventorySessionDeleteState, setInventorySessionDeleteState] = useState<InventorySessionDeleteState | null>(null)
+  const [wasteSessionDeleteState, setWasteSessionDeleteState] = useState<InventorySessionDeleteState | null>(null)
   const [inventoryReviewModalState, setInventoryReviewModalState] = useState<InventoryReviewModalState | null>(null)
   const [inventoryPanelTab, setInventoryPanelTab] = useState<'active' | 'closed'>('active')
   const [closedInventorySummaryModalState, setClosedInventorySummaryModalState] =
@@ -20074,6 +20075,42 @@ export default function App() {
       status: 'success',
       title: 'Contagem excluida com sucesso',
       message: 'A sessao de contagem e todos os seus lancamentos foram removidos.',
+    })
+  }
+
+  function confirmDeleteWasteSession() {
+    if (!wasteSessionDeleteState) {
+      return
+    }
+
+    const targetSession =
+      wasteSessions.find(
+        (sessionRecord) => sessionRecord.id === wasteSessionDeleteState.id && sessionRecord.companyId === currentCompanyId,
+      ) ?? null
+    if (!targetSession) {
+      setWasteSessionDeleteState(null)
+      return
+    }
+
+    if (!canManageWasteSessionRecord(targetSession, currentAppUser, canDeleteRecords)) {
+      setWasteSessionDeleteState(null)
+      return
+    }
+
+    setWasteSessions((current) => current.filter((sessionRecord) => sessionRecord.id !== wasteSessionDeleteState.id))
+    setWasteRecords((current) => current.filter((record) => record.sessionId !== wasteSessionDeleteState.id))
+
+    if (selectedWasteSessionId === wasteSessionDeleteState.id) {
+      setSelectedWasteSessionId(null)
+      setWasteErrors({})
+      setWasteForm(emptyInventoryForm())
+    }
+
+    setWasteSessionDeleteState(null)
+    setSaveFeedback({
+      status: 'success',
+      title: 'Registro de desperdicio excluido com sucesso',
+      message: 'O registro aberto e todos os itens lancados nele foram removidos.',
     })
   }
 
@@ -39974,6 +40011,23 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                                 <button type="button" className="ghost-button" onClick={() => setSelectedWasteSessionId(sessionRecord.id)}>
                                   {selectedWasteSessionId === sessionRecord.id ? 'Registro atual' : 'Continuar'}
                                 </button>
+                                {canManageWasteSessionRecord(sessionRecord, currentAppUser, canDeleteRecords) ? (
+                                  <button
+                                    type="button"
+                                    className="warning-button"
+                                    onClick={() =>
+                                      setWasteSessionDeleteState({
+                                        id: sessionRecord.id,
+                                        countedAt: sessionRecord.countedAt,
+                                        stockCenterName:
+                                          inventoryStockCenterNameById.get(sessionRecord.stockCenterId) ??
+                                          `CENTRO ${sessionRecord.stockCenterId}`,
+                                      })
+                                    }
+                                  >
+                                    Excluir registro
+                                  </button>
+                                ) : null}
                               </div>
                             </div>
                             <div className="row-meta user-row-meta">
@@ -39997,6 +40051,25 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                         <p className="kicker">Registro atual</p>
                         <h2>Adicionar itens ao desperdicio</h2>
                       </div>
+                      {canManageWasteSessionRecord(selectedWasteSession, currentAppUser, canDeleteRecords) ? (
+                        <div className="toolbar-actions">
+                          <button
+                            type="button"
+                            className="warning-button"
+                            onClick={() =>
+                              setWasteSessionDeleteState({
+                                id: selectedWasteSession.id,
+                                countedAt: selectedWasteSession.countedAt,
+                                stockCenterName:
+                                  inventoryStockCenterNameById.get(selectedWasteSession.stockCenterId) ??
+                                  `CENTRO ${selectedWasteSession.stockCenterId}`,
+                              })
+                            }
+                          >
+                            Excluir registro
+                          </button>
+                        </div>
+                      ) : null}
                     </div>
 
                     <form className="form-grid company-form-grid" onSubmit={(event) => event.preventDefault()}>
@@ -46353,6 +46426,17 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
         />
       ) : null}
 
+      {wasteSessionDeleteState ? (
+        <ConfirmationModal
+          title="Excluir registro de desperdicio?"
+          message={`Centro ${wasteSessionDeleteState.stockCenterName} • Data ${wasteSessionDeleteState.countedAt}. Todos os itens lancados neste registro aberto serao removidos.`}
+          actionClass="danger-button"
+          actionLabel="Excluir registro"
+          onCancel={() => setWasteSessionDeleteState(null)}
+          onConfirm={confirmDeleteWasteSession}
+        />
+      ) : null}
+
       {inventoryCountHistoryModalState ? (
         <div className="modal-backdrop" role="presentation" onClick={() => setInventoryCountHistoryModalState(null)}>
           <section
@@ -50462,6 +50546,22 @@ function canManageInventoryCountHistoryRecord(
 
 function canManageInventoryCountSessionRecord(
   sessionRecord: InventoryCountSessionRecord,
+  currentAppUser: AppUserRecord | null,
+  canDeleteRecords: boolean,
+) {
+  if (canDeleteRecords) {
+    return true
+  }
+
+  if (!currentAppUser) {
+    return false
+  }
+
+  return sessionRecord.startedByUserId === currentAppUser.id
+}
+
+function canManageWasteSessionRecord(
+  sessionRecord: WasteSessionRecord,
   currentAppUser: AppUserRecord | null,
   canDeleteRecords: boolean,
 ) {
