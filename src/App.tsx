@@ -6614,6 +6614,31 @@ export default function App() {
     const missingCounts = nextCounts.length === 0 && localCounts.length > 0
     const missingPendingMovements = nextPendingMovements.length === 0 && localPendingMovements.length > 0
 
+    const localWasteDraftSessionIds = new Set(
+      inventoryCountSessions
+        .filter((sessionRecord) => {
+          if (sessionRecord.inventoryId !== null || sessionRecord.isClosed) {
+            return false
+          }
+          const linkedRecords = inventoryCounts.filter((record) => record.sessionId === sessionRecord.id)
+          return linkedRecords.length === 0 || linkedRecords.every((record) => isWasteDraftInventoryMovementLocation(record.storageLocation))
+        })
+        .map((sessionRecord) => sessionRecord.id),
+    )
+    const preservedWasteDraftSessions = inventoryCountSessions.filter(
+      (sessionRecord) =>
+        localWasteDraftSessionIds.has(sessionRecord.id) && !nextSessions.some((remoteSession) => remoteSession.id === sessionRecord.id),
+    )
+    const preservedWasteDraftCounts = inventoryCounts.filter(
+      (record) => localWasteDraftSessionIds.has(record.sessionId) && !nextCounts.some((remoteRecord) => remoteRecord.id === record.id),
+    )
+    const mergedNextSessions = [...preservedWasteDraftSessions, ...nextSessions].sort(
+      (left, right) => right.startedAt.localeCompare(left.startedAt) || right.id - left.id,
+    )
+    const mergedNextCounts = [...preservedWasteDraftCounts, ...nextCounts].sort(
+      (left, right) => right.countedAt.localeCompare(left.countedAt) || right.id - left.id,
+    )
+
     if (
       missingLocations ||
       missingInventories ||
@@ -6636,9 +6661,9 @@ export default function App() {
       setInventoryStorageLocations(missingLocations ? localLocations : nextLocations)
       setInventoryRecords(missingInventories ? localInventories : nextInventories)
       setInventoryActiveRecordLinks(missingActiveRecordLinks ? localActiveRecordLinks : nextActiveRecordLinks)
-      setInventoryCountSessions(missingSessions ? localSessions : nextSessions)
+      setInventoryCountSessions(missingSessions ? localSessions : mergedNextSessions)
       setInventoryActiveSessionLinks(missingActiveSessionLinks ? localActiveSessionLinks : nextActiveSessionLinks)
-      setInventoryCounts(missingCounts ? localCounts : nextCounts)
+      setInventoryCounts(missingCounts ? localCounts : mergedNextCounts)
       setPendingInventoryMovements(missingPendingMovements ? localPendingMovements : nextPendingMovements)
 
       syncedInventoryStorageLocationMapRef.current = new Map(
@@ -6682,9 +6707,9 @@ export default function App() {
     setInventoryStorageLocations(nextLocations)
     setInventoryRecords(nextInventories)
     setInventoryActiveRecordLinks(nextActiveRecordLinks)
-    setInventoryCountSessions(nextSessions)
+    setInventoryCountSessions(mergedNextSessions)
     setInventoryActiveSessionLinks(nextActiveSessionLinks)
-    setInventoryCounts(nextCounts)
+    setInventoryCounts(mergedNextCounts)
     setPendingInventoryMovements(nextPendingMovements)
     syncedInventoryStorageLocationMapRef.current = new Map(
       nextLocations.map((record) => [`${record.companyId}:${record.name}`, JSON.stringify(record)]),
