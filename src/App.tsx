@@ -9236,22 +9236,7 @@ export default function App() {
       return []
     }
 
-    const stockCountableItem =
-      selectedWasteCountableItem
-        ? {
-            key: selectedWasteCountableItem.key,
-            kind: selectedWasteCountableItem.kind,
-            technicalSheetId: selectedWasteCountableItem.technicalSheetId,
-            productId: selectedWasteCountableItem.productId,
-            serviceItemId: selectedWasteCountableItem.serviceItemId,
-            companyProductId: selectedWasteCountableItem.companyProductId,
-            name: selectedWasteCountableItem.name,
-            family: selectedWasteCountableItem.family,
-            internalId: selectedWasteCountableItem.internalId,
-            controlUnit: selectedWasteCountableItem.controlUnit,
-            baseQuantity: selectedWasteCountableItem.baseQuantity,
-          }
-        : null
+    const stockCountableItem = mapWasteCountableItemToInventoryCountableItem(selectedWasteCountableItem)
 
     return buildInventoryRecipientOptionsForContext({
       countableItem: stockCountableItem,
@@ -9288,22 +9273,7 @@ export default function App() {
   }, [selectedWasteProduct, selectedWasteSheet])
   const wasteClosedQuantity = parseDecimal(wasteForm.closedItemsQuantity) ?? 0
   const wasteOpenPhysicalQuantity = useMemo(() => {
-    const stockCountableItem =
-      selectedWasteCountableItem
-        ? {
-            key: selectedWasteCountableItem.key,
-            kind: selectedWasteCountableItem.kind,
-            technicalSheetId: selectedWasteCountableItem.technicalSheetId,
-            productId: selectedWasteCountableItem.productId,
-            serviceItemId: selectedWasteCountableItem.serviceItemId,
-            companyProductId: selectedWasteCountableItem.companyProductId,
-            name: selectedWasteCountableItem.name,
-            family: selectedWasteCountableItem.family,
-            internalId: selectedWasteCountableItem.internalId,
-            controlUnit: selectedWasteCountableItem.controlUnit,
-            baseQuantity: selectedWasteCountableItem.baseQuantity,
-          }
-        : null
+    const stockCountableItem = mapWasteCountableItemToInventoryCountableItem(selectedWasteCountableItem)
     return calculateInventoryOpenPhysicalQuantityForContext({
       countableItem: stockCountableItem,
       hasOpenItems: wasteForm.hasOpenItems === 'true',
@@ -9318,22 +9288,7 @@ export default function App() {
       return wasteClosedQuantity
     }
 
-    const stockCountableItem =
-      selectedWasteCountableItem
-        ? {
-            key: selectedWasteCountableItem.key,
-            kind: selectedWasteCountableItem.kind,
-            technicalSheetId: selectedWasteCountableItem.technicalSheetId,
-            productId: selectedWasteCountableItem.productId,
-            serviceItemId: selectedWasteCountableItem.serviceItemId,
-            companyProductId: selectedWasteCountableItem.companyProductId,
-            name: selectedWasteCountableItem.name,
-            family: selectedWasteCountableItem.family,
-            internalId: selectedWasteCountableItem.internalId,
-            controlUnit: selectedWasteCountableItem.controlUnit,
-            baseQuantity: selectedWasteCountableItem.baseQuantity,
-          }
-        : null
+    const stockCountableItem = mapWasteCountableItemToInventoryCountableItem(selectedWasteCountableItem)
     return calculateInventoryTotalCountedQuantityForContext({
       countableItem: stockCountableItem,
       sheet: selectedWasteSheet?.kind === 'PREPARO' ? selectedWasteSheet : null,
@@ -49571,6 +49526,28 @@ function buildWasteCountableItemKey(item: {
     productId: item.productId,
     serviceItemId: item.serviceItemId,
   })
+}
+
+function mapWasteCountableItemToInventoryCountableItem(
+  item: WasteCountableItem | null,
+): InventoryCountableItem | null {
+  if (!item || item.kind === 'EXECUCAO') {
+    return null
+  }
+
+  return {
+    key: item.key,
+    kind: item.kind,
+    technicalSheetId: item.technicalSheetId,
+    productId: item.productId,
+    serviceItemId: item.serviceItemId,
+    companyProductId: item.companyProductId,
+    name: item.name,
+    family: item.family,
+    internalId: item.internalId,
+    controlUnit: item.controlUnit,
+    baseQuantity: item.baseQuantity,
+  }
 }
 
 function getProductDensityFactor(product: ProductRecord) {
