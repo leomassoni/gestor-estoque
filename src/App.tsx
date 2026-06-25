@@ -3834,6 +3834,34 @@ function buildPackageDiscardSnapshot(state: {
   return JSON.stringify(state)
 }
 
+function buildEntitySignatureMap<T, K extends string | number>(
+  records: T[],
+  getKey: (record: T) => K,
+) {
+  return new Map(records.map((record) => [getKey(record), JSON.stringify(record)] as const))
+}
+
+function areEntitySignatureMapsEqual<K extends string | number>(
+  left: Map<K, string>,
+  right: Map<K, string>,
+) {
+  if (left.size !== right.size) {
+    return false
+  }
+
+  for (const [key, value] of left.entries()) {
+    if (right.get(key) !== value) {
+      return false
+    }
+  }
+
+  return true
+}
+
+function isDocumentHiddenForBackgroundRefresh() {
+  return typeof document !== 'undefined' && document.hidden
+}
+
 export default function App() {
   const productListId = useId()
   const serviceItemListId = useId()
@@ -6237,11 +6265,27 @@ export default function App() {
           .map(normalizeStockModuleSettingsRecord)
           .filter((item): item is StockModuleSettingsRecord => item !== null)
       : []
+    const nextCompaniesById = buildEntitySignatureMap(nextCompanies, (record) => record.id)
+    const currentCompaniesById = buildEntitySignatureMap(companies, (record) => record.id)
+    const nextUsersById = buildEntitySignatureMap(nextUsers, (record) => record.id)
+    const currentUsersById = buildEntitySignatureMap(users, (record) => record.id)
+    const nextAccessProfilesById = buildEntitySignatureMap(nextAccessProfiles, (record) => record.id)
+    const currentAccessProfilesById = buildEntitySignatureMap(accessProfiles, (record) => record.id)
+    const nextStockModuleSettingsById = buildEntitySignatureMap(nextStockModuleSettings, (record) => record.companyId)
+    const currentStockModuleSettingsById = buildEntitySignatureMap(stockModuleSettings, (record) => record.companyId)
 
-    setCompanies(nextCompanies)
-    setUsers(nextUsers)
-    setAccessProfiles(nextAccessProfiles)
-    setStockModuleSettings(nextStockModuleSettings)
+    if (!areEntitySignatureMapsEqual(nextCompaniesById, currentCompaniesById)) {
+      setCompanies(nextCompanies)
+    }
+    if (!areEntitySignatureMapsEqual(nextUsersById, currentUsersById)) {
+      setUsers(nextUsers)
+    }
+    if (!areEntitySignatureMapsEqual(nextAccessProfilesById, currentAccessProfilesById)) {
+      setAccessProfiles(nextAccessProfiles)
+    }
+    if (!areEntitySignatureMapsEqual(nextStockModuleSettingsById, currentStockModuleSettingsById)) {
+      setStockModuleSettings(nextStockModuleSettings)
+    }
   }
 
   async function refreshAppAuditLogRecordsFromApi() {
@@ -6254,8 +6298,12 @@ export default function App() {
     const nextAuditLogs = Array.isArray(data?.auditLogs)
       ? (data.auditLogs as unknown[]).map(normalizeAuditLogRecord).filter((item): item is AuditLogRecord => item !== null)
       : []
+    const nextAuditLogsById = buildEntitySignatureMap(nextAuditLogs, (record) => record.id)
+    const currentAuditLogsById = buildEntitySignatureMap(auditLogs, (record) => record.id)
 
-    setAuditLogs(nextAuditLogs)
+    if (!areEntitySignatureMapsEqual(nextAuditLogsById, currentAuditLogsById)) {
+      setAuditLogs(nextAuditLogs)
+    }
   }
 
   async function refreshAppStockCenterRecordsFromApi() {
@@ -6276,7 +6324,11 @@ export default function App() {
 
     if (missingStockCenters) {
       await Promise.all(localStockCenters.map((stockCenter) => upsertStockCenterRecordOnApi(stockCenter)))
-      setStockCenters(localStockCenters)
+      const localStockCentersById = buildEntitySignatureMap(localStockCenters, (record) => record.id)
+      const currentStockCentersById = buildEntitySignatureMap(stockCenters, (record) => record.id)
+      if (!areEntitySignatureMapsEqual(localStockCentersById, currentStockCentersById)) {
+        setStockCenters(localStockCenters)
+      }
       setHasLoadedStockCenterRecords(true)
       logRemoteAppStateMessage(
         'Os centros de estoque deste navegador foram usados para restaurar dados ausentes no servidor.',
@@ -6284,7 +6336,11 @@ export default function App() {
       return
     }
 
-    setStockCenters(nextStockCenters)
+    const nextStockCentersById = buildEntitySignatureMap(nextStockCenters, (record) => record.id)
+    const currentStockCentersById = buildEntitySignatureMap(stockCenters, (record) => record.id)
+    if (!areEntitySignatureMapsEqual(nextStockCentersById, currentStockCentersById)) {
+      setStockCenters(nextStockCenters)
+    }
     setHasLoadedStockCenterRecords(true)
   }
 
@@ -6381,10 +6437,27 @@ export default function App() {
         })
       : []
 
-    setSalesImportTemplates(nextTemplates)
-    setSalesImportBatches(nextBatches)
-    setSalesImportRows(nextRows)
-    setSalesConsumptions(nextConsumptions)
+    const nextTemplatesById = buildEntitySignatureMap(nextTemplates, (record) => record.id)
+    const currentTemplatesById = buildEntitySignatureMap(salesImportTemplates, (record) => record.id)
+    const nextBatchesById = buildEntitySignatureMap(nextBatches, (record) => record.id)
+    const currentBatchesById = buildEntitySignatureMap(salesImportBatches, (record) => record.id)
+    const nextRowsById = buildEntitySignatureMap(nextRows, (record) => record.id)
+    const currentRowsById = buildEntitySignatureMap(salesImportRows, (record) => record.id)
+    const nextConsumptionsById = buildEntitySignatureMap(nextConsumptions, (record) => record.id)
+    const currentConsumptionsById = buildEntitySignatureMap(salesConsumptions, (record) => record.id)
+
+    if (!areEntitySignatureMapsEqual(nextTemplatesById, currentTemplatesById)) {
+      setSalesImportTemplates(nextTemplates)
+    }
+    if (!areEntitySignatureMapsEqual(nextBatchesById, currentBatchesById)) {
+      setSalesImportBatches(nextBatches)
+    }
+    if (!areEntitySignatureMapsEqual(nextRowsById, currentRowsById)) {
+      setSalesImportRows(nextRows)
+    }
+    if (!areEntitySignatureMapsEqual(nextConsumptionsById, currentConsumptionsById)) {
+      setSalesConsumptions(nextConsumptions)
+    }
     setHasLoadedSalesImportRecords(true)
   }
 
@@ -6498,11 +6571,19 @@ export default function App() {
       logRemoteAppStateMessage('As requisicoes deste navegador foram usadas para restaurar dados ausentes no servidor.')
       return
     }
+    const nextRequisitionsById = buildEntitySignatureMap(nextRequisitions, (record) => record.id)
+    const currentRequisitionsById = buildEntitySignatureMap(requisitions, (record) => record.id)
+    const nextNotificationsById = buildEntitySignatureMap(nextNotifications, (record) => record.id)
+    const currentNotificationsById = buildEntitySignatureMap(requisitionNotifications, (record) => record.id)
 
-    setRequisitions(nextRequisitions)
-    setRequisitionNotifications(nextNotifications)
-    syncedRequisitionRecordMapRef.current = new Map(nextRequisitions.map((record) => [record.id, JSON.stringify(record)]))
-    syncedRequisitionNotificationMapRef.current = new Map(nextNotifications.map((record) => [record.id, JSON.stringify(record)]))
+    if (!areEntitySignatureMapsEqual(nextRequisitionsById, currentRequisitionsById)) {
+      setRequisitions(nextRequisitions)
+    }
+    if (!areEntitySignatureMapsEqual(nextNotificationsById, currentNotificationsById)) {
+      setRequisitionNotifications(nextNotifications)
+    }
+    syncedRequisitionRecordMapRef.current = nextRequisitionsById
+    syncedRequisitionNotificationMapRef.current = nextNotificationsById
   }
 
   async function refreshAppProductionRecordsFromApi() {
@@ -6572,17 +6653,25 @@ export default function App() {
       logRemoteAppStateMessage('As producoes deste navegador foram usadas para restaurar dados ausentes no servidor.')
       return
     }
+    const nextManualRequestsById = buildEntitySignatureMap(nextManualRequests, (record) => record.id)
+    const currentManualRequestsById = buildEntitySignatureMap(manualProductionRequests, (record) => record.id)
+    const nextProductionDraftsById = buildEntitySignatureMap(
+      nextProductionDrafts.filter((record) => record.draftId !== null),
+      (record) => record.draftId as number,
+    )
+    const currentProductionDraftsById = buildEntitySignatureMap(
+      productionInProgressDrafts.filter((record) => record.draftId !== null),
+      (record) => record.draftId as number,
+    )
 
-    setManualProductionRequests(nextManualRequests)
-    setProductionInProgressDrafts(nextProductionDrafts)
-    syncedManualProductionRequestMapRef.current = new Map(
-      nextManualRequests.map((record) => [record.id, JSON.stringify(record)]),
-    )
-    syncedProductionDraftMapRef.current = new Map(
-      nextProductionDrafts
-        .filter((record) => record.draftId !== null)
-        .map((record) => [record.draftId as number, JSON.stringify(record)]),
-    )
+    if (!areEntitySignatureMapsEqual(nextManualRequestsById, currentManualRequestsById)) {
+      setManualProductionRequests(nextManualRequests)
+    }
+    if (!areEntitySignatureMapsEqual(nextProductionDraftsById, currentProductionDraftsById)) {
+      setProductionInProgressDrafts(nextProductionDrafts)
+    }
+    syncedManualProductionRequestMapRef.current = nextManualRequestsById
+    syncedProductionDraftMapRef.current = nextProductionDraftsById
   }
 
   async function refreshAppInventoryRecordsFromApi() {
@@ -6777,33 +6866,61 @@ export default function App() {
       logRemoteAppStateMessage('Os registros de inventario deste navegador foram usados para restaurar dados ausentes no servidor.')
       return
     }
+    const nextLocationsById = buildEntitySignatureMap(nextLocations, (record) => `${record.companyId}:${record.name}`)
+    const currentLocationsById = buildEntitySignatureMap(inventoryStorageLocations, (record) => `${record.companyId}:${record.name}`)
+    const nextInventoriesById = buildEntitySignatureMap(nextInventories, (record) => record.id)
+    const currentInventoriesById = buildEntitySignatureMap(inventoryRecords, (record) => record.id)
+    const nextActiveRecordLinksById = buildEntitySignatureMap(nextActiveRecordLinks, (record) => `${record.companyId}:${record.userKey}`)
+    const currentActiveRecordLinksById = buildEntitySignatureMap(inventoryActiveRecordLinks, (record) => `${record.companyId}:${record.userKey}`)
+    const nextSessionsById = buildEntitySignatureMap(nextSessions, (record) => record.id)
+    const currentSessionsById = buildEntitySignatureMap(inventoryCountSessions, (record) => record.id)
+    const nextActiveSessionLinksById = buildEntitySignatureMap(nextActiveSessionLinks, (record) => `${record.companyId}:${record.userKey}`)
+    const currentActiveSessionLinksById = buildEntitySignatureMap(inventoryActiveSessionLinks, (record) => `${record.companyId}:${record.userKey}`)
+    const nextCountsById = buildEntitySignatureMap(nextCounts, (record) => record.id)
+    const currentCountsById = buildEntitySignatureMap(inventoryCounts, (record) => record.id)
+    const nextWasteSessionsById = buildEntitySignatureMap(nextWasteSessions, (record) => record.id)
+    const currentWasteSessionsById = buildEntitySignatureMap(wasteSessions, (record) => record.id)
+    const nextWasteRecordsById = buildEntitySignatureMap(nextWasteRecords, (record) => record.id)
+    const currentWasteRecordsById = buildEntitySignatureMap(wasteRecords, (record) => record.id)
+    const nextPendingMovementsById = buildEntitySignatureMap(nextPendingMovements, (record) => record.id)
+    const currentPendingMovementsById = buildEntitySignatureMap(pendingInventoryMovements, (record) => record.id)
 
-    setInventoryStorageLocations(nextLocations)
-    setInventoryRecords(nextInventories)
-    setInventoryActiveRecordLinks(nextActiveRecordLinks)
-    setInventoryCountSessions(nextSessions)
-    setInventoryActiveSessionLinks(nextActiveSessionLinks)
-    setInventoryCounts(nextCounts)
-    setWasteSessions(nextWasteSessions)
-    setWasteRecords(nextWasteRecords)
-    setPendingInventoryMovements(nextPendingMovements)
-    syncedInventoryStorageLocationMapRef.current = new Map(
-      nextLocations.map((record) => [`${record.companyId}:${record.name}`, JSON.stringify(record)]),
-    )
-    syncedInventoryRecordMapRef.current = new Map(nextInventories.map((record) => [record.id, JSON.stringify(record)]))
-    syncedInventoryActiveRecordLinkMapRef.current = new Map(
-      nextActiveRecordLinks.map((record) => [`${record.companyId}:${record.userKey}`, JSON.stringify(record)]),
-    )
-    syncedInventoryCountSessionMapRef.current = new Map(nextSessions.map((record) => [record.id, JSON.stringify(record)]))
-    syncedInventoryActiveSessionLinkMapRef.current = new Map(
-      nextActiveSessionLinks.map((record) => [`${record.companyId}:${record.userKey}`, JSON.stringify(record)]),
-    )
-    syncedInventoryCountMapRef.current = new Map(nextCounts.map((record) => [record.id, JSON.stringify(record)]))
-    syncedWasteSessionMapRef.current = new Map(nextWasteSessions.map((record) => [record.id, JSON.stringify(record)]))
-    syncedWasteRecordMapRef.current = new Map(nextWasteRecords.map((record) => [record.id, JSON.stringify(record)]))
-    syncedPendingInventoryMovementMapRef.current = new Map(
-      nextPendingMovements.map((record) => [record.id, JSON.stringify(record)]),
-    )
+    if (!areEntitySignatureMapsEqual(nextLocationsById, currentLocationsById)) {
+      setInventoryStorageLocations(nextLocations)
+    }
+    if (!areEntitySignatureMapsEqual(nextInventoriesById, currentInventoriesById)) {
+      setInventoryRecords(nextInventories)
+    }
+    if (!areEntitySignatureMapsEqual(nextActiveRecordLinksById, currentActiveRecordLinksById)) {
+      setInventoryActiveRecordLinks(nextActiveRecordLinks)
+    }
+    if (!areEntitySignatureMapsEqual(nextSessionsById, currentSessionsById)) {
+      setInventoryCountSessions(nextSessions)
+    }
+    if (!areEntitySignatureMapsEqual(nextActiveSessionLinksById, currentActiveSessionLinksById)) {
+      setInventoryActiveSessionLinks(nextActiveSessionLinks)
+    }
+    if (!areEntitySignatureMapsEqual(nextCountsById, currentCountsById)) {
+      setInventoryCounts(nextCounts)
+    }
+    if (!areEntitySignatureMapsEqual(nextWasteSessionsById, currentWasteSessionsById)) {
+      setWasteSessions(nextWasteSessions)
+    }
+    if (!areEntitySignatureMapsEqual(nextWasteRecordsById, currentWasteRecordsById)) {
+      setWasteRecords(nextWasteRecords)
+    }
+    if (!areEntitySignatureMapsEqual(nextPendingMovementsById, currentPendingMovementsById)) {
+      setPendingInventoryMovements(nextPendingMovements)
+    }
+    syncedInventoryStorageLocationMapRef.current = nextLocationsById
+    syncedInventoryRecordMapRef.current = nextInventoriesById
+    syncedInventoryActiveRecordLinkMapRef.current = nextActiveRecordLinksById
+    syncedInventoryCountSessionMapRef.current = nextSessionsById
+    syncedInventoryActiveSessionLinkMapRef.current = nextActiveSessionLinksById
+    syncedInventoryCountMapRef.current = nextCountsById
+    syncedWasteSessionMapRef.current = nextWasteSessionsById
+    syncedWasteRecordMapRef.current = nextWasteRecordsById
+    syncedPendingInventoryMovementMapRef.current = nextPendingMovementsById
   }
 
   async function refreshAppCatalogRecordsFromApi() {
@@ -6872,11 +6989,27 @@ export default function App() {
       )
       return
     }
+    const nextProductsById = buildEntitySignatureMap(nextProducts, (record) => record.id)
+    const currentProductsById = buildEntitySignatureMap(products, (record) => record.id)
+    const nextServiceItemsById = buildEntitySignatureMap(nextServiceItems, (record) => record.id)
+    const currentServiceItemsById = buildEntitySignatureMap(serviceItems, (record) => record.id)
+    const nextTechnicalSheetsById = buildEntitySignatureMap(nextTechnicalSheets, (record) => record.id)
+    const currentTechnicalSheetsById = buildEntitySignatureMap(technicalSheets, (record) => record.id)
+    const nextFlavorProfilesById = buildEntitySignatureMap(nextFlavorProfiles, (record) => record.id)
+    const currentFlavorProfilesById = buildEntitySignatureMap(flavorProfiles, (record) => record.id)
 
-    setFlavorProfiles(nextFlavorProfiles)
-    setProducts(nextProducts)
-    setServiceItems(nextServiceItems)
-    setTechnicalSheets(nextTechnicalSheets)
+    if (!areEntitySignatureMapsEqual(nextFlavorProfilesById, currentFlavorProfilesById)) {
+      setFlavorProfiles(nextFlavorProfiles)
+    }
+    if (!areEntitySignatureMapsEqual(nextProductsById, currentProductsById)) {
+      setProducts(nextProducts)
+    }
+    if (!areEntitySignatureMapsEqual(nextServiceItemsById, currentServiceItemsById)) {
+      setServiceItems(nextServiceItems)
+    }
+    if (!areEntitySignatureMapsEqual(nextTechnicalSheetsById, currentTechnicalSheetsById)) {
+      setTechnicalSheets(nextTechnicalSheets)
+    }
   }
 
   async function fetchTechnicalSheetRecordFromApi(technicalSheetId: number) {
@@ -7435,19 +7568,31 @@ export default function App() {
       }
     }
 
-    void load()
-    const intervalId = window.setInterval(() => {
-      void load()
-    }, operationalEntityPollingIntervalMs)
-    const handleFocus = () => {
+    const triggerLoad = () => {
+      if (isDocumentHiddenForBackgroundRefresh()) {
+        return
+      }
       void load()
     }
+
+    triggerLoad()
+    const intervalId = window.setInterval(() => {
+      triggerLoad()
+    }, operationalEntityPollingIntervalMs)
+    const handleFocus = () => {
+      triggerLoad()
+    }
+    const handleVisibilityChange = () => {
+      triggerLoad()
+    }
     window.addEventListener('focus', handleFocus)
+    document.addEventListener('visibilitychange', handleVisibilityChange)
 
     return () => {
       isCancelled = true
       window.clearInterval(intervalId)
       window.removeEventListener('focus', handleFocus)
+      document.removeEventListener('visibilitychange', handleVisibilityChange)
     }
   }, [])
 
@@ -7525,19 +7670,31 @@ export default function App() {
       }
     }
 
-    void load()
-    const intervalId = window.setInterval(() => {
-      void load()
-    }, catalogEntityPollingIntervalMs)
-    const handleFocus = () => {
+    const triggerLoad = () => {
+      if (isDocumentHiddenForBackgroundRefresh()) {
+        return
+      }
       void load()
     }
+
+    triggerLoad()
+    const intervalId = window.setInterval(() => {
+      triggerLoad()
+    }, catalogEntityPollingIntervalMs)
+    const handleFocus = () => {
+      triggerLoad()
+    }
+    const handleVisibilityChange = () => {
+      triggerLoad()
+    }
     window.addEventListener('focus', handleFocus)
+    document.addEventListener('visibilitychange', handleVisibilityChange)
 
     return () => {
       isCancelled = true
       window.clearInterval(intervalId)
       window.removeEventListener('focus', handleFocus)
+      document.removeEventListener('visibilitychange', handleVisibilityChange)
     }
   }, [])
 
@@ -7555,19 +7712,31 @@ export default function App() {
       }
     }
 
-    void load()
-    const intervalId = window.setInterval(() => {
-      void load()
-    }, operationalEntityPollingIntervalMs)
-    const handleFocus = () => {
+    const triggerLoad = () => {
+      if (isDocumentHiddenForBackgroundRefresh()) {
+        return
+      }
       void load()
     }
+
+    triggerLoad()
+    const intervalId = window.setInterval(() => {
+      triggerLoad()
+    }, operationalEntityPollingIntervalMs)
+    const handleFocus = () => {
+      triggerLoad()
+    }
+    const handleVisibilityChange = () => {
+      triggerLoad()
+    }
     window.addEventListener('focus', handleFocus)
+    document.addEventListener('visibilitychange', handleVisibilityChange)
 
     return () => {
       isCancelled = true
       window.clearInterval(intervalId)
       window.removeEventListener('focus', handleFocus)
+      document.removeEventListener('visibilitychange', handleVisibilityChange)
     }
   }, [])
 
@@ -7585,19 +7754,31 @@ export default function App() {
       }
     }
 
-    void load()
-    const intervalId = window.setInterval(() => {
-      void load()
-    }, operationalEntityPollingIntervalMs)
-    const handleFocus = () => {
+    const triggerLoad = () => {
+      if (isDocumentHiddenForBackgroundRefresh()) {
+        return
+      }
       void load()
     }
+
+    triggerLoad()
+    const intervalId = window.setInterval(() => {
+      triggerLoad()
+    }, operationalEntityPollingIntervalMs)
+    const handleFocus = () => {
+      triggerLoad()
+    }
+    const handleVisibilityChange = () => {
+      triggerLoad()
+    }
     window.addEventListener('focus', handleFocus)
+    document.addEventListener('visibilitychange', handleVisibilityChange)
 
     return () => {
       isCancelled = true
       window.clearInterval(intervalId)
       window.removeEventListener('focus', handleFocus)
+      document.removeEventListener('visibilitychange', handleVisibilityChange)
     }
   }, [])
 
@@ -7615,19 +7796,31 @@ export default function App() {
       }
     }
 
-    void load()
-    const intervalId = window.setInterval(() => {
-      void load()
-    }, catalogEntityPollingIntervalMs)
-    const handleFocus = () => {
+    const triggerLoad = () => {
+      if (isDocumentHiddenForBackgroundRefresh()) {
+        return
+      }
       void load()
     }
+
+    triggerLoad()
+    const intervalId = window.setInterval(() => {
+      triggerLoad()
+    }, catalogEntityPollingIntervalMs)
+    const handleFocus = () => {
+      triggerLoad()
+    }
+    const handleVisibilityChange = () => {
+      triggerLoad()
+    }
     window.addEventListener('focus', handleFocus)
+    document.addEventListener('visibilitychange', handleVisibilityChange)
 
     return () => {
       isCancelled = true
       window.clearInterval(intervalId)
       window.removeEventListener('focus', handleFocus)
+      document.removeEventListener('visibilitychange', handleVisibilityChange)
     }
   }, [])
 
@@ -7645,19 +7838,31 @@ export default function App() {
       }
     }
 
-    void load()
-    const intervalId = window.setInterval(() => {
-      void load()
-    }, catalogEntityPollingIntervalMs)
-    const handleFocus = () => {
+    const triggerLoad = () => {
+      if (isDocumentHiddenForBackgroundRefresh()) {
+        return
+      }
       void load()
     }
+
+    triggerLoad()
+    const intervalId = window.setInterval(() => {
+      triggerLoad()
+    }, catalogEntityPollingIntervalMs)
+    const handleFocus = () => {
+      triggerLoad()
+    }
+    const handleVisibilityChange = () => {
+      triggerLoad()
+    }
     window.addEventListener('focus', handleFocus)
+    document.addEventListener('visibilitychange', handleVisibilityChange)
 
     return () => {
       isCancelled = true
       window.clearInterval(intervalId)
       window.removeEventListener('focus', handleFocus)
+      document.removeEventListener('visibilitychange', handleVisibilityChange)
     }
   }, [])
 
@@ -7675,19 +7880,31 @@ export default function App() {
       }
     }
 
-    void load()
-    const intervalId = window.setInterval(() => {
-      void load()
-    }, catalogEntityPollingIntervalMs)
-    const handleFocus = () => {
+    const triggerLoad = () => {
+      if (isDocumentHiddenForBackgroundRefresh()) {
+        return
+      }
       void load()
     }
+
+    triggerLoad()
+    const intervalId = window.setInterval(() => {
+      triggerLoad()
+    }, catalogEntityPollingIntervalMs)
+    const handleFocus = () => {
+      triggerLoad()
+    }
+    const handleVisibilityChange = () => {
+      triggerLoad()
+    }
     window.addEventListener('focus', handleFocus)
+    document.addEventListener('visibilitychange', handleVisibilityChange)
 
     return () => {
       isCancelled = true
       window.clearInterval(intervalId)
       window.removeEventListener('focus', handleFocus)
+      document.removeEventListener('visibilitychange', handleVisibilityChange)
     }
   }, [])
 
@@ -7705,15 +7922,27 @@ export default function App() {
       }
     }
 
-    void load()
-    const handleFocus = () => {
+    const triggerLoad = () => {
+      if (isDocumentHiddenForBackgroundRefresh()) {
+        return
+      }
       void load()
     }
+
+    triggerLoad()
+    const handleFocus = () => {
+      triggerLoad()
+    }
+    const handleVisibilityChange = () => {
+      triggerLoad()
+    }
     window.addEventListener('focus', handleFocus)
+    document.addEventListener('visibilitychange', handleVisibilityChange)
 
     return () => {
       isCancelled = true
       window.removeEventListener('focus', handleFocus)
+      document.removeEventListener('visibilitychange', handleVisibilityChange)
     }
   }, [])
 
