@@ -18267,7 +18267,7 @@ export default function App() {
     return Object.keys(nextErrors).length === 0
   }
 
-  function startWasteSession() {
+  async function startWasteSession() {
     if (currentCompanyId === null || !selectedWasteCenter || !wasteForm.countedAt) {
       setWasteErrors((current) => ({
         ...current,
@@ -18311,17 +18311,27 @@ export default function App() {
       closedByUserName: '',
     }
 
-    setInventoryCountSessions((current) => [nextSession, ...current])
-    setSelectedWasteSessionId(nextSession.id)
-    setWasteErrors((current) => ({ ...current, stockCenterId: '', countedAt: '' }))
-    setSaveFeedback({
-      status: 'success',
-      title: 'Registro de desperdicio iniciado',
-      message: 'Agora voce pode lancar quantos itens forem necessarios antes de finalizar o desperdicio.',
-    })
+    try {
+      await upsertInventoryCountSessionOnApi(nextSession)
+      setInventoryCountSessions((current) => [nextSession, ...current])
+      setSelectedWasteSessionId(nextSession.id)
+      setWasteErrors((current) => ({ ...current, stockCenterId: '', countedAt: '' }))
+      setSaveFeedback({
+        status: 'success',
+        title: 'Registro de desperdicio iniciado',
+        message: 'Agora voce pode lancar quantos itens forem necessarios antes de finalizar o desperdicio.',
+      })
+    } catch (error) {
+      console.error(error)
+      setSaveFeedback({
+        status: 'error',
+        title: 'Falha ao iniciar registro de desperdicio',
+        message: error instanceof Error ? error.message : 'Nao foi possivel iniciar o registro no servidor.',
+      })
+    }
   }
 
-  function saveWasteRecord() {
+  async function saveWasteRecord() {
     if (
       currentCompanyId === null ||
       !selectedWasteSession ||
@@ -18427,24 +18437,34 @@ export default function App() {
       return
     }
 
-    setInventoryCounts((current) => [...movementRecords, ...current])
+    try {
+      await Promise.all(movementRecords.map((record) => upsertInventoryCountOnApi(record)))
+      setInventoryCounts((current) => [...movementRecords, ...current])
 
-    setWasteForm((current) => ({
-      ...emptyInventoryForm(),
-      stockCenterId: current.stockCenterId,
-      countedAt: current.countedAt,
-      storageLocation: normalizedLocation,
-      hasOpenItems: '',
-    }))
-    setWasteErrors({})
-    setSaveFeedback({
-      status: 'success',
-      title: 'Item adicionado ao registro de desperdicio',
-      message: 'O item foi incluido no registro atual. Finalize o desperdicio quando terminar todos os lancamentos.',
-    })
+      setWasteForm((current) => ({
+        ...emptyInventoryForm(),
+        stockCenterId: current.stockCenterId,
+        countedAt: current.countedAt,
+        storageLocation: normalizedLocation,
+        hasOpenItems: '',
+      }))
+      setWasteErrors({})
+      setSaveFeedback({
+        status: 'success',
+        title: 'Item adicionado ao registro de desperdicio',
+        message: 'O item foi incluido no registro atual. Finalize o desperdicio quando terminar todos os lancamentos.',
+      })
+    } catch (error) {
+      console.error(error)
+      setSaveFeedback({
+        status: 'error',
+        title: 'Falha ao registrar item no desperdicio',
+        message: error instanceof Error ? error.message : 'Nao foi possivel salvar o item do desperdicio no servidor.',
+      })
+    }
   }
 
-  function finalizeWasteSession() {
+  async function finalizeWasteSession() {
     if (!selectedWasteSession || currentCompanyId === null) {
       return
     }
@@ -18480,32 +18500,79 @@ export default function App() {
       storageLocation: buildWasteMovementLocationLabel(extractWasteDraftOccurrenceLocationLabel(record.storageLocation)),
     }))
 
-    setInventoryCountSessions((current) => current.filter((sessionRecord) => sessionRecord.id !== selectedWasteSession.id))
-    setInventoryCounts((current) => current.filter((record) => record.sessionId !== selectedWasteSession.id))
+    const openInventory =
+      inventoryRecords.find(
+        (inventoryRecord) =>
+          inventoryRecord.companyId === currentCompanyId &&
+          inventoryRecord.stockCenterId === selectedWasteSession.stockCenterId &&
+          !inventoryRecord.isClosed,
+      ) ?? null
 
-    const movementResult = registerOperationalInventoryMovement(
-      selectedWasteSession.stockCenterId,
-      `SAIDA POR DESPERDICIO • ${inventoryStockCenterNameById.get(selectedWasteSession.stockCenterId) ?? `CENTRO ${selectedWasteSession.stockCenterId}`}`,
-      operationalSession,
-      operationalRecords,
-    )
+    const pendingMovement: PendingInventoryMovementRecord | null =
+      openInventory && currentCompanyId !== null
+        ? {
+            id: getNextPersistedIntId(pendingInventoryMovements.map((movement) => movement.id)),
+            companyId: currentCompanyId,
+            stockCenterId: selectedWasteSession.stockCenterId,
+            inventoryId: openInventory.id,
+            createdAt: now,
+            createdByUserId: currentAppUser?.id ?? null,
+            createdByUserName: currentAppUser?.fullName ?? 'Administrador do sistema',
+            description: `SAIDA POR DESPERDICIO • ${inventoryStockCenterNameById.get(selectedWasteSession.stockCenterId) ?? `CENTRO ${selectedWasteSession.stockCenterId}`}`,
+            session: operationalSession,
+            records: operationalRecords,
+          }
+        : null
 
-    setSelectedWasteSessionId(null)
-    setWasteForm((current) => ({
-      ...emptyInventoryForm(),
-      stockCenterId: current.stockCenterId,
-      countedAt: current.countedAt,
-      storageLocation: '',
-    }))
-    setWasteErrors({})
-    setSaveFeedback({
-      status: 'success',
-      title: movementResult === 'queued' ? 'Desperdicio pendente no inventario' : 'Desperdicio finalizado com sucesso',
-      message:
-        movementResult === 'queued'
+    try {
+      if (pendingMovement) {
+        await upsertPendingInventoryMovementOnApi(pendingMovement)
+      } else {
+        await Promise.all([
+          upsertInventoryCountSessionOnApi(operationalSession),
+          ...operationalRecords.map((record) => upsertInventoryCountOnApi(record)),
+        ])
+      }
+      await Promise.all([
+        deleteInventoryCountSessionOnApi(selectedWasteSession.id),
+        ...draftRecords.map((record) => deleteInventoryCountOnApi(record.id)),
+      ])
+
+      setInventoryCountSessions((current) => {
+        const base = current.filter((sessionRecord) => sessionRecord.id !== selectedWasteSession.id)
+        return pendingMovement ? base : [operationalSession, ...base]
+      })
+      setInventoryCounts((current) => {
+        const base = current.filter((record) => record.sessionId !== selectedWasteSession.id)
+        return pendingMovement ? base : [...operationalRecords, ...base]
+      })
+      if (pendingMovement) {
+        setPendingInventoryMovements((current) => [pendingMovement, ...current])
+      }
+
+      setSelectedWasteSessionId(null)
+      setWasteForm((current) => ({
+        ...emptyInventoryForm(),
+        stockCenterId: current.stockCenterId,
+        countedAt: current.countedAt,
+        storageLocation: '',
+      }))
+      setWasteErrors({})
+      setSaveFeedback({
+        status: 'success',
+        title: pendingMovement ? 'Desperdicio pendente no inventario' : 'Desperdicio finalizado com sucesso',
+        message: pendingMovement
           ? 'O centro esta com inventario aberto. O desperdicio ficou pendente e sera aplicado quando esse inventario for finalizado.'
           : 'O registro de desperdicio foi finalizado e a saida direta do estoque foi aplicada.',
-    })
+      })
+    } catch (error) {
+      console.error(error)
+      setSaveFeedback({
+        status: 'error',
+        title: 'Falha ao finalizar desperdicio',
+        message: error instanceof Error ? error.message : 'Nao foi possivel finalizar o desperdicio no servidor.',
+      })
+    }
   }
 
   function validateInventoryForm() {
