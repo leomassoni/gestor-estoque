@@ -9237,7 +9237,7 @@ export default function App() {
     }
 
     const stockCountableItem =
-      selectedWasteCountableItem && selectedWasteCountableItem.kind !== 'EXECUCAO'
+      selectedWasteCountableItem
         ? {
             key: selectedWasteCountableItem.key,
             kind: selectedWasteCountableItem.kind,
@@ -9287,11 +9287,9 @@ export default function App() {
     return 1
   }, [selectedWasteProduct, selectedWasteSheet])
   const wasteClosedQuantity = parseDecimal(wasteForm.closedItemsQuantity) ?? 0
-  const wasteOpenGrossWeight = parseDecimal(wasteForm.openItemsGrossWeight) ?? 0
-  const wasteOpenContainerQuantity = parseDecimal(wasteForm.openItemsContainerQuantity) ?? 0
   const wasteOpenPhysicalQuantity = useMemo(() => {
     const stockCountableItem =
-      selectedWasteCountableItem && selectedWasteCountableItem.kind !== 'EXECUCAO'
+      selectedWasteCountableItem
         ? {
             key: selectedWasteCountableItem.key,
             kind: selectedWasteCountableItem.kind,
@@ -9321,7 +9319,7 @@ export default function App() {
     }
 
     const stockCountableItem =
-      selectedWasteCountableItem && selectedWasteCountableItem.kind !== 'EXECUCAO'
+      selectedWasteCountableItem
         ? {
             key: selectedWasteCountableItem.key,
             kind: selectedWasteCountableItem.kind,
