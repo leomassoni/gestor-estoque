@@ -738,6 +738,56 @@ model AppInventoryCountRecord {
   @@index([stockCenterId])
 }
 
+model AppWasteSessionRecord {
+  id                Int      @id
+  companyId         Int
+  stockCenterId     Int
+  countedAt         String
+  isClosed          Boolean  @default(false)
+  startedAt         String
+  startedByUserId   Int?
+  startedByUserName String
+  closedAt          String
+  closedByUserId    Int?
+  closedByUserName  String
+  createdAtRecord   DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  @@index([companyId])
+  @@index([stockCenterId])
+}
+
+model AppWasteRecord {
+  id                        Int      @id
+  sessionId                 Int
+  companyId                 Int
+  stockCenterId             Int
+  countedAt                 String
+  technicalSheetId          Int?
+  productId                 String
+  serviceItemId             String
+  packageId                 Int?
+  technicalSheetName        String
+  technicalSheetKind        String
+  recipientItemId           String
+  recipientLabel            String
+  closedItemsQuantity       String
+  hasOpenItems              Boolean  @default(false)
+  openItemsGrossWeight      String
+  openItemsContainerQuantity String
+  openItemsNetQuantity      String
+  totalCountedQuantity      String
+  totalCountedUnit          String
+  createdByUserId           Int?
+  createdByUserName         String
+  createdAtRecord           DateTime @default(now())
+  updatedAt                 DateTime @updatedAt
+
+  @@index([companyId])
+  @@index([sessionId])
+  @@index([stockCenterId])
+}
+
 model AppPendingInventoryMovementRecord {
   id              Int      @id
   companyId       Int

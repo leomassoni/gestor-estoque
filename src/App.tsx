@@ -645,6 +645,45 @@ type InventoryCountRecord = {
   createdByUserName: string
 }
 
+type WasteSessionRecord = {
+  id: number
+  companyId: number
+  stockCenterId: number
+  countedAt: string
+  isClosed: boolean
+  startedAt: string
+  startedByUserId: number | null
+  startedByUserName: string
+  closedAt: string
+  closedByUserId: number | null
+  closedByUserName: string
+}
+
+type WasteRecord = {
+  id: number
+  sessionId: number
+  companyId: number
+  stockCenterId: number
+  countedAt: string
+  technicalSheetId: number | null
+  productId: string
+  serviceItemId: string
+  packageId: number | null
+  technicalSheetName: string
+  technicalSheetKind: StockCountableKind
+  recipientItemId: string
+  recipientLabel: string
+  closedItemsQuantity: string
+  hasOpenItems: boolean
+  openItemsGrossWeight: string
+  openItemsContainerQuantity: string
+  openItemsNetQuantity: string
+  totalCountedQuantity: string
+  totalCountedUnit: 'MILLILITER' | 'GRAM' | 'UNIT'
+  createdByUserId: number | null
+  createdByUserName: string
+}
+
 type PendingInventoryMovementRecord = {
   id: number
   companyId: number
@@ -3338,6 +3377,8 @@ const inventoryActiveRecordsStorageKey = 'gestor-estoque:inventory-active-record
 const inventoryCountSessionsStorageKey = 'gestor-estoque:inventory-count-sessions'
 const inventoryActiveSessionsStorageKey = 'gestor-estoque:inventory-active-sessions'
 const inventoryCountsStorageKey = 'gestor-estoque:inventory-counts'
+const wasteSessionsStorageKey = 'gestor-estoque:waste-sessions'
+const wasteRecordsStorageKey = 'gestor-estoque:waste-records'
 const pendingInventoryMovementsStorageKey = 'gestor-estoque:pending-inventory-movements'
 const inventoryStorageLocationsStorageKey = 'gestor-estoque:inventory-storage-locations'
 const stockModuleSettingsStorageKey = 'gestor-estoque:stock-module-settings'
@@ -3362,6 +3403,8 @@ const syncedAppStorageKeys = [
   inventoryCountSessionsStorageKey,
   inventoryActiveSessionsStorageKey,
   inventoryCountsStorageKey,
+  wasteSessionsStorageKey,
+  wasteRecordsStorageKey,
   pendingInventoryMovementsStorageKey,
   inventoryStorageLocationsStorageKey,
   manualProductionRequestsStorageKey,
@@ -3800,6 +3843,8 @@ export default function App() {
   const syncedInventoryCountSessionMapRef = useRef<Map<number, string>>(new Map())
   const syncedInventoryActiveSessionLinkMapRef = useRef<Map<string, string>>(new Map())
   const syncedInventoryCountMapRef = useRef<Map<number, string>>(new Map())
+  const syncedWasteSessionMapRef = useRef<Map<number, string>>(new Map())
+  const syncedWasteRecordMapRef = useRef<Map<number, string>>(new Map())
   const syncedPendingInventoryMovementMapRef = useRef<Map<number, string>>(new Map())
   const syncedInventoryStorageLocationMapRef = useRef<Map<string, string>>(new Map())
   const [isRemoteAppStateReady, setIsRemoteAppStateReady] = useState(false)
@@ -3910,6 +3955,8 @@ export default function App() {
     loadInventoryActiveSessionLinksState(),
   )
   const [inventoryCounts, setInventoryCounts] = useState<InventoryCountRecord[]>(() => loadInventoryCountsState())
+  const [wasteSessions, setWasteSessions] = useState<WasteSessionRecord[]>(() => loadWasteSessionsState())
+  const [wasteRecords, setWasteRecords] = useState<WasteRecord[]>(() => loadWasteRecordsState())
   const [pendingInventoryMovements, setPendingInventoryMovements] = useState<PendingInventoryMovementRecord[]>(
     () => loadPendingInventoryMovementsState(),
   )
@@ -6528,6 +6575,8 @@ export default function App() {
       sessionsResponse,
       activeSessionLinksResponse,
       countsResponse,
+      wasteSessionsResponse,
+      wasteRecordsResponse,
       pendingMovementsResponse,
     ] =
       await Promise.all([
@@ -6537,6 +6586,8 @@ export default function App() {
         fetch('/api/inventory-count-sessions'),
         fetch('/api/inventory-active-session-links'),
         fetch('/api/inventory-counts'),
+        fetch('/api/waste-sessions'),
+        fetch('/api/waste-records'),
         fetch('/api/pending-inventory-movements'),
       ])
 
@@ -6547,18 +6598,22 @@ export default function App() {
       !sessionsResponse.ok ||
       !activeSessionLinksResponse.ok ||
       !countsResponse.ok ||
+      !wasteSessionsResponse.ok ||
+      !wasteRecordsResponse.ok ||
       !pendingMovementsResponse.ok
     ) {
       throw new Error('Falha ao carregar inventarios pelo backend.')
     }
 
-    const [locationsData, activeRecordLinksData, inventoriesData, sessionsData, activeSessionLinksData, countsData, pendingMovementsData] = await Promise.all([
+    const [locationsData, activeRecordLinksData, inventoriesData, sessionsData, activeSessionLinksData, countsData, wasteSessionsData, wasteRecordsData, pendingMovementsData] = await Promise.all([
       locationsResponse.json(),
       activeRecordLinksResponse.json(),
       inventoriesResponse.json(),
       sessionsResponse.json(),
       activeSessionLinksResponse.json(),
       countsResponse.json(),
+      wasteSessionsResponse.json(),
+      wasteRecordsResponse.json(),
       pendingMovementsResponse.json(),
     ])
 
@@ -6592,6 +6647,16 @@ export default function App() {
           .map(normalizeInventoryCountRecord)
           .filter((item): item is InventoryCountRecord => item !== null)
       : []
+    const nextWasteSessions = Array.isArray(wasteSessionsData?.wasteSessions)
+      ? (wasteSessionsData.wasteSessions as unknown[])
+          .map(normalizeWasteSessionRecord)
+          .filter((item): item is WasteSessionRecord => item !== null)
+      : []
+    const nextWasteRecords = Array.isArray(wasteRecordsData?.wasteRecords)
+      ? (wasteRecordsData.wasteRecords as unknown[])
+          .map(normalizeWasteRecord)
+          .filter((item): item is WasteRecord => item !== null)
+      : []
     const nextPendingMovements = Array.isArray(pendingMovementsData?.pendingInventoryMovements)
       ? (pendingMovementsData.pendingInventoryMovements as unknown[])
           .map(normalizePendingInventoryMovementRecord)
@@ -6604,6 +6669,8 @@ export default function App() {
     const localSessions = loadInventoryCountSessionsState()
     const localActiveSessionLinks = loadInventoryActiveSessionLinksState()
     const localCounts = loadInventoryCountsState()
+    const localWasteSessions = loadWasteSessionsState()
+    const localWasteRecords = loadWasteRecordsState()
     const localPendingMovements = loadPendingInventoryMovementsState()
 
     const missingLocations = nextLocations.length === 0 && localLocations.length > 0
@@ -6612,32 +6679,9 @@ export default function App() {
     const missingSessions = nextSessions.length === 0 && localSessions.length > 0
     const missingActiveSessionLinks = nextActiveSessionLinks.length === 0 && localActiveSessionLinks.length > 0
     const missingCounts = nextCounts.length === 0 && localCounts.length > 0
+    const missingWasteSessions = nextWasteSessions.length === 0 && localWasteSessions.length > 0
+    const missingWasteRecords = nextWasteRecords.length === 0 && localWasteRecords.length > 0
     const missingPendingMovements = nextPendingMovements.length === 0 && localPendingMovements.length > 0
-
-    const localWasteDraftSessionIds = new Set(
-      localSessions
-        .filter((sessionRecord) => {
-          if (sessionRecord.inventoryId !== null || sessionRecord.isClosed) {
-            return false
-          }
-          const linkedRecords = localCounts.filter((record) => record.sessionId === sessionRecord.id)
-          return linkedRecords.length === 0 || linkedRecords.every((record) => isWasteDraftInventoryMovementLocation(record.storageLocation))
-        })
-        .map((sessionRecord) => sessionRecord.id),
-    )
-    const preservedWasteDraftSessions = localSessions.filter(
-      (sessionRecord) =>
-        localWasteDraftSessionIds.has(sessionRecord.id) && !nextSessions.some((remoteSession) => remoteSession.id === sessionRecord.id),
-    )
-    const preservedWasteDraftCounts = localCounts.filter(
-      (record) => localWasteDraftSessionIds.has(record.sessionId) && !nextCounts.some((remoteRecord) => remoteRecord.id === record.id),
-    )
-    const mergedNextSessions = [...preservedWasteDraftSessions, ...nextSessions].sort(
-      (left, right) => right.startedAt.localeCompare(left.startedAt) || right.id - left.id,
-    )
-    const mergedNextCounts = [...preservedWasteDraftCounts, ...nextCounts].sort(
-      (left, right) => right.countedAt.localeCompare(left.countedAt) || right.id - left.id,
-    )
 
     if (
       missingLocations ||
@@ -6646,6 +6690,8 @@ export default function App() {
       missingSessions ||
       missingActiveSessionLinks ||
       missingCounts ||
+      missingWasteSessions ||
+      missingWasteRecords ||
       missingPendingMovements
     ) {
       await Promise.all([
@@ -6655,15 +6701,19 @@ export default function App() {
         ...(missingSessions ? localSessions.map((record) => upsertInventoryCountSessionOnApi(record)) : []),
         ...(missingActiveSessionLinks ? localActiveSessionLinks.map((record) => upsertInventoryActiveSessionLinkOnApi(record)) : []),
         ...(missingCounts ? localCounts.map((record) => upsertInventoryCountOnApi(record)) : []),
+        ...(missingWasteSessions ? localWasteSessions.map((record) => upsertWasteSessionOnApi(record)) : []),
+        ...(missingWasteRecords ? localWasteRecords.map((record) => upsertWasteRecordOnApi(record)) : []),
         ...(missingPendingMovements ? localPendingMovements.map((record) => upsertPendingInventoryMovementOnApi(record)) : []),
       ])
 
       setInventoryStorageLocations(missingLocations ? localLocations : nextLocations)
       setInventoryRecords(missingInventories ? localInventories : nextInventories)
       setInventoryActiveRecordLinks(missingActiveRecordLinks ? localActiveRecordLinks : nextActiveRecordLinks)
-      setInventoryCountSessions(missingSessions ? localSessions : mergedNextSessions)
+      setInventoryCountSessions(missingSessions ? localSessions : nextSessions)
       setInventoryActiveSessionLinks(missingActiveSessionLinks ? localActiveSessionLinks : nextActiveSessionLinks)
-      setInventoryCounts(missingCounts ? localCounts : mergedNextCounts)
+      setInventoryCounts(missingCounts ? localCounts : nextCounts)
+      setWasteSessions(missingWasteSessions ? localWasteSessions : nextWasteSessions)
+      setWasteRecords(missingWasteRecords ? localWasteRecords : nextWasteRecords)
       setPendingInventoryMovements(missingPendingMovements ? localPendingMovements : nextPendingMovements)
 
       syncedInventoryStorageLocationMapRef.current = new Map(
@@ -6693,6 +6743,12 @@ export default function App() {
       syncedInventoryCountMapRef.current = new Map(
         (missingCounts ? localCounts : nextCounts).map((record) => [record.id, JSON.stringify(record)]),
       )
+      syncedWasteSessionMapRef.current = new Map(
+        (missingWasteSessions ? localWasteSessions : nextWasteSessions).map((record) => [record.id, JSON.stringify(record)]),
+      )
+      syncedWasteRecordMapRef.current = new Map(
+        (missingWasteRecords ? localWasteRecords : nextWasteRecords).map((record) => [record.id, JSON.stringify(record)]),
+      )
       syncedPendingInventoryMovementMapRef.current = new Map(
         (missingPendingMovements ? localPendingMovements : nextPendingMovements).map((record) => [
           record.id,
@@ -6707,9 +6763,11 @@ export default function App() {
     setInventoryStorageLocations(nextLocations)
     setInventoryRecords(nextInventories)
     setInventoryActiveRecordLinks(nextActiveRecordLinks)
-    setInventoryCountSessions(mergedNextSessions)
+    setInventoryCountSessions(nextSessions)
     setInventoryActiveSessionLinks(nextActiveSessionLinks)
-    setInventoryCounts(mergedNextCounts)
+    setInventoryCounts(nextCounts)
+    setWasteSessions(nextWasteSessions)
+    setWasteRecords(nextWasteRecords)
     setPendingInventoryMovements(nextPendingMovements)
     syncedInventoryStorageLocationMapRef.current = new Map(
       nextLocations.map((record) => [`${record.companyId}:${record.name}`, JSON.stringify(record)]),
@@ -6723,6 +6781,8 @@ export default function App() {
       nextActiveSessionLinks.map((record) => [`${record.companyId}:${record.userKey}`, JSON.stringify(record)]),
     )
     syncedInventoryCountMapRef.current = new Map(nextCounts.map((record) => [record.id, JSON.stringify(record)]))
+    syncedWasteSessionMapRef.current = new Map(nextWasteSessions.map((record) => [record.id, JSON.stringify(record)]))
+    syncedWasteRecordMapRef.current = new Map(nextWasteRecords.map((record) => [record.id, JSON.stringify(record)]))
     syncedPendingInventoryMovementMapRef.current = new Map(
       nextPendingMovements.map((record) => [record.id, JSON.stringify(record)]),
     )
@@ -7129,6 +7189,46 @@ export default function App() {
     if (!response.ok) {
       const errorPayload = (await response.json().catch(() => null)) as { error?: string } | null
       throw new Error(errorPayload?.error || 'Nao foi possivel salvar a contagem no servidor.')
+    }
+  }
+
+  async function upsertWasteSessionOnApi(session: WasteSessionRecord) {
+    const response = await fetch(`/api/waste-sessions/${session.id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(session),
+    })
+    if (!response.ok) {
+      const errorPayload = (await response.json().catch(() => null)) as { error?: string } | null
+      throw new Error(errorPayload?.error || 'Nao foi possivel salvar o registro de desperdicio no servidor.')
+    }
+  }
+
+  async function deleteWasteSessionOnApi(sessionId: number) {
+    const response = await fetch(`/api/waste-sessions/${sessionId}`, { method: 'DELETE' })
+    if (!response.ok) {
+      const errorPayload = (await response.json().catch(() => null)) as { error?: string } | null
+      throw new Error(errorPayload?.error || 'Nao foi possivel excluir o registro de desperdicio no servidor.')
+    }
+  }
+
+  async function upsertWasteRecordOnApi(record: WasteRecord) {
+    const response = await fetch(`/api/waste-records/${record.id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(record),
+    })
+    if (!response.ok) {
+      const errorPayload = (await response.json().catch(() => null)) as { error?: string } | null
+      throw new Error(errorPayload?.error || 'Nao foi possivel salvar o item de desperdicio no servidor.')
+    }
+  }
+
+  async function deleteWasteRecordOnApi(recordId: number) {
+    const response = await fetch(`/api/waste-records/${recordId}`, { method: 'DELETE' })
+    if (!response.ok) {
+      const errorPayload = (await response.json().catch(() => null)) as { error?: string } | null
+      throw new Error(errorPayload?.error || 'Nao foi possivel excluir o item de desperdicio no servidor.')
     }
   }
 
@@ -9009,16 +9109,10 @@ export default function App() {
   )
   const wasteDraftSessions = useMemo(
     () =>
-      inventoryCountSessions
-        .filter((sessionRecord) => {
-          if (sessionRecord.companyId !== currentCompanyId || sessionRecord.inventoryId !== null || sessionRecord.isClosed) {
-            return false
-          }
-          const linkedRecords = inventoryCounts.filter((record) => record.sessionId === sessionRecord.id)
-          return linkedRecords.length === 0 || linkedRecords.every((record) => isWasteDraftInventoryMovementLocation(record.storageLocation))
-        })
+      wasteSessions
+        .filter((sessionRecord) => sessionRecord.companyId === currentCompanyId && !sessionRecord.isClosed)
         .sort((left, right) => right.countedAt.localeCompare(left.countedAt) || right.id - left.id),
-    [currentCompanyId, inventoryCountSessions, inventoryCounts],
+    [currentCompanyId, wasteSessions],
   )
   const selectedWasteSession = useMemo(
     () =>
@@ -9030,11 +9124,11 @@ export default function App() {
   const selectedWasteSessionRecords = useMemo(
     () =>
       selectedWasteSession
-        ? inventoryCounts
+        ? wasteRecords
             .filter((record) => record.sessionId === selectedWasteSession.id)
             .sort((left, right) => left.id - right.id)
         : [],
-    [inventoryCounts, selectedWasteSession],
+    [selectedWasteSession, wasteRecords],
   )
   const selectedWasteSheet = useMemo(
     () =>
@@ -15133,6 +15227,88 @@ export default function App() {
   }, [inventoryCounts, isRemoteAppStateReady])
 
   useEffect(() => {
+    saveWasteSessionsState(wasteSessions)
+  }, [wasteSessions])
+
+  useEffect(() => {
+    if (!isRemoteAppStateReady) {
+      return
+    }
+
+    const currentById = new Map(wasteSessions.map((record) => [record.id, JSON.stringify(record)] as const))
+    const previousById = syncedWasteSessionMapRef.current
+    const changedRecords = wasteSessions.filter((record) => previousById.get(record.id) !== currentById.get(record.id))
+    const removedIds = Array.from(previousById.keys()).filter((id) => !currentById.has(id))
+
+    if (changedRecords.length === 0 && removedIds.length === 0) {
+      return
+    }
+
+    let isCancelled = false
+    ;(async () => {
+      try {
+        await Promise.all([
+          ...changedRecords.map((record) => upsertWasteSessionOnApi(record)),
+          ...removedIds.map((id) => deleteWasteSessionOnApi(id)),
+        ])
+        if (!isCancelled) {
+          syncedWasteSessionMapRef.current = currentById
+        }
+      } catch (error) {
+        console.error(error)
+        if (!isCancelled) {
+          logRemoteAppStateMessage('Falha ao sincronizar registros de desperdicio com o servidor.')
+        }
+      }
+    })()
+
+    return () => {
+      isCancelled = true
+    }
+  }, [isRemoteAppStateReady, wasteSessions])
+
+  useEffect(() => {
+    saveWasteRecordsState(wasteRecords)
+  }, [wasteRecords])
+
+  useEffect(() => {
+    if (!isRemoteAppStateReady) {
+      return
+    }
+
+    const currentById = new Map(wasteRecords.map((record) => [record.id, JSON.stringify(record)] as const))
+    const previousById = syncedWasteRecordMapRef.current
+    const changedRecords = wasteRecords.filter((record) => previousById.get(record.id) !== currentById.get(record.id))
+    const removedIds = Array.from(previousById.keys()).filter((id) => !currentById.has(id))
+
+    if (changedRecords.length === 0 && removedIds.length === 0) {
+      return
+    }
+
+    let isCancelled = false
+    ;(async () => {
+      try {
+        await Promise.all([
+          ...changedRecords.map((record) => upsertWasteRecordOnApi(record)),
+          ...removedIds.map((id) => deleteWasteRecordOnApi(id)),
+        ])
+        if (!isCancelled) {
+          syncedWasteRecordMapRef.current = currentById
+        }
+      } catch (error) {
+        console.error(error)
+        if (!isCancelled) {
+          logRemoteAppStateMessage('Falha ao sincronizar itens de desperdicio com o servidor.')
+        }
+      }
+    })()
+
+    return () => {
+      isCancelled = true
+    }
+  }, [isRemoteAppStateReady, wasteRecords])
+
+  useEffect(() => {
     savePendingInventoryMovementsState(pendingInventoryMovements)
   }, [pendingInventoryMovements])
 
@@ -15645,7 +15821,7 @@ export default function App() {
       stockCenterId: String(selectedWasteSession.stockCenterId),
       countedAt: selectedWasteSession.countedAt,
     }))
-  }, [inventoryCounts, selectedWasteSession])
+  }, [selectedWasteSession])
 
   useEffect(() => {
     if (requisitionEligibleStockCenters.length === 0) {
@@ -18309,9 +18485,8 @@ export default function App() {
     }
 
     const now = new Date().toISOString()
-    const nextSession: InventoryCountSessionRecord = {
-      id: getNextPersistedIntId(inventoryCountSessions.map((record) => record.id)),
-      inventoryId: null,
+    const nextSession: WasteSessionRecord = {
+      id: getNextPersistedIntId(wasteSessions.map((record) => record.id)),
       companyId: currentCompanyId,
       stockCenterId: selectedWasteCenter.id,
       countedAt: wasteForm.countedAt,
@@ -18325,8 +18500,8 @@ export default function App() {
     }
 
     try {
-      await upsertInventoryCountSessionOnApi(nextSession)
-      setInventoryCountSessions((current) => [nextSession, ...current])
+      await upsertWasteSessionOnApi(nextSession)
+      setWasteSessions((current) => [nextSession, ...current])
       setSelectedWasteSessionId(nextSession.id)
       setWasteErrors((current) => ({ ...current, stockCenterId: '', countedAt: '' }))
       setSaveFeedback({
@@ -18361,11 +18536,9 @@ export default function App() {
       return
     }
 
-    const normalizedLocation = normalizeRegistrationText(wasteForm.storageLocation)
-    const draftLocation = buildWasteDraftLocationLabel(normalizedLocation)
-    const nextRecordId = getNextPersistedIntId(inventoryCounts.map((record) => record.id))
+    const nextRecordId = getNextPersistedIntId(wasteRecords.map((record) => record.id))
 
-    let movementRecords: InventoryCountRecord[] = []
+    let movementRecords: WasteRecord[] = []
     if (selectedWasteCountableItem.kind === 'EXECUCAO') {
       const selectedExecutionSheet = selectedWasteSheet?.kind === 'EXECUCAO' ? selectedWasteSheet : null
       if (!selectedExecutionSheet) {
@@ -18375,12 +18548,10 @@ export default function App() {
       const wasteEntries = buildWasteMovementEntriesForExecution(selectedWasteCenter, selectedExecutionSheet, executionQuantity)
       movementRecords = wasteEntries.map((entry, index) => ({
         id: nextRecordId + index,
-        inventoryId: null,
         sessionId: selectedWasteSession.id,
         companyId: currentCompanyId,
         stockCenterId: selectedWasteCenter.id,
         countedAt: wasteForm.countedAt,
-        storageLocation: draftLocation,
         technicalSheetId: entry.technicalSheetId,
         productId: entry.productId,
         serviceItemId: entry.serviceItemId,
@@ -18411,12 +18582,10 @@ export default function App() {
       movementRecords = [
         {
           id: nextRecordId,
-          inventoryId: null,
           sessionId: selectedWasteSession.id,
           companyId: currentCompanyId,
           stockCenterId: selectedWasteCenter.id,
           countedAt: wasteForm.countedAt,
-          storageLocation: draftLocation,
           technicalSheetId: selectedWasteCountableItem.kind === 'PREPARO' ? selectedWasteCountableItem.technicalSheetId : null,
           productId: selectedWasteCountableItem.kind === 'PRODUTO' ? selectedWasteCountableItem.productId : '',
           serviceItemId: selectedWasteCountableItem.kind === 'ITEM' ? selectedWasteCountableItem.serviceItemId : '',
@@ -18451,14 +18620,13 @@ export default function App() {
     }
 
     try {
-      await Promise.all(movementRecords.map((record) => upsertInventoryCountOnApi(record)))
-      setInventoryCounts((current) => [...movementRecords, ...current])
+      await Promise.all(movementRecords.map((record) => upsertWasteRecordOnApi(record)))
+      setWasteRecords((current) => [...movementRecords, ...current])
 
       setWasteForm((current) => ({
         ...emptyInventoryForm(),
         stockCenterId: current.stockCenterId,
         countedAt: current.countedAt,
-        storageLocation: normalizedLocation,
         hasOpenItems: '',
       }))
       setWasteErrors({})
@@ -18482,7 +18650,7 @@ export default function App() {
       return
     }
 
-    const draftRecords = inventoryCounts.filter((record) => record.sessionId === selectedWasteSession.id)
+    const draftRecords = wasteRecords.filter((record) => record.sessionId === selectedWasteSession.id)
     if (draftRecords.length === 0) {
       setSaveFeedback({
         status: 'error',
@@ -18500,17 +18668,38 @@ export default function App() {
     const now = new Date().toISOString()
     const operationalSession: InventoryCountSessionRecord = {
       ...selectedWasteSession,
+      inventoryId: null,
       id: realSessionId,
       isClosed: true,
       closedAt: now,
       closedByUserId: currentAppUser?.id ?? null,
       closedByUserName: currentAppUser?.fullName ?? 'Administrador do sistema',
     }
-    const operationalRecords = draftRecords.map((record, index) => ({
-      ...record,
+    const operationalRecords: InventoryCountRecord[] = draftRecords.map((record, index) => ({
       id: realSessionId + index + 1,
+      inventoryId: null,
       sessionId: realSessionId,
-      storageLocation: buildWasteMovementLocationLabel(extractWasteDraftOccurrenceLocationLabel(record.storageLocation)),
+      companyId: record.companyId,
+      stockCenterId: record.stockCenterId,
+      countedAt: record.countedAt,
+      storageLocation: buildWasteMovementLocationLabel(''),
+      technicalSheetId: record.technicalSheetId,
+      productId: record.productId,
+      serviceItemId: record.serviceItemId,
+      packageId: record.packageId,
+      technicalSheetName: record.technicalSheetName,
+      technicalSheetKind: record.technicalSheetKind,
+      recipientItemId: record.recipientItemId,
+      recipientLabel: record.recipientLabel,
+      closedItemsQuantity: record.closedItemsQuantity,
+      hasOpenItems: record.hasOpenItems,
+      openItemsGrossWeight: record.openItemsGrossWeight,
+      openItemsContainerQuantity: record.openItemsContainerQuantity,
+      openItemsNetQuantity: record.openItemsNetQuantity,
+      totalCountedQuantity: record.totalCountedQuantity,
+      totalCountedUnit: record.totalCountedUnit,
+      createdByUserId: record.createdByUserId,
+      createdByUserName: record.createdByUserName,
     }))
 
     const openInventory =
@@ -18547,20 +18736,17 @@ export default function App() {
         ])
       }
       await Promise.all([
-        deleteInventoryCountSessionOnApi(selectedWasteSession.id),
-        ...draftRecords.map((record) => deleteInventoryCountOnApi(record.id)),
+        deleteWasteSessionOnApi(selectedWasteSession.id),
+        ...draftRecords.map((record) => deleteWasteRecordOnApi(record.id)),
       ])
 
-      setInventoryCountSessions((current) => {
-        const base = current.filter((sessionRecord) => sessionRecord.id !== selectedWasteSession.id)
-        return pendingMovement ? base : [operationalSession, ...base]
-      })
-      setInventoryCounts((current) => {
-        const base = current.filter((record) => record.sessionId !== selectedWasteSession.id)
-        return pendingMovement ? base : [...operationalRecords, ...base]
-      })
+      setWasteSessions((current) => current.filter((sessionRecord) => sessionRecord.id !== selectedWasteSession.id))
+      setWasteRecords((current) => current.filter((record) => record.sessionId !== selectedWasteSession.id))
       if (pendingMovement) {
         setPendingInventoryMovements((current) => [pendingMovement, ...current])
+      } else {
+        setInventoryCountSessions((current) => [operationalSession, ...current])
+        setInventoryCounts((current) => [...operationalRecords, ...current])
       }
 
       setSelectedWasteSessionId(null)
@@ -39286,7 +39472,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                     </div>
                     <div className="selector-list company-management-list">
                       {wasteDraftSessions.map((sessionRecord) => {
-                        const recordCount = inventoryCounts.filter((record) => record.sessionId === sessionRecord.id).length
+                        const recordCount = wasteRecords.filter((record) => record.sessionId === sessionRecord.id).length
                         return (
                           <article key={`waste-session-${sessionRecord.id}`} className="list-row user-list-row">
                             <div className="user-row-header">
@@ -39535,7 +39721,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                             </div>
                             <div className="row-meta user-row-meta">
                               <div className="user-meta-line">
-                                <span><strong className="meta-label">Local:</strong> {extractWasteDraftOccurrenceLocationLabel(record.storageLocation)}</span>
+                                <span><strong className="meta-label">Tipo:</strong> {getStockCountableKindLabel(record.technicalSheetKind)}</span>
                                 <span><strong className="meta-label">Quantidade:</strong> {formatDecimal(Math.abs(parseDecimal(record.totalCountedQuantity) ?? 0))} {record.totalCountedUnit === 'GRAM' ? 'G' : record.totalCountedUnit === 'UNIT' ? 'UN' : 'ML'}</span>
                               </div>
                             </div>
@@ -50012,11 +50198,6 @@ function buildWasteMovementLocationLabel(location: string) {
   return normalizedLocation ? `SAIDA POR DESPERDICIO • ${normalizedLocation}` : 'SAIDA POR DESPERDICIO'
 }
 
-function buildWasteDraftLocationLabel(location: string) {
-  const normalizedLocation = normalizeRegistrationText(location)
-  return normalizedLocation ? `RASCUNHO DE DESPERDICIO • ${normalizedLocation}` : 'RASCUNHO DE DESPERDICIO'
-}
-
 function extractWasteOccurrenceLocationLabel(value: string) {
   const normalizedValue = normalizeRegistrationText(value)
   if (!normalizedValue.startsWith('SAIDA POR DESPERDICIO')) {
@@ -50029,16 +50210,6 @@ function extractWasteOccurrenceLocationLabel(value: string) {
 
 function isWasteDraftInventoryMovementLocation(value: string) {
   return normalizeRegistrationText(value).startsWith('RASCUNHO DE DESPERDICIO')
-}
-
-function extractWasteDraftOccurrenceLocationLabel(value: string) {
-  const normalizedValue = normalizeRegistrationText(value)
-  if (!normalizedValue.startsWith('RASCUNHO DE DESPERDICIO')) {
-    return normalizedValue
-  }
-
-  const [, ...parts] = normalizedValue.split('•')
-  return parts.join('•').trim() || 'SEM LOCAL INFORMADO'
 }
 
 function getInventoryTrackedMovementQuantity(record: InventoryCountRecord) {
@@ -51243,6 +51414,50 @@ function loadInventoryCountsState(): InventoryCountRecord[] {
   }
 }
 
+function loadWasteSessionsState(): WasteSessionRecord[] {
+  if (typeof window === 'undefined') {
+    return []
+  }
+
+  try {
+    const raw = window.localStorage.getItem(wasteSessionsStorageKey)
+    if (!raw) {
+      return []
+    }
+
+    const parsed = JSON.parse(raw) as unknown
+    if (!Array.isArray(parsed)) {
+      return []
+    }
+
+    return parsed.map(normalizeWasteSessionRecord).filter((item): item is WasteSessionRecord => item !== null)
+  } catch {
+    return []
+  }
+}
+
+function loadWasteRecordsState(): WasteRecord[] {
+  if (typeof window === 'undefined') {
+    return []
+  }
+
+  try {
+    const raw = window.localStorage.getItem(wasteRecordsStorageKey)
+    if (!raw) {
+      return []
+    }
+
+    const parsed = JSON.parse(raw) as unknown
+    if (!Array.isArray(parsed)) {
+      return []
+    }
+
+    return parsed.map(normalizeWasteRecord).filter((item): item is WasteRecord => item !== null)
+  } catch {
+    return []
+  }
+}
+
 function loadPendingInventoryMovementsState(): PendingInventoryMovementRecord[] {
   if (typeof window === 'undefined') {
     return []
@@ -51370,6 +51585,30 @@ function saveInventoryCountsState(inventoryCounts: InventoryCountRecord[]) {
 
   try {
     window.localStorage.setItem(inventoryCountsStorageKey, JSON.stringify(inventoryCounts))
+  } catch {
+    return
+  }
+}
+
+function saveWasteSessionsState(wasteSessions: WasteSessionRecord[]) {
+  if (typeof window === 'undefined') {
+    return
+  }
+
+  try {
+    window.localStorage.setItem(wasteSessionsStorageKey, JSON.stringify(wasteSessions))
+  } catch {
+    return
+  }
+}
+
+function saveWasteRecordsState(wasteRecords: WasteRecord[]) {
+  if (typeof window === 'undefined') {
+    return
+  }
+
+  try {
+    window.localStorage.setItem(wasteRecordsStorageKey, JSON.stringify(wasteRecords))
   } catch {
     return
   }
@@ -53080,6 +53319,93 @@ function normalizeInventoryCountRecord(value: unknown): InventoryCountRecord | n
       typeof record.productionTargetBrix === 'string' ? normalizeRegistrationText(record.productionTargetBrix) : '',
     productionConfirmedBrix:
       typeof record.productionConfirmedBrix === 'string' ? normalizeRegistrationText(record.productionConfirmedBrix) : '',
+    createdByUserId: typeof record.createdByUserId === 'number' ? record.createdByUserId : null,
+    createdByUserName: normalizeRegistrationText(record.createdByUserName),
+  }
+}
+
+function normalizeWasteSessionRecord(value: unknown): WasteSessionRecord | null {
+  if (!value || typeof value !== 'object') {
+    return null
+  }
+
+  const record = value as Partial<WasteSessionRecord>
+  if (
+    !isSafePersistedIntId(record.id) ||
+    typeof record.companyId !== 'number' ||
+    !isSafePersistedIntId(record.stockCenterId) ||
+    typeof record.countedAt !== 'string' ||
+    typeof record.isClosed !== 'boolean' ||
+    typeof record.startedAt !== 'string' ||
+    typeof record.startedByUserName !== 'string'
+  ) {
+    return null
+  }
+
+  return {
+    id: record.id,
+    companyId: record.companyId,
+    stockCenterId: record.stockCenterId,
+    countedAt: record.countedAt,
+    isClosed: record.isClosed,
+    startedAt: record.startedAt,
+    startedByUserId: typeof record.startedByUserId === 'number' ? record.startedByUserId : null,
+    startedByUserName: normalizeRegistrationText(record.startedByUserName),
+    closedAt: typeof record.closedAt === 'string' ? record.closedAt : '',
+    closedByUserId: typeof record.closedByUserId === 'number' ? record.closedByUserId : null,
+    closedByUserName: typeof record.closedByUserName === 'string' ? normalizeRegistrationText(record.closedByUserName) : '',
+  }
+}
+
+function normalizeWasteRecord(value: unknown): WasteRecord | null {
+  if (!value || typeof value !== 'object') {
+    return null
+  }
+
+  const record = value as Partial<WasteRecord>
+  if (
+    !isSafePersistedIntId(record.id) ||
+    !isSafePersistedIntId(record.sessionId) ||
+    typeof record.companyId !== 'number' ||
+    !isSafePersistedIntId(record.stockCenterId) ||
+    typeof record.countedAt !== 'string' ||
+    typeof record.technicalSheetName !== 'string' ||
+    !['PREPARO', 'PRODUTO', 'ITEM'].includes(String(record.technicalSheetKind)) ||
+    typeof record.recipientItemId !== 'string' ||
+    typeof record.recipientLabel !== 'string' ||
+    typeof record.closedItemsQuantity !== 'string' ||
+    typeof record.hasOpenItems !== 'boolean' ||
+    typeof record.openItemsGrossWeight !== 'string' ||
+    typeof record.openItemsContainerQuantity !== 'string' ||
+    typeof record.openItemsNetQuantity !== 'string' ||
+    typeof record.totalCountedQuantity !== 'string' ||
+    !['MILLILITER', 'GRAM', 'UNIT'].includes(String(record.totalCountedUnit)) ||
+    typeof record.createdByUserName !== 'string'
+  ) {
+    return null
+  }
+
+  return {
+    id: record.id,
+    sessionId: record.sessionId,
+    companyId: record.companyId,
+    stockCenterId: record.stockCenterId,
+    countedAt: record.countedAt,
+    technicalSheetId: isSafePersistedIntId(record.technicalSheetId) ? record.technicalSheetId : null,
+    productId: typeof record.productId === 'string' ? normalizeRegistrationText(record.productId) : '',
+    serviceItemId: typeof record.serviceItemId === 'string' ? normalizeRegistrationText(record.serviceItemId) : '',
+    packageId: isSafePersistedIntId(record.packageId) ? record.packageId : null,
+    technicalSheetName: normalizeRegistrationText(record.technicalSheetName),
+    technicalSheetKind: record.technicalSheetKind as StockCountableKind,
+    recipientItemId: normalizeRegistrationText(record.recipientItemId),
+    recipientLabel: normalizeRegistrationText(record.recipientLabel),
+    closedItemsQuantity: record.closedItemsQuantity.trim(),
+    hasOpenItems: record.hasOpenItems,
+    openItemsGrossWeight: record.openItemsGrossWeight.trim(),
+    openItemsContainerQuantity: record.openItemsContainerQuantity.trim(),
+    openItemsNetQuantity: record.openItemsNetQuantity.trim(),
+    totalCountedQuantity: record.totalCountedQuantity.trim(),
+    totalCountedUnit: record.totalCountedUnit as WasteRecord['totalCountedUnit'],
     createdByUserId: typeof record.createdByUserId === 'number' ? record.createdByUserId : null,
     createdByUserName: normalizeRegistrationText(record.createdByUserName),
   }

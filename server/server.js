@@ -1260,6 +1260,78 @@ app.delete('/api/inventory-counts/:id', async (request, response) => {
   response.json({ ok: true })
 })
 
+app.get('/api/waste-sessions', async (request, response) => {
+  const companyId = parseIntegerParam(request.query.companyId)
+  const sessions = await prisma.appWasteSessionRecord.findMany({
+    where: companyId === null ? undefined : { companyId },
+    orderBy: [{ startedAt: 'desc' }, { id: 'desc' }],
+  })
+  response.json({ wasteSessions: sessions })
+})
+
+app.put('/api/waste-sessions/:id', async (request, response) => {
+  const sessionId = parseIntegerParam(request.params.id)
+  const session = normalizeWasteSessionPayload({ ...request.body, id: sessionId })
+  if (sessionId === null || !session) {
+    response.status(400).json({ error: 'Payload de registro de desperdicio invalido.' })
+    return
+  }
+
+  const saved = await prisma.appWasteSessionRecord.upsert({
+    where: { id: sessionId },
+    create: session,
+    update: session,
+  })
+  response.json({ wasteSession: saved })
+})
+
+app.delete('/api/waste-sessions/:id', async (request, response) => {
+  const sessionId = parseIntegerParam(request.params.id)
+  if (sessionId === null) {
+    response.status(400).json({ error: 'Registro de desperdicio invalido.' })
+    return
+  }
+
+  await prisma.appWasteSessionRecord.deleteMany({ where: { id: sessionId } })
+  response.json({ ok: true })
+})
+
+app.get('/api/waste-records', async (request, response) => {
+  const companyId = parseIntegerParam(request.query.companyId)
+  const records = await prisma.appWasteRecord.findMany({
+    where: companyId === null ? undefined : { companyId },
+    orderBy: [{ countedAt: 'desc' }, { id: 'desc' }],
+  })
+  response.json({ wasteRecords: records })
+})
+
+app.put('/api/waste-records/:id', async (request, response) => {
+  const recordId = parseIntegerParam(request.params.id)
+  const record = normalizeWasteRecordPayload({ ...request.body, id: recordId })
+  if (recordId === null || !record) {
+    response.status(400).json({ error: 'Payload de item de desperdicio invalido.' })
+    return
+  }
+
+  const saved = await prisma.appWasteRecord.upsert({
+    where: { id: recordId },
+    create: record,
+    update: record,
+  })
+  response.json({ wasteRecord: saved })
+})
+
+app.delete('/api/waste-records/:id', async (request, response) => {
+  const recordId = parseIntegerParam(request.params.id)
+  if (recordId === null) {
+    response.status(400).json({ error: 'Item de desperdicio invalido.' })
+    return
+  }
+
+  await prisma.appWasteRecord.deleteMany({ where: { id: recordId } })
+  response.json({ ok: true })
+})
+
 app.get('/api/pending-inventory-movements', async (request, response) => {
   await ensureAppInventoryRecordsSeeded()
   const companyId = parseIntegerParam(request.query.companyId)
@@ -3084,6 +3156,108 @@ function normalizeInventoryCountPayload(value) {
     productionConfirmedPh: typeof record.productionConfirmedPh === 'string' ? normalizeRegistrationText(record.productionConfirmedPh) : '',
     productionTargetBrix: typeof record.productionTargetBrix === 'string' ? normalizeRegistrationText(record.productionTargetBrix) : '',
     productionConfirmedBrix: typeof record.productionConfirmedBrix === 'string' ? normalizeRegistrationText(record.productionConfirmedBrix) : '',
+    createdByUserId: record.createdByUserId === null ? null : parseIntegerParam(record.createdByUserId),
+    createdByUserName: normalizeRegistrationText(record.createdByUserName),
+  }
+}
+
+function normalizeWasteSessionPayload(value) {
+  if (!value || typeof value !== 'object') {
+    return null
+  }
+
+  const record = value
+  const id = parseIntegerParam(record.id)
+  const companyId = parseIntegerParam(record.companyId)
+  const stockCenterId = parseIntegerParam(record.stockCenterId)
+
+  if (
+    id === null ||
+    companyId === null ||
+    stockCenterId === null ||
+    typeof record.countedAt !== 'string' ||
+    typeof record.isClosed !== 'boolean' ||
+    typeof record.startedByUserName !== 'string'
+  ) {
+    return null
+  }
+
+  return {
+    id,
+    companyId,
+    stockCenterId,
+    countedAt: record.countedAt,
+    isClosed: record.isClosed,
+    startedAt:
+      typeof record.startedAt === 'string' && record.startedAt.trim() !== ''
+        ? record.startedAt
+        : typeof record.closedAt === 'string' && record.closedAt.trim() !== ''
+          ? record.closedAt
+          : `${record.countedAt}T00:00:00.000Z`,
+    startedByUserId: record.startedByUserId === null ? null : parseIntegerParam(record.startedByUserId),
+    startedByUserName: normalizeRegistrationText(record.startedByUserName),
+    closedAt: typeof record.closedAt === 'string' ? record.closedAt : '',
+    closedByUserId: record.closedByUserId === null ? null : parseIntegerParam(record.closedByUserId),
+    closedByUserName: typeof record.closedByUserName === 'string' ? normalizeRegistrationText(record.closedByUserName) : '',
+  }
+}
+
+function normalizeWasteRecordPayload(value) {
+  if (!value || typeof value !== 'object') {
+    return null
+  }
+
+  const record = value
+  const id = parseIntegerParam(record.id)
+  const sessionId = parseIntegerParam(record.sessionId)
+  const companyId = parseIntegerParam(record.companyId)
+  const stockCenterId = parseIntegerParam(record.stockCenterId)
+  const technicalSheetId = record.technicalSheetId === null ? null : parseIntegerParam(record.technicalSheetId)
+  const packageId = record.packageId === null ? null : parseIntegerParam(record.packageId)
+
+  if (
+    id === null ||
+    sessionId === null ||
+    companyId === null ||
+    stockCenterId === null ||
+    typeof record.countedAt !== 'string' ||
+    typeof record.technicalSheetName !== 'string' ||
+    !['PREPARO', 'PRODUTO', 'ITEM'].includes(record.technicalSheetKind) ||
+    typeof record.recipientItemId !== 'string' ||
+    typeof record.recipientLabel !== 'string' ||
+    typeof record.closedItemsQuantity !== 'string' ||
+    typeof record.hasOpenItems !== 'boolean' ||
+    typeof record.openItemsGrossWeight !== 'string' ||
+    typeof record.openItemsContainerQuantity !== 'string' ||
+    typeof record.openItemsNetQuantity !== 'string' ||
+    typeof record.totalCountedQuantity !== 'string' ||
+    !['MILLILITER', 'GRAM', 'UNIT'].includes(record.totalCountedUnit) ||
+    typeof record.createdByUserName !== 'string'
+  ) {
+    return null
+  }
+
+  return {
+    id,
+    sessionId,
+    companyId,
+    stockCenterId,
+    countedAt: record.countedAt,
+    technicalSheetId,
+    productId: typeof record.productId === 'string' ? normalizeRegistrationText(record.productId) : '',
+    serviceItemId: typeof record.serviceItemId === 'string' ? normalizeRegistrationText(record.serviceItemId) : '',
+    packageId,
+    technicalSheetName: normalizeRegistrationText(record.technicalSheetName),
+    technicalSheetKind: record.technicalSheetKind,
+    recipientItemId: normalizeRegistrationText(record.recipientItemId),
+    recipientLabel: normalizeRegistrationText(record.recipientLabel),
+    closedItemsQuantity: record.closedItemsQuantity.trim(),
+    hasOpenItems: record.hasOpenItems,
+    openItemsGrossWeight: record.openItemsGrossWeight.trim(),
+    openItemsContainerQuantity: record.openItemsContainerQuantity.trim(),
+    openItemsNetQuantity: record.openItemsNetQuantity.trim(),
+    totalCountedQuantity: record.totalCountedQuantity.trim(),
+    totalCountedUnit: record.totalCountedUnit,
     createdByUserId: record.createdByUserId === null ? null : parseIntegerParam(record.createdByUserId),
     createdByUserName: normalizeRegistrationText(record.createdByUserName),
   }
