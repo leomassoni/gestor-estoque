@@ -3783,7 +3783,6 @@ export default function App() {
   const stockCenterListId = useId()
   const stockCenterMinimumListId = useId()
   const wasteTechnicalSheetListId = useId()
-  const wasteStorageLocationListId = useId()
   const packageListId = useId()
   const replacementSectorListId = useId()
   const replacementTaxonomyListId = useId()
