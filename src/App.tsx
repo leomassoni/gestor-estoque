@@ -3972,6 +3972,7 @@ export default function App() {
   const [inventoryDraftBeforeEdit, setInventoryDraftBeforeEdit] = useState<InventoryFormState | null>(null)
   const [selectedInventoryId, setSelectedInventoryId] = useState<number | null>(null)
   const [selectedInventorySessionId, setSelectedInventorySessionId] = useState<number | null>(null)
+  const [selectedWasteSessionId, setSelectedWasteSessionId] = useState<number | null>(null)
   const [inventorySummarySearch, setInventorySummarySearch] = useState('')
   const [openInventorySummaryColumnMenu, setOpenInventorySummaryColumnMenu] = useState<InventorySummaryColumnKey | null>(null)
   const [inventorySummaryColumnVisibility, setInventorySummaryColumnVisibility] =
@@ -8981,6 +8982,35 @@ export default function App() {
   const selectedWasteCenter = useMemo(
     () => inventoryEligibleStockCenters.find((center) => String(center.id) === wasteForm.stockCenterId) ?? null,
     [inventoryEligibleStockCenters, wasteForm.stockCenterId],
+  )
+  const wasteDraftSessions = useMemo(
+    () =>
+      inventoryCountSessions
+        .filter((sessionRecord) => {
+          if (sessionRecord.companyId !== currentCompanyId || sessionRecord.inventoryId !== null || sessionRecord.isClosed) {
+            return false
+          }
+          const linkedRecords = inventoryCounts.filter((record) => record.sessionId === sessionRecord.id)
+          return linkedRecords.length === 0 || linkedRecords.every((record) => isWasteDraftInventoryMovementLocation(record.storageLocation))
+        })
+        .sort((left, right) => right.countedAt.localeCompare(left.countedAt) || right.id - left.id),
+    [currentCompanyId, inventoryCountSessions, inventoryCounts],
+  )
+  const selectedWasteSession = useMemo(
+    () =>
+      selectedWasteSessionId === null
+        ? null
+        : wasteDraftSessions.find((sessionRecord) => sessionRecord.id === selectedWasteSessionId) ?? null,
+    [selectedWasteSessionId, wasteDraftSessions],
+  )
+  const selectedWasteSessionRecords = useMemo(
+    () =>
+      selectedWasteSession
+        ? inventoryCounts
+            .filter((record) => record.sessionId === selectedWasteSession.id)
+            .sort((left, right) => left.id - right.id)
+        : [],
+    [inventoryCounts, selectedWasteSession],
   )
   const selectedWasteSheet = useMemo(
     () =>
@@ -15548,6 +15578,21 @@ export default function App() {
   }, [inventoryEligibleStockCenters, wasteForm.stockCenterId])
 
   useEffect(() => {
+    if (!selectedWasteSession) {
+      return
+    }
+
+    const draftRecords = inventoryCounts.filter((record) => record.sessionId === selectedWasteSession.id)
+    const firstRecord = draftRecords[0] ?? null
+    setWasteForm((current) => ({
+      ...current,
+      stockCenterId: String(selectedWasteSession.stockCenterId),
+      countedAt: selectedWasteSession.countedAt,
+      storageLocation: firstRecord ? extractWasteDraftOccurrenceLocationLabel(firstRecord.storageLocation) : current.storageLocation,
+    }))
+  }, [inventoryCounts, selectedWasteSession])
+
+  useEffect(() => {
     if (requisitionEligibleStockCenters.length === 0) {
       setRequisitionForm((current) =>
         current.stockCenterId ? emptyRequisitionForm() : current,
@@ -18186,33 +18231,80 @@ export default function App() {
     return Object.keys(nextErrors).length === 0
   }
 
-  function saveWasteRecord() {
-    if (currentCompanyId === null || !validateWasteForm() || !selectedWasteCenter || !selectedWasteCountableItem) {
+  function startWasteSession() {
+    if (currentCompanyId === null || !selectedWasteCenter || !wasteForm.countedAt) {
+      setWasteErrors((current) => ({
+        ...current,
+        stockCenterId: selectedWasteCenter ? '' : 'Selecione um centro de estoque valido.',
+        countedAt: wasteForm.countedAt ? '' : 'Informe a data do desperdicio.',
+      }))
       return
     }
 
-    const normalizedLocation = normalizeRegistrationText(wasteForm.storageLocation)
-    const movementSessionId = getNextPersistedIntId([
-      ...inventoryCountSessions.map((record) => record.id),
-      ...inventoryCounts.map((record) => record.id),
-      ...pendingInventoryMovements.map((record) => record.id),
-    ])
+    const existingSession =
+      wasteDraftSessions.find(
+        (sessionRecord) =>
+          sessionRecord.stockCenterId === selectedWasteCenter.id &&
+          sessionRecord.countedAt === wasteForm.countedAt &&
+          sessionRecord.startedByUserId === (currentAppUser?.id ?? null),
+      ) ?? null
+
+    if (existingSession) {
+      setSelectedWasteSessionId(existingSession.id)
+      setSaveFeedback({
+        status: 'success',
+        title: 'Registro de desperdicio retomado',
+        message: 'Ja existia um registro aberto para esse centro e essa data. Ele foi retomado na tela atual.',
+      })
+      return
+    }
+
     const now = new Date().toISOString()
-    const movementLocation = buildWasteMovementLocationLabel(normalizedLocation)
-    const session: InventoryCountSessionRecord = {
-      id: movementSessionId,
+    const nextSession: InventoryCountSessionRecord = {
+      id: getNextPersistedIntId(inventoryCountSessions.map((record) => record.id)),
       inventoryId: null,
       companyId: currentCompanyId,
       stockCenterId: selectedWasteCenter.id,
       countedAt: wasteForm.countedAt,
-      isClosed: true,
+      isClosed: false,
       startedAt: now,
       startedByUserId: currentAppUser?.id ?? null,
       startedByUserName: currentAppUser?.fullName ?? 'Administrador do sistema',
-      closedAt: now,
-      closedByUserId: currentAppUser?.id ?? null,
-      closedByUserName: currentAppUser?.fullName ?? 'Administrador do sistema',
+      closedAt: '',
+      closedByUserId: null,
+      closedByUserName: '',
     }
+
+    setInventoryCountSessions((current) => [nextSession, ...current])
+    setSelectedWasteSessionId(nextSession.id)
+    setWasteErrors((current) => ({ ...current, stockCenterId: '', countedAt: '' }))
+    setSaveFeedback({
+      status: 'success',
+      title: 'Registro de desperdicio iniciado',
+      message: 'Agora voce pode lancar quantos itens forem necessarios antes de finalizar o desperdicio.',
+    })
+  }
+
+  function saveWasteRecord() {
+    if (
+      currentCompanyId === null ||
+      !selectedWasteSession ||
+      !validateWasteForm() ||
+      !selectedWasteCenter ||
+      !selectedWasteCountableItem
+    ) {
+      if (!selectedWasteSession) {
+        setWasteErrors((current) => ({
+          ...current,
+          countedAt: 'Inicie um registro de desperdicio antes de lancar itens.',
+        }))
+      }
+      return
+    }
+
+    const normalizedLocation = normalizeRegistrationText(wasteForm.storageLocation)
+    const draftLocation = buildWasteDraftLocationLabel(normalizedLocation)
+    const nextRecordId = getNextPersistedIntId(inventoryCounts.map((record) => record.id))
 
     let movementRecords: InventoryCountRecord[] = []
     if (selectedWasteCountableItem.kind === 'EXECUCAO') {
@@ -18223,13 +18315,13 @@ export default function App() {
       const executionQuantity = parseDecimal(wasteForm.closedItemsQuantity) ?? 0
       const wasteEntries = buildWasteMovementEntriesForExecution(selectedWasteCenter, selectedExecutionSheet, executionQuantity)
       movementRecords = wasteEntries.map((entry, index) => ({
-        id: movementSessionId + index + 1,
+        id: nextRecordId + index,
         inventoryId: null,
-        sessionId: movementSessionId,
+        sessionId: selectedWasteSession.id,
         companyId: currentCompanyId,
         stockCenterId: selectedWasteCenter.id,
         countedAt: wasteForm.countedAt,
-        storageLocation: movementLocation,
+        storageLocation: draftLocation,
         technicalSheetId: entry.technicalSheetId,
         productId: entry.productId,
         serviceItemId: entry.serviceItemId,
@@ -18259,13 +18351,13 @@ export default function App() {
               : 'MILLILITER'
       movementRecords = [
         {
-          id: movementSessionId + 1,
+          id: nextRecordId,
           inventoryId: null,
-          sessionId: movementSessionId,
+          sessionId: selectedWasteSession.id,
           companyId: currentCompanyId,
           stockCenterId: selectedWasteCenter.id,
           countedAt: wasteForm.countedAt,
-          storageLocation: movementLocation,
+          storageLocation: draftLocation,
           technicalSheetId: selectedWasteCountableItem.kind === 'PREPARO' ? selectedWasteCountableItem.technicalSheetId : null,
           productId: selectedWasteCountableItem.kind === 'PRODUTO' ? selectedWasteCountableItem.productId : '',
           serviceItemId: selectedWasteCountableItem.kind === 'ITEM' ? selectedWasteCountableItem.serviceItemId : '',
@@ -18299,12 +18391,7 @@ export default function App() {
       return
     }
 
-    const movementResult = registerOperationalInventoryMovement(
-      selectedWasteCenter.id,
-      `SAIDA POR DESPERDICIO • ${selectedWasteCountableItem.name}`,
-      session,
-      movementRecords,
-    )
+    setInventoryCounts((current) => [...movementRecords, ...current])
 
     setWasteForm((current) => ({
       ...emptyInventoryForm(),
@@ -18316,11 +18403,72 @@ export default function App() {
     setWasteErrors({})
     setSaveFeedback({
       status: 'success',
-      title: movementResult === 'queued' ? 'Desperdicio pendente no inventario' : 'Desperdicio registrado com sucesso',
+      title: 'Item adicionado ao registro de desperdicio',
+      message: 'O item foi incluido no registro atual. Finalize o desperdicio quando terminar todos os lancamentos.',
+    })
+  }
+
+  function finalizeWasteSession() {
+    if (!selectedWasteSession || currentCompanyId === null) {
+      return
+    }
+
+    const draftRecords = inventoryCounts.filter((record) => record.sessionId === selectedWasteSession.id)
+    if (draftRecords.length === 0) {
+      setSaveFeedback({
+        status: 'error',
+        title: 'Sem itens para finalizar',
+        message: 'Adicione pelo menos um item ao registro antes de finalizar o desperdicio.',
+      })
+      return
+    }
+
+    const realSessionId = getNextPersistedIntId([
+      ...inventoryCountSessions.map((record) => record.id),
+      ...inventoryCounts.map((record) => record.id),
+      ...pendingInventoryMovements.map((record) => record.id),
+    ])
+    const now = new Date().toISOString()
+    const operationalSession: InventoryCountSessionRecord = {
+      ...selectedWasteSession,
+      id: realSessionId,
+      isClosed: true,
+      closedAt: now,
+      closedByUserId: currentAppUser?.id ?? null,
+      closedByUserName: currentAppUser?.fullName ?? 'Administrador do sistema',
+    }
+    const operationalRecords = draftRecords.map((record, index) => ({
+      ...record,
+      id: realSessionId + index + 1,
+      sessionId: realSessionId,
+      storageLocation: buildWasteMovementLocationLabel(extractWasteDraftOccurrenceLocationLabel(record.storageLocation)),
+    }))
+
+    setInventoryCountSessions((current) => current.filter((sessionRecord) => sessionRecord.id !== selectedWasteSession.id))
+    setInventoryCounts((current) => current.filter((record) => record.sessionId !== selectedWasteSession.id))
+
+    const movementResult = registerOperationalInventoryMovement(
+      selectedWasteSession.stockCenterId,
+      `SAIDA POR DESPERDICIO • ${inventoryStockCenterNameById.get(selectedWasteSession.stockCenterId) ?? `CENTRO ${selectedWasteSession.stockCenterId}`}`,
+      operationalSession,
+      operationalRecords,
+    )
+
+    setSelectedWasteSessionId(null)
+    setWasteForm((current) => ({
+      ...emptyInventoryForm(),
+      stockCenterId: current.stockCenterId,
+      countedAt: current.countedAt,
+      storageLocation: '',
+    }))
+    setWasteErrors({})
+    setSaveFeedback({
+      status: 'success',
+      title: movementResult === 'queued' ? 'Desperdicio pendente no inventario' : 'Desperdicio finalizado com sucesso',
       message:
         movementResult === 'queued'
-          ? 'O centro esta com inventario aberto. O desperdicio foi guardado como movimentacao pendente e sera aplicado ao estoque quando esse inventario for finalizado.'
-          : 'A perda operacional foi registrada como saida direta do estoque do centro.',
+          ? 'O centro esta com inventario aberto. O desperdicio ficou pendente e sera aplicado quando esse inventario for finalizado.'
+          : 'O registro de desperdicio foi finalizado e a saida direta do estoque foi aplicada.',
     })
   }
 
@@ -38967,7 +39115,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
             <div className="section-heading">
               <div>
                 <p className="kicker">Perda operacional</p>
-                <h2>Novo desperdicio</h2>
+                <h2>Novo registro de desperdicio</h2>
               </div>
             </div>
 
@@ -39020,43 +39168,98 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                     </datalist>
                     {wasteErrors.storageLocation ? <p className="compact-feedback feedback error">{wasteErrors.storageLocation}</p> : null}
                   </label>
-
-                  <label className="field company-field-wide">
-                    <span>Item ou ficha de execucao *</span>
-                    <input
-                      list={wasteTechnicalSheetListId}
-                      value={wasteForm.technicalSheetLabel}
-                      onChange={(event) => updateWasteFormField('technicalSheetLabel', event.target.value)}
-                      placeholder="Busque por nome, ID interno ou ID empresa"
-                    />
-                    <datalist id={wasteTechnicalSheetListId}>
-                      {wasteTechnicalSheetSuggestions.map((value) => (
-                        <option key={value} value={value} />
-                      ))}
-                    </datalist>
-                    {wasteErrors.technicalSheetLabel ? <p className="compact-feedback feedback error">{wasteErrors.technicalSheetLabel}</p> : null}
-                  </label>
-
-                  {selectedWasteCountableItem && selectedWasteCountableItem.kind !== 'EXECUCAO' ? (
-                    <label className="field company-field-wide">
-                      <span>{selectedWasteCountableItem.kind === 'PRODUTO' ? 'Embalagem' : selectedWasteCountableItem.kind === 'ITEM' ? 'Unidade/embalagem' : 'Recipiente'}</span>
-                      <input
-                        list={packageListId}
-                        value={wasteForm.recipientLabel}
-                        onChange={(event) => updateWasteFormField('recipientLabel', event.target.value)}
-                        placeholder={selectedWasteCountableItem.kind === 'PRODUTO' ? 'Selecione a embalagem' : 'Selecione a referencia'}
-                      />
-                      <datalist id={packageListId}>
-                        {wasteRecipientOptions.map((option) => (
-                          <option key={option.id} value={option.label} />
-                        ))}
-                      </datalist>
-                      {wasteErrors.recipientLabel ? <p className="compact-feedback feedback error">{wasteErrors.recipientLabel}</p> : null}
-                    </label>
-                  ) : null}
                 </form>
 
-                {selectedWasteCountableItem ? (
+                <div className="sticky-form-actions">
+                  <button type="button" className="primary-button" onClick={startWasteSession}>
+                    {selectedWasteSession ? 'Retomar registro atual' : 'Iniciar registro de desperdicio'}
+                  </button>
+                </div>
+
+                {wasteDraftSessions.length > 0 ? (
+                  <>
+                    <div className="section-heading section-heading-inline stock-center-subheading">
+                      <div>
+                        <p className="kicker">Registros abertos</p>
+                        <h2>Continuar registro iniciado</h2>
+                      </div>
+                    </div>
+                    <div className="selector-list company-management-list">
+                      {wasteDraftSessions.map((sessionRecord) => {
+                        const recordCount = inventoryCounts.filter((record) => record.sessionId === sessionRecord.id).length
+                        return (
+                          <article key={`waste-session-${sessionRecord.id}`} className="list-row user-list-row">
+                            <div className="user-row-header">
+                              <div className="user-title-group">
+                                <strong>{inventoryStockCenterNameById.get(sessionRecord.stockCenterId) ?? `CENTRO ${sessionRecord.stockCenterId}`}</strong>
+                                <span className="status-pill status-warning">EM REGISTRO</span>
+                              </div>
+                              <div className="row-actions">
+                                <button type="button" className="ghost-button" onClick={() => setSelectedWasteSessionId(sessionRecord.id)}>
+                                  {selectedWasteSessionId === sessionRecord.id ? 'Registro atual' : 'Continuar'}
+                                </button>
+                              </div>
+                            </div>
+                            <div className="row-meta user-row-meta">
+                              <div className="user-meta-line">
+                                <span><strong className="meta-label">Data:</strong> {formatDateForDisplay(sessionRecord.countedAt)}</span>
+                                <span><strong className="meta-label">Itens lancados:</strong> {String(recordCount)}</span>
+                                <span><strong className="meta-label">Por:</strong> {sessionRecord.startedByUserName}</span>
+                              </div>
+                            </div>
+                          </article>
+                        )
+                      })}
+                    </div>
+                  </>
+                ) : null}
+
+                {selectedWasteSession ? (
+                  <>
+                    <div className="section-heading section-heading-inline stock-center-subheading">
+                      <div>
+                        <p className="kicker">Registro atual</p>
+                        <h2>Adicionar itens ao desperdicio</h2>
+                      </div>
+                    </div>
+
+                    <form className="form-grid company-form-grid" onSubmit={(event) => event.preventDefault()}>
+                      <label className="field company-field-wide">
+                        <span>Item ou ficha de execucao *</span>
+                        <input
+                          list={wasteTechnicalSheetListId}
+                          value={wasteForm.technicalSheetLabel}
+                          onChange={(event) => updateWasteFormField('technicalSheetLabel', event.target.value)}
+                          placeholder="Busque por nome, ID interno ou ID empresa"
+                        />
+                        <datalist id={wasteTechnicalSheetListId}>
+                          {wasteTechnicalSheetSuggestions.map((value) => (
+                            <option key={value} value={value} />
+                          ))}
+                        </datalist>
+                        {wasteErrors.technicalSheetLabel ? <p className="compact-feedback feedback error">{wasteErrors.technicalSheetLabel}</p> : null}
+                      </label>
+
+                      {selectedWasteCountableItem && selectedWasteCountableItem.kind !== 'EXECUCAO' ? (
+                        <label className="field company-field-wide">
+                          <span>{selectedWasteCountableItem.kind === 'PRODUTO' ? 'Embalagem' : selectedWasteCountableItem.kind === 'ITEM' ? 'Unidade/embalagem' : 'Recipiente'}</span>
+                          <input
+                            list={packageListId}
+                            value={wasteForm.recipientLabel}
+                            onChange={(event) => updateWasteFormField('recipientLabel', event.target.value)}
+                            placeholder={selectedWasteCountableItem.kind === 'PRODUTO' ? 'Selecione a embalagem' : 'Selecione a referencia'}
+                          />
+                          <datalist id={packageListId}>
+                            {wasteRecipientOptions.map((option) => (
+                              <option key={option.id} value={option.label} />
+                            ))}
+                          </datalist>
+                          {wasteErrors.recipientLabel ? <p className="compact-feedback feedback error">{wasteErrors.recipientLabel}</p> : null}
+                        </label>
+                      ) : null}
+                    </form>
+
+                {selectedWasteSession && selectedWasteCountableItem ? (
                   <div className="receituario-summary-grid receituario-summary-grid-metrics">
                     <article className="receituario-metric-card">
                       <span>Tipo</span>
@@ -39081,13 +39284,16 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                   </div>
                 ) : null}
 
+                {selectedWasteSession ? (
                 <div className="section-heading section-heading-inline stock-center-subheading">
                   <div>
                     <p className="kicker">Quantidade</p>
                     <h2>{selectedWasteCountableItem?.kind === 'EXECUCAO' ? 'Unidades perdidas' : 'Itens fechados'}</h2>
                   </div>
                 </div>
+                ) : null}
 
+                {selectedWasteSession ? (
                 <form className="form-grid company-form-grid" onSubmit={(event) => event.preventDefault()}>
                   <label className="field company-field-wide">
                     <span>{selectedWasteCountableItem?.kind === 'EXECUCAO' ? 'Quantidade de unidades da ficha *' : 'Quantidade de itens fechados *'}</span>
@@ -39102,8 +39308,10 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                     {wasteErrors.closedItemsQuantity ? <p className="compact-feedback feedback error">{wasteErrors.closedItemsQuantity}</p> : null}
                   </label>
                 </form>
+                ) : null}
 
-                {selectedWasteCountableItem &&
+                {selectedWasteSession &&
+                selectedWasteCountableItem &&
                 selectedWasteCountableItem.kind !== 'EXECUCAO' &&
                 selectedWasteCountableItem.kind !== 'ITEM' &&
                 !(selectedWasteCountableItem.kind === 'PRODUTO' && selectedWasteCountableItem.controlUnit === 'UNIT') ? (
@@ -39171,7 +39379,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                   </>
                 ) : null}
 
-                {selectedWasteCountableItem?.kind === 'EXECUCAO' ? (
+                {selectedWasteSession && selectedWasteCountableItem?.kind === 'EXECUCAO' ? (
                   <div className="section-heading section-heading-inline stock-center-subheading">
                     <div>
                       <p className="kicker">Impacto no estoque</p>
@@ -39180,7 +39388,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                   </div>
                 ) : null}
 
-                {selectedWasteCountableItem?.kind === 'EXECUCAO' ? (
+                {selectedWasteSession && selectedWasteCountableItem?.kind === 'EXECUCAO' ? (
                   wasteExecutionPreviewEntries.length > 0 ? (
                     <div className="selector-list company-management-list">
                       {wasteExecutionPreviewEntries.map((entry) => (
@@ -39208,11 +39416,49 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                   )
                 ) : null}
 
-                <div className="sticky-form-actions">
-                  <button type="button" className="primary-button" onClick={saveWasteRecord}>
-                    Registrar desperdicio
-                  </button>
-                </div>
+                    <div className="section-heading section-heading-inline stock-center-subheading">
+                      <div>
+                        <p className="kicker">Itens lancados</p>
+                        <h2>Resumo do registro atual</h2>
+                      </div>
+                    </div>
+
+                    {selectedWasteSessionRecords.length > 0 ? (
+                      <div className="selector-list company-management-list">
+                        {selectedWasteSessionRecords.map((record) => (
+                          <article key={`waste-draft-record-${record.id}`} className="list-row user-list-row">
+                            <div className="user-row-header">
+                              <div className="user-title-group">
+                                <strong>{record.technicalSheetName}</strong>
+                                <span className="status-pill status-warning">RASCUNHO</span>
+                              </div>
+                            </div>
+                            <div className="row-meta user-row-meta">
+                              <div className="user-meta-line">
+                                <span><strong className="meta-label">Local:</strong> {extractWasteDraftOccurrenceLocationLabel(record.storageLocation)}</span>
+                                <span><strong className="meta-label">Quantidade:</strong> {formatDecimal(Math.abs(parseDecimal(record.totalCountedQuantity) ?? 0))} {record.totalCountedUnit === 'GRAM' ? 'G' : record.totalCountedUnit === 'UNIT' ? 'UN' : 'ML'}</span>
+                              </div>
+                            </div>
+                          </article>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="empty-state">
+                        <strong>Nenhum item lancado ainda.</strong>
+                        <p>Adicione os itens do desperdicio e finalize quando concluir o registro.</p>
+                      </div>
+                    )}
+
+                    <div className="sticky-form-actions">
+                      <button type="button" className="primary-button" onClick={saveWasteRecord}>
+                        Adicionar item ao registro
+                      </button>
+                      <button type="button" className="ghost-button" onClick={finalizeWasteSession}>
+                        Finalizar desperdicio
+                      </button>
+                    </div>
+                  </>
+                ) : null}
               </>
             )}
           </section>
@@ -49666,9 +49912,28 @@ function buildWasteMovementLocationLabel(location: string) {
   return normalizedLocation ? `SAIDA POR DESPERDICIO • ${normalizedLocation}` : 'SAIDA POR DESPERDICIO'
 }
 
+function buildWasteDraftLocationLabel(location: string) {
+  const normalizedLocation = normalizeRegistrationText(location)
+  return normalizedLocation ? `RASCUNHO DE DESPERDICIO • ${normalizedLocation}` : 'RASCUNHO DE DESPERDICIO'
+}
+
 function extractWasteOccurrenceLocationLabel(value: string) {
   const normalizedValue = normalizeRegistrationText(value)
   if (!normalizedValue.startsWith('SAIDA POR DESPERDICIO')) {
+    return normalizedValue
+  }
+
+  const [, ...parts] = normalizedValue.split('•')
+  return parts.join('•').trim() || 'SEM LOCAL INFORMADO'
+}
+
+function isWasteDraftInventoryMovementLocation(value: string) {
+  return normalizeRegistrationText(value).startsWith('RASCUNHO DE DESPERDICIO')
+}
+
+function extractWasteDraftOccurrenceLocationLabel(value: string) {
+  const normalizedValue = normalizeRegistrationText(value)
+  if (!normalizedValue.startsWith('RASCUNHO DE DESPERDICIO')) {
     return normalizedValue
   }
 
