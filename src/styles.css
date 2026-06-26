@@ -2930,6 +2930,42 @@ h3 {
   border-color: rgba(110, 159, 122, 0.26);
 }
 
+.technical-sheet-modal-preparo .ghost-button,
+.technical-sheet-modal-execucao .ghost-button,
+.technical-sheet-modal-venda .ghost-button {
+  background: rgba(255, 255, 255, 0.86);
+  border-color: rgba(20, 33, 61, 0.16);
+  color: #14213d;
+}
+
+.technical-sheet-modal-preparo .ghost-button:hover,
+.technical-sheet-modal-preparo .ghost-button:focus-visible,
+.technical-sheet-modal-execucao .ghost-button:hover,
+.technical-sheet-modal-execucao .ghost-button:focus-visible,
+.technical-sheet-modal-venda .ghost-button:hover,
+.technical-sheet-modal-venda .ghost-button:focus-visible {
+  background: rgba(255, 255, 255, 0.96);
+}
+
+.technical-sheet-modal-preparo .primary-button,
+.technical-sheet-modal-execucao .primary-button,
+.technical-sheet-modal-venda .primary-button {
+  background: #14213d;
+  color: #fff;
+}
+
+.technical-sheet-modal-preparo .secondary-button,
+.technical-sheet-modal-execucao .secondary-button,
+.technical-sheet-modal-venda .secondary-button {
+  min-height: 42px;
+  padding: 10px 16px;
+  border-radius: 999px;
+  border: 1px solid rgba(20, 33, 61, 0.16);
+  background: rgba(255, 255, 255, 0.86);
+  color: #14213d;
+  cursor: pointer;
+}
+
 .modal-actions {
   display: flex;
   justify-content: flex-end;
