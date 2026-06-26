@@ -1022,6 +1022,11 @@ h3 {
   height: 1px;
 }
 
+.sales-import-history-table-wrap {
+  max-height: 456px;
+  overflow-y: auto;
+}
+
 .product-table {
   width: 100%;
   border-collapse: separate;

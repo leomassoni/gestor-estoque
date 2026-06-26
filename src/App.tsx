@@ -21,6 +21,9 @@ const salesImportPollingSections: AppSection[] = ['ConfiguracoesEstoque']
 const inventoryPollingSections: AppSection[] = ['Inventario', 'Desperdicio', 'RelatoriosEstoque']
 const productionPollingSections: AppSection[] = ['EntradaProducoes']
 const adminPollingSections: AppSection[] = ['PainelMaster']
+const salesImportBatchHistoryRowHeightPx = 57
+const salesImportBatchHistoryViewportHeightPx = 456
+const salesImportBatchHistoryOverscanRows = 8
 
 type ControlUnit = 'MILLILITER' | 'GRAM' | 'UNIT' | 'COMBO'
 type PackageUnit = 'LITER' | 'MILLILITER' | 'KILOGRAM' | 'GRAM' | 'UNIT'
@@ -4101,6 +4104,7 @@ export default function App() {
   const [salesImportIgnoredSourceRowKeys, setSalesImportIgnoredSourceRowKeys] = useState<string[]>([])
   const [selectedSalesImportBatchId, setSelectedSalesImportBatchId] = useState<number | null>(null)
   const [selectedSalesImportBatchIds, setSelectedSalesImportBatchIds] = useState<number[]>([])
+  const [salesImportBatchHistoryScrollTop, setSalesImportBatchHistoryScrollTop] = useState(0)
   const [showCancelledSalesImportBatches, setShowCancelledSalesImportBatches] = useState(false)
   const [isSalesImportConfirmationOpen, setIsSalesImportConfirmationOpen] = useState(false)
   const [hasLoadedStockCenterRecords, setHasLoadedStockCenterRecords] = useState(false)
@@ -8711,6 +8715,36 @@ export default function App() {
   const reprocessableSalesImportBatchIds = useMemo(
     () => currentCompanySalesImportBatchesSorted.filter((batch) => batch.status !== 'CANCELLED').map((batch) => batch.id),
     [currentCompanySalesImportBatchesSorted],
+  )
+  const visibleSalesImportBatchHistoryRange = useMemo(() => {
+    const totalRows = currentCompanySalesImportBatchesSorted.length
+    if (totalRows === 0) {
+      return { startIndex: 0, endIndex: 0, topSpacerHeight: 0, bottomSpacerHeight: 0 }
+    }
+
+    const visibleRowCount = Math.ceil(salesImportBatchHistoryViewportHeightPx / salesImportBatchHistoryRowHeightPx)
+    const startIndex = Math.max(
+      0,
+      Math.floor(salesImportBatchHistoryScrollTop / salesImportBatchHistoryRowHeightPx) - salesImportBatchHistoryOverscanRows,
+    )
+    const endIndex = Math.min(
+      totalRows,
+      startIndex + visibleRowCount + salesImportBatchHistoryOverscanRows * 2,
+    )
+    return {
+      startIndex,
+      endIndex,
+      topSpacerHeight: startIndex * salesImportBatchHistoryRowHeightPx,
+      bottomSpacerHeight: Math.max(0, (totalRows - endIndex) * salesImportBatchHistoryRowHeightPx),
+    }
+  }, [currentCompanySalesImportBatchesSorted.length, salesImportBatchHistoryScrollTop])
+  const visibleSalesImportBatchHistoryRows = useMemo(
+    () =>
+      currentCompanySalesImportBatchesSorted.slice(
+        visibleSalesImportBatchHistoryRange.startIndex,
+        visibleSalesImportBatchHistoryRange.endIndex,
+      ),
+    [currentCompanySalesImportBatchesSorted, visibleSalesImportBatchHistoryRange.endIndex, visibleSalesImportBatchHistoryRange.startIndex],
   )
   const selectedReprocessableSalesImportBatchIds = useMemo(
     () => selectedSalesImportBatchIds.filter((batchId) => reprocessableSalesImportBatchIds.includes(batchId)),
@@ -40978,7 +41012,10 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                   </label>
                   {currentCompanySalesImportBatches.length > 0 ? (
                     <>
-                      <div className="table-wrap">
+                      <div
+                        className="table-wrap sales-import-history-table-wrap"
+                        onScroll={(event) => setSalesImportBatchHistoryScrollTop(event.currentTarget.scrollTop)}
+                      >
                         <table className="product-table">
                           <thead>
                           <tr>
@@ -41009,7 +41046,12 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                             </tr>
                           </thead>
                           <tbody>
-                            {currentCompanySalesImportBatchesSorted.map((batch) => (
+                            {visibleSalesImportBatchHistoryRange.topSpacerHeight > 0 ? (
+                              <tr aria-hidden="true">
+                                <td colSpan={10} style={{ height: `${visibleSalesImportBatchHistoryRange.topSpacerHeight}px`, padding: 0, border: 0 }} />
+                              </tr>
+                            ) : null}
+                            {visibleSalesImportBatchHistoryRows.map((batch) => (
                               <tr key={batch.id}>
                                 <td>
                                   <input
@@ -41076,6 +41118,11 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                                 </td>
                               </tr>
                             ))}
+                            {visibleSalesImportBatchHistoryRange.bottomSpacerHeight > 0 ? (
+                              <tr aria-hidden="true">
+                                <td colSpan={10} style={{ height: `${visibleSalesImportBatchHistoryRange.bottomSpacerHeight}px`, padding: 0, border: 0 }} />
+                              </tr>
+                            ) : null}
                           </tbody>
                         </table>
                       </div>
