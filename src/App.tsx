@@ -43859,24 +43859,29 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
             </div>
 
             <form className="form-grid">
-              <label className="field">
+              <div className="field field-span-all">
                 <span>Tipo de cadastro</span>
-                <select
-                  value={technicalSheetIngredientCreationMode}
-                  onChange={(event) => {
-                    const nextMode = event.target.value as 'product' | 'preparo'
-                    if (nextMode === 'preparo') {
-                      startPreparoCreationFromTechnicalSheetModal()
-                      return
-                    }
-
-                    setTechnicalSheetIngredientCreationMode('product')
-                  }}
-                >
-                  <option value="product">PRODUTO</option>
-                  <option value="preparo">FICHA DE PRE-PREPARO</option>
-                </select>
-              </label>
+                <div className="technical-sheet-kind-tabs" role="tablist" aria-label="Tipo de cadastro do insumo">
+                  <button
+                    type="button"
+                    role="tab"
+                    aria-selected={technicalSheetIngredientCreationMode === 'product'}
+                    className={technicalSheetIngredientCreationMode === 'product' ? 'technical-sheet-kind-tab active' : 'technical-sheet-kind-tab'}
+                    onClick={() => setTechnicalSheetIngredientCreationMode('product')}
+                  >
+                    Produto
+                  </button>
+                  <button
+                    type="button"
+                    role="tab"
+                    aria-selected={false}
+                    className="technical-sheet-kind-tab"
+                    onClick={startPreparoCreationFromTechnicalSheetModal}
+                  >
+                    Pre-preparo
+                  </button>
+                </div>
+              </div>
               <label className="field">
                 <span>ID interno</span>
                 <input

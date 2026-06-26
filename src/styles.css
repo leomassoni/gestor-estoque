@@ -403,6 +403,11 @@ select {
   transform: none;
 }
 
+.technical-sheet-kind-tab.active {
+  background: rgba(80, 146, 240, 0.14);
+  border-color: rgba(80, 146, 240, 0.3);
+}
+
 .technical-sheet-workspace-preparo .technical-sheet-kind-tab.active {
   background: rgba(255, 214, 168, 0.64);
   border-color: rgba(211, 122, 38, 0.34);
