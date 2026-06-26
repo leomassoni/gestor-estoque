@@ -11,9 +11,6 @@ import {
   type SetStateAction,
 } from 'react'
 import Editor from 'react-simple-code-editor'
-import { jsPDF } from 'jspdf'
-import autoTable from 'jspdf-autotable'
-import html2canvas from 'html2canvas'
 import * as XLSX from 'xlsx'
 
 type ControlUnit = 'MILLILITER' | 'GRAM' | 'UNIT' | 'COMBO'
@@ -3860,6 +3857,34 @@ function areEntitySignatureMapsEqual<K extends string | number>(
 
 function isDocumentHiddenForBackgroundRefresh() {
   return typeof document !== 'undefined' && document.hidden
+}
+
+type JsPdfModule = Awaited<typeof import('jspdf')>
+type JsPdfAutoTableModule = Awaited<typeof import('jspdf-autotable')>
+type Html2CanvasModule = Awaited<typeof import('html2canvas')>
+
+let pdfDependencyPromise:
+  | Promise<{
+      jsPdfModule: JsPdfModule
+      autoTableModule: JsPdfAutoTableModule
+      html2CanvasModule: Html2CanvasModule
+    }>
+  | null = null
+
+async function loadPdfDependencies() {
+  if (!pdfDependencyPromise) {
+    pdfDependencyPromise = Promise.all([
+      import('jspdf'),
+      import('jspdf-autotable'),
+      import('html2canvas'),
+    ]).then(([jsPdfModule, autoTableModule, html2CanvasModule]) => ({
+      jsPdfModule,
+      autoTableModule,
+      html2CanvasModule,
+    }))
+  }
+
+  return pdfDependencyPromise
 }
 
 export default function App() {
@@ -24302,7 +24327,7 @@ export default function App() {
     })
   }
 
-  function exportRequisition(requisition: RequisitionRecord, format: 'pdf' | 'xlsx') {
+  async function exportRequisition(requisition: RequisitionRecord, format: 'pdf' | 'xlsx') {
     if (requisition.status === 'PENDING_APPROVAL' || requisition.status === 'CANCELLED') {
       return
     }
@@ -24331,6 +24356,9 @@ export default function App() {
       XLSX.utils.book_append_sheet(workbook, worksheet, 'Requisicao')
       XLSX.writeFile(workbook, `${fileBaseName}.xlsx`)
     } else {
+      const { jsPdfModule, autoTableModule } = await loadPdfDependencies()
+      const { jsPDF } = jsPdfModule
+      const autoTable = autoTableModule.default
       const doc = new jsPDF()
       doc.setFontSize(14)
       doc.text(`REQUISICAO - ${requisition.stockCenterName}`, 14, 16)
@@ -24374,7 +24402,7 @@ export default function App() {
       return
     }
 
-    exportRequisition(requisition, requisitionExportState.format)
+    void exportRequisition(requisition, requisitionExportState.format)
     setRequisitionExportState(null)
   }
 
@@ -29388,7 +29416,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
     return `RELATORIO-${normalizedReportLabel || 'RELATORIO'}-${normalizedCompanyLabel || 'EMPRESA'}.${extension}`
   }
 
-  function confirmProductExport() {
+  async function confirmProductExport() {
     if (!productExportState) {
       return
     }
@@ -29451,6 +29479,9 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
       XLSX.utils.book_append_sheet(workbook, worksheet, 'Produtos')
       XLSX.writeFile(workbook, buildProductExportFileName('xlsx'))
     } else {
+      const { jsPdfModule, autoTableModule } = await loadPdfDependencies()
+      const { jsPDF } = jsPdfModule
+      const autoTable = autoTableModule.default
       const doc = new jsPDF({
         orientation: 'landscape',
         unit: 'pt',
@@ -29501,7 +29532,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
     })
   }
 
-  function confirmStockReportExport() {
+  async function confirmStockReportExport() {
     if (!stockReportExportState) {
       return
     }
@@ -29571,6 +29602,9 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
       XLSX.utils.book_append_sheet(workbook, worksheet, sheetName)
       XLSX.writeFile(workbook, buildStockReportExportFileName('xlsx'))
     } else {
+      const { jsPdfModule, autoTableModule } = await loadPdfDependencies()
+      const { jsPDF } = jsPdfModule
+      const autoTable = autoTableModule.default
       const doc = new jsPDF({
         orientation: headers.length > 6 ? 'landscape' : 'portrait',
         unit: 'pt',
@@ -33514,6 +33548,10 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
           return
         }
 
+        const { jsPdfModule, html2CanvasModule } = await loadPdfDependencies()
+        const { jsPDF } = jsPdfModule
+        const html2canvas = html2CanvasModule.default
+
         const container = recipeExportContainerRef.current
         if (!container) {
           throw new Error('container indisponivel')
@@ -33617,6 +33655,10 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
         if (cancelled) {
           return
         }
+
+        const { jsPdfModule, html2CanvasModule } = await loadPdfDependencies()
+        const { jsPDF } = jsPdfModule
+        const html2canvas = html2CanvasModule.default
 
         const container = technicalSheetExportContainerRef.current
         if (!container) {
