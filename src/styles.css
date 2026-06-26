@@ -2930,6 +2930,7 @@ h3 {
   border-color: rgba(110, 159, 122, 0.26);
 }
 
+.technical-sheet-workspace .ghost-button,
 .technical-sheet-modal-preparo .ghost-button,
 .technical-sheet-modal-execucao .ghost-button,
 .technical-sheet-modal-venda .ghost-button {
@@ -2938,6 +2939,8 @@ h3 {
   color: #14213d;
 }
 
+.technical-sheet-workspace .ghost-button:hover,
+.technical-sheet-workspace .ghost-button:focus-visible,
 .technical-sheet-modal-preparo .ghost-button:hover,
 .technical-sheet-modal-preparo .ghost-button:focus-visible,
 .technical-sheet-modal-execucao .ghost-button:hover,
@@ -2947,6 +2950,7 @@ h3 {
   background: rgba(255, 255, 255, 0.96);
 }
 
+.technical-sheet-workspace .primary-button,
 .technical-sheet-modal-preparo .primary-button,
 .technical-sheet-modal-execucao .primary-button,
 .technical-sheet-modal-venda .primary-button {
@@ -2954,6 +2958,7 @@ h3 {
   color: #fff;
 }
 
+.technical-sheet-workspace .secondary-button,
 .technical-sheet-modal-preparo .secondary-button,
 .technical-sheet-modal-execucao .secondary-button,
 .technical-sheet-modal-venda .secondary-button {
