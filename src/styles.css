@@ -2915,6 +2915,21 @@ h3 {
   box-sizing: border-box;
 }
 
+.technical-sheet-modal-preparo {
+  background: linear-gradient(180deg, rgba(255, 244, 233, 0.98) 0%, rgba(255, 238, 217, 0.94) 100%);
+  border-color: rgba(211, 122, 38, 0.18);
+}
+
+.technical-sheet-modal-execucao {
+  background: linear-gradient(180deg, rgba(255, 251, 225, 0.98) 0%, rgba(252, 244, 198, 0.94) 100%);
+  border-color: rgba(176, 145, 20, 0.18);
+}
+
+.technical-sheet-modal-venda {
+  background: linear-gradient(180deg, rgba(237, 250, 238, 0.98) 0%, rgba(223, 244, 226, 0.94) 100%);
+  border-color: rgba(49, 130, 86, 0.18);
+}
+
 .modal-actions {
   display: flex;
   justify-content: flex-end;

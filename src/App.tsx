@@ -43776,23 +43776,23 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
       {pendingNestedTechnicalSheetKind === 'PREPARO' ? (
         <div className="modal-backdrop" role="presentation" onClick={() => !isSavingTechnicalSheet && requestTechnicalSheetDiscard('technicalSheetForm')}>
           <section
-            className="modal-card modal-card-full"
+            className={`modal-card modal-card-full technical-sheet-modal technical-sheet-modal-preparo`}
             role="dialog"
             aria-modal="true"
             aria-labelledby="nested-preparo-modal-title"
             onClick={(event) => event.stopPropagation()}
           >
-            <div className="section-heading">
-              <div>
-                <p className="kicker">Nova ficha tecnica</p>
-                <h2 id="nested-preparo-modal-title">Cadastrar pre-preparo pela ficha tecnica</h2>
-              </div>
-              <button className="ghost-button" type="button" onClick={() => requestTechnicalSheetDiscard('technicalSheetForm')} disabled={isSavingTechnicalSheet}>
-                Fechar
-              </button>
-            </div>
-
             <div className={getTechnicalSheetWorkspaceClassName('PREPARO')}>
+              <div className="section-heading">
+                <div>
+                  <p className="kicker">Nova ficha tecnica</p>
+                  <h2 id="nested-preparo-modal-title">Cadastrar pre-preparo pela ficha tecnica</h2>
+                </div>
+                <button className="ghost-button" type="button" onClick={() => requestTechnicalSheetDiscard('technicalSheetForm')} disabled={isSavingTechnicalSheet}>
+                  Fechar
+                </button>
+              </div>
+
               <form className="form-grid">
                 <div className="field field-span-all">
                   <span>Tipo da ficha *</span>
@@ -43821,15 +43821,15 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
 	              {renderPreparoSummaryPanel('nested')}
 
 	              {renderPreparoExecutionPanel('nested')}
-            </div>
 
-            <div className="modal-actions">
-              <button className="ghost-button" type="button" onClick={() => requestTechnicalSheetDiscard('technicalSheetForm')} disabled={isSavingTechnicalSheet}>
-                Cancelar
-              </button>
-              <button className="primary-button" type="button" onClick={() => void saveTechnicalSheet()} disabled={isSavingTechnicalSheet}>
-                {isSavingTechnicalSheet ? 'Registrando, aguarde...' : 'Salvar ficha'}
-              </button>
+              <div className="modal-actions">
+                <button className="ghost-button" type="button" onClick={() => requestTechnicalSheetDiscard('technicalSheetForm')} disabled={isSavingTechnicalSheet}>
+                  Cancelar
+                </button>
+                <button className="primary-button" type="button" onClick={() => void saveTechnicalSheet()} disabled={isSavingTechnicalSheet}>
+                  {isSavingTechnicalSheet ? 'Registrando, aguarde...' : 'Salvar ficha'}
+                </button>
+              </div>
             </div>
           </section>
         </div>
