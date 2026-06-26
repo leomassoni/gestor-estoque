@@ -1027,6 +1027,11 @@ h3 {
   overflow-y: auto;
 }
 
+.stock-report-table-wrap {
+  max-height: 560px;
+  overflow-y: auto;
+}
+
 .product-table {
   width: 100%;
   border-collapse: separate;

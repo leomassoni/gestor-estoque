@@ -24,6 +24,9 @@ const adminPollingSections: AppSection[] = ['PainelMaster']
 const salesImportBatchHistoryRowHeightPx = 57
 const salesImportBatchHistoryViewportHeightPx = 456
 const salesImportBatchHistoryOverscanRows = 8
+const stockReportRowHeightPx = 57
+const stockReportViewportHeightPx = 560
+const stockReportOverscanRows = 10
 
 type ControlUnit = 'MILLILITER' | 'GRAM' | 'UNIT' | 'COMBO'
 type PackageUnit = 'LITER' | 'MILLILITER' | 'KILOGRAM' | 'GRAM' | 'UNIT'
@@ -4237,6 +4240,7 @@ export default function App() {
   const [productionColumnSort, setProductionColumnSort] = useState<ColumnSort<ProductionColumnKey> | null>(null)
   const [stockReportTab, setStockReportTab] = useState<StockReportTab>('POSICAO')
   const [stockReportSelectorValue, setStockReportSelectorValue] = useState(stockReportTabDefinitions[0]?.label ?? '')
+  const [stockReportScrollTop, setStockReportScrollTop] = useState(0)
   const [stockReportSearch, setStockReportSearch] = useState('')
   const [stockReportStartDate, setStockReportStartDate] = useState('')
   const [stockReportEndDate, setStockReportEndDate] = useState('')
@@ -13747,6 +13751,26 @@ export default function App() {
         ]),
       ) as Record<StockReportColumnKey, string[]>,
     [allowedStockReportColumnOptions, scopedStockReportRows],
+  )
+  const visibleStockReportRange = useMemo(() => {
+    const totalRows = visibleStockReportRows.length
+    if (totalRows === 0) {
+      return { startIndex: 0, endIndex: 0, topSpacerHeight: 0, bottomSpacerHeight: 0 }
+    }
+
+    const visibleRowCount = Math.ceil(stockReportViewportHeightPx / stockReportRowHeightPx)
+    const startIndex = Math.max(0, Math.floor(stockReportScrollTop / stockReportRowHeightPx) - stockReportOverscanRows)
+    const endIndex = Math.min(totalRows, startIndex + visibleRowCount + stockReportOverscanRows * 2)
+    return {
+      startIndex,
+      endIndex,
+      topSpacerHeight: startIndex * stockReportRowHeightPx,
+      bottomSpacerHeight: Math.max(0, (totalRows - endIndex) * stockReportRowHeightPx),
+    }
+  }, [stockReportScrollTop, visibleStockReportRows.length])
+  const virtualizedStockReportRows = useMemo(
+    () => visibleStockReportRows.slice(visibleStockReportRange.startIndex, visibleStockReportRange.endIndex),
+    [visibleStockReportRange.endIndex, visibleStockReportRange.startIndex, visibleStockReportRows],
   )
   const orderedVisibleStockReportColumns = useMemo(
     () =>
@@ -33269,7 +33293,10 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                 </div>
               </div>
               {data.garnishMetrics.length > 0 ? (
-                <div className="table-wrap">
+                <div
+                  className="table-wrap stock-report-table-wrap"
+                  onScroll={(event) => setStockReportScrollTop(event.currentTarget.scrollTop)}
+                >
                   <table className="product-table">
                     <thead>
                       <tr>
@@ -42477,7 +42504,15 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                       </tr>
                     </thead>
                     <tbody>
-                      {visibleStockReportRows.map((row) => (
+                      {visibleStockReportRange.topSpacerHeight > 0 ? (
+                        <tr aria-hidden="true">
+                          <td
+                            colSpan={orderedVisibleStockReportColumns.length + (stockReportTab === 'INVENTARIOS' ? 1 : 0)}
+                            style={{ height: `${visibleStockReportRange.topSpacerHeight}px`, padding: 0, border: 0 }}
+                          />
+                        </tr>
+                      ) : null}
+                      {virtualizedStockReportRows.map((row) => (
                         <tr key={row.id}>
                           {orderedVisibleStockReportColumns.map((key) =>
                             key === 'main' ? (
@@ -42512,6 +42547,14 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                           ) : null}
                         </tr>
                       ))}
+                      {visibleStockReportRange.bottomSpacerHeight > 0 ? (
+                        <tr aria-hidden="true">
+                          <td
+                            colSpan={orderedVisibleStockReportColumns.length + (stockReportTab === 'INVENTARIOS' ? 1 : 0)}
+                            style={{ height: `${visibleStockReportRange.bottomSpacerHeight}px`, padding: 0, border: 0 }}
+                          />
+                        </tr>
+                      ) : null}
                     </tbody>
                   </table>
                 </div>
