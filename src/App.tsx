@@ -16,6 +16,12 @@ import * as XLSX from 'xlsx'
 
 const LazyCodeEditor = lazy(() => import('./components/LazyCodeEditor'))
 
+const requisitionPollingSections: AppSection[] = ['Requisicoes']
+const salesImportPollingSections: AppSection[] = ['ConfiguracoesEstoque']
+const inventoryPollingSections: AppSection[] = ['Inventario', 'Desperdicio', 'RelatoriosEstoque']
+const productionPollingSections: AppSection[] = ['EntradaProducoes']
+const adminPollingSections: AppSection[] = ['PainelMaster']
+
 type ControlUnit = 'MILLILITER' | 'GRAM' | 'UNIT' | 'COMBO'
 type PackageUnit = 'LITER' | 'MILLILITER' | 'KILOGRAM' | 'GRAM' | 'UNIT'
 type ScreenMode = 'list' | 'form'
@@ -7627,7 +7633,7 @@ export default function App() {
     }
 
     const triggerLoad = () => {
-      if (isDocumentHiddenForBackgroundRefresh()) {
+      if (isDocumentHiddenForBackgroundRefresh() || !requisitionPollingSections.includes(activeSection)) {
         return
       }
       void load()
@@ -7652,7 +7658,7 @@ export default function App() {
       window.removeEventListener('focus', handleFocus)
       document.removeEventListener('visibilitychange', handleVisibilityChange)
     }
-  }, [])
+  }, [activeSection])
 
   useEffect(() => {
     if (
@@ -7729,7 +7735,7 @@ export default function App() {
     }
 
     const triggerLoad = () => {
-      if (isDocumentHiddenForBackgroundRefresh()) {
+      if (isDocumentHiddenForBackgroundRefresh() || !salesImportPollingSections.includes(activeSection)) {
         return
       }
       void load()
@@ -7754,7 +7760,7 @@ export default function App() {
       window.removeEventListener('focus', handleFocus)
       document.removeEventListener('visibilitychange', handleVisibilityChange)
     }
-  }, [])
+  }, [activeSection])
 
   useEffect(() => {
     let isCancelled = false
@@ -7771,7 +7777,7 @@ export default function App() {
     }
 
     const triggerLoad = () => {
-      if (isDocumentHiddenForBackgroundRefresh()) {
+      if (isDocumentHiddenForBackgroundRefresh() || !inventoryPollingSections.includes(activeSection)) {
         return
       }
       void load()
@@ -7796,7 +7802,7 @@ export default function App() {
       window.removeEventListener('focus', handleFocus)
       document.removeEventListener('visibilitychange', handleVisibilityChange)
     }
-  }, [])
+  }, [activeSection])
 
   useEffect(() => {
     let isCancelled = false
@@ -7813,7 +7819,7 @@ export default function App() {
     }
 
     const triggerLoad = () => {
-      if (isDocumentHiddenForBackgroundRefresh()) {
+      if (isDocumentHiddenForBackgroundRefresh() || !productionPollingSections.includes(activeSection)) {
         return
       }
       void load()
@@ -7838,7 +7844,7 @@ export default function App() {
       window.removeEventListener('focus', handleFocus)
       document.removeEventListener('visibilitychange', handleVisibilityChange)
     }
-  }, [])
+  }, [activeSection])
 
   useEffect(() => {
     let isCancelled = false
@@ -7855,7 +7861,7 @@ export default function App() {
     }
 
     const triggerLoad = () => {
-      if (isDocumentHiddenForBackgroundRefresh()) {
+      if (isDocumentHiddenForBackgroundRefresh() || !adminPollingSections.includes(activeSection)) {
         return
       }
       void load()
@@ -7880,7 +7886,7 @@ export default function App() {
       window.removeEventListener('focus', handleFocus)
       document.removeEventListener('visibilitychange', handleVisibilityChange)
     }
-  }, [])
+  }, [activeSection])
 
   useEffect(() => {
     let isCancelled = false
@@ -7897,7 +7903,7 @@ export default function App() {
     }
 
     const triggerLoad = () => {
-      if (isDocumentHiddenForBackgroundRefresh()) {
+      if (isDocumentHiddenForBackgroundRefresh() || !adminPollingSections.includes(activeSection)) {
         return
       }
       void load()
@@ -7922,7 +7928,7 @@ export default function App() {
       window.removeEventListener('focus', handleFocus)
       document.removeEventListener('visibilitychange', handleVisibilityChange)
     }
-  }, [])
+  }, [activeSection])
 
   useEffect(() => {
     let isCancelled = false

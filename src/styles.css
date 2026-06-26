@@ -1011,6 +1011,8 @@ h3 {
   position: relative;
   isolation: isolate;
   -webkit-overflow-scrolling: touch;
+  content-visibility: auto;
+  contain-intrinsic-size: 520px;
 }
 
 .table-wrap::after {
