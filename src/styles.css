@@ -346,6 +346,81 @@ select {
   border-color: rgba(124, 176, 248, 0.42);
 }
 
+.technical-sheet-workspace {
+  display: grid;
+  gap: 0;
+}
+
+.technical-sheet-workspace .panel {
+  border: 1px solid transparent;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.46);
+}
+
+.technical-sheet-workspace-preparo .panel {
+  background: linear-gradient(180deg, rgba(255, 244, 233, 0.98) 0%, rgba(255, 238, 217, 0.92) 100%);
+  border-color: rgba(211, 122, 38, 0.16);
+}
+
+.technical-sheet-workspace-execucao .panel {
+  background: linear-gradient(180deg, rgba(255, 251, 225, 0.98) 0%, rgba(252, 244, 198, 0.92) 100%);
+  border-color: rgba(176, 145, 20, 0.16);
+}
+
+.technical-sheet-workspace-venda .panel {
+  background: linear-gradient(180deg, rgba(237, 250, 238, 0.98) 0%, rgba(223, 244, 226, 0.92) 100%);
+  border-color: rgba(49, 130, 86, 0.16);
+}
+
+.technical-sheet-kind-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 8px;
+}
+
+.technical-sheet-kind-tab {
+  padding: 12px 16px;
+  border-radius: 14px;
+  border: 1px solid rgba(35, 78, 146, 0.14);
+  background: rgba(255, 255, 255, 0.7);
+  color: #14213d;
+  cursor: pointer;
+  transition:
+    background 180ms ease,
+    border-color 180ms ease,
+    transform 180ms ease,
+    box-shadow 180ms ease;
+}
+
+.technical-sheet-kind-tab:hover,
+.technical-sheet-kind-tab:focus-visible {
+  transform: translateY(-1px);
+}
+
+.technical-sheet-kind-tab:disabled {
+  cursor: not-allowed;
+  opacity: 0.7;
+  transform: none;
+}
+
+.technical-sheet-workspace-preparo .technical-sheet-kind-tab.active {
+  background: rgba(255, 214, 168, 0.64);
+  border-color: rgba(211, 122, 38, 0.34);
+  box-shadow: 0 10px 24px rgba(211, 122, 38, 0.12);
+}
+
+.technical-sheet-workspace-execucao .technical-sheet-kind-tab.active {
+  background: rgba(255, 236, 139, 0.58);
+  border-color: rgba(176, 145, 20, 0.34);
+  box-shadow: 0 10px 24px rgba(176, 145, 20, 0.1);
+}
+
+.technical-sheet-workspace-venda .technical-sheet-kind-tab.active {
+  background: rgba(176, 229, 188, 0.58);
+  border-color: rgba(49, 130, 86, 0.34);
+  box-shadow: 0 10px 24px rgba(49, 130, 86, 0.1);
+}
+
 .selector-item {
   display: grid;
   gap: 6px;

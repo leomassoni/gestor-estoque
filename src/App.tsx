@@ -29710,6 +29710,26 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
     return 'Venda'
   }
 
+  function getTechnicalSheetFormTitle(kind: TechnicalSheetKind) {
+    if (kind === 'PREPARO') {
+      return 'Produto intermediario / pre-preparo'
+    }
+    if (kind === 'EXECUCAO') {
+      return 'Produto de execucao'
+    }
+    return 'Produto de venda'
+  }
+
+  function getTechnicalSheetWorkspaceClassName(kind: TechnicalSheetKind) {
+    if (kind === 'PREPARO') {
+      return 'technical-sheet-workspace technical-sheet-workspace-preparo'
+    }
+    if (kind === 'EXECUCAO') {
+      return 'technical-sheet-workspace technical-sheet-workspace-execucao'
+    }
+    return 'technical-sheet-workspace technical-sheet-workspace-venda'
+  }
+
   function getSalesImportHistoryModeLabel(
     historyMode: SalesImportBatchRecord['historyMode'],
     historyMonths: number | null,
@@ -36896,18 +36916,12 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
             )}
           </section>
         ) : (
-          <>
+          <div className={getTechnicalSheetWorkspaceClassName(technicalSheetForm.kind)}>
             <section className="panel">
               <div className="section-heading">
                 <div>
                   <p className="kicker">Ficha Tecnica</p>
-                  <h2>
-                    {technicalSheetForm.kind === 'PREPARO'
-                      ? 'Produto intermediario / pre-preparo'
-                      : technicalSheetForm.kind === 'EXECUCAO'
-                        ? 'Produto de execucao'
-                        : 'Produto de venda'}
-                  </h2>
+                  <h2>{getTechnicalSheetFormTitle(technicalSheetForm.kind)}</h2>
                 </div>
                 <div className="toolbar-actions">
                   <button className="ghost-button" type="button" onClick={() => requestTechnicalSheetDiscard('technicalSheetForm')} disabled={isSavingTechnicalSheet}>
@@ -36919,18 +36933,24 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
               </div>
 
 	              <form className="form-grid">
-	                <label className="field">
-	                  <span>Tipo da ficha *</span>
-                  <select
-                    value={technicalSheetForm.kind}
-                    onChange={(event) => updateTechnicalSheetForm('kind', event.target.value as TechnicalSheetKind)}
-                    disabled={editingTechnicalSheetId !== null}
-                  >
-                    <option value="PREPARO">Pre-preparo</option>
-                    <option value="EXECUCAO">Produto de execucao</option>
-                    <option value="VENDA">Produto de venda</option>
-                  </select>
-                </label>
+                  <div className="field field-span-all">
+                    <span>Tipo da ficha *</span>
+                    <div className="technical-sheet-kind-tabs" role="tablist" aria-label="Tipo da ficha tecnica">
+                      {(['PREPARO', 'EXECUCAO', 'VENDA'] as const).map((kind) => (
+                        <button
+                          key={kind}
+                          type="button"
+                          role="tab"
+                          aria-selected={technicalSheetForm.kind === kind}
+                          className={technicalSheetForm.kind === kind ? 'technical-sheet-kind-tab active' : 'technical-sheet-kind-tab'}
+                          onClick={() => updateTechnicalSheetForm('kind', kind)}
+                          disabled={editingTechnicalSheetId !== null}
+                        >
+                          {kind === 'PREPARO' ? 'Pre-preparo' : kind === 'EXECUCAO' ? 'Produto de execucao' : 'Produto de venda'}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
 	                <label className="field">
 	                  <span>ID interno</span>
 	                  <input value={generatedTechnicalSheetProductId} disabled />
@@ -37933,7 +37953,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                 </div>
               </div>
             </section>
-          </>
+          </div>
         )
       ) : activeSection === 'Receituarios' ? (
         <section className="panel">
@@ -43772,37 +43792,36 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
               </button>
             </div>
 
-            <form className="form-grid">
-              <label className="field">
-                <span>Tipo de cadastro</span>
-                <select
-                  value="preparo"
-                  onChange={(event) => {
-                    if (event.target.value === 'product') {
-                      returnToProductCreationFromNestedPreparo()
-                    }
-                  }}
-                >
-                  <option value="product">PRODUTO</option>
-                  <option value="preparo">FICHA DE PRE-PREPARO</option>
-                </select>
-              </label>
-              <label className="field">
-                <span>ID interno</span>
-                <input value={generatedTechnicalSheetProductId} disabled />
-              </label>
-	              {renderPreparoIdentityFields('nested')}
-            </form>
+            <div className={getTechnicalSheetWorkspaceClassName('PREPARO')}>
+              <form className="form-grid">
+                <div className="field field-span-all">
+                  <span>Tipo da ficha *</span>
+                  <div className="technical-sheet-kind-tabs" role="tablist" aria-label="Tipo da ficha tecnica">
+                    <button type="button" role="tab" aria-selected={false} className="technical-sheet-kind-tab" onClick={returnToProductCreationFromNestedPreparo}>
+                      Produto
+                    </button>
+                    <button type="button" role="tab" aria-selected={true} className="technical-sheet-kind-tab active">
+                      Pre-preparo
+                    </button>
+                  </div>
+                </div>
+                <label className="field">
+                  <span>ID interno</span>
+                  <input value={generatedTechnicalSheetProductId} disabled />
+                </label>
+	                {renderPreparoIdentityFields('nested')}
+              </form>
 
-	            {renderPreparoCompositionPanel('nested')}
+	              {renderPreparoCompositionPanel('nested')}
 
-	            {renderPreparoDensityPanel('nested')}
+	              {renderPreparoDensityPanel('nested')}
 
-	            {renderPreparoPhBrixPanel('nested')}
+	              {renderPreparoPhBrixPanel('nested')}
 
-	            {renderPreparoSummaryPanel('nested')}
+	              {renderPreparoSummaryPanel('nested')}
 
-	            {renderPreparoExecutionPanel('nested')}
+	              {renderPreparoExecutionPanel('nested')}
+            </div>
 
             <div className="modal-actions">
               <button className="ghost-button" type="button" onClick={() => requestTechnicalSheetDiscard('technicalSheetForm')} disabled={isSavingTechnicalSheet}>
