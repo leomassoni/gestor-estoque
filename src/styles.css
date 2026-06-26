@@ -357,18 +357,18 @@ select {
 }
 
 .technical-sheet-workspace-preparo .panel {
-  background: linear-gradient(180deg, rgba(255, 244, 233, 0.98) 0%, rgba(255, 238, 217, 0.92) 100%);
-  border-color: rgba(211, 122, 38, 0.16);
+  background: linear-gradient(180deg, rgba(246, 227, 215, 0.98) 0%, rgba(242, 220, 206, 0.94) 100%);
+  border-color: rgba(210, 138, 90, 0.24);
 }
 
 .technical-sheet-workspace-execucao .panel {
-  background: linear-gradient(180deg, rgba(255, 251, 225, 0.98) 0%, rgba(252, 244, 198, 0.92) 100%);
-  border-color: rgba(176, 145, 20, 0.16);
+  background: linear-gradient(180deg, rgba(245, 235, 200, 0.98) 0%, rgba(240, 227, 181, 0.94) 100%);
+  border-color: rgba(201, 166, 71, 0.24);
 }
 
 .technical-sheet-workspace-venda .panel {
-  background: linear-gradient(180deg, rgba(237, 250, 238, 0.98) 0%, rgba(223, 244, 226, 0.92) 100%);
-  border-color: rgba(49, 130, 86, 0.16);
+  background: linear-gradient(180deg, rgba(226, 239, 229, 0.98) 0%, rgba(216, 233, 220, 0.94) 100%);
+  border-color: rgba(110, 159, 122, 0.24);
 }
 
 .technical-sheet-kind-tabs {
@@ -409,21 +409,21 @@ select {
 }
 
 .technical-sheet-workspace-preparo .technical-sheet-kind-tab.active {
-  background: rgba(255, 214, 168, 0.64);
-  border-color: rgba(211, 122, 38, 0.34);
-  box-shadow: 0 10px 24px rgba(211, 122, 38, 0.12);
+  background: rgba(246, 227, 215, 0.92);
+  border-color: rgba(210, 138, 90, 0.44);
+  box-shadow: 0 10px 24px rgba(210, 138, 90, 0.14);
 }
 
 .technical-sheet-workspace-execucao .technical-sheet-kind-tab.active {
-  background: rgba(255, 236, 139, 0.58);
-  border-color: rgba(176, 145, 20, 0.34);
-  box-shadow: 0 10px 24px rgba(176, 145, 20, 0.1);
+  background: rgba(245, 235, 200, 0.92);
+  border-color: rgba(201, 166, 71, 0.44);
+  box-shadow: 0 10px 24px rgba(201, 166, 71, 0.14);
 }
 
 .technical-sheet-workspace-venda .technical-sheet-kind-tab.active {
-  background: rgba(176, 229, 188, 0.58);
-  border-color: rgba(49, 130, 86, 0.34);
-  box-shadow: 0 10px 24px rgba(49, 130, 86, 0.1);
+  background: rgba(226, 239, 229, 0.92);
+  border-color: rgba(110, 159, 122, 0.44);
+  box-shadow: 0 10px 24px rgba(110, 159, 122, 0.14);
 }
 
 .selector-item {
@@ -2916,18 +2916,18 @@ h3 {
 }
 
 .technical-sheet-modal-preparo {
-  background: linear-gradient(180deg, rgba(255, 244, 233, 0.98) 0%, rgba(255, 238, 217, 0.94) 100%);
-  border-color: rgba(211, 122, 38, 0.18);
+  background: linear-gradient(180deg, rgba(246, 227, 215, 0.98) 0%, rgba(242, 220, 206, 0.95) 100%);
+  border-color: rgba(210, 138, 90, 0.26);
 }
 
 .technical-sheet-modal-execucao {
-  background: linear-gradient(180deg, rgba(255, 251, 225, 0.98) 0%, rgba(252, 244, 198, 0.94) 100%);
-  border-color: rgba(176, 145, 20, 0.18);
+  background: linear-gradient(180deg, rgba(245, 235, 200, 0.98) 0%, rgba(240, 227, 181, 0.95) 100%);
+  border-color: rgba(201, 166, 71, 0.26);
 }
 
 .technical-sheet-modal-venda {
-  background: linear-gradient(180deg, rgba(237, 250, 238, 0.98) 0%, rgba(223, 244, 226, 0.94) 100%);
-  border-color: rgba(49, 130, 86, 0.18);
+  background: linear-gradient(180deg, rgba(226, 239, 229, 0.98) 0%, rgba(216, 233, 220, 0.95) 100%);
+  border-color: rgba(110, 159, 122, 0.26);
 }
 
 .modal-actions {
