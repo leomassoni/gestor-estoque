@@ -29,6 +29,9 @@ const requisitionHistoryOverscanRows = 8
 const supplyHistoryRowHeightPx = 57
 const supplyHistoryViewportHeightPx = 456
 const supplyHistoryOverscanRows = 8
+const receiveHistoryRowHeightPx = 57
+const receiveHistoryViewportHeightPx = 456
+const receiveHistoryOverscanRows = 8
 const stockReportRowHeightPx = 57
 const stockReportViewportHeightPx = 560
 const stockReportOverscanRows = 10
@@ -4215,6 +4218,7 @@ export default function App() {
   const [requisitionHistorySearch, setRequisitionHistorySearch] = useState('')
   const [requisitionHistoryScrollTop, setRequisitionHistoryScrollTop] = useState(0)
   const [requisitionReceiveSearch, setRequisitionReceiveSearch] = useState('')
+  const [requisitionReceiveScrollTop, setRequisitionReceiveScrollTop] = useState(0)
   const [openRequisitionDraftColumnMenu, setOpenRequisitionDraftColumnMenu] = useState<RequisitionDraftColumnKey | null>(null)
   const [requisitionDraftColumnVisibility, setRequisitionDraftColumnVisibility] =
     useState<Record<RequisitionDraftColumnKey, boolean>>(defaultRequisitionDraftColumnVisibility)
@@ -8709,6 +8713,29 @@ export default function App() {
   const hiddenReceiveColumns = useMemo(
     () => requisitionFlowColumnOptions.filter(([key]) => !receiveColumnVisibility[key]),
     [receiveColumnVisibility],
+  )
+  const visibleReceiveRange = useMemo(() => {
+    const totalRows = visibleReceiveRows.length
+    if (totalRows === 0) {
+      return { startIndex: 0, endIndex: 0, topSpacerHeight: 0, bottomSpacerHeight: 0 }
+    }
+
+    const visibleRowCount = Math.ceil(receiveHistoryViewportHeightPx / receiveHistoryRowHeightPx)
+    const startIndex = Math.max(
+      0,
+      Math.floor(requisitionReceiveScrollTop / receiveHistoryRowHeightPx) - receiveHistoryOverscanRows,
+    )
+    const endIndex = Math.min(totalRows, startIndex + visibleRowCount + receiveHistoryOverscanRows * 2)
+    return {
+      startIndex,
+      endIndex,
+      topSpacerHeight: startIndex * receiveHistoryRowHeightPx,
+      bottomSpacerHeight: Math.max(0, (totalRows - endIndex) * receiveHistoryRowHeightPx),
+    }
+  }, [requisitionReceiveScrollTop, visibleReceiveRows.length])
+  const virtualizedReceiveRows = useMemo(
+    () => visibleReceiveRows.slice(visibleReceiveRange.startIndex, visibleReceiveRange.endIndex),
+    [visibleReceiveRange.endIndex, visibleReceiveRange.startIndex, visibleReceiveRows],
   )
   const selectedInventoryStockCenter = useMemo(
     () =>
@@ -41131,7 +41158,10 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                     </div>
                   </div>
                   {currentCompanySalesImportTemplates.length > 0 ? (
-                    <div className="table-wrap">
+                    <div
+                      className="table-wrap"
+                      onScroll={(event) => setRequisitionReceiveScrollTop(event.currentTarget.scrollTop)}
+                    >
                       <table className="product-table">
                         <thead>
                           <tr>
@@ -42148,7 +42178,12 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                           </tr>
                         </thead>
                         <tbody>
-                          {visibleReceiveRows.map((record) => (
+                          {visibleReceiveRange.topSpacerHeight > 0 ? (
+                            <tr aria-hidden="true">
+                              <td colSpan={7} style={{ height: `${visibleReceiveRange.topSpacerHeight}px`, padding: 0, border: 0 }} />
+                            </tr>
+                          ) : null}
+                          {virtualizedReceiveRows.map((record) => (
                             <tr key={record.id}>
                               {receiveColumnVisibility.center ? <td className="sticky-product-cell"><strong>{record.stockCenterName}</strong></td> : null}
                               {receiveColumnVisibility.status ? <td>{getRequisitionHistoryStatusLabel(record.status)}</td> : null}
@@ -42165,6 +42200,11 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                               </td>
                             </tr>
                           ))}
+                          {visibleReceiveRange.bottomSpacerHeight > 0 ? (
+                            <tr aria-hidden="true">
+                              <td colSpan={7} style={{ height: `${visibleReceiveRange.bottomSpacerHeight}px`, padding: 0, border: 0 }} />
+                            </tr>
+                          ) : null}
                         </tbody>
                       </table>
                     </div>
