@@ -12,7 +12,6 @@ import {
   type KeyboardEvent,
   type SetStateAction,
 } from 'react'
-import * as XLSX from 'xlsx'
 
 const LazyCodeEditor = lazy(() => import('./components/LazyCodeEditor'))
 
@@ -27,6 +26,9 @@ const salesImportBatchHistoryOverscanRows = 8
 const requisitionHistoryRowHeightPx = 57
 const requisitionHistoryViewportHeightPx = 456
 const requisitionHistoryOverscanRows = 8
+const supplyHistoryRowHeightPx = 57
+const supplyHistoryViewportHeightPx = 456
+const supplyHistoryOverscanRows = 8
 const stockReportRowHeightPx = 57
 const stockReportViewportHeightPx = 560
 const stockReportOverscanRows = 10
@@ -3912,6 +3914,7 @@ function isDocumentHiddenForBackgroundRefresh() {
 type JsPdfModule = Awaited<typeof import('jspdf')>
 type JsPdfAutoTableModule = Awaited<typeof import('jspdf-autotable')>
 type Html2CanvasModule = Awaited<typeof import('html2canvas')>
+type XlsxModule = Awaited<typeof import('xlsx')>
 
 let pdfDependencyPromise:
   | Promise<{
@@ -3920,6 +3923,8 @@ let pdfDependencyPromise:
       html2CanvasModule: Html2CanvasModule
     }>
   | null = null
+let xlsxDependencyPromise: Promise<XlsxModule> | null = null
+let xlsxDependencyModule: XlsxModule | null = null
 
 async function loadPdfDependencies() {
   if (!pdfDependencyPromise) {
@@ -3935,6 +3940,21 @@ async function loadPdfDependencies() {
   }
 
   return pdfDependencyPromise
+}
+
+async function loadXlsxModule() {
+  if (!xlsxDependencyPromise) {
+    xlsxDependencyPromise = import('xlsx').then((module) => {
+      xlsxDependencyModule = module
+      return module
+    })
+  }
+
+  return xlsxDependencyPromise
+}
+
+function getCachedXlsxModule() {
+  return xlsxDependencyModule
 }
 
 export default function App() {
@@ -4213,6 +4233,7 @@ export default function App() {
   const [isRequisitionNotificationPanelOpen, setIsRequisitionNotificationPanelOpen] = useState(false)
   const [isRequisitionEditModalOpen, setIsRequisitionEditModalOpen] = useState(false)
   const [supplySearch, setSupplySearch] = useState('')
+  const [supplyScrollTop, setSupplyScrollTop] = useState(0)
   const [openSupplyColumnMenu, setOpenSupplyColumnMenu] = useState<RequisitionFlowColumnKey | null>(null)
   const [supplyColumnVisibility, setSupplyColumnVisibility] =
     useState<Record<RequisitionFlowColumnKey, boolean>>(defaultRequisitionFlowColumnVisibility)
@@ -8608,6 +8629,26 @@ export default function App() {
       ),
     [supplyColumnFilters, supplyColumnSort, supplySearch, visibleSupplyRequisitions],
   )
+  const visibleSupplyRange = useMemo(() => {
+    const totalRows = visibleSupplyRows.length
+    if (totalRows === 0) {
+      return { startIndex: 0, endIndex: 0, topSpacerHeight: 0, bottomSpacerHeight: 0 }
+    }
+
+    const visibleRowCount = Math.ceil(supplyHistoryViewportHeightPx / supplyHistoryRowHeightPx)
+    const startIndex = Math.max(0, Math.floor(supplyScrollTop / supplyHistoryRowHeightPx) - supplyHistoryOverscanRows)
+    const endIndex = Math.min(totalRows, startIndex + visibleRowCount + supplyHistoryOverscanRows * 2)
+    return {
+      startIndex,
+      endIndex,
+      topSpacerHeight: startIndex * supplyHistoryRowHeightPx,
+      bottomSpacerHeight: Math.max(0, (totalRows - endIndex) * supplyHistoryRowHeightPx),
+    }
+  }, [supplyScrollTop, visibleSupplyRows.length])
+  const virtualizedSupplyRows = useMemo(
+    () => visibleSupplyRows.slice(visibleSupplyRange.startIndex, visibleSupplyRange.endIndex),
+    [visibleSupplyRange.endIndex, visibleSupplyRange.startIndex, visibleSupplyRows],
+  )
   const distinctSupplyColumnValues = useMemo(
     () =>
       Object.fromEntries(
@@ -8822,11 +8863,15 @@ export default function App() {
   const salesImportHeaderRowIndex = 0
   const salesImportDataStartRowIndex = 1
   const salesImportColumnOptions = useMemo(() => {
+    const xlsxModule = getCachedXlsxModule()
+    if (!xlsxModule) {
+      return []
+    }
     const rows = salesImportCurrentSheet?.rows ?? []
     const maxColumns = rows.reduce((max, row) => Math.max(max, row.length), 0)
     const headerRowValues = rows[salesImportHeaderRowIndex] ?? []
     return Array.from({ length: maxColumns }, (_, index) => {
-      const letter = XLSX.utils.encode_col(index)
+      const letter = xlsxModule.utils.encode_col(index)
       const headerLabel = normalizeRegistrationText(formatSalesImportWorkbookCellValue(headerRowValues[index] ?? '', 'TEXT'))
       return {
         value: letter,
@@ -8846,14 +8891,15 @@ export default function App() {
     [currentCompanyId, technicalSheets],
   )
   const salesImportPreviewRows = useMemo<SalesImportPreviewRow[]>(() => {
-    if (!salesImportCurrentSheet) {
+    const xlsxModule = getCachedXlsxModule()
+    if (!salesImportCurrentSheet || !xlsxModule) {
       return []
     }
 
     const rows = salesImportCurrentSheet.rows
-    const codeColumnIndex = salesImportCodeColumn ? XLSX.utils.decode_col(salesImportCodeColumn) : -1
-    const quantityColumnIndex = salesImportQuantityColumn ? XLSX.utils.decode_col(salesImportQuantityColumn) : -1
-    const dateColumnIndex = salesImportDateMode === 'COLUMN' && salesImportDateColumn ? XLSX.utils.decode_col(salesImportDateColumn) : -1
+    const codeColumnIndex = salesImportCodeColumn ? xlsxModule.utils.decode_col(salesImportCodeColumn) : -1
+    const quantityColumnIndex = salesImportQuantityColumn ? xlsxModule.utils.decode_col(salesImportQuantityColumn) : -1
+    const dateColumnIndex = salesImportDateMode === 'COLUMN' && salesImportDateColumn ? xlsxModule.utils.decode_col(salesImportDateColumn) : -1
 
     if (codeColumnIndex < 0 || quantityColumnIndex < 0 || (salesImportDateMode === 'COLUMN' && dateColumnIndex < 0)) {
       return []
@@ -8863,7 +8909,7 @@ export default function App() {
       salesImportDateMode === 'FIXED_CELL' && salesImportDateCell
         ? (() => {
             try {
-              const cell = XLSX.utils.decode_cell(salesImportDateCell)
+              const cell = xlsxModule.utils.decode_cell(salesImportDateCell)
               return rows[cell.r]?.[cell.c] ?? ''
             } catch {
               return ''
@@ -24495,8 +24541,9 @@ export default function App() {
 
     const fileBaseName = `requisicao-${requisition.stockCenterName.toLowerCase().replace(/\s+/g, '-')}-${requisition.countedAt}`
     if (format === 'xlsx') {
-      const workbook = XLSX.utils.book_new()
-      const worksheet = XLSX.utils.aoa_to_sheet([
+      const xlsxModule = await loadXlsxModule()
+      const workbook = xlsxModule.utils.book_new()
+      const worksheet = xlsxModule.utils.aoa_to_sheet([
         ['Centro', requisition.stockCenterName],
         ['Setor', requisition.sector],
         ['Data do ultimo inventario', formatDateForDisplay(requisition.countedAt)],
@@ -24514,8 +24561,8 @@ export default function App() {
           line.destinationLabel,
         ]),
       ])
-      XLSX.utils.book_append_sheet(workbook, worksheet, 'Requisicao')
-      XLSX.writeFile(workbook, `${fileBaseName}.xlsx`)
+      xlsxModule.utils.book_append_sheet(workbook, worksheet, 'Requisicao')
+      xlsxModule.writeFile(workbook, `${fileBaseName}.xlsx`)
     } else {
       const { jsPdfModule, autoTableModule } = await loadPdfDependencies()
       const { jsPDF } = jsPdfModule
@@ -29635,10 +29682,11 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
     ])
 
     if (productExportState.format === 'xlsx') {
-      const worksheet = XLSX.utils.aoa_to_sheet([headers, ...rows])
-      const workbook = XLSX.utils.book_new()
-      XLSX.utils.book_append_sheet(workbook, worksheet, 'Produtos')
-      XLSX.writeFile(workbook, buildProductExportFileName('xlsx'))
+      const xlsxModule = await loadXlsxModule()
+      const worksheet = xlsxModule.utils.aoa_to_sheet([headers, ...rows])
+      const workbook = xlsxModule.utils.book_new()
+      xlsxModule.utils.book_append_sheet(workbook, worksheet, 'Produtos')
+      xlsxModule.writeFile(workbook, buildProductExportFileName('xlsx'))
     } else {
       const { jsPdfModule, autoTableModule } = await loadPdfDependencies()
       const { jsPDF } = jsPdfModule
@@ -29743,7 +29791,8 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
       : '-'
 
     if (stockReportExportState.format === 'xlsx') {
-      const worksheet = XLSX.utils.aoa_to_sheet([
+      const xlsxModule = await loadXlsxModule()
+      const worksheet = xlsxModule.utils.aoa_to_sheet([
         ['Empresa', currentCompany?.tradeName || '-'],
         ['Relatorio', reportLabel],
         ['Visualizacao', scopeLabel],
@@ -29755,13 +29804,13 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
         headers,
         ...rows,
       ])
-      const workbook = XLSX.utils.book_new()
+      const workbook = xlsxModule.utils.book_new()
       const sheetName = reportLabel
         .replace(/[\\/?*\[\]:]/g, ' ')
         .trim()
         .slice(0, 31) || 'Relatorio'
-      XLSX.utils.book_append_sheet(workbook, worksheet, sheetName)
-      XLSX.writeFile(workbook, buildStockReportExportFileName('xlsx'))
+      xlsxModule.utils.book_append_sheet(workbook, worksheet, sheetName)
+      xlsxModule.writeFile(workbook, buildStockReportExportFileName('xlsx'))
     } else {
       const { jsPdfModule, autoTableModule } = await loadPdfDependencies()
       const { jsPDF } = jsPdfModule
@@ -30014,13 +30063,14 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
     value: SalesImportWorkbookCell,
     kind: 'TEXT' | 'DATE' | 'QUANTITY',
   ) {
+    const xlsxModule = getCachedXlsxModule()
     if (value instanceof Date) {
       return kind === 'DATE' ? value.toISOString().slice(0, 10) : String(value.toISOString().slice(0, 10))
     }
 
     if (typeof value === 'number') {
-      if (kind === 'DATE') {
-        const parsedDate = XLSX.SSF.parse_date_code(value)
+      if (kind === 'DATE' && xlsxModule) {
+        const parsedDate = xlsxModule.SSF.parse_date_code(value)
         if (parsedDate) {
           const year = String(parsedDate.y).padStart(4, '0')
           const month = String(parsedDate.m).padStart(2, '0')
@@ -30248,7 +30298,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
     return 'Analitico'
   }
 
-  function exportSalesImportIssues(
+  async function exportSalesImportIssues(
     rows: Array<{
       sourceRowKey: string
       consumedAt: string
@@ -30271,8 +30321,9 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
       return
     }
 
-    const workbook = XLSX.utils.book_new()
-    const worksheet = XLSX.utils.aoa_to_sheet([
+    const xlsxModule = await loadXlsxModule()
+    const workbook = xlsxModule.utils.book_new()
+    const worksheet = xlsxModule.utils.aoa_to_sheet([
       ['Linha origem', 'Data', 'ID empresa', 'Quantidade', 'Tipo detectado', 'Status', 'Observacao', 'Lote'],
       ...issueRows.map((row) => [
         row.sourceRowKey,
@@ -30285,8 +30336,8 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
         row.batchId ?? '',
       ]),
     ])
-    XLSX.utils.book_append_sheet(workbook, worksheet, 'Inconsistencias')
-    XLSX.writeFile(workbook, fileName)
+    xlsxModule.utils.book_append_sheet(workbook, worksheet, 'Inconsistencias')
+    xlsxModule.writeFile(workbook, fileName)
   }
 
   function buildSalesImportOperationalMovement(params: {
@@ -31770,10 +31821,11 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
 
     try {
       const arrayBuffer = await file.arrayBuffer()
-      const workbook = XLSX.read(arrayBuffer, { type: 'array' })
+      const xlsxModule = await loadXlsxModule()
+      const workbook = xlsxModule.read(arrayBuffer, { type: 'array' })
       const workbookSheets = workbook.SheetNames.map((sheetName) => {
         const worksheet = workbook.Sheets[sheetName]
-        const rows = XLSX.utils.sheet_to_json<SalesImportWorkbookCell[]>(worksheet, {
+        const rows = xlsxModule.utils.sheet_to_json<SalesImportWorkbookCell[]>(worksheet, {
           header: 1,
           raw: true,
           defval: null,
@@ -31847,15 +31899,16 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
     })
   }
 
-  function downloadSalesImportTemplateWorkbook() {
-    const worksheet = XLSX.utils.aoa_to_sheet([
+  async function downloadSalesImportTemplateWorkbook() {
+    const xlsxModule = await loadXlsxModule()
+    const worksheet = xlsxModule.utils.aoa_to_sheet([
       ['DATA', 'ID_EMPRESA', 'QUANTIDADE'],
       ['2026-06-01', 'DRINK-001', '12'],
       ['2026-06-01', 'DRINK-002', '7'],
     ])
-    const workbook = XLSX.utils.book_new()
-    XLSX.utils.book_append_sheet(workbook, worksheet, 'Vendas')
-    XLSX.writeFile(workbook, 'modelo-importacao-vendas.xlsx')
+    const workbook = xlsxModule.utils.book_new()
+    xlsxModule.utils.book_append_sheet(workbook, worksheet, 'Vendas')
+    xlsxModule.writeFile(workbook, 'modelo-importacao-vendas.xlsx')
   }
 
   function requestSalesImportSave() {
@@ -32827,7 +32880,8 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
     const kindLabel = getTechnicalSheetKindLabel(technicalSheetExportState.kind)
 
     if (technicalSheetExportState.format === 'xlsx') {
-      const workbook = XLSX.utils.book_new()
+      const xlsxModule = await loadXlsxModule()
+      const workbook = xlsxModule.utils.book_new()
       const summaryRows = exportedSheets.map((data) => ({
         ficha: data.sheet.name,
         tipo: kindLabel,
@@ -32849,7 +32903,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
         cmv_final: isCommercialTechnicalSheetKind(data.sheet.kind) ? `${formatDecimal(data.finalCmvPercentage)}%` : '-',
         valor_final_venda: isCommercialTechnicalSheetKind(data.sheet.kind) ? formatMoney(data.finalSalePrice) : '-',
       }))
-      const summarySheet = XLSX.utils.json_to_sheet(summaryRows)
+      const summarySheet = xlsxModule.utils.json_to_sheet(summaryRows)
       summarySheet['!cols'] = [
         { wch: 28 },
         { wch: 14 },
@@ -32871,7 +32925,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
         { wch: 12 },
         { wch: 16 },
       ]
-      XLSX.utils.book_append_sheet(workbook, summarySheet, 'Resumo')
+      xlsxModule.utils.book_append_sheet(workbook, summarySheet, 'Resumo')
 
       exportedSheets.forEach((data, index) => {
         const sheet = data.sheet
@@ -33011,12 +33065,12 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
           rows.push([sheet.storytelling || 'Storytelling nao informado.'])
         }
 
-        const worksheet = XLSX.utils.aoa_to_sheet(rows)
+        const worksheet = xlsxModule.utils.aoa_to_sheet(rows)
         worksheet['!cols'] = [{ wch: 30 }, { wch: 24 }, { wch: 18 }, { wch: 18 }, { wch: 22 }]
-        XLSX.utils.book_append_sheet(workbook, worksheet, buildTechnicalSheetExportSheetName(`${index + 1}-${sheet.name}`))
+        xlsxModule.utils.book_append_sheet(workbook, worksheet, buildTechnicalSheetExportSheetName(`${index + 1}-${sheet.name}`))
       })
 
-      XLSX.writeFile(
+      xlsxModule.writeFile(
         workbook,
         buildTechnicalSheetExportFileName(exportedSheets, 'xlsx'),
       )
@@ -33579,7 +33633,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
     })
   }
 
-  function confirmRecipeExport() {
+  async function confirmRecipeExport() {
     if (!recipeExportState) {
       return
     }
@@ -33601,7 +33655,8 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
     const tabLabel = recipePanelTab === 'PREPARO' ? 'Pre-preparos' : 'Execucao'
 
     if (recipeExportState.format === 'xlsx') {
-      const workbook = XLSX.utils.book_new()
+      const xlsxModule = await loadXlsxModule()
+      const workbook = xlsxModule.utils.book_new()
 
       const summaryRows = exportedRecipes.map((data) => ({
         ficha: data.sheet.name,
@@ -33617,7 +33672,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
         imagens_recipientes: data.serviceItemMetrics.some((serviceItem) => serviceItem.imageDataUrl) ? 'SIM' : 'NAO',
       }))
 
-      const summarySheet = XLSX.utils.json_to_sheet(summaryRows)
+      const summarySheet = xlsxModule.utils.json_to_sheet(summaryRows)
       summarySheet['!cols'] = [
         { wch: 28 },
         { wch: 14 },
@@ -33631,7 +33686,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
         { wch: 14 },
         { wch: 18 },
       ]
-      XLSX.utils.book_append_sheet(workbook, summarySheet, 'Resumo')
+      xlsxModule.utils.book_append_sheet(workbook, summarySheet, 'Resumo')
 
       exportedRecipes.forEach((data, index) => {
         const rows: (string | number)[][] = [
@@ -33734,12 +33789,12 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
           rows.push(['Valor final de venda', `R$ ${formatMoney(data.finalSalePrice)}`])
         }
 
-        const worksheet = XLSX.utils.aoa_to_sheet(rows)
+        const worksheet = xlsxModule.utils.aoa_to_sheet(rows)
         worksheet['!cols'] = [{ wch: 30 }, { wch: 22 }, { wch: 18 }, { wch: 18 }, { wch: 22 }]
-        XLSX.utils.book_append_sheet(workbook, worksheet, buildRecipeExportSheetName(`${index + 1}-${data.sheet.name}`))
+        xlsxModule.utils.book_append_sheet(workbook, worksheet, buildRecipeExportSheetName(`${index + 1}-${data.sheet.name}`))
       })
 
-      XLSX.writeFile(workbook, buildRecipeExportFileName(recipePanelTab, recipeExportState.scope, 'xlsx'))
+      xlsxModule.writeFile(workbook, buildRecipeExportFileName(recipePanelTab, recipeExportState.scope, 'xlsx'))
     } else {
       setRecipeExportState(null)
       setRecipeExportRenderState({
@@ -42177,7 +42232,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                     </div>
                   </div>
                 ) : null}
-                <div className="table-wrap">
+                <div className="table-wrap" onScroll={(event) => setSupplyScrollTop(event.currentTarget.scrollTop)}>
                   <table className="product-table">
                     <thead>
                       <tr>
@@ -42191,7 +42246,12 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                       </tr>
                     </thead>
                     <tbody>
-                      {visibleSupplyRows.map((record) => {
+                      {visibleSupplyRange.topSpacerHeight > 0 ? (
+                        <tr aria-hidden="true">
+                          <td colSpan={7} style={{ height: `${visibleSupplyRange.topSpacerHeight}px`, padding: 0, border: 0 }} />
+                        </tr>
+                      ) : null}
+                      {virtualizedSupplyRows.map((record) => {
                         return (
                         <tr key={record.id}>
                           {supplyColumnVisibility.center ? <td className="sticky-product-cell"><strong>{getRequisitionRequestingCenterDisplayLabelForUi(record)}</strong></td> : null}
@@ -42215,6 +42275,11 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                           </td>
                         </tr>
                       )})}
+                      {visibleSupplyRange.bottomSpacerHeight > 0 ? (
+                        <tr aria-hidden="true">
+                          <td colSpan={7} style={{ height: `${visibleSupplyRange.bottomSpacerHeight}px`, padding: 0, border: 0 }} />
+                        </tr>
+                      ) : null}
                     </tbody>
                   </table>
                 </div>
