@@ -32245,22 +32245,37 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
       .filter((value): value is string => Boolean(value))
   }
 
+  function buildTechnicalSheetExportFileSegment(value: string) {
+    return (
+      value
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .replace(/[^A-Z0-9]+/gi, '-')
+        .replace(/^-+|-+$/g, '')
+        .toUpperCase() || 'ARQUIVO'
+    )
+  }
+
+  function buildTechnicalSheetExportDateSegment(date = new Date()) {
+    const year = date.getFullYear()
+    const month = `${date.getMonth() + 1}`.padStart(2, '0')
+    const day = `${date.getDate()}`.padStart(2, '0')
+
+    return `${year}-${month}-${day}`
+  }
+
   function buildTechnicalSheetExportFileName(
-    kind: TechnicalSheetKind,
-    scope: TechnicalSheetExportState['scope'],
+    technicalSheets: RecipePanelComputedData[],
     extension: 'pdf' | 'xlsx',
   ) {
-    const companyLabel = currentCompany?.tradeName || 'EMPRESA'
-    const normalizedCompanyLabel = companyLabel
-      .normalize('NFD')
-      .replace(/[\u0300-\u036f]/g, '')
-      .replace(/[^A-Z0-9]+/gi, '-')
-      .replace(/^-+|-+$/g, '')
-      .toUpperCase()
-    const kindLabel = kind === 'PREPARO' ? 'PRE-PREPARO' : kind === 'EXECUCAO' ? 'EXECUCAO' : 'VENDA'
-    const scopeLabel = scope === 'current' ? 'FICHA-ATUAL' : 'TODAS-AS-FICHAS'
+    const exportDateLabel = buildTechnicalSheetExportDateSegment()
+    if (technicalSheets.length === 1) {
+      const sheetLabel = buildTechnicalSheetExportFileSegment(technicalSheets[0].sheet.name)
+      return `${sheetLabel}-${exportDateLabel}.${extension}`
+    }
 
-    return `FICHAS-TECNICAS-${kindLabel}-${scopeLabel}-${normalizedCompanyLabel || 'EMPRESA'}.${extension}`
+    const companyLabel = buildTechnicalSheetExportFileSegment(currentCompany?.tradeName || 'EMPRESA')
+    return `${companyLabel}-${exportDateLabel}.${extension}`
   }
 
   function buildTechnicalSheetExportSheetName(value: string) {
@@ -32916,7 +32931,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
 
       XLSX.writeFile(
         workbook,
-        buildTechnicalSheetExportFileName(technicalSheetExportState.kind, technicalSheetExportState.scope, 'xlsx'),
+        buildTechnicalSheetExportFileName(exportedSheets, 'xlsx'),
       )
     } else {
       setTechnicalSheetExportState(null)
@@ -33840,11 +33855,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
         }
 
         doc.save(
-          buildTechnicalSheetExportFileName(
-            technicalSheetExportRenderState.kind,
-            technicalSheetExportRenderState.scope,
-            'pdf',
-          ),
+          buildTechnicalSheetExportFileName(technicalSheetExportRenderState.technicalSheets, 'pdf'),
         )
         setSaveFeedback({
           status: 'success',
