@@ -24,6 +24,9 @@ const adminPollingSections: AppSection[] = ['PainelMaster']
 const salesImportBatchHistoryRowHeightPx = 57
 const salesImportBatchHistoryViewportHeightPx = 456
 const salesImportBatchHistoryOverscanRows = 8
+const requisitionHistoryRowHeightPx = 57
+const requisitionHistoryViewportHeightPx = 456
+const requisitionHistoryOverscanRows = 8
 const stockReportRowHeightPx = 57
 const stockReportViewportHeightPx = 560
 const stockReportOverscanRows = 10
@@ -4190,6 +4193,7 @@ export default function App() {
   const [requisitionDraftLines, setRequisitionDraftLines] = useState<RequisitionDraftLine[]>([])
   const [requisitionDraftSearch, setRequisitionDraftSearch] = useState('')
   const [requisitionHistorySearch, setRequisitionHistorySearch] = useState('')
+  const [requisitionHistoryScrollTop, setRequisitionHistoryScrollTop] = useState(0)
   const [requisitionReceiveSearch, setRequisitionReceiveSearch] = useState('')
   const [openRequisitionDraftColumnMenu, setOpenRequisitionDraftColumnMenu] = useState<RequisitionDraftColumnKey | null>(null)
   const [requisitionDraftColumnVisibility, setRequisitionDraftColumnVisibility] =
@@ -7959,7 +7963,7 @@ export default function App() {
     }
 
     const triggerLoad = () => {
-      if (isDocumentHiddenForBackgroundRefresh()) {
+      if (isDocumentHiddenForBackgroundRefresh() || !adminPollingSections.includes(activeSection)) {
         return
       }
       void load()
@@ -7984,7 +7988,7 @@ export default function App() {
       window.removeEventListener('focus', handleFocus)
       document.removeEventListener('visibilitychange', handleVisibilityChange)
     }
-  }, [])
+  }, [activeSection])
 
   useEffect(() => {
     let isCancelled = false
@@ -8549,6 +8553,33 @@ export default function App() {
   const hiddenRequisitionHistoryColumns = useMemo(
     () => requisitionHistoryColumnOptions.filter(([key]) => !requisitionHistoryColumnVisibility[key]),
     [requisitionHistoryColumnVisibility],
+  )
+  const visibleRequisitionHistoryRange = useMemo(() => {
+    const totalRows = visibleRequisitionHistoryRows.length
+    if (totalRows === 0) {
+      return { startIndex: 0, endIndex: 0, topSpacerHeight: 0, bottomSpacerHeight: 0 }
+    }
+
+    const visibleRowCount = Math.ceil(requisitionHistoryViewportHeightPx / requisitionHistoryRowHeightPx)
+    const startIndex = Math.max(
+      0,
+      Math.floor(requisitionHistoryScrollTop / requisitionHistoryRowHeightPx) - requisitionHistoryOverscanRows,
+    )
+    const endIndex = Math.min(totalRows, startIndex + visibleRowCount + requisitionHistoryOverscanRows * 2)
+    return {
+      startIndex,
+      endIndex,
+      topSpacerHeight: startIndex * requisitionHistoryRowHeightPx,
+      bottomSpacerHeight: Math.max(0, (totalRows - endIndex) * requisitionHistoryRowHeightPx),
+    }
+  }, [requisitionHistoryScrollTop, visibleRequisitionHistoryRows.length])
+  const virtualizedRequisitionHistoryRows = useMemo(
+    () =>
+      visibleRequisitionHistoryRows.slice(
+        visibleRequisitionHistoryRange.startIndex,
+        visibleRequisitionHistoryRange.endIndex,
+      ),
+    [visibleRequisitionHistoryRange.endIndex, visibleRequisitionHistoryRange.startIndex, visibleRequisitionHistoryRows],
   )
   const visibleSupplyRows = useMemo(
     () =>
@@ -39578,7 +39609,10 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                   ) : null}
 
                   {visibleFilteredClosedInventoryRecords.length > 0 ? (
-                    <div className="table-wrap">
+                    <div
+                      className="table-wrap"
+                      onScroll={(event) => setRequisitionHistoryScrollTop(event.currentTarget.scrollTop)}
+                    >
                       <table className="product-table">
                         <thead>
                           <tr>
@@ -41918,7 +41952,12 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                           </tr>
                         </thead>
                         <tbody>
-                          {visibleRequisitionHistoryRows.map((record) => (
+                          {visibleRequisitionHistoryRange.topSpacerHeight > 0 ? (
+                            <tr aria-hidden="true">
+                              <td colSpan={10} style={{ height: `${visibleRequisitionHistoryRange.topSpacerHeight}px`, padding: 0, border: 0 }} />
+                            </tr>
+                          ) : null}
+                          {virtualizedRequisitionHistoryRows.map((record) => (
                             <tr key={record.id}>
                               {requisitionHistoryColumnVisibility.center ? <td className="sticky-product-cell"><strong>{record.stockCenterName}</strong></td> : null}
                               {requisitionHistoryColumnVisibility.status ? <td>{getRequisitionHistoryStatusLabel(record.status)}</td> : null}
@@ -41983,6 +42022,11 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                               </td>
                             </tr>
                           ))}
+                          {visibleRequisitionHistoryRange.bottomSpacerHeight > 0 ? (
+                            <tr aria-hidden="true">
+                              <td colSpan={10} style={{ height: `${visibleRequisitionHistoryRange.bottomSpacerHeight}px`, padding: 0, border: 0 }} />
+                            </tr>
+                          ) : null}
                         </tbody>
                       </table>
                     </div>
