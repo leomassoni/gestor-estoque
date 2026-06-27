@@ -8232,13 +8232,6 @@ export default function App() {
     () => executionProductionSheets.map((sheet) => buildTechnicalSheetAutocompleteLabel(sheet)),
     [executionProductionSheets],
   )
-  const technicalSheetExportSuggestions = useMemo(
-    () =>
-      technicalSheetExportState?.scope === 'current'
-        ? exportableTechnicalSheetsByKind[technicalSheetExportState.kind].map((sheet) => buildTechnicalSheetAutocompleteLabel(sheet))
-        : [],
-    [exportableTechnicalSheetsByKind, technicalSheetExportState],
-  )
   const manualSupplySourceCenter = useMemo(
     () => supplyResponsibleCenters.find((center) => String(center.id) === manualSupplySourceCenterId) ?? null,
     [manualSupplySourceCenterId, supplyResponsibleCenters],
@@ -8262,11 +8255,6 @@ export default function App() {
   useEffect(() => {
     setExecutionProductionSheetSearch(getTechnicalSheetAutocompleteValue(executionProductionSheetId, executionProductionSheets))
   }, [executionProductionSheetId, executionProductionSheets])
-
-  useEffect(() => {
-    const availableSheets = technicalSheetExportState?.scope === 'current' ? exportableTechnicalSheetsByKind[technicalSheetExportState.kind] : []
-    setTechnicalSheetExportSearch(getTechnicalSheetAutocompleteValue(technicalSheetExportState?.technicalSheetId ?? null, availableSheets))
-  }, [exportableTechnicalSheetsByKind, technicalSheetExportState?.kind, technicalSheetExportState?.scope, technicalSheetExportState?.technicalSheetId])
 
   const productionBaseRecipeData = useMemo(() => {
     if (!productionDraftState || !selectedProductionSheet) {
@@ -14862,6 +14850,17 @@ export default function App() {
     }),
     [currentCompanyId, technicalSheets],
   )
+  const technicalSheetExportSuggestions = useMemo(
+    () =>
+      technicalSheetExportState?.scope === 'current'
+        ? exportableTechnicalSheetsByKind[technicalSheetExportState.kind].map((sheet) => buildTechnicalSheetAutocompleteLabel(sheet))
+        : [],
+    [exportableTechnicalSheetsByKind, technicalSheetExportState],
+  )
+  useEffect(() => {
+    const availableSheets = technicalSheetExportState?.scope === 'current' ? exportableTechnicalSheetsByKind[technicalSheetExportState.kind] : []
+    setTechnicalSheetExportSearch(getTechnicalSheetAutocompleteValue(technicalSheetExportState?.technicalSheetId ?? null, availableSheets))
+  }, [exportableTechnicalSheetsByKind, technicalSheetExportState?.kind, technicalSheetExportState?.scope, technicalSheetExportState?.technicalSheetId])
   useEffect(() => {
     if (!selectedRecipePanelSheet || selectedRecipePanelSheet.kind !== 'EXECUCAO') {
       return
