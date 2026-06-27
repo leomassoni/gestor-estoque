@@ -49551,7 +49551,7 @@ function getTechnicalSheetColumnValue(
     case 'internalId':
       return sheet.productId
     case 'kind':
-      return getTechnicalSheetKindLabel(sheet.kind)
+      return sheet.kind === 'PREPARO' ? 'Pre-preparo' : sheet.kind === 'EXECUCAO' ? 'Execucao' : 'Venda'
     case 'companyId':
       return sheet.companyProductId || ''
     case 'productionCenters':
