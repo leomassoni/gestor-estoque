@@ -422,6 +422,7 @@ type ColumnKey =
 type TechnicalSheetColumnKey =
   | 'product'
   | 'internalId'
+  | 'kind'
   | 'companyId'
   | 'productionCenters'
   | 'costPerYield'
@@ -3213,6 +3214,7 @@ const defaultColumnFilters: Partial<Record<ColumnKey, string[]>> = {
 const technicalSheetColumnOptions: Array<[TechnicalSheetColumnKey, string]> = [
   ['product', 'Produto'],
   ['internalId', 'ID interno'],
+  ['kind', 'Tipo'],
   ['companyId', 'ID empresa'],
   ['productionCenters', 'Centros produtores'],
   ['costPerYield', 'Custo por rendimento'],
@@ -3229,6 +3231,7 @@ const technicalSheetColumnOptions: Array<[TechnicalSheetColumnKey, string]> = [
 const defaultTechnicalSheetColumnVisibility: Record<TechnicalSheetColumnKey, boolean> = {
   product: true,
   internalId: true,
+  kind: true,
   companyId: true,
   productionCenters: true,
   costPerYield: true,
@@ -49547,6 +49550,8 @@ function getTechnicalSheetColumnValue(
       return sheet.name
     case 'internalId':
       return sheet.productId
+    case 'kind':
+      return getTechnicalSheetKindLabel(sheet.kind)
     case 'companyId':
       return sheet.companyProductId || ''
     case 'productionCenters':
