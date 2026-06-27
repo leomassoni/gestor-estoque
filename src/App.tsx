@@ -4281,11 +4281,13 @@ export default function App() {
   const [isManualProductionModalOpen, setIsManualProductionModalOpen] = useState(false)
   const [manualProductionCenterId, setManualProductionCenterId] = useState('')
   const [manualProductionSheetId, setManualProductionSheetId] = useState('')
+  const [manualProductionSheetSearch, setManualProductionSheetSearch] = useState('')
   const [manualProductionRecipeCount, setManualProductionRecipeCount] = useState('1')
   const [manualProductionDesiredYield, setManualProductionDesiredYield] = useState('')
   const [isExecutionProductionModalOpen, setIsExecutionProductionModalOpen] = useState(false)
   const [executionProductionCenterId, setExecutionProductionCenterId] = useState('')
   const [executionProductionSheetId, setExecutionProductionSheetId] = useState('')
+  const [executionProductionSheetSearch, setExecutionProductionSheetSearch] = useState('')
   const [executionProductionQuantity, setExecutionProductionQuantity] = useState('1')
   const [manualProductionRequests, setManualProductionRequests] = useState<ManualProductionRequestRecord[]>(
     () => loadManualProductionRequestsState(),
@@ -4305,6 +4307,7 @@ export default function App() {
   const [isProductionFinishConfirmOpen, setIsProductionFinishConfirmOpen] = useState(false)
   const [pendingProductionCancelRow, setPendingProductionCancelRow] = useState<ProductionRequestRow | null>(null)
   const [pendingExecutionPlanningCancelRow, setPendingExecutionPlanningCancelRow] = useState<ExecutionProductionPlanningRow | null>(null)
+  const [technicalSheetExportSearch, setTechnicalSheetExportSearch] = useState('')
   const [recipePanelTab, setRecipePanelTab] = useState<RecipePanelTab>('PREPARO')
   const [recipePanelSearch, setRecipePanelSearch] = useState<Record<RecipePanelTab, string>>({
     PREPARO: '',
@@ -8221,6 +8224,21 @@ export default function App() {
         .sort((a, b) => a.name.localeCompare(b.name, 'pt-BR')),
     [currentCompanyId, isTechnicalSheetVisibleForCompany, technicalSheets],
   )
+  const manualProductionSheetSuggestions = useMemo(
+    () => manualProductionSheets.map((sheet) => buildTechnicalSheetAutocompleteLabel(sheet)),
+    [manualProductionSheets],
+  )
+  const executionProductionSheetSuggestions = useMemo(
+    () => executionProductionSheets.map((sheet) => buildTechnicalSheetAutocompleteLabel(sheet)),
+    [executionProductionSheets],
+  )
+  const technicalSheetExportSuggestions = useMemo(
+    () =>
+      technicalSheetExportState?.scope === 'current'
+        ? exportableTechnicalSheetsByKind[technicalSheetExportState.kind].map((sheet) => buildTechnicalSheetAutocompleteLabel(sheet))
+        : [],
+    [exportableTechnicalSheetsByKind, technicalSheetExportState],
+  )
   const manualSupplySourceCenter = useMemo(
     () => supplyResponsibleCenters.find((center) => String(center.id) === manualSupplySourceCenterId) ?? null,
     [manualSupplySourceCenterId, supplyResponsibleCenters],
@@ -8236,6 +8254,20 @@ export default function App() {
       ) ?? null,
     [currentCompanyId, manualSupplySourceCenterId, manualSupplyTargetCenterId, stockCenters],
   )
+
+  useEffect(() => {
+    setManualProductionSheetSearch(getTechnicalSheetAutocompleteValue(manualProductionSheetId, manualProductionSheets))
+  }, [manualProductionSheetId, manualProductionSheets])
+
+  useEffect(() => {
+    setExecutionProductionSheetSearch(getTechnicalSheetAutocompleteValue(executionProductionSheetId, executionProductionSheets))
+  }, [executionProductionSheetId, executionProductionSheets])
+
+  useEffect(() => {
+    const availableSheets = technicalSheetExportState?.scope === 'current' ? exportableTechnicalSheetsByKind[technicalSheetExportState.kind] : []
+    setTechnicalSheetExportSearch(getTechnicalSheetAutocompleteValue(technicalSheetExportState?.technicalSheetId ?? null, availableSheets))
+  }, [exportableTechnicalSheetsByKind, technicalSheetExportState?.kind, technicalSheetExportState?.scope, technicalSheetExportState?.technicalSheetId])
+
   const productionBaseRecipeData = useMemo(() => {
     if (!productionDraftState || !selectedProductionSheet) {
       return null
@@ -29767,6 +29799,31 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
     })
   }
 
+  function resolveTechnicalSheetIdFromAutocomplete(
+    rawValue: string,
+    sheets: Pick<TechnicalSheetRecord, 'id' | 'name' | 'productId'>[],
+  ) {
+    const normalizedValue = normalizeRegistrationText(rawValue).toLowerCase()
+    if (!normalizedValue) {
+      return null
+    }
+
+    const exactMatch =
+      sheets.find((sheet) => normalizeRegistrationText(buildTechnicalSheetAutocompleteLabel(sheet)).toLowerCase() === normalizedValue) ??
+      sheets.find((sheet) => normalizeRegistrationText(sheet.name).toLowerCase() === normalizedValue) ??
+      null
+
+    return exactMatch?.id ?? null
+  }
+
+  function getTechnicalSheetAutocompleteValue(
+    sheetId: string | number | null | undefined,
+    sheets: Pick<TechnicalSheetRecord, 'id' | 'name' | 'productId'>[],
+  ) {
+    const targetSheet = sheets.find((sheet) => String(sheet.id) === String(sheetId ?? '')) ?? null
+    return targetSheet ? buildTechnicalSheetAutocompleteLabel(targetSheet) : ''
+  }
+
   function getTechnicalSheetKindLabel(kind: TechnicalSheetKind) {
     if (kind === 'PREPARO') {
       return 'Pre-preparo'
@@ -44702,12 +44759,17 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
               </label>
               <label className="field company-field-wide">
                 <span>Pre-preparo</span>
-                <select value={manualProductionSheetId} onChange={(event) => updateManualProductionSelection(manualProductionCenterId, event.target.value)}>
-                  <option value="">Selecione</option>
-                  {manualProductionSheets.map((sheet) => (
-                    <option key={sheet.id} value={String(sheet.id)}>{sheet.name}</option>
-                  ))}
-                </select>
+                <SingleValueAutocomplete
+                  value={manualProductionSheetSearch}
+                  suggestions={manualProductionSheetSuggestions}
+                  onChange={(value) => {
+                    setManualProductionSheetSearch(value)
+                    const resolvedSheetId = resolveTechnicalSheetIdFromAutocomplete(value, manualProductionSheets)
+                    updateManualProductionSelection(manualProductionCenterId, resolvedSheetId ? String(resolvedSheetId) : '')
+                  }}
+                  placeholder="Digite para pesquisar o pre-preparo"
+                  allowCreate={false}
+                />
               </label>
               <label className="field company-field-wide">
                 <span>Quantidade de receitas</span>
@@ -44756,12 +44818,17 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
               </label>
               <label className="field company-field-wide">
                 <span>Ficha de execucao</span>
-                <select value={executionProductionSheetId} onChange={(event) => setExecutionProductionSheetId(event.target.value)}>
-                  <option value="">Selecione</option>
-                  {executionProductionSheets.map((sheet) => (
-                    <option key={sheet.id} value={String(sheet.id)}>{sheet.name}</option>
-                  ))}
-                </select>
+                <SingleValueAutocomplete
+                  value={executionProductionSheetSearch}
+                  suggestions={executionProductionSheetSuggestions}
+                  onChange={(value) => {
+                    setExecutionProductionSheetSearch(value)
+                    const resolvedSheetId = resolveTechnicalSheetIdFromAutocomplete(value, executionProductionSheets)
+                    setExecutionProductionSheetId(resolvedSheetId ? String(resolvedSheetId) : '')
+                  }}
+                  placeholder="Digite para pesquisar a ficha de execucao"
+                  allowCreate={false}
+                />
               </label>
               <label className="field company-field-wide">
                 <span>Quantidade desejada</span>
@@ -47446,16 +47513,19 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                 <span>Escopo</span>
                 <select
                   value={technicalSheetExportState.scope}
-                  onChange={(event) =>
+                  onChange={(event) => {
+                    const nextScope = event.target.value as TechnicalSheetExportState['scope']
+                    const nextSheets = exportableTechnicalSheetsByKind[technicalSheetExportState.kind]
                     setTechnicalSheetExportState((current) =>
                       current
                         ? {
                             ...current,
-                            scope: event.target.value as TechnicalSheetExportState['scope'],
+                            scope: nextScope,
+                            technicalSheetId: nextScope === 'current' ? nextSheets[0]?.id ?? null : current.technicalSheetId,
                           }
                         : current,
                     )
-                  }
+                  }}
                 >
                   <option value="current">Uma ficha</option>
                   <option value="all">Todas as fichas do tipo</option>
@@ -47465,26 +47535,25 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
               {technicalSheetExportState.scope === 'current' ? (
                 <label className="field">
                   <span>Ficha tecnica</span>
-                  <select
-                    value={technicalSheetExportState.technicalSheetId ?? ''}
-                    onChange={(event) =>
+                  <SingleValueAutocomplete
+                    value={technicalSheetExportSearch}
+                    suggestions={technicalSheetExportSuggestions}
+                    onChange={(value) => {
+                      setTechnicalSheetExportSearch(value)
+                      const availableSheets = exportableTechnicalSheetsByKind[technicalSheetExportState.kind]
+                      const resolvedSheetId = resolveTechnicalSheetIdFromAutocomplete(value, availableSheets)
                       setTechnicalSheetExportState((current) =>
                         current
                           ? {
                               ...current,
-                              technicalSheetId: event.target.value ? Number(event.target.value) : null,
+                              technicalSheetId: resolvedSheetId,
                             }
                           : current,
                       )
-                    }
-                  >
-                    <option value="">Selecione uma ficha</option>
-                    {exportableTechnicalSheetsByKind[technicalSheetExportState.kind].map((sheet) => (
-                      <option key={sheet.id} value={sheet.id}>
-                        {sheet.name}
-                      </option>
-                    ))}
-                  </select>
+                    }}
+                    placeholder="Digite para pesquisar a ficha tecnica"
+                    allowCreate={false}
+                  />
                 </label>
               ) : null}
 
@@ -48132,6 +48201,10 @@ function SingleValueAutocomplete({
       ) : null}
     </div>
   )
+}
+
+function buildTechnicalSheetAutocompleteLabel(sheet: Pick<TechnicalSheetRecord, 'name' | 'productId'>) {
+  return sheet.productId ? `${sheet.name} · ${sheet.productId}` : sheet.name
 }
 
 function ColorSelector({
