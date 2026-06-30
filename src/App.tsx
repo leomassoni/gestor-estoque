@@ -12,6 +12,21 @@ import {
   type KeyboardEvent,
   type SetStateAction,
 } from 'react'
+import { ExecutionPlanningList } from './components/ExecutionPlanningList'
+import {
+  formatCep,
+  formatCnpj,
+  formatDateForDisplay,
+  formatDurationMinutesLabel,
+  formatInventoryCountSessionCode,
+  formatInventoryRecordCode,
+  formatTimeForDisplay,
+  getMinutesBetweenTimestamps,
+  normalizeFreeText,
+  normalizeRegistrationText,
+  normalizeSuggestionSet,
+  sortRecordsByColumn,
+} from './utils/core'
 
 const LazyCodeEditor = lazy(() => import('./components/LazyCodeEditor'))
 
@@ -1706,18 +1721,6 @@ function normalizePreparationModeIngredientNames(ingredientNames: string[]) {
   )
 }
 
-function normalizeFreeText(value: string) {
-  const normalized = value
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .replace(/[^A-Za-z0-9 .,;:!?()/%"'_\n-]/g, ' ')
-    .replace(/[ \t]+/g, ' ')
-    .replace(/\s*\n\s*/g, '\n')
-    .trimStart()
-
-  return normalized.toUpperCase()
-}
-
 function normalizePreparationModeEditingValue(value: string) {
   return value
 }
@@ -2959,16 +2962,6 @@ const getFirstAccessProfileForRole = (
   profiles: AccessProfileRecord[],
   role: CompanyUserRole,
 ) => profiles.find((profile) => profile.role === role && profile.isActive) ?? null
-
-const normalizeSuggestionSet = (values: string[]) =>
-  Array.from(
-    new Map(
-      values
-        .map((value) => normalizeRegistrationText(value))
-        .filter(Boolean)
-        .map((value) => [value, value] as const),
-    ).values(),
-  ).sort((a, b) => a.localeCompare(b, 'pt-BR'))
 
 const buildDefaultAccessProfiles = (companyId: number | null): AccessProfileRecord[] => {
   if (companyId === null) {
@@ -42390,39 +42383,15 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
           <section className="panel">
             {productionEligibleCenters.length > 0 ? (
               <>
-                {executionProductionPlanningRows.length > 0 ? (
-                  <div className="inner-panel">
-                    <div className="section-heading section-heading-inline">
-                      <div>
-                        <p className="kicker">Planejamentos por ficha</p>
-                        <h2>Origens criadas por ficha de execucao</h2>
-                      </div>
-                    </div>
-                    <p className="context-copy">
-                      As producoes continuam na fila normal abaixo. Este bloco serve para rastrear e cancelar a origem completa da demanda enquanto ela ainda estiver pendente.
-                    </p>
-                    <div className="selector-list company-management-list">
-                      {executionProductionPlanningRows.map((row) => (
-                        <article key={`execution-planning-${row.rootRequestId}`} className="list-row">
-                          <strong>{row.executionSheetName}</strong>
-                          <div className="row-meta">
-                            <span><strong className="meta-label">Centro:</strong> {row.centerName}</span>
-                            <span><strong className="meta-label">Quantidade:</strong> {row.requestedQuantityLabel}</span>
-                            <span><strong className="meta-label">Producoes:</strong> {row.productionCount}</span>
-                            <span><strong className="meta-label">Requisicoes:</strong> {row.requisitionCount}</span>
-                            <span><strong className="meta-label">Pendentes para cancelamento:</strong> {row.cancellableRequisitionCount}</span>
-                            <span><strong className="meta-label">Ja movidas/recebidas:</strong> {row.movedRequisitionCount}</span>
-                          </div>
-                          <div className="table-actions">
-                            <button type="button" className="danger-button" onClick={() => requestCancelExecutionPlanning(row)}>
-                              Cancelar planejamento
-                            </button>
-                          </div>
-                        </article>
-                      ))}
-                    </div>
-                  </div>
-                ) : null}
+                <ExecutionPlanningList
+                  rows={executionProductionPlanningRows}
+                  onCancelPlanning={(rootRequestId) => {
+                    const row = executionProductionPlanningRows.find((entry) => entry.rootRequestId === rootRequestId) ?? null
+                    if (row) {
+                      requestCancelExecutionPlanning(row)
+                    }
+                  }}
+                />
 
                 <form className="form-grid company-form-grid" onSubmit={(event) => event.preventDefault()}>
                   <label className="field company-field-wide">
@@ -49903,52 +49872,6 @@ function getServiceItemSortValue(item: ServiceItemRecord, key: ItemColumnKey) {
   }
 }
 
-function compareSortValues(
-  left: string | number | null | undefined,
-  right: string | number | null | undefined,
-  direction: SortDirection,
-) {
-  if (left == null && right == null) {
-    return 0
-  }
-  if (left == null) {
-    return 1
-  }
-  if (right == null) {
-    return -1
-  }
-
-  let comparison = 0
-  if (typeof left === 'number' && typeof right === 'number' && Number.isFinite(left) && Number.isFinite(right)) {
-    comparison = left - right
-  } else {
-    comparison = String(left).localeCompare(String(right), 'pt-BR', {
-      numeric: true,
-      sensitivity: 'base',
-    })
-  }
-
-  return direction === 'asc' ? comparison : comparison * -1
-}
-
-function sortRecordsByColumn<T, K extends string>(
-  records: T[],
-  columnSort: ColumnSort<K> | null,
-  getSortValue: (record: T, key: K) => string | number | null | undefined,
-) {
-  if (!columnSort) {
-    return records
-  }
-
-  return [...records].sort((left, right) =>
-    compareSortValues(
-      getSortValue(left, columnSort.key),
-      getSortValue(right, columnSort.key),
-      columnSort.direction,
-    ),
-  )
-}
-
 function isNumericProductColumn(key: ColumnKey) {
   return key === 'packages'
 }
@@ -50001,71 +49924,6 @@ function isNumericInventorySummaryColumn(key: InventorySummaryColumnKey) {
 
 function getInventorySummaryColumnSortLabels(key: InventorySummaryColumnKey) {
   return getSortLabels(isNumericInventorySummaryColumn(key))
-}
-
-function formatDateForDisplay(value: string) {
-  const match = value.match(/^(\d{4})-(\d{2})-(\d{2})$/)
-  if (!match) {
-    return value
-  }
-
-  return `${match[3]}/${match[2]}/${match[1]}`
-}
-
-function formatTimeForDisplay(value: string) {
-  if (!value) {
-    return '-'
-  }
-
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) {
-    return value
-  }
-
-  return date.toLocaleTimeString('pt-BR', {
-    hour: '2-digit',
-    minute: '2-digit',
-  })
-}
-
-function formatInventoryRecordCode(id: number) {
-  return `INV-${String(id).padStart(4, '0')}`
-}
-
-function formatInventoryCountSessionCode(id: number) {
-  return `CON-${String(id).padStart(4, '0')}`
-}
-
-function getMinutesBetweenTimestamps(startedAt: string, closedAt: string) {
-  if (!startedAt || !closedAt) {
-    return 0
-  }
-
-  const start = Date.parse(startedAt)
-  const end = Date.parse(closedAt)
-  if (Number.isNaN(start) || Number.isNaN(end) || end <= start) {
-    return 0
-  }
-
-  return Math.round((end - start) / 60000)
-}
-
-function formatDurationMinutesLabel(totalMinutes: number) {
-  if (totalMinutes <= 0) {
-    return '0 MIN'
-  }
-
-  const hours = Math.floor(totalMinutes / 60)
-  const minutes = totalMinutes % 60
-  if (hours <= 0) {
-    return `${minutes} MIN`
-  }
-
-  if (minutes <= 0) {
-    return `${hours} H`
-  }
-
-  return `${hours} H ${minutes} MIN`
 }
 
 function getInventoryReviewColumnValue(row: InventoryReviewRow, key: InventoryReviewColumnKey) {
@@ -54979,17 +54837,6 @@ function normalizeControlUnit(value: unknown): ControlUnit | null {
   return null
 }
 
-function normalizeRegistrationText(value: string) {
-  const normalized = value
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .replace(/[^A-Za-z0-9 ./_-]/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trimStart()
-
-  return normalized.toUpperCase()
-}
-
 function hasSectorOverlap(itemSectors: string[], selectedSectors: string[]) {
   if (selectedSectors.length === 0) {
     return true
@@ -54998,34 +54845,6 @@ function hasSectorOverlap(itemSectors: string[], selectedSectors: string[]) {
   return itemSectors.some((sector) => selectedSectors.includes(sector))
 }
 
-
-function formatCep(value: string) {
-  const digits = value.replace(/\D/g, '').slice(0, 8)
-  if (digits.length <= 5) {
-    return digits
-  }
-
-  return `${digits.slice(0, 5)}-${digits.slice(5)}`
-}
-
-function formatCnpj(value: string) {
-  const digits = value.replace(/\D/g, '').slice(0, 14)
-
-  if (digits.length <= 2) {
-    return digits
-  }
-  if (digits.length <= 5) {
-    return `${digits.slice(0, 2)}.${digits.slice(2)}`
-  }
-  if (digits.length <= 8) {
-    return `${digits.slice(0, 2)}.${digits.slice(2, 5)}.${digits.slice(5)}`
-  }
-  if (digits.length <= 12) {
-    return `${digits.slice(0, 2)}.${digits.slice(2, 5)}.${digits.slice(5, 8)}/${digits.slice(8)}`
-  }
-
-  return `${digits.slice(0, 2)}.${digits.slice(2, 5)}.${digits.slice(5, 8)}/${digits.slice(8, 12)}-${digits.slice(12)}`
-}
 
 function buildOpaqueCatalogId(prefix: string) {
   const timePart = Date.now().toString(36).toUpperCase()
