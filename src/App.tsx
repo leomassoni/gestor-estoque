@@ -32,6 +32,9 @@ const supplyHistoryOverscanRows = 8
 const receiveHistoryRowHeightPx = 57
 const receiveHistoryViewportHeightPx = 456
 const receiveHistoryOverscanRows = 8
+const productionHistoryRowHeightPx = 57
+const productionHistoryViewportHeightPx = 456
+const productionHistoryOverscanRows = 8
 const stockReportRowHeightPx = 57
 const stockReportViewportHeightPx = 560
 const stockReportOverscanRows = 10
@@ -4328,6 +4331,7 @@ export default function App() {
   const [manualSupplyDraftLines, setManualSupplyDraftLines] = useState<ManualSupplyDraftLine[]>([])
   const [productionCenterId, setProductionCenterId] = useState('')
   const [productionSearch, setProductionSearch] = useState('')
+  const [productionScrollTop, setProductionScrollTop] = useState(0)
   const [productionDraftState, setProductionDraftState] = useState<ProductionDraftState | null>(null)
   const [productionInProgressDrafts, setProductionInProgressDrafts] = useState<ProductionDraftState[]>(
     () => loadProductionInProgressDraftsState(),
@@ -6197,6 +6201,29 @@ export default function App() {
   const hiddenProductionColumns = useMemo(
     () => productionColumnOptions.filter(([key]) => !productionColumnVisibility[key]),
     [productionColumnVisibility],
+  )
+  const visibleProductionRange = useMemo(() => {
+    const totalRows = visibleProductionRows.length
+    if (totalRows === 0) {
+      return { startIndex: 0, endIndex: 0, topSpacerHeight: 0, bottomSpacerHeight: 0 }
+    }
+
+    const visibleRowCount = Math.ceil(productionHistoryViewportHeightPx / productionHistoryRowHeightPx)
+    const startIndex = Math.max(
+      0,
+      Math.floor(productionScrollTop / productionHistoryRowHeightPx) - productionHistoryOverscanRows,
+    )
+    const endIndex = Math.min(totalRows, startIndex + visibleRowCount + productionHistoryOverscanRows * 2)
+    return {
+      startIndex,
+      endIndex,
+      topSpacerHeight: startIndex * productionHistoryRowHeightPx,
+      bottomSpacerHeight: Math.max(0, (totalRows - endIndex) * productionHistoryRowHeightPx),
+    }
+  }, [productionScrollTop, visibleProductionRows.length])
+  const virtualizedProductionRows = useMemo(
+    () => visibleProductionRows.slice(visibleProductionRange.startIndex, visibleProductionRange.endIndex),
+    [visibleProductionRange.endIndex, visibleProductionRange.startIndex, visibleProductionRows],
   )
   const reportEligibleStockCenters = useMemo(
     () =>
@@ -39835,7 +39862,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                 ) : null}
 
                 {visibleInventorySummaryCounts.length > 0 ? (
-                  <div className="table-wrap">
+                  <div className="table-wrap" onScroll={(event) => setProductionScrollTop(event.currentTarget.scrollTop)}>
                     <table className="product-table">
                       <thead>
                         <tr>
@@ -42451,7 +42478,12 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                         </tr>
                       </thead>
                       <tbody>
-                        {visibleProductionRows.map((row) => (
+                        {visibleProductionRange.topSpacerHeight > 0 ? (
+                          <tr aria-hidden="true">
+                            <td colSpan={8} style={{ height: `${visibleProductionRange.topSpacerHeight}px`, padding: 0, border: 0 }} />
+                          </tr>
+                        ) : null}
+                        {virtualizedProductionRows.map((row) => (
                           <tr key={`${row.centerId}-${row.sheetId}`}>
                             {productionColumnVisibility.sheet ? <td className="sticky-product-cell">
                               <strong>{row.sheetName}</strong>
@@ -42485,6 +42517,11 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                             </td>
                           </tr>
                         ))}
+                        {visibleProductionRange.bottomSpacerHeight > 0 ? (
+                          <tr aria-hidden="true">
+                            <td colSpan={8} style={{ height: `${visibleProductionRange.bottomSpacerHeight}px`, padding: 0, border: 0 }} />
+                          </tr>
+                        ) : null}
                       </tbody>
                     </table>
                   </div>
