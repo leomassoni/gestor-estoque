@@ -1,6 +1,6 @@
 # Worklog
 
- Ultima atualizacao: 2026-06-03
+ Ultima atualizacao: 2026-07-13
 
 ## Objetivo deste arquivo
 
@@ -132,6 +132,26 @@ Registrar um historico resumido do que foi feito, do que falhou e do que ficou p
   - recebimento
   - producao
 
+### Nova modelagem planejada para usuario multiempresa
+
+- Foi definida a necessidade de evoluir o usuario multiempresa para `membership por empresa`.
+- Direcao escolhida:
+  - manter `login unico`
+  - continuar com escolha de empresa apos login e `Trocar empresa`
+  - mover `perfil de acesso` e `setores` para um vinculo por empresa
+- Estrutura alvo registrada:
+  - `UserCompanyMembership`
+  - campos principais:
+    - `userId`
+    - `companyId`
+    - `accessProfileId`
+    - `sectors`
+    - `isActive`
+    - opcionais `defaultAfterLogin` e `lastAccessedAt`
+- Motivo:
+  - hoje perfis e setores podem divergir legitimamente entre empresas vinculadas
+  - espelhamento automatico de perfil/setor resolve o curto prazo, mas nao o modelo estrutural
+
 ### Pendencia aberta
 
 - Transformar essa modelagem simplificada em implementacao no codigo, incluindo:
@@ -140,3 +160,55 @@ Registrar um historico resumido do que foi feito, do que falhou e do que ficou p
   - compartilhamento de `Fichas tecnicas`
   - comportamento dos pop-ups de cadastro em cascata
   - configuracao de centros produtores por empresa em fichas `PREPARO` compartilhadas
+- Registrar como refinamento futuro do modulo `Importar vendas` a possibilidade de `acoes em lote` no historico, sem tratar isso como prioridade imediata.
+
+## 2026-06-30
+
+### Confirmado / implementado
+
+- O fluxo de importacao de vendas foi consolidado para usar o historico persistido de `sales-consumptions` como fonte principal quando as linhas `MATCHED` nao estiverem disponiveis.
+- O minimo do centro consumidor foi separado do consolidado operacional usado por centros produtores.
+- `Entrada de producoes`, `Requisicoes`, `Suprimentos` e `Recebimentos` foram ajustados para operar sobre a cadeia correta de centro consumidor, centro produtor e dependencias.
+- `Desperdicio` foi separado estruturalmente de inventario e contagem:
+  - `wasteSessions`
+  - `wasteRecords`
+- Foi criado o relatorio de desperdicio consolidado e o relatorio de lancamentos de desperdicio.
+- Foi criado o fluxo de `Producao por ficha`, com rastreio da origem e cancelamento de planejamentos ainda reversiveis.
+- A lista de fichas tecnicas recebeu melhorias de leitura e operacao:
+  - coluna `Tipo`
+  - coluna `Custo por rendimento`
+  - coluna `Valor final`
+  - coluna `Empresas vinculadas`
+  - movimentacao livre de colunas
+- A exportacao de fichas tecnicas passou a nomear arquivos por ficha ou empresa ativa, com data.
+- Seletores de ficha tecnica em exportacao, nova producao e producao por ficha passaram a pesquisar ao digitar.
+- Foi criada a tag `safe-before-apptsx-split` para marcar o ultimo ponto seguro antes da separacao inicial de [`src/App.tsx`](/home/leomassoni/Documentos/Igarapé/Projetos/TCC-SP/gestor-estoque/src/App.tsx).
+
+### Performance
+
+- Foram aplicadas melhorias de baixo risco:
+  - evitar `setState` redundante em refreshes
+  - pausar polling com aba oculta
+  - restringir polling por secao ativa
+  - lazy load de dependencias pesadas de PDF, XLSX e editor
+  - virtualizacao de tabelas grandes em imports, relatorios, requisicoes, suprimentos, recebimento e entrada de producoes
+- O build ainda mostra chunk principal grande, mas menor e com parte das dependencias pesadas separadas.
+
+### Modularizacao
+
+- A separacao inicial de [`src/App.tsx`](/home/leomassoni/Documentos/Igarapé/Projetos/TCC-SP/gestor-estoque/src/App.tsx) foi iniciada com:
+  - [`src/utils/core.ts`](/home/leomassoni/Documentos/Igarapé/Projetos/TCC-SP/gestor-estoque/src/utils/core.ts)
+  - [`src/components/ExecutionPlanningList.tsx`](/home/leomassoni/Documentos/Igarapé/Projetos/TCC-SP/gestor-estoque/src/components/ExecutionPlanningList.tsx)
+  - [`src/components/LazyCodeEditor.tsx`](/home/leomassoni/Documentos/Igarapé/Projetos/TCC-SP/gestor-estoque/src/components/LazyCodeEditor.tsx)
+
+### Pendencias abertas
+
+- Prioridade alta, baixo risco:
+  - atualizar [`scripts/sync-online-api-to-local.mjs`](/home/leomassoni/Documentos/Igarapé/Projetos/TCC-SP/gestor-estoque/scripts/sync-online-api-to-local.mjs) para sincronizar tambem `waste-sessions` e `waste-records`
+  - mitigar a importacao XLSX atual com limites de tamanho, abas, linhas, colunas e validacao estrita da estrutura esperada
+- Prioridade alta, risco medio:
+  - substituir a leitura de arquivos importados por alternativa mantida, preferencialmente `read-excel-file`
+  - validar a migracao com imports reais antes de desativar o parser antigo
+- Prioridade media, risco medio:
+  - continuar a modularizacao de [`src/App.tsx`](/home/leomassoni/Documentos/Igarapé/Projetos/TCC-SP/gestor-estoque/src/App.tsx) em passos pequenos
+  - remover completamente `xlsx` substituindo tambem as exportacoes por alternativa mantida, como `write-excel-file` ou outra biblioteca validada

@@ -1,6 +1,6 @@
 # Status do Sistema
 
- Ultima atualizacao: 2026-06-03
+ Ultima atualizacao: 2026-07-13
 
 ## Objetivo deste arquivo
 
@@ -9,8 +9,8 @@ Registrar em que pe o sistema esta hoje, por area, para consulta rapida antes de
 ## Situacao geral
 
 - O projeto esta funcionalmente concentrado em um frontend React/Vite com grande parte da logica em [`src/App.tsx`](/home/leomassoni/Documentos/Igarapé/Projetos/TCC-SP/gestor-estoque/src/App.tsx).
-- O backend local existe em `server/`, mas o acompanhamento recente de produto aconteceu principalmente no frontend.
-- Nao ha historico Git util neste diretorio no momento; este arquivo passa a ser a referencia manual de progresso.
+- O backend local existe em `server/` e hoje ja persiste varias entidades operacionais em tabelas Prisma proprias.
+- O repositorio Git ja possui historico util; a tag `safe-before-apptsx-split` marca o ultimo ponto seguro antes da separacao inicial de [`src/App.tsx`](/home/leomassoni/Documentos/Igarapé/Projetos/TCC-SP/gestor-estoque/src/App.tsx).
 - O projeto agora possui repositorio proprio no GitHub, `render.yaml` para deploy no Render e base Prisma preparada para PostgreSQL.
 - O sistema esta em modo hibrido:
   - parte dos modulos ja grava e le por entidade no backend/Prisma;
@@ -18,7 +18,7 @@ Registrar em que pe o sistema esta hoje, por area, para consulta rapida antes de
 
 ## Migracao por entidade
 
-### Ja migrado
+### Ja migrado ou com tabela propria no backend
 
 - `Empresas`
 - `Usuarios`
@@ -28,9 +28,6 @@ Registrar em que pe o sistema esta hoje, por area, para consulta rapida antes de
 - `Produtos`
 - `Itens`
 - `Fichas tecnicas`
-
-### Ainda dependente do snapshot global
-
 - `Inventarios`
 - `Contagens`
 - `Movimentacoes`
@@ -39,19 +36,31 @@ Registrar em que pe o sistema esta hoje, por area, para consulta rapida antes de
 - `Recebimentos`
 - `Producoes`
 - `Notificacoes operacionais`
-- estados de apoio de fluxo e rascunhos operacionais
+- `Importacoes de vendas`
+- `Consumos analiticos de vendas`
+- `Desperdicio`
+- `Movimentacoes pendentes`
 
-### Ponto em que a migracao parou
+### Ainda sensivel ao modelo hibrido
 
-- A fundacao de leitura/gravação transacional por entidade foi levada ate `Cadastros`, `Usuarios`, `Empresa` e `Centros de estoque`.
-- O proximo bloco natural de migracao e o operacional de `Estoque`, com prioridade sugerida:
-  - `Requisicoes`
-  - `Suprimentos`
-  - `Recebimentos`
-  - `Producoes`
-  - `Inventarios` e `Movimentacoes`
+- O snapshot global `/api/state` ainda existe e deve ser tratado como legado/compatibilidade.
+- O frontend ainda mantem varios estados locais e sincroniza entidades por refresh/polling.
+- Mudancas no modelo de sincronizacao continuam sendo de alto risco e devem ficar para uma etapa planejada.
+
+### Ponto atual da migracao
+
+- A fundacao por entidade ja cobre cadastros e boa parte dos fluxos operacionais.
+- O proximo bloco natural nao e criar tabelas novas para esses modulos, mas reduzir dependencia de estado global no frontend, melhorar consultas e evitar cargas completas desnecessarias.
+- O script [`scripts/sync-online-api-to-local.mjs`](/home/leomassoni/Documentos/Igarapé/Projetos/TCC-SP/gestor-estoque/scripts/sync-online-api-to-local.mjs) deve ser atualizado para incluir `waste-sessions` e `waste-records`, pois o backend ja possui essas rotas.
 
 ## Cadastro de fichas tecnicas
+
+- A escolha do tipo de ficha no formulario passou a usar abas em vez de dropdown.
+- Os formularios possuem identidade visual por tipo:
+  - `PREPARO`: terracota clara
+  - `EXECUCAO`: dourado-palha
+  - `VENDA`: salvia clara
+- A lista de fichas cadastradas ja possui colunas extras como `Tipo`, `Custo por rendimento`, `Valor final` e `Empresas vinculadas`, alem de ordenacao livre de colunas.
 
 ### PREPARO
 
@@ -119,6 +128,18 @@ Registrar em que pe o sistema esta hoje, por area, para consulta rapida antes de
 - Nos textos de execucao, os insumos identificados no modo de preparo exibem ao lado o valor de entrada recalculado.
 - As tabelas de composicao de insumos dos receituarios nao exibem mais dados de custo; mostram apenas entrada, rendimento e % de alcool.
 - Os blocos `Dados tecnicos` foram simplificados conforme decisoes recentes.
+- As dependencias pesadas de exportacao e editor foram colocadas em carregamento sob demanda.
+
+## Estoque e operacao
+
+- O fluxo de `Importar vendas` usa historico persistido de `sales-consumptions` como fonte principal para minimos quando as linhas importadas nao preservam `MATCHED`.
+- O minimo do centro consumidor, o consolidado operacional do produtor e o minimo de uso devem permanecer conceitos separados.
+- `Entrada de producoes`, `Requisicoes`, `Suprimentos` e `Recebimentos` ja passaram por ajustes para respeitar essa separacao.
+- `Desperdicio` possui entidades proprias:
+  - `wasteSessions`
+  - `wasteRecords`
+- `Desperdicio` nao deve ser tratado como inventario nem como contagem; ao finalizar, vira saida operacional ou pendencia se houver inventario aberto.
+- Existe fluxo de `Producao por ficha`, que cria planejamentos rastreaveis a partir de fichas de execucao e permite cancelamento da origem enquanto os registros derivados ainda estiverem reversiveis.
 
 ## Sidebar
 
@@ -136,10 +157,13 @@ Registrar em que pe o sistema esta hoje, por area, para consulta rapida antes de
 ## Riscos e limitacoes atuais
 
 - [`src/App.tsx`](/home/leomassoni/Documentos/Igarapé/Projetos/TCC-SP/gestor-estoque/src/App.tsx) esta muito grande, o que aumenta risco de regressao.
+- A separacao inicial de [`src/App.tsx`](/home/leomassoni/Documentos/Igarapé/Projetos/TCC-SP/gestor-estoque/src/App.tsx) ja comecou com:
+  - [`src/utils/core.ts`](/home/leomassoni/Documentos/Igarapé/Projetos/TCC-SP/gestor-estoque/src/utils/core.ts)
+  - [`src/components/ExecutionPlanningList.tsx`](/home/leomassoni/Documentos/Igarapé/Projetos/TCC-SP/gestor-estoque/src/components/ExecutionPlanningList.tsx)
+  - [`src/components/LazyCodeEditor.tsx`](/home/leomassoni/Documentos/Igarapé/Projetos/TCC-SP/gestor-estoque/src/components/LazyCodeEditor.tsx)
 - O projeto ainda depende fortemente de estado local e renderizacao centralizada.
 - O snapshot global ainda duplica parte dos dados que ja existem em tabelas por entidade.
 - Imagens em `base64` ainda tendem a pressionar storage se continuarem dentro do banco/snapshot.
-- Nao existe ainda um historico estruturado de releases, tarefas e regressos anteriores fora destes arquivos em `docs/`.
 - O bundle web esta grande; o build gera aviso de chunk acima de 500 kB.
 - O deploy no Render foi concluido com sucesso, mas os logs confirmam que o frontend continua com bundle principal muito grande.
   - Isso nao bloqueia operacao nem deploy.
@@ -149,31 +173,71 @@ Registrar em que pe o sistema esta hoje, por area, para consulta rapida antes de
     - avaliar `manualChunks` no Vite/Rollup
 - Ainda nao existe integracao com relatorios de venda / ponto de venda externo.
   - Isso limita relatorios mais avancados de consumo teorico vs venda, CMV real por periodo e comparacoes entre estoque e venda.
-- Ha uma regressao aberta no cadastro de `Centros de estoque` produtores:
-  - apos a ultima atualizacao houve relato de tela em branco ao salvar um centro marcado como `PRODUTOR`
-  - os `PREPARO` continuam nao aparecendo corretamente como opcao para incluir na lista de producoes do centro
 - Ha uma pendencia de regra no roteamento de requisicoes de `PREPARO` quando existir mais de um centro produtor valido para o mesmo item.
 - Ainda nao existe um construtor de relatorios customizados pelo usuario final.
   - A ideia de um "Power BI facil" interno foi levantada como direcao futura para o modulo `Estoque`.
+- `xlsx` continua como dependencia sensivel: ha vulnerabilidade conhecida sem fix disponivel no pacote atual; importacoes devem ser tratadas como entrada nao confiavel.
 
 ## Proximos candidatos naturais
 
+- Evoluir o modelo de usuario multiempresa para vinculo por empresa:
+  - criar `UserCompanyMembership`
+  - guardar `accessProfileId` por empresa
+  - guardar `sectors` por empresa
+  - manter login unico e escolha de empresa apos o login
+  - carregar permissoes efetivas a partir da empresa ativa, nao do usuario global
 - Implementar compartilhamento simplificado de cadastro entre empresas vinculadas:
   - master vincula empresas no painel `Empresa`
   - `Produtos` passam a ter empresa de origem + empresas compartilhadas
   - `Fichas tecnicas` passam a ter empresa de origem + empresas compartilhadas
   - `PREPARO` compartilhado pode receber centros produtores por empresa compartilhada
   - operacao continua separada por empresa
-- Criar um fluxo aninhado real para `EXECUCAO` e/ou `VENDA`, se isso fizer sentido de produto.
-- Continuar quebrando [`src/App.tsx`](/home/leomassoni/Documentos/Igarapé/Projetos/TCC-SP/gestor-estoque/src/App.tsx) em componentes menores.
-- Criar o submenu `Relatorios` dentro de `Estoque`, com relatorios operacionais, gerenciais e analiticos.
-- Definir estrategia futura de integracao com dados de venda externos.
-- Desenhar um construtor de relatorios customizados com filtros, colunas, agrupamentos e exportacao.
-- Montar e executar um plano de migracao `Render DB -> Neon` e `imagens -> Cloudflare R2`, sem quebrar o ambiente online.
-- Tirar imagens do banco/snapshot e guardar apenas URL do objeto.
-- Revisar relatorios e listas grandes para paginacao, filtros no servidor e queries mais enxutas.
-- Medir o que mais consome storage hoje:
-  - snapshot global
-  - imagens
-  - duplicacao entre snapshot e tabelas por entidade
+- A fazer, por prioridade:
+  - prioridade alta, baixo risco:
+    - atualizar o sync local para cobrir tambem `waste-sessions` e `waste-records`
+    - mitigar imediatamente a importacao XLSX atual:
+      - limitar tamanho maximo do arquivo
+      - limitar quantidade de abas, linhas e colunas
+      - rejeitar estrutura inesperada antes de processar
+      - processar apenas os campos esperados
+      - tratar arquivo importado como entrada nao confiavel
+    - medir o que mais consome storage hoje:
+      - snapshot global
+      - imagens
+      - duplicacao entre snapshot e tabelas por entidade
+  - prioridade alta, risco medio:
+    - substituir a leitura de arquivos importados por alternativa mantida, preferencialmente `read-excel-file`
+    - manter exportacoes com `xlsx` apenas temporariamente, enquanto a leitura de usuario deixa de depender dele
+    - validar a migracao com imports reais de vendas antes de remover o parser antigo
+  - prioridade media, risco medio:
+    - continuar quebrando [`src/App.tsx`](/home/leomassoni/Documentos/Igarapé/Projetos/TCC-SP/gestor-estoque/src/App.tsx) em componentes menores
+    - revisar relatorios e listas grandes para paginacao, filtros no servidor e queries mais enxutas
+    - remover completamente `xlsx` substituindo tambem exportacoes por alternativa mantida, como `write-excel-file` ou outra biblioteca validada
+    - desenhar um construtor de relatorios customizados com filtros, colunas, agrupamentos e exportacao
+  - prioridade media/baixa, depende de desenho:
+    - definir estrategia futura de integracao com dados de venda externos
+    - montar e executar um plano de migracao `Render DB -> Neon` e `imagens -> Cloudflare R2`, sem quebrar o ambiente online
+    - tirar imagens do banco/snapshot e guardar apenas URL do objeto
+- Abrir uma frente dedicada de performance do webapp, em camadas:
+  - prioridade alta, baixo risco:
+    - evitar `setState` redundante nos refreshes por API
+    - carregar/pollar dados por tela ativa, em vez de manter polling global de todos os modulos
+    - aplicar `code splitting` nas telas e blocos pesados
+    - virtualizar tabelas e listas muito grandes
+  - prioridade media, risco medio:
+    - quebrar [`src/App.tsx`](/home/leomassoni/Documentos/Igarapé/Projetos/TCC-SP/gestor-estoque/src/App.tsx) em modulos por dominio
+    - tirar calculos pesados do fluxo global de renderizacao
+    - mover relatorios grandes para consultas e agregacoes mais dirigidas
+    - revisar endpoints que hoje devolvem listas completas sem paginacao
+  - evitar por enquanto, risco alto:
+    - reescrever o modelo de sincronizacao entre frontend e backend
+    - trocar de uma vez o modelo local-first / polling sem plano de transicao
+  - criterio de seguranca:
+    - priorizar mudancas que nao alterem persistencia nem concorrencia entre usuarios
+    - deixar mudancas de sincronizacao por ultimo, por maior risco de regressao e perda de dados
+- Avaliar `acoes em lote` no historico de `Importar vendas`:
+  - lancar saida para multiplos lotes `READY_TO_POST`
+  - cancelar multiplos lotes analiticos/pendentes
+  - reprocessar multiplos lotes
+  - exportar inconsistencias de multiplos lotes
 - Manter este arquivo atualizado sempre que uma decisao mudar o estado real do sistema.

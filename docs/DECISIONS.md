@@ -1,6 +1,6 @@
 # Decisoes do Projeto
 
- Ultima atualizacao: 2026-06-03
+ Ultima atualizacao: 2026-07-13
 
 ## Objetivo deste arquivo
 
@@ -28,6 +28,28 @@ Registrar o que foi decidido, o que foi adiado e o que foi descartado, com foco 
   - encaixa melhor no sistema atual
   - preserva segregacao operacional por empresa
 - Status: definido para implementacao futura.
+
+### Usuario multiempresa deve evoluir para vinculo por empresa
+
+- Decisao: o usuario deve manter `login unico`, mas o perfil efetivo de acesso nao deve mais ser global.
+- Modelagem alvo:
+  - criar `UserCompanyMembership`
+  - cada vinculo guarda:
+    - `userId`
+    - `companyId`
+    - `accessProfileId`
+    - `sectors`
+    - `isActive`
+    - opcionalmente `defaultAfterLogin` e `lastAccessedAt`
+- Regra:
+  - o usuario pode escolher a empresa ao entrar
+  - ao trocar de empresa, o sistema carrega o `membership` correspondente
+  - `perfil`, `setores` e permissoes passam a ser resolvidos pela empresa ativa, nao pelo usuario global
+- Motivo:
+  - evitar espelhamento artificial de perfis entre empresas
+  - permitir perfis e setores diferentes por empresa
+  - reduzir bugs quando empresas vinculadas nao compartilham o mesmo catalogo de perfis/setores
+- Status: decidido como proxima evolucao estrutural, ainda nao implementado.
 
 ### Formularios de ficha tecnica devem obedecer configuracoes centralizadas
 
@@ -71,6 +93,94 @@ Registrar o que foi decidido, o que foi adiado e o que foi descartado, com foco 
 - Motivo: o objetivo e acelerar a montagem do texto de preparo com os insumos efetivamente usados.
 - Status: implementado.
 
+### Desperdicio deve ser entidade propria, separada de inventario
+
+- Decisao: `Desperdicio` nao deve reaproveitar `Inventario`, `Contagem`, `inventoryId`, `inventoryCountSessions` ou `inventoryCounts` como estrutura de origem.
+- Regra:
+  - iniciar desperdicio cria `wasteSession`
+  - registrar item cria `wasteRecord`
+  - finalizar desperdicio transforma os itens em saida operacional de estoque
+  - se houver inventario aberto no centro, a saida vira pendencia para aplicacao no fechamento do inventario
+- Motivo:
+  - inventario estabelece nova posicao de estoque
+  - desperdicio e perda operacional, ou seja, retirada do estoque existente
+- Status: implementado.
+
+### Minimo do centro e consolidado operacional devem permanecer separados
+
+- Decisao: o minimo gerado por importacao de vendas pertence ao centro consumidor que recebeu o import.
+- Regra:
+  - o centro consumidor guarda o `minimo real` do proprio consumo
+  - o centro produtor nao deve receber esse minimo como minimo proprio
+  - a necessidade do produtor deve ser calculada como consolidado operacional das demandas dos centros atendidos
+- Motivo:
+  - evita confundir consumo do bar com demanda de producao do laboratorio
+  - preserva requisicao/suprimento entre centros como ponte operacional
+- Status: implementado como regra atual dos fluxos de minimo, producao, requisicao e suprimento.
+
+### Importacao de vendas deve ser historico de consumo do centro
+
+- Decisao: imports ativos sao aditivos e formam historico de consumo por centro e periodo; eles nao substituem imports anteriores.
+- Regra:
+  - import ativo dentro da janela configurada deve contar automaticamente
+  - reprocessamento deve ser excecao para reconstruir dados legados, de/para alterado ou lote corrigido
+  - quando `sales-import-rows` nao preservarem `MATCHED`, `sales-consumptions` persistidos devem ser a fonte principal do historico
+- Motivo:
+  - o dado importante e o consumo trazido pelos imports, nao o lote em si
+  - evita minimos incorretos quando rows antigas nao guardam mais informacao suficiente
+- Status: implementado.
+
+### Producao por ficha deve ter origem rastreavel e cancelavel
+
+- Decisao: producoes criadas a partir de ficha de execucao devem ter uma origem de planejamento rastreavel.
+- Regra:
+  - a fila normal continua mostrando as producoes em si
+  - o bloco de planejamentos por ficha mostra a origem funcional da demanda
+  - cancelar a origem deve cancelar apenas producoes, requisicoes e suprimentos ainda reversiveis
+  - registros ja movidos, recebidos ou avancados operacionalmente devem ser preservados
+- Motivo:
+  - permitir desfazer uma simulacao/planejamento sem apagar movimentos ja executados
+  - manter auditoria clara entre demanda por ficha, producao, requisicao e suprimento
+- Status: implementado.
+
+### Performance deve evoluir primeiro por mudancas de baixo risco
+
+- Decisao: antes de alterar sincronizacao ou persistencia, melhorar performance com mudancas que nao mudem regra de negocio.
+- Ja aplicado:
+  - evitar `setState` redundante em refreshes
+  - pausar polling com aba oculta
+  - restringir polling por secao ativa
+  - lazy load de dependencias pesadas de PDF, XLSX e editor
+  - virtualizacao de tabelas grandes em imports, relatorios, requisicoes, suprimentos, recebimento e entrada de producoes
+- Regra:
+  - mudancas no modelo de sincronizacao continuam sendo de alto risco
+  - modularizacao deve seguir em passos pequenos e testaveis
+- Status: em andamento.
+
+### Separacao do App.tsx deve ser incremental
+
+- Decisao: [`src/App.tsx`](/home/leomassoni/Documentos/Igarapé/Projetos/TCC-SP/gestor-estoque/src/App.tsx) deve ser quebrado aos poucos.
+- Regra:
+  - comecar por helpers puros e componentes presentacionais
+  - evitar extrair persistencia, sync ou regras criticas em passos grandes
+  - manter a tag `safe-before-apptsx-split` como referencia do ultimo ponto seguro antes da separacao inicial
+- Motivo:
+  - reduzir risco de regressao em um arquivo muito grande
+  - preservar funcionamento enquanto a arquitetura melhora
+- Status: iniciado.
+
+### XLSX deve ser tratado como entrada nao confiavel
+
+- Decisao: arquivos XLSX importados por usuario devem ser tratados como entrada nao confiavel.
+- Motivo:
+  - a dependencia `xlsx` possui vulnerabilidades conhecidas sem correcao disponivel no pacote atual
+  - o sistema usa XLSX para importacoes e exportacoes, mas importacao e a superficie de maior risco
+- Direcao:
+  - limitar tamanho e quantidade de linhas processadas
+  - validar extensao, estrutura e tipos antes de consolidar dados
+  - considerar migracao futura para alternativa mantida ou processamento isolado no backend
+- Status: risco conhecido, mitigacao planejada.
+
 ## Decisoes de escopo atual
 
 ### EXECUCAO e VENDA ainda nao tem modal aninhado de ficha tecnica
@@ -95,25 +205,21 @@ Registrar o que foi decidido, o que foi adiado e o que foi descartado, com foco 
 
 ### Refatoracao ampla de `src/App.tsx`
 
-- Decisao: adiar a quebra estrutural maior do arquivo.
-- Motivo: prioridade recente esteve em entregar comportamento e consistencia funcional.
-- Risco aceito: manutencao mais lenta e maior risco de regressao local.
-
-### Melhorar o code splitting do bundle
-
-- Decisao: nao atacar agora o aviso de chunks grandes do build.
-- Motivo: nao estava no caminho critico das ultimas tarefas.
-- Status: adiado.
+- Decisao: evitar uma quebra ampla de uma vez; seguir por modularizacao incremental.
+- Motivo: prioridade e reduzir risco enquanto se diminui o tamanho do arquivo.
+- Risco aceito: manutencao ainda e lenta ate a modularizacao avancar.
 
 ### O bundle grande do frontend fica como melhoria futura, nao como bloqueio de deploy
 
-- Decisao: manter o deploy atual mesmo com aviso de chunk acima de 500 kB, e tratar isso depois como melhoria de performance.
+- Decisao: manter o deploy atual mesmo com aviso de chunk acima de 500 kB, e continuar tratando isso como melhoria incremental de performance.
 - Motivo: o sistema ja conseguiu build e deploy com sucesso no Render; o problema e de carregamento/otimizacao, nao de funcionalidade.
+- Ja aplicado:
+  - `dynamic import()` para PDF, XLSX e editor
+  - virtualizacao de tabelas grandes
 - Direcao futura:
-  - adotar `dynamic import()`
   - quebrar [`src/App.tsx`](/home/leomassoni/Documentos/Igarapé/Projetos/TCC-SP/gestor-estoque/src/App.tsx) em partes menores
   - avaliar `manualChunks`
-- Status: adiado.
+- Status: em andamento.
 
 ### Criar modais aninhados para EXECUCAO e VENDA
 
@@ -175,6 +281,19 @@ Registrar o que foi decidido, o que foi adiado e o que foi descartado, com foco 
   - aplicar isso primeiro em listagens e relatorios
   - nao mudar cegamente fluxos que ainda dependem de carga total local sem antes migrar a logica correspondente
 - Status: planejado.
+
+### `Acoes em lote` no historico de `Importar vendas` ficam como refinamento futuro
+
+- Decisao: nao tratar `acoes em lote` como prioridade imediata do modulo de `Importar vendas`.
+- Exemplos que ficam registrados como evolucao futura:
+  - lancar saida para varios lotes `READY_TO_POST`
+  - cancelar varios lotes analiticos/pendentes
+  - reprocessar varios lotes
+  - exportar inconsistencias de varios lotes
+- Motivo:
+  - primeiro consolidar bem o fluxo `lote a lote`
+  - reduzir risco de operacao pesada ou erro em massa
+- Status: planejado para refinamento futuro.
 
 ## Coisas que deram errado e viraram regra
 

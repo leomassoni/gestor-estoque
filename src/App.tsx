@@ -442,6 +442,8 @@ type ColumnKey =
   | 'subfamily'
   | 'sectors'
   | 'controlUnit'
+  | 'unitCost'
+  | 'costStatus'
   | 'packages'
   | 'status'
 
@@ -3207,6 +3209,8 @@ const defaultColumnVisibility: Record<ColumnKey, boolean> = {
   subfamily: true,
   sectors: true,
   controlUnit: true,
+  unitCost: true,
+  costStatus: true,
   packages: true,
   status: true,
 }
@@ -3421,6 +3425,8 @@ const columnOptions: Array<[ColumnKey, string]> = [
   ['family', 'Familia'],
   ['subfamily', 'Subfamilia'],
   ['controlUnit', 'Unidade de controle'],
+  ['unitCost', 'Custo unitario'],
+  ['costStatus', 'Status de custo'],
   ['packages', 'Embalagens'],
   ['status', 'Status'],
 ]
@@ -14688,13 +14694,13 @@ export default function App() {
             return product.sectors.some((sector) => selectedValues.includes(sector))
           }
 
-          return selectedValues.includes(getProductColumnValue(product, key))
+          return selectedValues.includes(getProductColumnValue(product, key, technicalSheets, products))
         })
 
           return matchesSearch && matchesColumnFilters
         }),
         columnSort,
-        getProductSortValue,
+        (product, key) => getProductSortValue(product, key, technicalSheets, products),
       ),
     [
       columnFilters,
@@ -15195,7 +15201,7 @@ export default function App() {
                           isProductVisibleForCompany(product, currentCompanyId) &&
                           !isCommercialTechnicalSheetProduct(product, technicalSheets),
                       )
-                      .map((product) => getProductColumnValue(product, key)),
+                      .map((product) => getProductColumnValue(product, key, technicalSheets, products)),
                   ),
                 )
 
@@ -36051,6 +36057,34 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                         setColumnSort,
                       )
                     : null}
+                  {columnVisibility.unitCost
+                    ? renderColumnHeader(
+                        'unitCost',
+                        'Custo unitario',
+                        openColumnMenu,
+                        setOpenColumnMenu,
+                        columnFilters,
+                        distinctColumnValues,
+                        setColumnFilters,
+                        setColumnVisibility,
+                        columnSort,
+                        setColumnSort,
+                      )
+                    : null}
+                  {columnVisibility.costStatus
+                    ? renderColumnHeader(
+                        'costStatus',
+                        'Status de custo',
+                        openColumnMenu,
+                        setOpenColumnMenu,
+                        columnFilters,
+                        distinctColumnValues,
+                        setColumnFilters,
+                        setColumnVisibility,
+                        columnSort,
+                        setColumnSort,
+                      )
+                    : null}
                   {columnVisibility.packages
                     ? renderColumnHeader(
                         'packages',
@@ -36098,6 +36132,22 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                       {columnVisibility.subfamily ? <td>{product.subfamily}</td> : null}
                       {columnVisibility.controlUnit ? (
                         <td>{getProductColumnValue(product, 'controlUnit')}</td>
+                      ) : null}
+                      {columnVisibility.unitCost ? (
+                        <td>{getProductColumnValue(product, 'unitCost', technicalSheets, products)}</td>
+                      ) : null}
+                      {columnVisibility.costStatus ? (
+                        <td>
+                          <span
+                            className={
+                              getProductCostStatus(product, technicalSheets, products) === 'OK'
+                                ? 'package-chip package-chip-success'
+                                : 'package-chip package-chip-warning'
+                            }
+                          >
+                            {getProductCostStatus(product, technicalSheets, products)}
+                          </span>
+                        </td>
                       ) : null}
                       {columnVisibility.packages ? <td>{String(product.packages.length)}</td> : null}
                       {columnVisibility.status ? (
@@ -49827,12 +49877,19 @@ function getTechnicalSheetColumnValue(
   }
 }
 
-function getProductSortValue(product: ProductRecord, key: ColumnKey) {
+function getProductSortValue(
+  product: ProductRecord,
+  key: ColumnKey,
+  technicalSheets: TechnicalSheetRecord[] = [],
+  products: ProductRecord[] = [],
+) {
   switch (key) {
+    case 'unitCost':
+      return calculateProductUnitCost(product, technicalSheets, products)
     case 'packages':
       return product.packages.length
     default:
-      return getProductColumnValue(product, key)
+      return getProductColumnValue(product, key, technicalSheets, products)
   }
 }
 
@@ -49873,7 +49930,7 @@ function getServiceItemSortValue(item: ServiceItemRecord, key: ItemColumnKey) {
 }
 
 function isNumericProductColumn(key: ColumnKey) {
-  return key === 'packages'
+  return key === 'unitCost' || key === 'packages'
 }
 
 function isNumericTechnicalSheetColumn(key: TechnicalSheetColumnKey) {
@@ -51578,7 +51635,12 @@ function formatServiceItemSize(value: string, unit: ServiceItemSizeUnit) {
   return `${value} ${label}`
 }
 
-function getProductColumnValue(product: ProductRecord, key: ColumnKey) {
+function getProductColumnValue(
+  product: ProductRecord,
+  key: ColumnKey,
+  technicalSheets: TechnicalSheetRecord[] = [],
+  products: ProductRecord[] = [],
+) {
   switch (key) {
     case 'product':
       return product.name
@@ -51597,6 +51659,10 @@ function getProductColumnValue(product: ProductRecord, key: ColumnKey) {
       if (product.controlUnit === 'GRAM') return 'Grama'
       if (product.controlUnit === 'UNIT') return 'Unidade'
       return 'Combo'
+    case 'unitCost':
+      return `R$ ${formatMoney(calculateProductUnitCost(product, technicalSheets, products))} / ${formatControlUnitShort(product.controlUnit)}`
+    case 'costStatus':
+      return getProductCostStatus(product, technicalSheets, products)
     case 'packages':
       return String(product.packages.length)
     case 'status':
@@ -55020,6 +55086,36 @@ function calculatePackageOnlyProductUnitCost(product: ProductRecord) {
   }
 
   return weightedPackages.reduce((sum, item) => sum + item.unitCost * item.weight, 0) / totalWeight
+}
+
+function getProductCostStatus(
+  product: ProductRecord,
+  technicalSheets: TechnicalSheetRecord[] = [],
+  products: ProductRecord[] = [],
+) {
+  if (typeof product.technicalSheetId === 'number') {
+    const linkedTechnicalSheet = technicalSheets.find((sheet) => sheet.id === product.technicalSheetId) ?? null
+    if (linkedTechnicalSheet) {
+      return calculateProductUnitCost(product, technicalSheets, products) > 0 ? 'OK' : 'Sem custo'
+    }
+  }
+
+  const activePackages = product.packages.filter((item) => item.isActive)
+  if (activePackages.length === 0) {
+    return 'Sem embalagem'
+  }
+
+  const pricedPackages = activePackages.filter((item) => {
+    const quantity = calculateNormalizedPackageQuantity(item, product.controlUnit)
+    const price = parseDecimal(item.purchasePrice) ?? 0
+    return quantity > 0 && price > 0
+  })
+
+  if (pricedPackages.length === 0) {
+    return 'Sem custo'
+  }
+
+  return pricedPackages.length === activePackages.length ? 'OK' : 'Custo parcial'
 }
 
 function calculateTechnicalSheetCost(
