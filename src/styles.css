@@ -3812,6 +3812,12 @@ h3 {
     grid-template-columns: 1fr 1fr;
   }
 
+  .receituario-content .receituario-hero-copy .receituario-summary-grid,
+  .receituario-content .receituario-hero-copy .receituario-summary-grid-metrics,
+  .receituario-content .receituario-hero-copy .receituario-controls-grid-execucao {
+    grid-template-columns: repeat(auto-fit, minmax(132px, 1fr));
+  }
+
   .receituario-hero-copy .field span,
   .receituario-hero-copy .receituario-metric-card span {
     min-height: 0;

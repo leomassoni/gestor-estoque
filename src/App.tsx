@@ -3075,11 +3075,7 @@ function normalizeRecipePanelAccess(value: unknown): RecipePanelAccess {
     showExecucaoTab: candidate.showExecucaoTab !== false,
     executionBlocks,
     preparoHeroFields: normalizeRecipePanelAccessRecord(candidate.preparoHeroFields, recipePreparoHeroFieldDefinitions, fallback.preparoHeroFields),
-    executionHeroFields: recipeExecutionHeroFieldDefinitions.reduce<Record<RecipeExecutionHeroFieldKey, boolean>>((current, definition) => {
-      const parentBlock = getRecipeExecutionHeroFieldBlock(definition.key)
-      current[definition.key] = executionBlocks[parentBlock] && executionHeroFields[definition.key]
-      return current
-    }, {} as Record<RecipeExecutionHeroFieldKey, boolean>),
+    executionHeroFields,
     preparoIngredientColumns: normalizeRecipePanelAccessRecord(candidate.preparoIngredientColumns, recipePreparoIngredientColumnDefinitions, fallback.preparoIngredientColumns),
     executionIngredientColumns: normalizeRecipePanelAccessRecord(candidate.executionIngredientColumns, recipeExecutionIngredientColumnDefinitions, fallback.executionIngredientColumns),
     executionGarnishColumns: normalizeRecipePanelAccessRecord(candidate.executionGarnishColumns, recipeExecutionGarnishColumnDefinitions, fallback.executionGarnishColumns),
@@ -5549,6 +5545,46 @@ export default function App() {
         sectionAccess: fallbackProfile?.sectionAccess ?? defaultSectionAccessByRole(membership.role),
         catalogAccess: fallbackProfile?.catalogAccess ?? defaultCatalogAccessByRole(membership.role),
         recipePanelAccess: fallbackProfile?.recipePanelAccess ?? defaultRecipePanelAccess(),
+      }
+    })
+
+    if (!membershipChanged) {
+      return user
+    }
+
+    const primaryMembership =
+      nextMemberships.find((membership) => membership.companyId === user.companyId && membership.isActive) ??
+      nextMemberships.find((membership) => membership.isActive) ??
+      null
+
+    return {
+      ...user,
+      role: primaryMembership?.role ?? user.role,
+      sectors: primaryMembership?.sectors ?? user.sectors,
+      sectionAccess: primaryMembership?.sectionAccess ?? user.sectionAccess,
+      catalogAccess: primaryMembership?.catalogAccess ?? user.catalogAccess,
+      recipePanelAccess: primaryMembership?.recipePanelAccess ?? user.recipePanelAccess,
+      accessProfileId: primaryMembership?.accessProfileId ?? null,
+      memberships: nextMemberships,
+    }
+  }
+  function applyAccessProfileToUserForCompany(
+    user: AppUserRecord,
+    profile: AccessProfileRecord,
+  ) {
+    let membershipChanged = false
+    const nextMemberships = user.memberships.map((membership) => {
+      if (membership.companyId !== profile.companyId || membership.accessProfileId !== profile.id) {
+        return membership
+      }
+
+      membershipChanged = true
+      return {
+        ...membership,
+        role: profile.role,
+        sectionAccess: profile.sectionAccess,
+        catalogAccess: profile.catalogAccess,
+        recipePanelAccess: profile.recipePanelAccess,
       }
     })
 
@@ -26878,11 +26914,11 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
           ? Array.from(new Set([...profileIds, profileToSave.id]))
           : profileIds.filter((profileId) => profileId !== profileToSave.id)
 
-        const updatedRecord: StockModuleSettingsRecord = {
-          companyId: nextRecord.companyId,
-          inventorySummaryEditProfileIds: syncProfileId(
-            nextRecord.inventorySummaryEditProfileIds,
-            accessProfileForm.stockPermissions.inventorySummaryEdit,
+      const updatedRecord: StockModuleSettingsRecord = {
+        companyId: nextRecord.companyId,
+        inventorySummaryEditProfileIds: syncProfileId(
+          nextRecord.inventorySummaryEditProfileIds,
+          accessProfileForm.stockPermissions.inventorySummaryEdit,
         ),
         inventorySummaryDeleteProfileIds: syncProfileId(
           nextRecord.inventorySummaryDeleteProfileIds,
@@ -26892,19 +26928,19 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
           nextRecord.closedInventoryReopenProfileIds,
           accessProfileForm.stockPermissions.closedInventoryReopen,
         ),
-          closedInventoryDeleteProfileIds: syncProfileId(
-            nextRecord.closedInventoryDeleteProfileIds,
-            accessProfileForm.stockPermissions.closedInventoryDelete,
-          ),
-          salesImportDefaultHistoryMode: nextRecord.salesImportDefaultHistoryMode,
-          salesImportDefaultHistoryMonths: nextRecord.salesImportDefaultHistoryMonths,
-          salesImportDefaultCoverageDays: nextRecord.salesImportDefaultCoverageDays,
-          salesImportDefaultSafetyMarginPercent: nextRecord.salesImportDefaultSafetyMarginPercent,
-          salesImportAutoApplySuggestedMinimum: nextRecord.salesImportAutoApplySuggestedMinimum,
-          salesImportAllowManualMinimumOverride: nextRecord.salesImportAllowManualMinimumOverride,
-          salesImportUnmatchedRowPolicy: nextRecord.salesImportUnmatchedRowPolicy,
-          salesImportDuplicateRowPolicy: nextRecord.salesImportDuplicateRowPolicy,
-        }
+        closedInventoryDeleteProfileIds: syncProfileId(
+          nextRecord.closedInventoryDeleteProfileIds,
+          accessProfileForm.stockPermissions.closedInventoryDelete,
+        ),
+        salesImportDefaultHistoryMode: nextRecord.salesImportDefaultHistoryMode,
+        salesImportDefaultHistoryMonths: nextRecord.salesImportDefaultHistoryMonths,
+        salesImportDefaultCoverageDays: nextRecord.salesImportDefaultCoverageDays,
+        salesImportDefaultSafetyMarginPercent: nextRecord.salesImportDefaultSafetyMarginPercent,
+        salesImportAutoApplySuggestedMinimum: nextRecord.salesImportAutoApplySuggestedMinimum,
+        salesImportAllowManualMinimumOverride: nextRecord.salesImportAllowManualMinimumOverride,
+        salesImportUnmatchedRowPolicy: nextRecord.salesImportUnmatchedRowPolicy,
+        salesImportDuplicateRowPolicy: nextRecord.salesImportDuplicateRowPolicy,
+      }
 
       return current.some((record) => record.companyId === profileToSave.companyId)
         ? current.map((record) => (record.companyId === profileToSave.companyId ? updatedRecord : record))
@@ -26933,6 +26969,36 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
         })
         return
       }
+    }
+
+    const affectedUsers = users
+      .map((user) => ({
+        original: user,
+        updated: applyAccessProfileToUserForCompany(user, profileToSave),
+      }))
+      .filter(({ original, updated }) => JSON.stringify(updated.memberships) !== JSON.stringify(original.memberships))
+    try {
+      await Promise.all(
+        affectedUsers.map(async ({ updated }) => {
+          const response = await fetch(`/api/users/${updated.id}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(updated),
+          })
+          if (!response.ok) {
+            throw new Error(`Nao foi possivel sincronizar o usuario ${updated.fullName}.`)
+          }
+        }),
+      )
+    } catch (error) {
+      console.error(error)
+      setSaveProgressState(null)
+      setSaveFeedback({
+        status: 'error',
+        title: 'Falha ao sincronizar usuarios do perfil',
+        message: error instanceof Error ? error.message : 'Erro ao sincronizar usuarios vinculados ao perfil.',
+      })
+      return
     }
 
     await refreshAppAdminRecordsFromApi()
@@ -33885,44 +33951,44 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                   <div className="receituario-summary-grid receituario-summary-grid-execucao">
                       <article
                         className={
-                          executionBlocks.baseSummary && visibleRecipeExecutionHeroFields.family
+                          visibleRecipeExecutionHeroFields.family
                             ? 'receituario-metric-card'
                             : 'receituario-metric-card recipe-hero-preserve-desktop'
                         }
-                        aria-hidden={!(executionBlocks.baseSummary && visibleRecipeExecutionHeroFields.family)}
+                        aria-hidden={!(visibleRecipeExecutionHeroFields.family)}
                       >
                         <span>Familia</span>
                         <strong>{data.sheet.family}</strong>
                       </article>
                       <article
                         className={
-                          executionBlocks.baseSummary && visibleRecipeExecutionHeroFields.subfamily
+                          visibleRecipeExecutionHeroFields.subfamily
                             ? 'receituario-metric-card'
                             : 'receituario-metric-card recipe-hero-preserve-desktop'
                         }
-                        aria-hidden={!(executionBlocks.baseSummary && visibleRecipeExecutionHeroFields.subfamily)}
+                        aria-hidden={!(visibleRecipeExecutionHeroFields.subfamily)}
                       >
                         <span>Subfamilia</span>
                         <strong>{data.sheet.subfamily}</strong>
                       </article>
                       <article
                         className={
-                          executionBlocks.baseSummary && visibleRecipeExecutionHeroFields.sectors
+                          visibleRecipeExecutionHeroFields.sectors
                             ? 'receituario-metric-card'
                             : 'receituario-metric-card recipe-hero-preserve-desktop'
                         }
-                        aria-hidden={!(executionBlocks.baseSummary && visibleRecipeExecutionHeroFields.sectors)}
+                        aria-hidden={!(visibleRecipeExecutionHeroFields.sectors)}
                       >
                         <span>Setores</span>
                         <strong>{data.sheet.sectors.join(', ') || '-'}</strong>
                       </article>
                       <article
                         className={
-                          executionBlocks.baseSummary && visibleRecipeExecutionHeroFields.baseYield
+                          visibleRecipeExecutionHeroFields.baseYield
                             ? 'receituario-metric-card'
                             : 'receituario-metric-card recipe-hero-preserve-desktop'
                         }
-                        aria-hidden={!(executionBlocks.baseSummary && visibleRecipeExecutionHeroFields.baseYield)}
+                        aria-hidden={!(visibleRecipeExecutionHeroFields.baseYield)}
                       >
                         <span>Rendimento base</span>
                         <strong>{formatDecimal(data.baseYield)} {getTechnicalSheetYieldUnitLabel(data.sheet, technicalSheets, products)}</strong>
@@ -33932,22 +33998,22 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                   <div className="receituario-summary-grid receituario-summary-grid-execucao">
                       <article
                         className={
-                          executionBlocks.yieldControls && visibleRecipeExecutionHeroFields.recipeCount
+                          visibleRecipeExecutionHeroFields.recipeCount
                             ? 'receituario-metric-card'
                             : 'receituario-metric-card recipe-hero-preserve-desktop'
                         }
-                        aria-hidden={!(executionBlocks.yieldControls && visibleRecipeExecutionHeroFields.recipeCount)}
+                        aria-hidden={!(visibleRecipeExecutionHeroFields.recipeCount)}
                       >
                         <span>Quantidade de receitas</span>
                         <strong>{formatDecimal(data.recipeCount)}</strong>
                       </article>
                       <article
                         className={
-                          executionBlocks.yieldControls && visibleRecipeExecutionHeroFields.desiredYield
+                          visibleRecipeExecutionHeroFields.desiredYield
                             ? 'receituario-metric-card'
                             : 'receituario-metric-card recipe-hero-preserve-desktop'
                         }
-                        aria-hidden={!(executionBlocks.yieldControls && visibleRecipeExecutionHeroFields.desiredYield)}
+                        aria-hidden={!(visibleRecipeExecutionHeroFields.desiredYield)}
                       >
                         <span>Quantidade final desejada</span>
                         <strong>{formatDecimal(data.desiredYield)} {getTechnicalSheetYieldUnitLabel(data.sheet, technicalSheets, products)}</strong>
@@ -33957,44 +34023,44 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                   <div className="receituario-summary-grid receituario-summary-grid-metrics">
                       <article
                         className={
-                          executionBlocks.costMetrics && visibleRecipeExecutionHeroFields.finalYield
+                          visibleRecipeExecutionHeroFields.finalYield
                             ? 'receituario-metric-card'
                             : 'receituario-metric-card recipe-hero-preserve-desktop'
                         }
-                        aria-hidden={!(executionBlocks.costMetrics && visibleRecipeExecutionHeroFields.finalYield)}
+                        aria-hidden={!(visibleRecipeExecutionHeroFields.finalYield)}
                       >
                         <span>Rendimento final</span>
                         <strong>{formatDecimal(data.desiredYield)} {getTechnicalSheetYieldUnitLabel(data.sheet, technicalSheets, products)}</strong>
                       </article>
                       <article
                         className={
-                          executionBlocks.costMetrics && visibleRecipeExecutionHeroFields.finalAlcoholPercentage
+                          visibleRecipeExecutionHeroFields.finalAlcoholPercentage
                             ? 'receituario-metric-card'
                             : 'receituario-metric-card recipe-hero-preserve-desktop'
                         }
-                        aria-hidden={!(executionBlocks.costMetrics && visibleRecipeExecutionHeroFields.finalAlcoholPercentage)}
+                        aria-hidden={!(visibleRecipeExecutionHeroFields.finalAlcoholPercentage)}
                       >
                         <span>% alcool final</span>
                         <strong>{formatDecimal(data.finalAlcoholPercentage)}%</strong>
                       </article>
                       <article
                         className={
-                          executionBlocks.costMetrics && visibleRecipeExecutionHeroFields.finalCmvPercentage
+                          visibleRecipeExecutionHeroFields.finalCmvPercentage
                             ? 'receituario-metric-card'
                             : 'receituario-metric-card recipe-hero-preserve-desktop'
                         }
-                        aria-hidden={!(executionBlocks.costMetrics && visibleRecipeExecutionHeroFields.finalCmvPercentage)}
+                        aria-hidden={!(visibleRecipeExecutionHeroFields.finalCmvPercentage)}
                       >
                         <span>CMV final</span>
                         <strong>{formatDecimal(data.finalCmvPercentage)}%</strong>
                       </article>
                       <article
                         className={
-                          executionBlocks.costMetrics && visibleRecipeExecutionHeroFields.finalSalePrice
+                          visibleRecipeExecutionHeroFields.finalSalePrice
                             ? 'receituario-metric-card'
                             : 'receituario-metric-card recipe-hero-preserve-desktop'
                         }
-                        aria-hidden={!(executionBlocks.costMetrics && visibleRecipeExecutionHeroFields.finalSalePrice)}
+                        aria-hidden={!(visibleRecipeExecutionHeroFields.finalSalePrice)}
                       >
                         <span>Valor final de venda</span>
                         <strong>R$ {formatMoney(data.finalSalePrice)}</strong>
@@ -34566,28 +34632,24 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
           ['Tipo', data.sheet.kind === 'PREPARO' ? 'Pre-preparo' : 'Execucao'],
         ]
 
-        if (data.sheet.kind !== 'EXECUCAO' || exportExecutionBlocks.baseSummary) {
-          if (data.sheet.kind === 'EXECUCAO' ? visibleRecipeExecutionHeroFields.family : visibleRecipePreparoHeroFields.family) {
-            rows.push(['Familia', data.sheet.family])
-          }
-          if (data.sheet.kind === 'EXECUCAO' ? visibleRecipeExecutionHeroFields.subfamily : visibleRecipePreparoHeroFields.subfamily) {
-            rows.push(['Subfamilia', data.sheet.subfamily])
-          }
-          if (data.sheet.kind === 'EXECUCAO' ? visibleRecipeExecutionHeroFields.sectors : visibleRecipePreparoHeroFields.sectors) {
-            rows.push(['Setores', data.sheet.sectors.join(', ') || '-'])
-          }
-          if (data.sheet.kind === 'EXECUCAO' ? visibleRecipeExecutionHeroFields.baseYield : visibleRecipePreparoHeroFields.baseYield) {
-            rows.push(['Rendimento base', `${formatDecimal(data.baseYield)} ${getTechnicalSheetYieldUnitLabel(data.sheet, technicalSheets, products)}`])
-          }
+        if (data.sheet.kind === 'EXECUCAO' ? visibleRecipeExecutionHeroFields.family : visibleRecipePreparoHeroFields.family) {
+          rows.push(['Familia', data.sheet.family])
+        }
+        if (data.sheet.kind === 'EXECUCAO' ? visibleRecipeExecutionHeroFields.subfamily : visibleRecipePreparoHeroFields.subfamily) {
+          rows.push(['Subfamilia', data.sheet.subfamily])
+        }
+        if (data.sheet.kind === 'EXECUCAO' ? visibleRecipeExecutionHeroFields.sectors : visibleRecipePreparoHeroFields.sectors) {
+          rows.push(['Setores', data.sheet.sectors.join(', ') || '-'])
+        }
+        if (data.sheet.kind === 'EXECUCAO' ? visibleRecipeExecutionHeroFields.baseYield : visibleRecipePreparoHeroFields.baseYield) {
+          rows.push(['Rendimento base', `${formatDecimal(data.baseYield)} ${getTechnicalSheetYieldUnitLabel(data.sheet, technicalSheets, products)}`])
         }
 
-        if (data.sheet.kind !== 'EXECUCAO' || exportExecutionBlocks.yieldControls) {
-          if (data.sheet.kind === 'EXECUCAO' ? visibleRecipeExecutionHeroFields.recipeCount : visibleRecipePreparoHeroFields.recipeCount) {
-            rows.push(['Quantidade de receitas', formatDecimal(data.recipeCount)])
-          }
-          if (data.sheet.kind === 'EXECUCAO' ? visibleRecipeExecutionHeroFields.desiredYield : visibleRecipePreparoHeroFields.desiredYield) {
-            rows.push(['Rendimento final', `${formatDecimal(data.desiredYield)} ${getTechnicalSheetYieldUnitLabel(data.sheet, technicalSheets, products)}`])
-          }
+        if (data.sheet.kind === 'EXECUCAO' ? visibleRecipeExecutionHeroFields.recipeCount : visibleRecipePreparoHeroFields.recipeCount) {
+          rows.push(['Quantidade de receitas', formatDecimal(data.recipeCount)])
+        }
+        if (data.sheet.kind === 'EXECUCAO' ? visibleRecipeExecutionHeroFields.desiredYield : visibleRecipePreparoHeroFields.desiredYield) {
+          rows.push(['Rendimento final', `${formatDecimal(data.desiredYield)} ${getTechnicalSheetYieldUnitLabel(data.sheet, technicalSheets, products)}`])
         }
 
         if (data.sheet.kind === 'EXECUCAO' && exportExecutionBlocks.productImage) {
@@ -34730,7 +34792,12 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
             rows.push(['Harmonizacao'])
             rows.push([data.sheet.harmonization || 'Harmonizacao nao informada.'])
           }
-          if (exportExecutionBlocks.costMetrics) {
+          if (
+            visibleRecipeExecutionHeroFields.finalYield ||
+            visibleRecipeExecutionHeroFields.finalAlcoholPercentage ||
+            visibleRecipeExecutionHeroFields.finalCmvPercentage ||
+            visibleRecipeExecutionHeroFields.finalSalePrice
+          ) {
             rows.push([])
             rows.push(['Dados tecnicos'])
             if (visibleRecipeExecutionHeroFields.finalYield) {
@@ -39408,44 +39475,44 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                             <div className="receituario-summary-grid receituario-summary-grid-execucao">
                               <article
                                 className={
-                                  visibleRecipePanelExecutionBlocks.baseSummary && visibleRecipeExecutionHeroFields.family
+                                  visibleRecipeExecutionHeroFields.family
                                     ? 'receituario-metric-card'
                                     : 'receituario-metric-card recipe-hero-preserve-desktop'
                                 }
-                                aria-hidden={!(visibleRecipePanelExecutionBlocks.baseSummary && visibleRecipeExecutionHeroFields.family)}
+                                aria-hidden={!(visibleRecipeExecutionHeroFields.family)}
                               >
                                 <span>Familia</span>
                                 <strong>{recipePanelData.sheet.family}</strong>
                               </article>
                               <article
                                 className={
-                                  visibleRecipePanelExecutionBlocks.baseSummary && visibleRecipeExecutionHeroFields.subfamily
+                                  visibleRecipeExecutionHeroFields.subfamily
                                     ? 'receituario-metric-card'
                                     : 'receituario-metric-card recipe-hero-preserve-desktop'
                                 }
-                                aria-hidden={!(visibleRecipePanelExecutionBlocks.baseSummary && visibleRecipeExecutionHeroFields.subfamily)}
+                                aria-hidden={!(visibleRecipeExecutionHeroFields.subfamily)}
                               >
                                 <span>Subfamilia</span>
                                 <strong>{recipePanelData.sheet.subfamily}</strong>
                               </article>
                               <article
                                 className={
-                                  visibleRecipePanelExecutionBlocks.baseSummary && visibleRecipeExecutionHeroFields.sectors
+                                  visibleRecipeExecutionHeroFields.sectors
                                     ? 'receituario-metric-card'
                                     : 'receituario-metric-card recipe-hero-preserve-desktop'
                                 }
-                                aria-hidden={!(visibleRecipePanelExecutionBlocks.baseSummary && visibleRecipeExecutionHeroFields.sectors)}
+                                aria-hidden={!(visibleRecipeExecutionHeroFields.sectors)}
                               >
                                 <span>Setores</span>
                                 <strong>{recipePanelData.sheet.sectors.join(', ') || '-'}</strong>
                               </article>
                               <article
                                 className={
-                                  visibleRecipePanelExecutionBlocks.baseSummary && visibleRecipeExecutionHeroFields.baseYield
+                                  visibleRecipeExecutionHeroFields.baseYield
                                     ? 'receituario-metric-card'
                                     : 'receituario-metric-card recipe-hero-preserve-desktop'
                                 }
-                                aria-hidden={!(visibleRecipePanelExecutionBlocks.baseSummary && visibleRecipeExecutionHeroFields.baseYield)}
+                                aria-hidden={!(visibleRecipeExecutionHeroFields.baseYield)}
                               >
                                 <span>Rendimento base</span>
                                 <strong>
@@ -39457,11 +39524,11 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                             <div className="form-grid receituario-controls-grid receituario-controls-grid-execucao">
                               <label
                                 className={
-                                  visibleRecipePanelExecutionBlocks.yieldControls && visibleRecipeExecutionHeroFields.recipeCount
+                                  visibleRecipeExecutionHeroFields.recipeCount
                                     ? 'field'
                                     : 'field recipe-hero-preserve-desktop'
                                 }
-                                aria-hidden={!(visibleRecipePanelExecutionBlocks.yieldControls && visibleRecipeExecutionHeroFields.recipeCount)}
+                                aria-hidden={!(visibleRecipeExecutionHeroFields.recipeCount)}
                               >
                                 <span>Quantidade de receitas</span>
                                 <input
@@ -39472,11 +39539,11 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                               </label>
                               <label
                                 className={
-                                  visibleRecipePanelExecutionBlocks.yieldControls && visibleRecipeExecutionHeroFields.desiredYield
+                                  visibleRecipeExecutionHeroFields.desiredYield
                                     ? 'field'
                                     : 'field recipe-hero-preserve-desktop'
                                 }
-                                aria-hidden={!(visibleRecipePanelExecutionBlocks.yieldControls && visibleRecipeExecutionHeroFields.desiredYield)}
+                                aria-hidden={!(visibleRecipeExecutionHeroFields.desiredYield)}
                               >
                                 <span>Quantidade final desejada</span>
                                 <input
@@ -39490,11 +39557,11 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                             <div className="receituario-summary-grid receituario-summary-grid-metrics">
                               <article
                                 className={
-                                  visibleRecipePanelExecutionBlocks.costMetrics && visibleRecipeExecutionHeroFields.finalYield
+                                  visibleRecipeExecutionHeroFields.finalYield
                                     ? 'receituario-metric-card'
                                     : 'receituario-metric-card recipe-hero-preserve-desktop'
                                 }
-                                aria-hidden={!(visibleRecipePanelExecutionBlocks.costMetrics && visibleRecipeExecutionHeroFields.finalYield)}
+                                aria-hidden={!(visibleRecipeExecutionHeroFields.finalYield)}
                               >
                                 <span>Rendimento final</span>
                                 <strong>
@@ -39503,33 +39570,33 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                               </article>
                               <article
                                 className={
-                                  visibleRecipePanelExecutionBlocks.costMetrics && visibleRecipeExecutionHeroFields.finalAlcoholPercentage
+                                  visibleRecipeExecutionHeroFields.finalAlcoholPercentage
                                     ? 'receituario-metric-card'
                                     : 'receituario-metric-card recipe-hero-preserve-desktop'
                                 }
-                                aria-hidden={!(visibleRecipePanelExecutionBlocks.costMetrics && visibleRecipeExecutionHeroFields.finalAlcoholPercentage)}
+                                aria-hidden={!(visibleRecipeExecutionHeroFields.finalAlcoholPercentage)}
                               >
                                 <span>% alcool final</span>
                                 <strong>{formatDecimal(recipePanelData.finalAlcoholPercentage)}%</strong>
                               </article>
                               <article
                                 className={
-                                  visibleRecipePanelExecutionBlocks.costMetrics && visibleRecipeExecutionHeroFields.finalCmvPercentage
+                                  visibleRecipeExecutionHeroFields.finalCmvPercentage
                                     ? 'receituario-metric-card'
                                     : 'receituario-metric-card recipe-hero-preserve-desktop'
                                 }
-                                aria-hidden={!(visibleRecipePanelExecutionBlocks.costMetrics && visibleRecipeExecutionHeroFields.finalCmvPercentage)}
+                                aria-hidden={!(visibleRecipeExecutionHeroFields.finalCmvPercentage)}
                               >
                                 <span>CMV final</span>
                                 <strong>{formatDecimal(recipePanelData.finalCmvPercentage)}%</strong>
                               </article>
                               <article
                                 className={
-                                  visibleRecipePanelExecutionBlocks.costMetrics && visibleRecipeExecutionHeroFields.finalSalePrice
+                                  visibleRecipeExecutionHeroFields.finalSalePrice
                                     ? 'receituario-metric-card'
                                     : 'receituario-metric-card recipe-hero-preserve-desktop'
                                 }
-                                aria-hidden={!(visibleRecipePanelExecutionBlocks.costMetrics && visibleRecipeExecutionHeroFields.finalSalePrice)}
+                                aria-hidden={!(visibleRecipeExecutionHeroFields.finalSalePrice)}
                               >
                                 <span>Valor final de venda</span>
                                 <strong>R$ {formatMoney(recipePanelData.finalSalePrice)}</strong>
