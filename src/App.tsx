@@ -4446,6 +4446,37 @@ export default function App() {
   const [technicalSheetSettingsDraft, setTechnicalSheetSettingsDraft] = useState<TechnicalSheetFormSettings>(
     buildDefaultTechnicalSheetFormSettings(),
   )
+
+  function getTechnicalSheetSettingsForCurrentCompany() {
+    if (currentCompanyId === null) {
+      return defaultTechnicalSheetFormSettings
+    }
+
+    return (
+      technicalSheetSettingsRecords.find((item) => item.companyId === currentCompanyId)?.settings ??
+      defaultTechnicalSheetFormSettings
+    )
+  }
+
+  function isTechnicalSheetFieldVisible(
+    kind: TechnicalSheetKind,
+    key: TechnicalSheetConfigurationFieldKey,
+  ) {
+    return getTechnicalSheetSettingsForCurrentCompany()[kind][key].visible
+  }
+
+  function isTechnicalSheetFieldRequired(
+    kind: TechnicalSheetKind,
+    key: TechnicalSheetConfigurationFieldKey,
+  ) {
+    const fieldSettings = getTechnicalSheetSettingsForCurrentCompany()[kind][key]
+    return fieldSettings.visible && fieldSettings.required
+  }
+
+  function isTechnicalSheetIngredientManipulatedQuantityVisible(kind: TechnicalSheetKind) {
+    return isTechnicalSheetFieldVisible(kind, 'ingredientManipulatedQuantity')
+  }
+
   const [userPanelTab, setUserPanelTab] = useState<UserPanelTab>('users')
   const [userSectorInput, setUserSectorInput] = useState('')
   const [isUserPasswordVisible, setIsUserPasswordVisible] = useState(false)
@@ -14120,16 +14151,6 @@ export default function App() {
 
     return Array.from(grouped.entries()).map(([block, fields]) => ({ block, fields }))
   }, [technicalSheetConfigurationFieldsForTab])
-  const isTechnicalSheetFieldVisible = (
-    kind: TechnicalSheetKind,
-    key: TechnicalSheetConfigurationFieldKey,
-  ) => currentCompanyTechnicalSheetSettings[kind][key].visible
-  const isTechnicalSheetFieldRequired = (
-    kind: TechnicalSheetKind,
-    key: TechnicalSheetConfigurationFieldKey,
-  ) => currentCompanyTechnicalSheetSettings[kind][key].visible && currentCompanyTechnicalSheetSettings[kind][key].required
-  const isTechnicalSheetIngredientManipulatedQuantityVisible = (kind: TechnicalSheetKind) =>
-    isTechnicalSheetFieldVisible(kind, 'ingredientManipulatedQuantity')
   const companyRecordsForView = useMemo(
     () =>
       isSystemAdmin
