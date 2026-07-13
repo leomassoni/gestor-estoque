@@ -2101,19 +2101,20 @@ h3 {
 }
 
 .recipe-export-stage .receituario-hero {
-  grid-template-columns: minmax(0, 1.55fr) minmax(280px, 0.95fr);
+  grid-template-columns: minmax(0, 1.35fr) minmax(320px, 0.85fr);
   align-items: stretch;
 }
 
 .recipe-export-stage .receituario-hero-media {
   align-self: stretch;
-  align-items: center;
+  align-items: stretch;
 }
 
 .recipe-export-stage .receituario-hero-image-frame {
-  width: min(100%, 360px);
-  height: auto;
-  max-height: none;
+  width: 100%;
+  height: 100%;
+  max-height: 100%;
+  aspect-ratio: auto;
 }
 
 .recipe-export-stage .recipe-copy-block {
