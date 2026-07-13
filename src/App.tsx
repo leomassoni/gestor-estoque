@@ -7724,6 +7724,31 @@ export default function App() {
   useEffect(() => {
     let isCancelled = false
 
+    const loadInitialCoreRecords = async () => {
+      try {
+        await Promise.all([
+          refreshAppAdminRecordsFromApi(),
+          refreshAppStockCenterRecordsFromApi(),
+          refreshAppCatalogRecordsFromApi(),
+        ])
+      } catch (error) {
+        console.error(error)
+        if (!isCancelled) {
+          logRemoteAppStateMessage('Falha ao carregar dados iniciais pelo backend. O cache local continuara como fallback.')
+        }
+      }
+    }
+
+    void loadInitialCoreRecords()
+
+    return () => {
+      isCancelled = true
+    }
+  }, [])
+
+  useEffect(() => {
+    let isCancelled = false
+
     const load = async () => {
       try {
         await refreshAppRequisitionRecordsFromApi()
