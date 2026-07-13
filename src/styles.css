@@ -2102,11 +2102,12 @@ h3 {
 
 .recipe-export-stage .receituario-hero {
   grid-template-columns: minmax(0, 1.55fr) minmax(280px, 0.95fr);
-  align-items: start;
+  align-items: stretch;
 }
 
 .recipe-export-stage .receituario-hero-media {
-  align-self: start;
+  align-self: stretch;
+  align-items: center;
 }
 
 .recipe-export-stage .receituario-hero-image-frame {
