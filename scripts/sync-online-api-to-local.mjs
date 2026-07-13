@@ -23,6 +23,8 @@ const ENTITY_ENDPOINTS = [
   ['inventory-count-sessions', 'sessions'],
   ['inventory-active-session-links', 'links'],
   ['inventory-counts', 'counts'],
+  ['waste-sessions', 'wasteSessions'],
+  ['waste-records', 'wasteRecords'],
   ['pending-inventory-movements', 'movements'],
   ['products', 'products'],
   ['service-items', 'serviceItems'],
@@ -38,8 +40,10 @@ async function fetchJson(url) {
 }
 
 async function postEntity(endpoint, payload) {
-  const response = await fetch(`${LOCAL_BASE_URL}/${endpoint}`, {
-    method: 'POST',
+  const usesIdRoute = endpoint === 'waste-sessions' || endpoint === 'waste-records' || endpoint === 'pending-inventory-movements'
+  const targetUrl = usesIdRoute ? `${LOCAL_BASE_URL}/${endpoint}/${payload.id}` : `${LOCAL_BASE_URL}/${endpoint}`
+  const response = await fetch(targetUrl, {
+    method: usesIdRoute ? 'PUT' : 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
   })

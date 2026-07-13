@@ -533,6 +533,11 @@ select {
   min-width: 0;
 }
 
+.settings-impact-warning {
+  color: #92400e;
+  font-weight: 650;
+}
+
 .settings-field-control {
   grid-column: 2;
   min-width: min(100%, 420px);
@@ -2485,6 +2490,14 @@ h3 {
   border-radius: 18px;
   background: rgba(20, 33, 61, 0.04);
   border: 1px solid rgba(20, 33, 61, 0.08);
+}
+
+.ingredient-row-entry {
+  grid-template-columns: minmax(220px, 2fr) minmax(96px, 0.8fr) minmax(96px, 0.8fr) minmax(96px, 0.8fr) 112px 120px;
+}
+
+.ingredient-row-entry .field-wide {
+  grid-column: auto;
 }
 
 .ingredient-row > * {
