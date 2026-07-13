@@ -3002,6 +3002,43 @@ function normalizeRecipePanelAccessRecord<K extends string>(
   }, {} as Record<K, boolean>)
 }
 
+function getRecipeExecutionHeroFieldBlock(
+  field: RecipeExecutionHeroFieldKey,
+): RecipeExecutionBlockKey {
+  if (field === 'recipeCount' || field === 'desiredYield') {
+    return 'yieldControls'
+  }
+
+  if (
+    field === 'finalYield' ||
+    field === 'finalAlcoholPercentage' ||
+    field === 'finalCmvPercentage' ||
+    field === 'finalSalePrice'
+  ) {
+    return 'costMetrics'
+  }
+
+  return 'baseSummary'
+}
+
+function getRecipeExecutionBlockHeroFields(
+  block: RecipeExecutionBlockKey,
+): RecipeExecutionHeroFieldKey[] {
+  if (block === 'baseSummary') {
+    return ['family', 'subfamily', 'sectors', 'baseYield']
+  }
+
+  if (block === 'yieldControls') {
+    return ['recipeCount', 'desiredYield']
+  }
+
+  if (block === 'costMetrics') {
+    return ['finalYield', 'finalAlcoholPercentage', 'finalCmvPercentage', 'finalSalePrice']
+  }
+
+  return []
+}
+
 const defaultRecipePanelAccess = (): RecipePanelAccess => ({
   showPreparoTab: true,
   showExecucaoTab: true,
@@ -3022,13 +3059,27 @@ function normalizeRecipePanelAccess(value: unknown): RecipePanelAccess {
   }
 
   const candidate = value as Partial<RecipePanelAccess>
+  const executionBlocks = normalizeRecipePanelAccessRecord(
+    candidate.executionBlocks,
+    recipeExecutionBlockDefinitions,
+    fallback.executionBlocks,
+  )
+  const executionHeroFields = normalizeRecipePanelAccessRecord(
+    candidate.executionHeroFields,
+    recipeExecutionHeroFieldDefinitions,
+    fallback.executionHeroFields,
+  )
 
   return {
     showPreparoTab: candidate.showPreparoTab !== false,
     showExecucaoTab: candidate.showExecucaoTab !== false,
-    executionBlocks: normalizeRecipePanelAccessRecord(candidate.executionBlocks, recipeExecutionBlockDefinitions, fallback.executionBlocks),
+    executionBlocks,
     preparoHeroFields: normalizeRecipePanelAccessRecord(candidate.preparoHeroFields, recipePreparoHeroFieldDefinitions, fallback.preparoHeroFields),
-    executionHeroFields: normalizeRecipePanelAccessRecord(candidate.executionHeroFields, recipeExecutionHeroFieldDefinitions, fallback.executionHeroFields),
+    executionHeroFields: recipeExecutionHeroFieldDefinitions.reduce<Record<RecipeExecutionHeroFieldKey, boolean>>((current, definition) => {
+      const parentBlock = getRecipeExecutionHeroFieldBlock(definition.key)
+      current[definition.key] = executionBlocks[parentBlock] && executionHeroFields[definition.key]
+      return current
+    }, {} as Record<RecipeExecutionHeroFieldKey, boolean>),
     preparoIngredientColumns: normalizeRecipePanelAccessRecord(candidate.preparoIngredientColumns, recipePreparoIngredientColumnDefinitions, fallback.preparoIngredientColumns),
     executionIngredientColumns: normalizeRecipePanelAccessRecord(candidate.executionIngredientColumns, recipeExecutionIngredientColumnDefinitions, fallback.executionIngredientColumns),
     executionGarnishColumns: normalizeRecipePanelAccessRecord(candidate.executionGarnishColumns, recipeExecutionGarnishColumnDefinitions, fallback.executionGarnishColumns),
@@ -19187,16 +19238,29 @@ export default function App() {
   }
 
   function updateAccessProfileRecipeExecutionBlockAccess(block: RecipeExecutionBlockKey, value: boolean) {
-    setAccessProfileForm((current) => ({
-      ...current,
-      recipePanelAccess: {
-        ...current.recipePanelAccess,
-        executionBlocks: {
-          ...current.recipePanelAccess.executionBlocks,
-          [block]: value,
+    setAccessProfileForm((current) => {
+      const relatedHeroFields = getRecipeExecutionBlockHeroFields(block)
+      return {
+        ...current,
+        recipePanelAccess: {
+          ...current.recipePanelAccess,
+          executionBlocks: {
+            ...current.recipePanelAccess.executionBlocks,
+            [block]: value,
+          },
+          executionHeroFields:
+            relatedHeroFields.length === 0
+              ? current.recipePanelAccess.executionHeroFields
+              : relatedHeroFields.reduce<Record<RecipeExecutionHeroFieldKey, boolean>>(
+                  (next, field) => ({
+                    ...next,
+                    [field]: value,
+                  }),
+                  { ...current.recipePanelAccess.executionHeroFields },
+                ),
         },
-      },
-    }))
+      }
+    })
   }
 
   function updateAccessProfileRecipePanelVisibilityGroup<
@@ -19215,16 +19279,28 @@ export default function App() {
     key: keyof RecipePanelAccess[GroupKey],
     value: boolean,
   ) {
-    setAccessProfileForm((current) => ({
-      ...current,
-      recipePanelAccess: {
+    setAccessProfileForm((current) => {
+      const nextRecipePanelAccess: RecipePanelAccess = {
         ...current.recipePanelAccess,
         [groupKey]: {
           ...current.recipePanelAccess[groupKey],
           [key]: value,
         },
-      },
-    }))
+      }
+
+      if (groupKey === 'executionHeroFields' && value) {
+        const parentBlock = getRecipeExecutionHeroFieldBlock(key as RecipeExecutionHeroFieldKey)
+        nextRecipePanelAccess.executionBlocks = {
+          ...nextRecipePanelAccess.executionBlocks,
+          [parentBlock]: true,
+        }
+      }
+
+      return {
+        ...current,
+        recipePanelAccess: nextRecipePanelAccess,
+      }
+    })
   }
 
   function updateAccessProfileCadastrosAccess(value: boolean) {

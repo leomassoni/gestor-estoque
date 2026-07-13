@@ -1727,8 +1727,11 @@ h3 {
 }
 
 .recipe-hero-preserve-desktop {
-  visibility: hidden;
   pointer-events: none;
+}
+
+.recipe-hero-preserve-desktop > * {
+  visibility: hidden;
 }
 
 .receituario-hero-media {
