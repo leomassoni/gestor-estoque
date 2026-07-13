@@ -4707,15 +4707,16 @@ export default function App() {
             currentCompanyId === null
               ? null
               : session.user.memberships.find((entry) => entry.companyId === currentCompanyId && entry.isActive) ?? null
+          const profile = membership ? getAccessProfileForMembership(membership) : null
           return membership
             ? {
                 ...session.user,
                 companyId: membership.companyId,
-                role: membership.role,
+                role: profile?.role ?? membership.role,
                 sectors: membership.sectors,
-                sectionAccess: membership.sectionAccess,
-                catalogAccess: membership.catalogAccess,
-                recipePanelAccess: membership.recipePanelAccess,
+                sectionAccess: profile?.sectionAccess ?? membership.sectionAccess,
+                catalogAccess: profile?.catalogAccess ?? membership.catalogAccess,
+                recipePanelAccess: profile?.recipePanelAccess ?? membership.recipePanelAccess,
                 accessProfileId: membership.accessProfileId,
               }
             : session.user
@@ -4836,7 +4837,7 @@ export default function App() {
   const rawSessionAppUser = session?.kind === 'appUser' ? session.user : null
   const currentAppUser = useMemo(
     () => (rawSessionAppUser ? buildEffectiveAppUserForCompany(rawSessionAppUser, currentCompanyId) : null),
-    [currentCompanyId, rawSessionAppUser],
+    [accessProfiles, currentCompanyId, rawSessionAppUser],
   )
   const currentUserSectorScope = currentAppUser?.sectors ?? []
   const shouldFilterByUserSectors = session?.kind === 'appUser' && currentUserSectorScope.length > 0
@@ -5507,20 +5508,35 @@ export default function App() {
 
     return user.memberships.find((membership) => membership.companyId === companyId && membership.isActive) ?? null
   }
+  function getAccessProfileForMembership(membership: UserCompanyMembershipRecord) {
+    if (membership.accessProfileId === null) {
+      return null
+    }
+
+    return (
+      accessProfiles.find(
+        (profile) =>
+          profile.id === membership.accessProfileId &&
+          profile.companyId === membership.companyId &&
+          profile.isActive,
+      ) ?? null
+    )
+  }
   function buildEffectiveAppUserForCompany(user: AppUserRecord, companyId: number | null) {
     const membership = getUserMembershipForCompany(user, companyId)
     if (!membership) {
       return user
     }
+    const profile = getAccessProfileForMembership(membership)
 
     return {
       ...user,
       companyId: membership.companyId,
-      role: membership.role,
+      role: profile?.role ?? membership.role,
       sectors: membership.sectors,
-      sectionAccess: membership.sectionAccess,
-      catalogAccess: membership.catalogAccess,
-      recipePanelAccess: membership.recipePanelAccess,
+      sectionAccess: profile?.sectionAccess ?? membership.sectionAccess,
+      catalogAccess: profile?.catalogAccess ?? membership.catalogAccess,
+      recipePanelAccess: profile?.recipePanelAccess ?? membership.recipePanelAccess,
       accessProfileId: membership.accessProfileId,
     }
   }
