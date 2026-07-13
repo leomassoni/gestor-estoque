@@ -1821,6 +1821,23 @@ h3 {
   gap: 10px;
 }
 
+.recipe-profile-preview-field {
+  min-width: min(100%, 260px);
+}
+
+.recipe-profile-preview-field span {
+  min-height: auto;
+  font-size: 0.74rem;
+}
+
+.recipe-profile-preview-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin: 18px 0 0;
+}
+
 .receituario-hero-copy .section-heading {
   gap: 10px;
 }

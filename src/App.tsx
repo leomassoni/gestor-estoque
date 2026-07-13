@@ -4391,6 +4391,7 @@ export default function App() {
     PREPARO: '1',
     EXECUCAO: '1',
   })
+  const [recipePanelPreviewProfileId, setRecipePanelPreviewProfileId] = useState<number | null>(null)
   const [openTechnicalSheetColumnMenu, setOpenTechnicalSheetColumnMenu] = useState<TechnicalSheetColumnKey | null>(null)
   const [technicalSheetColumnVisibility, setTechnicalSheetColumnVisibility] =
     useState<Record<TechnicalSheetColumnKey, boolean>>(defaultTechnicalSheetColumnVisibility)
@@ -4592,8 +4593,6 @@ export default function App() {
     effectiveSessionAppUser?.catalogAccess ?? defaultCatalogAccessByRole('Colaborador')
   const effectiveRecipePanelAccess =
     isSystemAdmin ? defaultRecipePanelAccess() : effectiveSessionAppUser?.recipePanelAccess ?? defaultRecipePanelAccess()
-  const canViewRecipePreparoTab = effectiveRecipePanelAccess.showPreparoTab
-  const canViewRecipeExecucaoTab = effectiveRecipePanelAccess.showExecucaoTab
   const canCreateSectors = isSystemAdmin || userCatalogAccess.sectorsCreate
   const canDeleteSectors = isSystemAdmin || userCatalogAccess.sectorsDelete
   const canCreateFamilies = isSystemAdmin || userCatalogAccess.familiesCreate
@@ -4786,7 +4785,6 @@ export default function App() {
       actors: new Set(currentCompanyAuditLogs.map((record) => `${record.actorKind}:${record.actorUsername}`)).size,
     }
   }, [currentCompanyAuditLogs])
-  const visibleRecipePanelExecutionBlocks = effectiveRecipePanelAccess.executionBlocks
   const auditResultLabelByValue: Record<AuditResult, string> = {
     SUCCESS: 'Sucesso',
     WARNING: 'Alerta',
@@ -9312,6 +9310,24 @@ export default function App() {
     () => companyAccessProfiles.filter((profile) => profile.isActive),
     [companyAccessProfiles],
   )
+  const canPreviewRecipePanelProfiles = canAccessUsersPanel
+  const recipePanelPreviewProfiles = useMemo(
+    () =>
+      activeCompanyAccessProfiles.filter(
+        (profile) =>
+          profile.sectionAccess.Receituarios &&
+          (profile.recipePanelAccess.showPreparoTab || profile.recipePanelAccess.showExecucaoTab),
+      ),
+    [activeCompanyAccessProfiles],
+  )
+  const activeRecipePanelPreviewProfile =
+    !canPreviewRecipePanelProfiles || recipePanelPreviewProfileId === null
+      ? null
+      : recipePanelPreviewProfiles.find((profile) => profile.id === recipePanelPreviewProfileId) ?? null
+  const activeRecipePanelAccess = activeRecipePanelPreviewProfile?.recipePanelAccess ?? effectiveRecipePanelAccess
+  const canViewRecipePreparoTab = activeRecipePanelAccess.showPreparoTab
+  const canViewRecipeExecucaoTab = activeRecipePanelAccess.showExecucaoTab
+  const visibleRecipePanelExecutionBlocks = activeRecipePanelAccess.executionBlocks
   const visibleOpenInventoryRecords = useMemo(
     () =>
       inventoryRecords
@@ -17357,6 +17373,17 @@ export default function App() {
       setIsMobileSidebarOpen(true)
     }
   }, [activeSection, currentCompanyId, session])
+
+  useEffect(() => {
+    if (!canPreviewRecipePanelProfiles && recipePanelPreviewProfileId !== null) {
+      setRecipePanelPreviewProfileId(null)
+      return
+    }
+
+    if (recipePanelPreviewProfileId !== null && activeRecipePanelPreviewProfile === null) {
+      setRecipePanelPreviewProfileId(null)
+    }
+  }, [activeRecipePanelPreviewProfile, canPreviewRecipePanelProfiles, recipePanelPreviewProfileId])
 
   useEffect(() => {
     const fallbackTab = canViewRecipePreparoTab ? 'PREPARO' : canViewRecipeExecucaoTab ? 'EXECUCAO' : null
@@ -33445,6 +33472,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
     const generatedDescription =
       tab === 'EXECUCAO' ? buildTechnicalSheetGeneratedDescription(data.sheet, technicalSheets) : null
     const sheetImageDataUrl = getRecipeExportSheetImageDataUrl(data)
+    const executionBlocks = activeRecipePanelAccess.executionBlocks
 
     return (
       <article className="recipe-export-page" key={`${tab}-${data.sheet.id}`}>
@@ -33460,67 +33488,75 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                     </div>
                   </div>
 
-                  <div className="receituario-summary-grid receituario-summary-grid-execucao">
-                    <article className="receituario-metric-card">
-                      <span>Familia</span>
-                      <strong>{data.sheet.family}</strong>
-                    </article>
-                    <article className="receituario-metric-card">
-                      <span>Subfamilia</span>
-                      <strong>{data.sheet.subfamily}</strong>
-                    </article>
-                    <article className="receituario-metric-card">
-                      <span>Setores</span>
-                      <strong>{data.sheet.sectors.join(', ') || '-'}</strong>
-                    </article>
-                    <article className="receituario-metric-card">
-                      <span>Rendimento base</span>
-                      <strong>{formatDecimal(data.baseYield)} {getTechnicalSheetYieldUnitLabel(data.sheet, technicalSheets, products)}</strong>
-                    </article>
-                  </div>
+                  {executionBlocks.baseSummary ? (
+                    <div className="receituario-summary-grid receituario-summary-grid-execucao">
+                      <article className="receituario-metric-card">
+                        <span>Familia</span>
+                        <strong>{data.sheet.family}</strong>
+                      </article>
+                      <article className="receituario-metric-card">
+                        <span>Subfamilia</span>
+                        <strong>{data.sheet.subfamily}</strong>
+                      </article>
+                      <article className="receituario-metric-card">
+                        <span>Setores</span>
+                        <strong>{data.sheet.sectors.join(', ') || '-'}</strong>
+                      </article>
+                      <article className="receituario-metric-card">
+                        <span>Rendimento base</span>
+                        <strong>{formatDecimal(data.baseYield)} {getTechnicalSheetYieldUnitLabel(data.sheet, technicalSheets, products)}</strong>
+                      </article>
+                    </div>
+                  ) : null}
 
-                  <div className="receituario-summary-grid receituario-summary-grid-execucao">
-                    <article className="receituario-metric-card">
-                      <span>Quantidade de receitas</span>
-                      <strong>{formatDecimal(data.recipeCount)}</strong>
-                    </article>
-                    <article className="receituario-metric-card">
-                      <span>Quantidade final desejada</span>
-                      <strong>{formatDecimal(data.desiredYield)} {getTechnicalSheetYieldUnitLabel(data.sheet, technicalSheets, products)}</strong>
-                    </article>
-                  </div>
+                  {executionBlocks.yieldControls ? (
+                    <div className="receituario-summary-grid receituario-summary-grid-execucao">
+                      <article className="receituario-metric-card">
+                        <span>Quantidade de receitas</span>
+                        <strong>{formatDecimal(data.recipeCount)}</strong>
+                      </article>
+                      <article className="receituario-metric-card">
+                        <span>Quantidade final desejada</span>
+                        <strong>{formatDecimal(data.desiredYield)} {getTechnicalSheetYieldUnitLabel(data.sheet, technicalSheets, products)}</strong>
+                      </article>
+                    </div>
+                  ) : null}
 
-                  <div className="receituario-summary-grid receituario-summary-grid-metrics">
-                    <article className="receituario-metric-card">
-                      <span>Rendimento final</span>
-                      <strong>{formatDecimal(data.desiredYield)} {getTechnicalSheetYieldUnitLabel(data.sheet, technicalSheets, products)}</strong>
-                    </article>
-                    <article className="receituario-metric-card">
-                      <span>% alcool final</span>
-                      <strong>{formatDecimal(data.finalAlcoholPercentage)}%</strong>
-                    </article>
-                    <article className="receituario-metric-card">
-                      <span>CMV final</span>
-                      <strong>{formatDecimal(data.finalCmvPercentage)}%</strong>
-                    </article>
-                    <article className="receituario-metric-card">
-                      <span>Valor final de venda</span>
-                      <strong>R$ {formatMoney(data.finalSalePrice)}</strong>
-                    </article>
-                  </div>
+                  {executionBlocks.costMetrics ? (
+                    <div className="receituario-summary-grid receituario-summary-grid-metrics">
+                      <article className="receituario-metric-card">
+                        <span>Rendimento final</span>
+                        <strong>{formatDecimal(data.desiredYield)} {getTechnicalSheetYieldUnitLabel(data.sheet, technicalSheets, products)}</strong>
+                      </article>
+                      <article className="receituario-metric-card">
+                        <span>% alcool final</span>
+                        <strong>{formatDecimal(data.finalAlcoholPercentage)}%</strong>
+                      </article>
+                      <article className="receituario-metric-card">
+                        <span>CMV final</span>
+                        <strong>{formatDecimal(data.finalCmvPercentage)}%</strong>
+                      </article>
+                      <article className="receituario-metric-card">
+                        <span>Valor final de venda</span>
+                        <strong>R$ {formatMoney(data.finalSalePrice)}</strong>
+                      </article>
+                    </div>
+                  ) : null}
                 </div>
 
-                <aside className="receituario-hero-media receituario-hero-media-execucao" aria-label="Apresentacao visual do produto">
-                  <div className={sheetImageDataUrl ? 'receituario-hero-image-frame' : 'receituario-hero-image-frame receituario-hero-image-frame-empty'}>
-                    {sheetImageDataUrl ? (
-                      <img src={sheetImageDataUrl} alt={`Foto de ${data.sheet.name}`} className="receituario-hero-image" />
-                    ) : (
-                      <div className="receituario-hero-image-placeholder">
-                        <span>Foto do produto nao cadastrada.</span>
-                      </div>
-                    )}
-                  </div>
-                </aside>
+                {executionBlocks.productImage ? (
+                  <aside className="receituario-hero-media receituario-hero-media-execucao" aria-label="Apresentacao visual do produto">
+                    <div className={sheetImageDataUrl ? 'receituario-hero-image-frame' : 'receituario-hero-image-frame receituario-hero-image-frame-empty'}>
+                      {sheetImageDataUrl ? (
+                        <img src={sheetImageDataUrl} alt={`Foto de ${data.sheet.name}`} className="receituario-hero-image" />
+                      ) : (
+                        <div className="receituario-hero-image-placeholder">
+                          <span>Foto do produto nao cadastrada.</span>
+                        </div>
+                      )}
+                    </div>
+                  </aside>
+                ) : null}
               </>
             ) : (
               <div>
@@ -33576,7 +33612,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
           </div>
         </section>
 
-        {tab === 'EXECUCAO' ? (
+        {tab === 'EXECUCAO' && executionBlocks.serviceItems ? (
           <section className="inner-panel">
             <div className="section-heading">
               <div>
@@ -33618,61 +33654,63 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
           </section>
         ) : null}
 
-        <section className="inner-panel">
-          <div className="section-heading">
-            <div>
-              <p className="kicker">Composicao</p>
-              <h2>Insumos</h2>
+        {tab !== 'EXECUCAO' || executionBlocks.ingredients ? (
+          <section className="inner-panel">
+            <div className="section-heading">
+              <div>
+                <p className="kicker">Composicao</p>
+                <h2>Insumos</h2>
+              </div>
             </div>
-          </div>
-          {data.ingredientMetrics.length > 0 ? (
-            <div className="table-wrap">
-              <table className="product-table">
-                <thead>
-                  {tab === 'EXECUCAO' ? (
-                    <tr>
-                      <th>Insumo</th>
-                      <th>Quantidade</th>
-                      <th>% alcool</th>
-                    </tr>
-                  ) : (
-                    <tr>
-                      <th>Insumo</th>
-                      <th>Entrada</th>
-                      <th>Manipulado</th>
-                      <th>Rendimento</th>
-                      <th>% alcool</th>
-                    </tr>
-                  )}
-                </thead>
-                <tbody>
-                  {data.ingredientMetrics.map((ingredient) => (
-                    <tr key={ingredient.id}>
-                      <td><strong>{ingredient.label}</strong></td>
-                      {tab === 'EXECUCAO' ? (
-                        <>
-                          <td>{formatRecipeIngredientOperationalQuantity(ingredient)}</td>
-                          <td>{formatDecimal(ingredient.alcoholPercentage)}%</td>
-                        </>
-                      ) : (
-                        <>
-                          <td>{formatDecimal(ingredient.scaledInputQuantity)} {ingredient.unitLabel}</td>
-                          <td>{ingredient.scaledManipulatedQuantity > 0 ? `${formatDecimal(ingredient.scaledManipulatedQuantity)} ${ingredient.unitLabel}` : '-'}</td>
-                          <td>{formatDecimal(ingredient.scaledYieldQuantity)} {ingredient.unitLabel}</td>
-                          <td>{formatDecimal(ingredient.alcoholPercentage)}%</td>
-                        </>
-                      )}
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          ) : (
-            <div className="empty-state empty-state-inline">
-              <strong>Nenhum insumo ativo cadastrado.</strong>
-            </div>
-          )}
-        </section>
+            {data.ingredientMetrics.length > 0 ? (
+              <div className="table-wrap">
+                <table className="product-table">
+                  <thead>
+                    {tab === 'EXECUCAO' ? (
+                      <tr>
+                        <th>Insumo</th>
+                        <th>Quantidade</th>
+                        <th>% alcool</th>
+                      </tr>
+                    ) : (
+                      <tr>
+                        <th>Insumo</th>
+                        <th>Entrada</th>
+                        <th>Manipulado</th>
+                        <th>Rendimento</th>
+                        <th>% alcool</th>
+                      </tr>
+                    )}
+                  </thead>
+                  <tbody>
+                    {data.ingredientMetrics.map((ingredient) => (
+                      <tr key={ingredient.id}>
+                        <td><strong>{ingredient.label}</strong></td>
+                        {tab === 'EXECUCAO' ? (
+                          <>
+                            <td>{formatRecipeIngredientOperationalQuantity(ingredient)}</td>
+                            <td>{formatDecimal(ingredient.alcoholPercentage)}%</td>
+                          </>
+                        ) : (
+                          <>
+                            <td>{formatDecimal(ingredient.scaledInputQuantity)} {ingredient.unitLabel}</td>
+                            <td>{ingredient.scaledManipulatedQuantity > 0 ? `${formatDecimal(ingredient.scaledManipulatedQuantity)} ${ingredient.unitLabel}` : '-'}</td>
+                            <td>{formatDecimal(ingredient.scaledYieldQuantity)} {ingredient.unitLabel}</td>
+                            <td>{formatDecimal(ingredient.alcoholPercentage)}%</td>
+                          </>
+                        )}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <div className="empty-state empty-state-inline">
+                <strong>Nenhum insumo ativo cadastrado.</strong>
+              </div>
+            )}
+          </section>
+        ) : null}
 
         {data.serviceItemMetrics.length > 0 && tab === 'PREPARO' ? (
           <section className="inner-panel">
@@ -33797,6 +33835,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
           </>
         ) : (
           <>
+            {executionBlocks.garnishes ? (
             <section className="inner-panel">
               <div className="section-heading">
                 <div>
@@ -33831,7 +33870,9 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                 </div>
               )}
             </section>
+            ) : null}
 
+            {executionBlocks.preparationMode ? (
             <section className="inner-panel">
               <div className="section-heading">
                 <div>
@@ -33854,7 +33895,9 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                   : 'Modo de preparo nao informado.'}
               </p>
             </section>
+            ) : null}
 
+            {executionBlocks.description ? (
             <section className="inner-panel">
               <div className="section-heading">
                 <div>
@@ -33870,7 +33913,9 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                 )}
               </div>
             </section>
+            ) : null}
 
+            {executionBlocks.harmonization ? (
             <section className="inner-panel">
               <div className="section-heading">
                 <div>
@@ -33880,7 +33925,9 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
               </div>
               <p className="recipe-copy-block">{data.sheet.harmonization || 'Harmonizacao nao informada.'}</p>
             </section>
+            ) : null}
 
+            {executionBlocks.flavorProfile ? (
             <section className="inner-panel">
               <div className="section-heading">
                 <div>
@@ -33906,7 +33953,9 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                 )
               })()}
             </section>
+            ) : null}
 
+            {executionBlocks.salesArguments ? (
             <section className="inner-panel">
               <div className="section-heading">
                 <div>
@@ -33916,7 +33965,9 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
               </div>
               <p className="recipe-copy-block">{data.sheet.salesArguments || 'Argumentos de venda nao informados.'}</p>
             </section>
+            ) : null}
 
+            {executionBlocks.storytelling ? (
             <section className="inner-panel">
               <div className="section-heading">
                 <div>
@@ -33926,6 +33977,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
               </div>
               <p className="recipe-copy-block">{data.sheet.storytelling || 'Storytelling nao informado.'}</p>
             </section>
+            ) : null}
 
           </>
         )}
@@ -33992,6 +34044,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
       const xlsxModule = await loadXlsxModule()
       const workbook = xlsxModule.utils.book_new()
 
+      const exportExecutionBlocks = activeRecipePanelAccess.executionBlocks
       const summaryRows = exportedRecipes.map((data) => ({
         ficha: data.sheet.name,
         tipo: data.sheet.kind === 'PREPARO' ? 'Pre-preparo' : 'Execucao',
@@ -34026,38 +34079,55 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
         const rows: (string | number)[][] = [
           ['Receituario', data.sheet.name],
           ['Tipo', data.sheet.kind === 'PREPARO' ? 'Pre-preparo' : 'Execucao'],
-          ['Familia', data.sheet.family],
-          ['Subfamilia', data.sheet.subfamily],
-          ['Setores', data.sheet.sectors.join(', ') || '-'],
-          ['Quantidade de receitas', formatDecimal(data.recipeCount)],
-          ['Rendimento base', `${formatDecimal(data.baseYield)} ${getTechnicalSheetYieldUnitLabel(data.sheet, technicalSheets, products)}`],
-          ['Rendimento final', `${formatDecimal(data.desiredYield)} ${getTechnicalSheetYieldUnitLabel(data.sheet, technicalSheets, products)}`],
-          ['Foto do produto', data.sheet.imageDataUrl ? 'Cadastrada' : 'Nao cadastrada'],
-          ['Imagens de recipientes', data.serviceItemMetrics.some((serviceItem) => serviceItem.imageDataUrl) ? 'Ha recipientes com imagem' : 'Sem imagens de recipientes'],
-          [],
-          ['Composicao de insumos'],
-          ...(data.sheet.kind === 'EXECUCAO'
-            ? [
-                ['Insumo', 'Quantidade', '% alcool'],
-                ...data.ingredientMetrics.map((ingredient) => [
-                  ingredient.label,
-                  formatRecipeIngredientOperationalQuantity(ingredient),
-                  `${formatDecimal(ingredient.alcoholPercentage)}%`,
-                ]),
-              ]
-            : [
-                ['Insumo', 'Entrada', 'Manipulado', 'Rendimento', '% alcool'],
-                ...data.ingredientMetrics.map((ingredient) => [
-                  ingredient.label,
-                  `${formatDecimal(ingredient.scaledInputQuantity)} ${ingredient.unitLabel}`,
-                  ingredient.scaledManipulatedQuantity > 0 ? `${formatDecimal(ingredient.scaledManipulatedQuantity)} ${ingredient.unitLabel}` : '-',
-                  `${formatDecimal(ingredient.scaledYieldQuantity)} ${ingredient.unitLabel}`,
-                  `${formatDecimal(ingredient.alcoholPercentage)}%`,
-                ]),
-              ]),
         ]
 
-        if (data.garnishMetrics.length > 0) {
+        if (data.sheet.kind !== 'EXECUCAO' || exportExecutionBlocks.baseSummary) {
+          rows.push(['Familia', data.sheet.family])
+          rows.push(['Subfamilia', data.sheet.subfamily])
+          rows.push(['Setores', data.sheet.sectors.join(', ') || '-'])
+          rows.push(['Rendimento base', `${formatDecimal(data.baseYield)} ${getTechnicalSheetYieldUnitLabel(data.sheet, technicalSheets, products)}`])
+        }
+
+        if (data.sheet.kind !== 'EXECUCAO' || exportExecutionBlocks.yieldControls) {
+          rows.push(['Quantidade de receitas', formatDecimal(data.recipeCount)])
+          rows.push(['Rendimento final', `${formatDecimal(data.desiredYield)} ${getTechnicalSheetYieldUnitLabel(data.sheet, technicalSheets, products)}`])
+        }
+
+        if (data.sheet.kind === 'EXECUCAO' && exportExecutionBlocks.productImage) {
+          rows.push(['Foto do produto', data.sheet.imageDataUrl ? 'Cadastrada' : 'Nao cadastrada'])
+        }
+
+        if (data.sheet.kind === 'EXECUCAO' && exportExecutionBlocks.serviceItems) {
+          rows.push(['Imagens de recipientes', data.serviceItemMetrics.some((serviceItem) => serviceItem.imageDataUrl) ? 'Ha recipientes com imagem' : 'Sem imagens de recipientes'])
+        }
+
+        if (data.sheet.kind !== 'EXECUCAO' || exportExecutionBlocks.ingredients) {
+          rows.push([])
+          rows.push(['Composicao de insumos'])
+          if (data.sheet.kind === 'EXECUCAO') {
+            rows.push(['Insumo', 'Quantidade', '% alcool'])
+            data.ingredientMetrics.forEach((ingredient) => {
+              rows.push([
+                ingredient.label,
+                formatRecipeIngredientOperationalQuantity(ingredient),
+                `${formatDecimal(ingredient.alcoholPercentage)}%`,
+              ])
+            })
+          } else {
+            rows.push(['Insumo', 'Entrada', 'Manipulado', 'Rendimento', '% alcool'])
+            data.ingredientMetrics.forEach((ingredient) => {
+              rows.push([
+                ingredient.label,
+                `${formatDecimal(ingredient.scaledInputQuantity)} ${ingredient.unitLabel}`,
+                ingredient.scaledManipulatedQuantity > 0 ? `${formatDecimal(ingredient.scaledManipulatedQuantity)} ${ingredient.unitLabel}` : '-',
+                `${formatDecimal(ingredient.scaledYieldQuantity)} ${ingredient.unitLabel}`,
+                `${formatDecimal(ingredient.alcoholPercentage)}%`,
+              ])
+            })
+          }
+        }
+
+        if ((data.sheet.kind !== 'EXECUCAO' || exportExecutionBlocks.garnishes) && data.garnishMetrics.length > 0) {
           rows.push([])
           rows.push(['Guarnicoes'])
           rows.push(['Guarnicao', 'Quantidade', '% alcool'])
@@ -34070,7 +34140,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
           })
         }
 
-        if (data.serviceItemMetrics.length > 0) {
+        if ((data.sheet.kind !== 'EXECUCAO' || exportExecutionBlocks.serviceItems) && data.serviceItemMetrics.length > 0) {
           rows.push([])
           rows.push([recipePanelTab === 'PREPARO' ? 'Recipientes de armazenamento' : 'Recipientes de servico'])
           rows.push(['Recipiente', 'Entrada', 'Tipo', 'Material', 'Tamanho/capacidade'])
@@ -34085,9 +34155,11 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
           })
         }
 
-        rows.push([])
-        rows.push(['Modo de preparo'])
-        rows.push([buildRecipePreparationText(data) || 'Modo de preparo nao informado.'])
+        if (data.sheet.kind !== 'EXECUCAO' || exportExecutionBlocks.preparationMode) {
+          rows.push([])
+          rows.push(['Modo de preparo'])
+          rows.push([buildRecipePreparationText(data) || 'Modo de preparo nao informado.'])
+        }
 
         if (data.sheet.kind === 'PREPARO') {
           rows.push([])
@@ -34104,34 +34176,46 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
           rows.push(['Meta de Brix', data.sheet.targetBrix || '-'])
         } else {
           const generatedDescription = buildTechnicalSheetGeneratedDescription(data.sheet, technicalSheets)
-          rows.push([])
-          rows.push(['Perfil sensorial'])
-          const flavorRatings = getTechnicalSheetFlavorProfileRatingsForDisplay(data.sheet, flavorProfiles)
-          if (flavorRatings.length > 0) {
-            flavorRatings.forEach((rating) => {
-              rows.push([rating.label, rating.value])
-            })
-          } else {
-            rows.push(['Perfis de sabor', '-'])
+          if (exportExecutionBlocks.flavorProfile) {
+            rows.push([])
+            rows.push(['Perfil sensorial'])
+            const flavorRatings = getTechnicalSheetFlavorProfileRatingsForDisplay(data.sheet, flavorProfiles)
+            if (flavorRatings.length > 0) {
+              flavorRatings.forEach((rating) => {
+                rows.push([rating.label, rating.value])
+              })
+            } else {
+              rows.push(['Perfis de sabor', '-'])
+            }
           }
-          rows.push([])
-          rows.push(['Storytelling'])
-          rows.push([data.sheet.storytelling || 'Storytelling nao informado.'])
-          rows.push([])
-          rows.push(['Descricao'])
-          rows.push([generatedDescription.summary || 'Descricao nao informada.'])
-          rows.push([])
-          rows.push(['Argumentos de venda'])
-          rows.push([data.sheet.salesArguments || 'Argumentos de venda nao informados.'])
-          rows.push([])
-          rows.push(['Harmonizacao'])
-          rows.push([data.sheet.harmonization || 'Harmonizacao nao informada.'])
-          rows.push([])
-          rows.push(['Dados tecnicos'])
-          rows.push(['Rendimento final', `${formatDecimal(data.desiredYield)} ${getTechnicalSheetYieldUnitLabel(data.sheet, technicalSheets, products)}`])
-          rows.push(['% alcool final', `${formatDecimal(data.finalAlcoholPercentage)}%`])
-          rows.push(['CMV final', `${formatDecimal(data.finalCmvPercentage)}%`])
-          rows.push(['Valor final de venda', `R$ ${formatMoney(data.finalSalePrice)}`])
+          if (exportExecutionBlocks.storytelling) {
+            rows.push([])
+            rows.push(['Storytelling'])
+            rows.push([data.sheet.storytelling || 'Storytelling nao informado.'])
+          }
+          if (exportExecutionBlocks.description) {
+            rows.push([])
+            rows.push(['Descricao'])
+            rows.push([generatedDescription.summary || 'Descricao nao informada.'])
+          }
+          if (exportExecutionBlocks.salesArguments) {
+            rows.push([])
+            rows.push(['Argumentos de venda'])
+            rows.push([data.sheet.salesArguments || 'Argumentos de venda nao informados.'])
+          }
+          if (exportExecutionBlocks.harmonization) {
+            rows.push([])
+            rows.push(['Harmonizacao'])
+            rows.push([data.sheet.harmonization || 'Harmonizacao nao informada.'])
+          }
+          if (exportExecutionBlocks.costMetrics) {
+            rows.push([])
+            rows.push(['Dados tecnicos'])
+            rows.push(['Rendimento final', `${formatDecimal(data.desiredYield)} ${getTechnicalSheetYieldUnitLabel(data.sheet, technicalSheets, products)}`])
+            rows.push(['% alcool final', `${formatDecimal(data.finalAlcoholPercentage)}%`])
+            rows.push(['CMV final', `${formatDecimal(data.finalCmvPercentage)}%`])
+            rows.push(['Valor final de venda', `R$ ${formatMoney(data.finalSalePrice)}`])
+          }
         }
 
         const worksheet = xlsxModule.utils.aoa_to_sheet(rows)
@@ -38685,6 +38769,25 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
               <h2>Painel de receitas</h2>
             </div>
             <div className="toolbar-actions">
+              {canPreviewRecipePanelProfiles && recipePanelPreviewProfiles.length > 0 ? (
+                <label className="field recipe-profile-preview-field">
+                  <span>Visualizando como</span>
+                  <select
+                    value={recipePanelPreviewProfileId ?? ''}
+                    onChange={(event) => {
+                      const nextValue = event.target.value
+                      setRecipePanelPreviewProfileId(nextValue === '' ? null : Number(nextValue))
+                    }}
+                  >
+                    <option value="">Meu perfil</option>
+                    {recipePanelPreviewProfiles.map((profile) => (
+                      <option key={profile.id} value={profile.id}>
+                        {profile.name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              ) : null}
               <button
                 type="button"
                 className="primary-button"
@@ -38695,6 +38798,21 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
               </button>
             </div>
           </div>
+
+          {activeRecipePanelPreviewProfile ? (
+            <div className="inline-warning-card recipe-profile-preview-banner">
+              <div>
+                <strong>Previa de visualizacao: {activeRecipePanelPreviewProfile.name}</strong>
+                <p>
+                  Esta tela usa apenas as configuracoes de receituario deste perfil. Seu usuario real,
+                  permissoes e empresa ativa nao foram alterados.
+                </p>
+              </div>
+              <button type="button" className="ghost-button" onClick={() => setRecipePanelPreviewProfileId(null)}>
+                Voltar para meu perfil
+              </button>
+            </div>
+          ) : null}
 
           <div className="panel-tabs" role="tablist" aria-label="Tipos de receituario">
             {canViewRecipePreparoTab ? (
@@ -48066,6 +48184,9 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                 ficha atual, os valores seguem exatamente o que esta na tela; em "todas as fichas da aba", a
                 quantidade de receitas atual da aba e aplicada como base para cada ficha. O PDF preserva a
                 organizacao visual com imagens; no XLSX, as referencias de imagens entram de forma estrutural na planilha.
+                {activeRecipePanelPreviewProfile
+                  ? ` A previa de visualizacao de ${activeRecipePanelPreviewProfile.name} esta ativa e sera respeitada na exportacao.`
+                  : ''}
               </p>
             </div>
 
