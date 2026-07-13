@@ -96,10 +96,40 @@ type RecipeExecutionBlockKey =
   | 'storytelling'
   | 'salesArguments'
   | 'harmonization'
+type RecipePreparoHeroFieldKey =
+  | 'family'
+  | 'subfamily'
+  | 'sectors'
+  | 'baseYield'
+  | 'recipeCount'
+  | 'desiredYield'
+type RecipeExecutionHeroFieldKey =
+  | 'family'
+  | 'subfamily'
+  | 'sectors'
+  | 'baseYield'
+  | 'recipeCount'
+  | 'desiredYield'
+  | 'finalYield'
+  | 'finalAlcoholPercentage'
+  | 'finalCmvPercentage'
+  | 'finalSalePrice'
+type RecipePreparoIngredientColumnKey = 'ingredient' | 'input' | 'manipulated' | 'yield' | 'alcohol'
+type RecipeExecutionIngredientColumnKey = 'ingredient' | 'quantity' | 'alcohol'
+type RecipeExecutionGarnishColumnKey = 'garnish' | 'quantity' | 'alcohol'
+type RecipePreparoServiceItemColumnKey = 'serviceItem' | 'quantity' | 'family' | 'material' | 'size' | 'emptyWeight'
+type RecipeExecutionServiceItemColumnKey = 'serviceItem' | 'size'
 type RecipePanelAccess = {
   showPreparoTab: boolean
   showExecucaoTab: boolean
   executionBlocks: Record<RecipeExecutionBlockKey, boolean>
+  preparoHeroFields: Record<RecipePreparoHeroFieldKey, boolean>
+  executionHeroFields: Record<RecipeExecutionHeroFieldKey, boolean>
+  preparoIngredientColumns: Record<RecipePreparoIngredientColumnKey, boolean>
+  executionIngredientColumns: Record<RecipeExecutionIngredientColumnKey, boolean>
+  executionGarnishColumns: Record<RecipeExecutionGarnishColumnKey, boolean>
+  preparoServiceItemColumns: Record<RecipePreparoServiceItemColumnKey, boolean>
+  executionServiceItemColumns: Record<RecipeExecutionServiceItemColumnKey, boolean>
 }
 type UserCatalogAccess = {
   sectorsCreate: boolean
@@ -2358,6 +2388,55 @@ const recipeExecutionBlockDefinitions: Array<{ key: RecipeExecutionBlockKey; lab
   { key: 'salesArguments', label: 'Argumentos de venda' },
   { key: 'harmonization', label: 'Harmonizacao' },
 ]
+const recipePreparoHeroFieldDefinitions: Array<{ key: RecipePreparoHeroFieldKey; label: string }> = [
+  { key: 'family', label: 'Familia' },
+  { key: 'subfamily', label: 'Subfamilia' },
+  { key: 'sectors', label: 'Setores' },
+  { key: 'baseYield', label: 'Rendimento base' },
+  { key: 'recipeCount', label: 'Quantidade de receitas' },
+  { key: 'desiredYield', label: 'Volume final desejado' },
+]
+const recipeExecutionHeroFieldDefinitions: Array<{ key: RecipeExecutionHeroFieldKey; label: string }> = [
+  { key: 'family', label: 'Familia' },
+  { key: 'subfamily', label: 'Subfamilia' },
+  { key: 'sectors', label: 'Setores' },
+  { key: 'baseYield', label: 'Rendimento base' },
+  { key: 'recipeCount', label: 'Quantidade de receitas' },
+  { key: 'desiredYield', label: 'Quantidade final desejada' },
+  { key: 'finalYield', label: 'Rendimento final' },
+  { key: 'finalAlcoholPercentage', label: '% alcool final' },
+  { key: 'finalCmvPercentage', label: 'CMV final' },
+  { key: 'finalSalePrice', label: 'Valor final de venda' },
+]
+const recipePreparoIngredientColumnDefinitions: Array<{ key: RecipePreparoIngredientColumnKey; label: string }> = [
+  { key: 'ingredient', label: 'Insumo' },
+  { key: 'input', label: 'Entrada' },
+  { key: 'manipulated', label: 'Manipulado' },
+  { key: 'yield', label: 'Rendimento' },
+  { key: 'alcohol', label: '% alcool' },
+]
+const recipeExecutionIngredientColumnDefinitions: Array<{ key: RecipeExecutionIngredientColumnKey; label: string }> = [
+  { key: 'ingredient', label: 'Insumo' },
+  { key: 'quantity', label: 'Quantidade' },
+  { key: 'alcohol', label: '% alcool' },
+]
+const recipeExecutionGarnishColumnDefinitions: Array<{ key: RecipeExecutionGarnishColumnKey; label: string }> = [
+  { key: 'garnish', label: 'Guarnicao' },
+  { key: 'quantity', label: 'Quantidade' },
+  { key: 'alcohol', label: '% alcool' },
+]
+const recipePreparoServiceItemColumnDefinitions: Array<{ key: RecipePreparoServiceItemColumnKey; label: string }> = [
+  { key: 'serviceItem', label: 'Recipiente' },
+  { key: 'quantity', label: 'Entrada' },
+  { key: 'family', label: 'Tipo' },
+  { key: 'material', label: 'Material' },
+  { key: 'size', label: 'Tamanho/capacidade' },
+  { key: 'emptyWeight', label: 'Peso vazio' },
+]
+const recipeExecutionServiceItemColumnDefinitions: Array<{ key: RecipeExecutionServiceItemColumnKey; label: string }> = [
+  { key: 'serviceItem', label: 'Recipiente' },
+  { key: 'size', label: 'Tamanho/capacidade' },
+]
 
 function isTechnicalSheetConfigurationFieldApplicable(
   kind: TechnicalSheetKind,
@@ -2900,24 +2979,40 @@ const defaultSectionAccessByRole = (role: CompanyUserRole): UserSectionAccess =>
   }
 }
 
+function buildDefaultRecipePanelAccessRecord<K extends string>(
+  definitions: Array<{ key: K; label: string }>,
+): Record<K, boolean> {
+  return definitions.reduce<Record<K, boolean>>((current, definition) => {
+    current[definition.key] = true
+    return current
+  }, {} as Record<K, boolean>)
+}
+
+function normalizeRecipePanelAccessRecord<K extends string>(
+  value: unknown,
+  definitions: Array<{ key: K; label: string }>,
+  fallback: Record<K, boolean>,
+): Record<K, boolean> {
+  const candidate: Partial<Record<K, boolean>> =
+    value && typeof value === 'object' ? (value as Partial<Record<K, boolean>>) : {}
+  return definitions.reduce<Record<K, boolean>>((current, definition) => {
+    const candidateValue = candidate[definition.key]
+    current[definition.key] = typeof candidateValue === 'boolean' ? candidateValue : fallback[definition.key]
+    return current
+  }, {} as Record<K, boolean>)
+}
+
 const defaultRecipePanelAccess = (): RecipePanelAccess => ({
   showPreparoTab: true,
   showExecucaoTab: true,
-  executionBlocks: {
-    baseSummary: true,
-    yieldControls: true,
-    costMetrics: true,
-    productImage: true,
-    description: true,
-    serviceItems: true,
-    ingredients: true,
-    garnishes: true,
-    preparationMode: true,
-    flavorProfile: true,
-    storytelling: true,
-    salesArguments: true,
-    harmonization: true,
-  },
+  executionBlocks: buildDefaultRecipePanelAccessRecord(recipeExecutionBlockDefinitions),
+  preparoHeroFields: buildDefaultRecipePanelAccessRecord(recipePreparoHeroFieldDefinitions),
+  executionHeroFields: buildDefaultRecipePanelAccessRecord(recipeExecutionHeroFieldDefinitions),
+  preparoIngredientColumns: buildDefaultRecipePanelAccessRecord(recipePreparoIngredientColumnDefinitions),
+  executionIngredientColumns: buildDefaultRecipePanelAccessRecord(recipeExecutionIngredientColumnDefinitions),
+  executionGarnishColumns: buildDefaultRecipePanelAccessRecord(recipeExecutionGarnishColumnDefinitions),
+  preparoServiceItemColumns: buildDefaultRecipePanelAccessRecord(recipePreparoServiceItemColumnDefinitions),
+  executionServiceItemColumns: buildDefaultRecipePanelAccessRecord(recipeExecutionServiceItemColumnDefinitions),
 })
 
 function normalizeRecipePanelAccess(value: unknown): RecipePanelAccess {
@@ -2927,20 +3022,18 @@ function normalizeRecipePanelAccess(value: unknown): RecipePanelAccess {
   }
 
   const candidate = value as Partial<RecipePanelAccess>
-  const executionBlocksCandidate: Partial<Record<RecipeExecutionBlockKey, boolean>> =
-    candidate.executionBlocks && typeof candidate.executionBlocks === 'object'
-      ? (candidate.executionBlocks as Partial<Record<RecipeExecutionBlockKey, boolean>>)
-      : {}
 
   return {
     showPreparoTab: candidate.showPreparoTab !== false,
     showExecucaoTab: candidate.showExecucaoTab !== false,
-    executionBlocks: recipeExecutionBlockDefinitions.reduce<Record<RecipeExecutionBlockKey, boolean>>((current, definition) => {
-      const candidateValue = executionBlocksCandidate[definition.key]
-      current[definition.key] =
-        typeof candidateValue === 'boolean' ? candidateValue : fallback.executionBlocks[definition.key]
-      return current
-    }, {} as Record<RecipeExecutionBlockKey, boolean>),
+    executionBlocks: normalizeRecipePanelAccessRecord(candidate.executionBlocks, recipeExecutionBlockDefinitions, fallback.executionBlocks),
+    preparoHeroFields: normalizeRecipePanelAccessRecord(candidate.preparoHeroFields, recipePreparoHeroFieldDefinitions, fallback.preparoHeroFields),
+    executionHeroFields: normalizeRecipePanelAccessRecord(candidate.executionHeroFields, recipeExecutionHeroFieldDefinitions, fallback.executionHeroFields),
+    preparoIngredientColumns: normalizeRecipePanelAccessRecord(candidate.preparoIngredientColumns, recipePreparoIngredientColumnDefinitions, fallback.preparoIngredientColumns),
+    executionIngredientColumns: normalizeRecipePanelAccessRecord(candidate.executionIngredientColumns, recipeExecutionIngredientColumnDefinitions, fallback.executionIngredientColumns),
+    executionGarnishColumns: normalizeRecipePanelAccessRecord(candidate.executionGarnishColumns, recipeExecutionGarnishColumnDefinitions, fallback.executionGarnishColumns),
+    preparoServiceItemColumns: normalizeRecipePanelAccessRecord(candidate.preparoServiceItemColumns, recipePreparoServiceItemColumnDefinitions, fallback.preparoServiceItemColumns),
+    executionServiceItemColumns: normalizeRecipePanelAccessRecord(candidate.executionServiceItemColumns, recipeExecutionServiceItemColumnDefinitions, fallback.executionServiceItemColumns),
   }
 }
 
@@ -9328,6 +9421,28 @@ export default function App() {
   const canViewRecipePreparoTab = activeRecipePanelAccess.showPreparoTab
   const canViewRecipeExecucaoTab = activeRecipePanelAccess.showExecucaoTab
   const visibleRecipePanelExecutionBlocks = activeRecipePanelAccess.executionBlocks
+  const visibleRecipePreparoHeroFields = activeRecipePanelAccess.preparoHeroFields
+  const visibleRecipeExecutionHeroFields = activeRecipePanelAccess.executionHeroFields
+  const visibleRecipePreparoIngredientColumns = activeRecipePanelAccess.preparoIngredientColumns
+  const visibleRecipeExecutionIngredientColumns = activeRecipePanelAccess.executionIngredientColumns
+  const visibleRecipeExecutionGarnishColumns = activeRecipePanelAccess.executionGarnishColumns
+  const visibleRecipePreparoServiceItemColumns = activeRecipePanelAccess.preparoServiceItemColumns
+  const visibleRecipeExecutionServiceItemColumns = activeRecipePanelAccess.executionServiceItemColumns
+  const visibleRecipePreparoIngredientColumnDefinitions = recipePreparoIngredientColumnDefinitions.filter(
+    (column) => visibleRecipePreparoIngredientColumns[column.key],
+  )
+  const visibleRecipeExecutionIngredientColumnDefinitions = recipeExecutionIngredientColumnDefinitions.filter(
+    (column) => visibleRecipeExecutionIngredientColumns[column.key],
+  )
+  const visibleRecipeExecutionGarnishColumnDefinitions = recipeExecutionGarnishColumnDefinitions.filter(
+    (column) => visibleRecipeExecutionGarnishColumns[column.key],
+  )
+  const visibleRecipePreparoServiceItemColumnDefinitions = recipePreparoServiceItemColumnDefinitions.filter(
+    (column) => visibleRecipePreparoServiceItemColumns[column.key],
+  )
+  const visibleRecipeExecutionServiceItemColumnDefinitions = recipeExecutionServiceItemColumnDefinitions.filter(
+    (column) => visibleRecipeExecutionServiceItemColumns[column.key],
+  )
   const visibleOpenInventoryRecords = useMemo(
     () =>
       inventoryRecords
@@ -15307,6 +15422,181 @@ export default function App() {
         : [],
     [recipePanelData],
   )
+
+  function renderRecipePreparoIngredientColumnValue(
+    column: RecipePreparoIngredientColumnKey,
+    ingredient: RecipePanelIngredientMetrics,
+  ) {
+    switch (column) {
+      case 'ingredient':
+        return <strong>{ingredient.label}</strong>
+      case 'input':
+        return `${formatDecimal(ingredient.scaledInputQuantity)} ${ingredient.unitLabel}`
+      case 'manipulated':
+        return ingredient.scaledManipulatedQuantity > 0
+          ? `${formatDecimal(ingredient.scaledManipulatedQuantity)} ${ingredient.unitLabel}`
+          : '-'
+      case 'yield':
+        return `${formatDecimal(ingredient.scaledYieldQuantity)} ${ingredient.unitLabel}`
+      case 'alcohol':
+        return `${formatDecimal(ingredient.alcoholPercentage)}%`
+    }
+  }
+
+  function getRecipePreparoIngredientColumnText(
+    column: RecipePreparoIngredientColumnKey,
+    ingredient: RecipePanelIngredientMetrics,
+  ) {
+    switch (column) {
+      case 'ingredient':
+        return ingredient.label
+      case 'input':
+        return `${formatDecimal(ingredient.scaledInputQuantity)} ${ingredient.unitLabel}`
+      case 'manipulated':
+        return ingredient.scaledManipulatedQuantity > 0
+          ? `${formatDecimal(ingredient.scaledManipulatedQuantity)} ${ingredient.unitLabel}`
+          : '-'
+      case 'yield':
+        return `${formatDecimal(ingredient.scaledYieldQuantity)} ${ingredient.unitLabel}`
+      case 'alcohol':
+        return `${formatDecimal(ingredient.alcoholPercentage)}%`
+    }
+  }
+
+  function renderRecipeExecutionIngredientColumnValue(
+    column: RecipeExecutionIngredientColumnKey,
+    ingredient: RecipePanelIngredientMetrics,
+  ) {
+    switch (column) {
+      case 'ingredient':
+        return <strong>{ingredient.label}</strong>
+      case 'quantity':
+        return formatRecipeIngredientOperationalQuantity(ingredient)
+      case 'alcohol':
+        return `${formatDecimal(ingredient.alcoholPercentage)}%`
+    }
+  }
+
+  function getRecipeExecutionIngredientColumnText(
+    column: RecipeExecutionIngredientColumnKey,
+    ingredient: RecipePanelIngredientMetrics,
+  ) {
+    switch (column) {
+      case 'ingredient':
+        return ingredient.label
+      case 'quantity':
+        return formatRecipeIngredientOperationalQuantity(ingredient)
+      case 'alcohol':
+        return `${formatDecimal(ingredient.alcoholPercentage)}%`
+    }
+  }
+
+  function renderRecipeExecutionGarnishColumnValue(
+    column: RecipeExecutionGarnishColumnKey,
+    ingredient: RecipePanelIngredientMetrics,
+  ) {
+    switch (column) {
+      case 'garnish':
+        return <strong>{ingredient.label}</strong>
+      case 'quantity':
+        return formatRecipeIngredientOperationalQuantity(ingredient)
+      case 'alcohol':
+        return `${formatDecimal(ingredient.alcoholPercentage)}%`
+    }
+  }
+
+  function getRecipeExecutionGarnishColumnText(
+    column: RecipeExecutionGarnishColumnKey,
+    ingredient: RecipePanelIngredientMetrics,
+  ) {
+    switch (column) {
+      case 'garnish':
+        return ingredient.label
+      case 'quantity':
+        return formatRecipeIngredientOperationalQuantity(ingredient)
+      case 'alcohol':
+        return `${formatDecimal(ingredient.alcoholPercentage)}%`
+    }
+  }
+
+  function renderRecipePreparoServiceItemColumnValue(
+    column: RecipePreparoServiceItemColumnKey,
+    serviceItem: RecipePanelServiceItemMetrics,
+  ) {
+    switch (column) {
+      case 'serviceItem':
+        return (
+          <div className="receituario-service-item-cell">
+            {serviceItem.imageDataUrl ? (
+              <img src={serviceItem.imageDataUrl} alt={`Foto de ${serviceItem.label}`} className="receituario-service-item-image" />
+            ) : null}
+            <strong>{serviceItem.label}</strong>
+          </div>
+        )
+      case 'quantity':
+        return `${formatDecimal(serviceItem.scaledQuantity)} UN`
+      case 'family':
+        return serviceItem.family || '-'
+      case 'material':
+        return serviceItem.subfamily || '-'
+      case 'size':
+        return serviceItem.sizeLabel || '-'
+      case 'emptyWeight':
+        return serviceItem.emptyWeight || '-'
+    }
+  }
+
+  function getRecipePreparoServiceItemColumnText(
+    column: RecipePreparoServiceItemColumnKey,
+    serviceItem: RecipePanelServiceItemMetrics,
+  ) {
+    switch (column) {
+      case 'serviceItem':
+        return serviceItem.label
+      case 'quantity':
+        return `${formatDecimal(serviceItem.scaledQuantity)} UN`
+      case 'family':
+        return serviceItem.family || '-'
+      case 'material':
+        return serviceItem.subfamily || '-'
+      case 'size':
+        return serviceItem.sizeLabel || '-'
+      case 'emptyWeight':
+        return serviceItem.emptyWeight || '-'
+    }
+  }
+
+  function renderRecipeExecutionServiceItemColumnValue(
+    column: RecipeExecutionServiceItemColumnKey,
+    serviceItem: RecipePanelServiceItemMetrics,
+  ) {
+    switch (column) {
+      case 'serviceItem':
+        return (
+          <div className="receituario-service-item-cell">
+            {serviceItem.imageDataUrl ? (
+              <img src={serviceItem.imageDataUrl} alt={`Foto de ${serviceItem.label}`} className="receituario-service-item-image" />
+            ) : null}
+            <strong>{serviceItem.label}</strong>
+          </div>
+        )
+      case 'size':
+        return serviceItem.sizeLabel || '-'
+    }
+  }
+
+  function getRecipeExecutionServiceItemColumnText(
+    column: RecipeExecutionServiceItemColumnKey,
+    serviceItem: RecipePanelServiceItemMetrics,
+  ) {
+    switch (column) {
+      case 'serviceItem':
+        return serviceItem.label
+      case 'size':
+        return serviceItem.sizeLabel || '-'
+    }
+  }
+
   const distinctColumnValues = useMemo(
     () =>
       Object.fromEntries(
@@ -18904,6 +19194,34 @@ export default function App() {
         executionBlocks: {
           ...current.recipePanelAccess.executionBlocks,
           [block]: value,
+        },
+      },
+    }))
+  }
+
+  function updateAccessProfileRecipePanelVisibilityGroup<
+    GroupKey extends keyof Pick<
+      RecipePanelAccess,
+      | 'preparoHeroFields'
+      | 'executionHeroFields'
+      | 'preparoIngredientColumns'
+      | 'executionIngredientColumns'
+      | 'executionGarnishColumns'
+      | 'preparoServiceItemColumns'
+      | 'executionServiceItemColumns'
+    >,
+  >(
+    groupKey: GroupKey,
+    key: keyof RecipePanelAccess[GroupKey],
+    value: boolean,
+  ) {
+    setAccessProfileForm((current) => ({
+      ...current,
+      recipePanelAccess: {
+        ...current.recipePanelAccess,
+        [groupKey]: {
+          ...current.recipePanelAccess[groupKey],
+          [key]: value,
         },
       },
     }))
@@ -33488,60 +33806,124 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                     </div>
                   </div>
 
-                  {executionBlocks.baseSummary ? (
-                    <div className="receituario-summary-grid receituario-summary-grid-execucao">
-                      <article className="receituario-metric-card">
+                  <div className="receituario-summary-grid receituario-summary-grid-execucao">
+                      <article
+                        className={
+                          executionBlocks.baseSummary && visibleRecipeExecutionHeroFields.family
+                            ? 'receituario-metric-card'
+                            : 'receituario-metric-card recipe-hero-preserve-desktop'
+                        }
+                        aria-hidden={!(executionBlocks.baseSummary && visibleRecipeExecutionHeroFields.family)}
+                      >
                         <span>Familia</span>
                         <strong>{data.sheet.family}</strong>
                       </article>
-                      <article className="receituario-metric-card">
+                      <article
+                        className={
+                          executionBlocks.baseSummary && visibleRecipeExecutionHeroFields.subfamily
+                            ? 'receituario-metric-card'
+                            : 'receituario-metric-card recipe-hero-preserve-desktop'
+                        }
+                        aria-hidden={!(executionBlocks.baseSummary && visibleRecipeExecutionHeroFields.subfamily)}
+                      >
                         <span>Subfamilia</span>
                         <strong>{data.sheet.subfamily}</strong>
                       </article>
-                      <article className="receituario-metric-card">
+                      <article
+                        className={
+                          executionBlocks.baseSummary && visibleRecipeExecutionHeroFields.sectors
+                            ? 'receituario-metric-card'
+                            : 'receituario-metric-card recipe-hero-preserve-desktop'
+                        }
+                        aria-hidden={!(executionBlocks.baseSummary && visibleRecipeExecutionHeroFields.sectors)}
+                      >
                         <span>Setores</span>
                         <strong>{data.sheet.sectors.join(', ') || '-'}</strong>
                       </article>
-                      <article className="receituario-metric-card">
+                      <article
+                        className={
+                          executionBlocks.baseSummary && visibleRecipeExecutionHeroFields.baseYield
+                            ? 'receituario-metric-card'
+                            : 'receituario-metric-card recipe-hero-preserve-desktop'
+                        }
+                        aria-hidden={!(executionBlocks.baseSummary && visibleRecipeExecutionHeroFields.baseYield)}
+                      >
                         <span>Rendimento base</span>
                         <strong>{formatDecimal(data.baseYield)} {getTechnicalSheetYieldUnitLabel(data.sheet, technicalSheets, products)}</strong>
                       </article>
-                    </div>
-                  ) : null}
+                  </div>
 
-                  {executionBlocks.yieldControls ? (
-                    <div className="receituario-summary-grid receituario-summary-grid-execucao">
-                      <article className="receituario-metric-card">
+                  <div className="receituario-summary-grid receituario-summary-grid-execucao">
+                      <article
+                        className={
+                          executionBlocks.yieldControls && visibleRecipeExecutionHeroFields.recipeCount
+                            ? 'receituario-metric-card'
+                            : 'receituario-metric-card recipe-hero-preserve-desktop'
+                        }
+                        aria-hidden={!(executionBlocks.yieldControls && visibleRecipeExecutionHeroFields.recipeCount)}
+                      >
                         <span>Quantidade de receitas</span>
                         <strong>{formatDecimal(data.recipeCount)}</strong>
                       </article>
-                      <article className="receituario-metric-card">
+                      <article
+                        className={
+                          executionBlocks.yieldControls && visibleRecipeExecutionHeroFields.desiredYield
+                            ? 'receituario-metric-card'
+                            : 'receituario-metric-card recipe-hero-preserve-desktop'
+                        }
+                        aria-hidden={!(executionBlocks.yieldControls && visibleRecipeExecutionHeroFields.desiredYield)}
+                      >
                         <span>Quantidade final desejada</span>
                         <strong>{formatDecimal(data.desiredYield)} {getTechnicalSheetYieldUnitLabel(data.sheet, technicalSheets, products)}</strong>
                       </article>
-                    </div>
-                  ) : null}
+                  </div>
 
-                  {executionBlocks.costMetrics ? (
-                    <div className="receituario-summary-grid receituario-summary-grid-metrics">
-                      <article className="receituario-metric-card">
+                  <div className="receituario-summary-grid receituario-summary-grid-metrics">
+                      <article
+                        className={
+                          executionBlocks.costMetrics && visibleRecipeExecutionHeroFields.finalYield
+                            ? 'receituario-metric-card'
+                            : 'receituario-metric-card recipe-hero-preserve-desktop'
+                        }
+                        aria-hidden={!(executionBlocks.costMetrics && visibleRecipeExecutionHeroFields.finalYield)}
+                      >
                         <span>Rendimento final</span>
                         <strong>{formatDecimal(data.desiredYield)} {getTechnicalSheetYieldUnitLabel(data.sheet, technicalSheets, products)}</strong>
                       </article>
-                      <article className="receituario-metric-card">
+                      <article
+                        className={
+                          executionBlocks.costMetrics && visibleRecipeExecutionHeroFields.finalAlcoholPercentage
+                            ? 'receituario-metric-card'
+                            : 'receituario-metric-card recipe-hero-preserve-desktop'
+                        }
+                        aria-hidden={!(executionBlocks.costMetrics && visibleRecipeExecutionHeroFields.finalAlcoholPercentage)}
+                      >
                         <span>% alcool final</span>
                         <strong>{formatDecimal(data.finalAlcoholPercentage)}%</strong>
                       </article>
-                      <article className="receituario-metric-card">
+                      <article
+                        className={
+                          executionBlocks.costMetrics && visibleRecipeExecutionHeroFields.finalCmvPercentage
+                            ? 'receituario-metric-card'
+                            : 'receituario-metric-card recipe-hero-preserve-desktop'
+                        }
+                        aria-hidden={!(executionBlocks.costMetrics && visibleRecipeExecutionHeroFields.finalCmvPercentage)}
+                      >
                         <span>CMV final</span>
                         <strong>{formatDecimal(data.finalCmvPercentage)}%</strong>
                       </article>
-                      <article className="receituario-metric-card">
+                      <article
+                        className={
+                          executionBlocks.costMetrics && visibleRecipeExecutionHeroFields.finalSalePrice
+                            ? 'receituario-metric-card'
+                            : 'receituario-metric-card recipe-hero-preserve-desktop'
+                        }
+                        aria-hidden={!(executionBlocks.costMetrics && visibleRecipeExecutionHeroFields.finalSalePrice)}
+                      >
                         <span>Valor final de venda</span>
                         <strong>R$ {formatMoney(data.finalSalePrice)}</strong>
                       </article>
-                    </div>
-                  ) : null}
+                  </div>
                 </div>
 
                 {executionBlocks.productImage ? (
@@ -33578,35 +33960,54 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                   </div>
                 </div>
 
+                {visibleRecipePreparoHeroFields.family ||
+                visibleRecipePreparoHeroFields.subfamily ||
+                visibleRecipePreparoHeroFields.sectors ||
+                visibleRecipePreparoHeroFields.baseYield ? (
                 <div className="receituario-summary-grid">
+                  {visibleRecipePreparoHeroFields.family ? (
                   <article className="receituario-metric-card">
                     <span>Familia</span>
                     <strong>{data.sheet.family}</strong>
                   </article>
+                  ) : null}
+                  {visibleRecipePreparoHeroFields.subfamily ? (
                   <article className="receituario-metric-card">
                     <span>Subfamilia</span>
                     <strong>{data.sheet.subfamily}</strong>
                   </article>
+                  ) : null}
+                  {visibleRecipePreparoHeroFields.sectors ? (
                   <article className="receituario-metric-card">
                     <span>Setores</span>
                     <strong>{data.sheet.sectors.join(', ') || '-'}</strong>
                   </article>
+                  ) : null}
+                  {visibleRecipePreparoHeroFields.baseYield ? (
                   <article className="receituario-metric-card">
                     <span>Rendimento base</span>
                     <strong>{formatDecimal(data.baseYield)} {getTechnicalSheetYieldUnitLabel(data.sheet, technicalSheets, products)}</strong>
                   </article>
+                  ) : null}
                 </div>
+                ) : null}
 
+                {visibleRecipePreparoHeroFields.recipeCount || visibleRecipePreparoHeroFields.desiredYield ? (
                 <div className="receituario-summary-grid">
+                  {visibleRecipePreparoHeroFields.recipeCount ? (
                   <article className="receituario-metric-card">
                     <span>Quantidade de receitas</span>
                     <strong>{formatDecimal(data.recipeCount)}</strong>
                   </article>
+                  ) : null}
+                  {visibleRecipePreparoHeroFields.desiredYield ? (
                   <article className="receituario-metric-card">
                     <span>Volume final desejado</span>
                     <strong>{formatDecimal(data.desiredYield)} {getTechnicalSheetYieldUnitLabel(data.sheet, technicalSheets, products)}</strong>
                   </article>
+                  ) : null}
                 </div>
+                ) : null}
               </div>
             )}
           </div>
@@ -33620,31 +34021,32 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                 <h2>Recipientes de servico</h2>
               </div>
             </div>
-            {data.serviceItemMetrics.length > 0 ? (
+            {data.serviceItemMetrics.length > 0 && visibleRecipeExecutionServiceItemColumnDefinitions.length > 0 ? (
               <div className="table-wrap receituario-service-inline-table">
                 <table className="product-table">
                   <thead>
                     <tr>
-                      <th>Recipiente</th>
-                      <th>Tamanho/capacidade</th>
+                      {visibleRecipeExecutionServiceItemColumnDefinitions.map((column) => (
+                        <th key={column.key}>{column.label}</th>
+                      ))}
                     </tr>
                   </thead>
                   <tbody>
                     {data.serviceItemMetrics.map((serviceItem) => (
                       <tr key={serviceItem.id}>
-                        <td>
-                          <div className="receituario-service-item-cell">
-                            {serviceItem.imageDataUrl ? (
-                              <img src={serviceItem.imageDataUrl} alt={`Foto de ${serviceItem.label}`} className="receituario-service-item-image" />
-                            ) : null}
-                            <strong>{serviceItem.label}</strong>
-                          </div>
-                        </td>
-                        <td>{serviceItem.sizeLabel || '-'}</td>
+                        {visibleRecipeExecutionServiceItemColumnDefinitions.map((column) => (
+                          <td key={`${serviceItem.id}-${column.key}`}>
+                            {renderRecipeExecutionServiceItemColumnValue(column.key, serviceItem)}
+                          </td>
+                        ))}
                       </tr>
                     ))}
                   </tbody>
                 </table>
+              </div>
+            ) : data.serviceItemMetrics.length > 0 ? (
+              <div className="empty-state empty-state-inline">
+                <strong>Nenhuma coluna de recipiente habilitada para este perfil.</strong>
               </div>
             ) : (
               <div className="empty-state empty-state-inline">
@@ -33662,47 +34064,51 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                 <h2>Insumos</h2>
               </div>
             </div>
-            {data.ingredientMetrics.length > 0 ? (
+            {data.ingredientMetrics.length > 0 &&
+            (tab === 'EXECUCAO'
+              ? visibleRecipeExecutionIngredientColumnDefinitions.length > 0
+              : visibleRecipePreparoIngredientColumnDefinitions.length > 0) ? (
               <div className="table-wrap">
                 <table className="product-table">
                   <thead>
                     {tab === 'EXECUCAO' ? (
                       <tr>
-                        <th>Insumo</th>
-                        <th>Quantidade</th>
-                        <th>% alcool</th>
+                        {visibleRecipeExecutionIngredientColumnDefinitions.map((column) => (
+                          <th key={column.key}>{column.label}</th>
+                        ))}
                       </tr>
                     ) : (
                       <tr>
-                        <th>Insumo</th>
-                        <th>Entrada</th>
-                        <th>Manipulado</th>
-                        <th>Rendimento</th>
-                        <th>% alcool</th>
+                        {visibleRecipePreparoIngredientColumnDefinitions.map((column) => (
+                          <th key={column.key}>{column.label}</th>
+                        ))}
                       </tr>
                     )}
                   </thead>
                   <tbody>
                     {data.ingredientMetrics.map((ingredient) => (
                       <tr key={ingredient.id}>
-                        <td><strong>{ingredient.label}</strong></td>
                         {tab === 'EXECUCAO' ? (
-                          <>
-                            <td>{formatRecipeIngredientOperationalQuantity(ingredient)}</td>
-                            <td>{formatDecimal(ingredient.alcoholPercentage)}%</td>
-                          </>
+                          visibleRecipeExecutionIngredientColumnDefinitions.map((column) => (
+                            <td key={`${ingredient.id}-${column.key}`}>
+                              {renderRecipeExecutionIngredientColumnValue(column.key, ingredient)}
+                            </td>
+                          ))
                         ) : (
-                          <>
-                            <td>{formatDecimal(ingredient.scaledInputQuantity)} {ingredient.unitLabel}</td>
-                            <td>{ingredient.scaledManipulatedQuantity > 0 ? `${formatDecimal(ingredient.scaledManipulatedQuantity)} ${ingredient.unitLabel}` : '-'}</td>
-                            <td>{formatDecimal(ingredient.scaledYieldQuantity)} {ingredient.unitLabel}</td>
-                            <td>{formatDecimal(ingredient.alcoholPercentage)}%</td>
-                          </>
+                          visibleRecipePreparoIngredientColumnDefinitions.map((column) => (
+                            <td key={`${ingredient.id}-${column.key}`}>
+                              {renderRecipePreparoIngredientColumnValue(column.key, ingredient)}
+                            </td>
+                          ))
                         )}
                       </tr>
                     ))}
                   </tbody>
                 </table>
+              </div>
+            ) : data.ingredientMetrics.length > 0 ? (
+              <div className="empty-state empty-state-inline">
+                <strong>Nenhuma coluna de insumo habilitada para este perfil.</strong>
               </div>
             ) : (
               <div className="empty-state empty-state-inline">
@@ -33720,37 +34126,34 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                 <h2>Recipientes de armazenamento</h2>
               </div>
             </div>
+            {visibleRecipePreparoServiceItemColumnDefinitions.length > 0 ? (
             <div className="table-wrap">
               <table className="product-table">
                 <thead>
                   <tr>
-                    <th>Recipiente</th>
-                    <th>Entrada</th>
-                    <th>Tipo</th>
-                    <th>Material</th>
-                    <th>Tamanho/capacidade</th>
-                    <th>Peso vazio</th>
+                    {visibleRecipePreparoServiceItemColumnDefinitions.map((column) => (
+                      <th key={column.key}>{column.label}</th>
+                    ))}
                   </tr>
                 </thead>
                 <tbody>
                   {data.serviceItemMetrics.map((serviceItem) => (
                     <tr key={serviceItem.id}>
-                      <td>
-                        <div className="receituario-service-item-cell">
-                          {serviceItem.imageDataUrl ? <img src={serviceItem.imageDataUrl} alt={serviceItem.label} className="receituario-service-item-image" /> : null}
-                          <strong>{serviceItem.label}</strong>
-                        </div>
-                      </td>
-                      <td>{formatDecimal(serviceItem.scaledQuantity)} UN</td>
-                      <td>{serviceItem.family || '-'}</td>
-                      <td>{serviceItem.subfamily || '-'}</td>
-                      <td>{serviceItem.sizeLabel || '-'}</td>
-                      <td>{serviceItem.emptyWeight || '-'}</td>
+                      {visibleRecipePreparoServiceItemColumnDefinitions.map((column) => (
+                        <td key={`${serviceItem.id}-${column.key}`}>
+                          {renderRecipePreparoServiceItemColumnValue(column.key, serviceItem)}
+                        </td>
+                      ))}
                     </tr>
                   ))}
                 </tbody>
               </table>
             </div>
+            ) : (
+              <div className="empty-state empty-state-inline">
+                <strong>Nenhuma coluna de recipiente habilitada para este perfil.</strong>
+              </div>
+            )}
           </section>
         ) : null}
 
@@ -33843,26 +34246,32 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                   <h2>Guarnicoes</h2>
                 </div>
               </div>
-              {data.garnishMetrics.length > 0 ? (
+              {data.garnishMetrics.length > 0 && visibleRecipeExecutionGarnishColumnDefinitions.length > 0 ? (
                 <div className="table-wrap">
                   <table className="product-table">
                     <thead>
                       <tr>
-                        <th>Guarnicao</th>
-                        <th>Quantidade</th>
-                        <th>% alcool</th>
+                        {visibleRecipeExecutionGarnishColumnDefinitions.map((column) => (
+                          <th key={column.key}>{column.label}</th>
+                        ))}
                       </tr>
                     </thead>
                     <tbody>
                       {data.garnishMetrics.map((ingredient) => (
                         <tr key={ingredient.id}>
-                          <td><strong>{ingredient.label}</strong></td>
-                          <td>{formatRecipeIngredientOperationalQuantity(ingredient)}</td>
-                          <td>{formatDecimal(ingredient.alcoholPercentage)}%</td>
+                          {visibleRecipeExecutionGarnishColumnDefinitions.map((column) => (
+                            <td key={`${ingredient.id}-${column.key}`}>
+                              {renderRecipeExecutionGarnishColumnValue(column.key, ingredient)}
+                            </td>
+                          ))}
                         </tr>
                       ))}
                     </tbody>
                   </table>
+                </div>
+              ) : data.garnishMetrics.length > 0 ? (
+                <div className="empty-state empty-state-inline">
+                  <strong>Nenhuma coluna de guarnicao habilitada para este perfil.</strong>
                 </div>
               ) : (
                 <div className="empty-state empty-state-inline">
@@ -34082,15 +34491,27 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
         ]
 
         if (data.sheet.kind !== 'EXECUCAO' || exportExecutionBlocks.baseSummary) {
-          rows.push(['Familia', data.sheet.family])
-          rows.push(['Subfamilia', data.sheet.subfamily])
-          rows.push(['Setores', data.sheet.sectors.join(', ') || '-'])
-          rows.push(['Rendimento base', `${formatDecimal(data.baseYield)} ${getTechnicalSheetYieldUnitLabel(data.sheet, technicalSheets, products)}`])
+          if (data.sheet.kind === 'EXECUCAO' ? visibleRecipeExecutionHeroFields.family : visibleRecipePreparoHeroFields.family) {
+            rows.push(['Familia', data.sheet.family])
+          }
+          if (data.sheet.kind === 'EXECUCAO' ? visibleRecipeExecutionHeroFields.subfamily : visibleRecipePreparoHeroFields.subfamily) {
+            rows.push(['Subfamilia', data.sheet.subfamily])
+          }
+          if (data.sheet.kind === 'EXECUCAO' ? visibleRecipeExecutionHeroFields.sectors : visibleRecipePreparoHeroFields.sectors) {
+            rows.push(['Setores', data.sheet.sectors.join(', ') || '-'])
+          }
+          if (data.sheet.kind === 'EXECUCAO' ? visibleRecipeExecutionHeroFields.baseYield : visibleRecipePreparoHeroFields.baseYield) {
+            rows.push(['Rendimento base', `${formatDecimal(data.baseYield)} ${getTechnicalSheetYieldUnitLabel(data.sheet, technicalSheets, products)}`])
+          }
         }
 
         if (data.sheet.kind !== 'EXECUCAO' || exportExecutionBlocks.yieldControls) {
-          rows.push(['Quantidade de receitas', formatDecimal(data.recipeCount)])
-          rows.push(['Rendimento final', `${formatDecimal(data.desiredYield)} ${getTechnicalSheetYieldUnitLabel(data.sheet, technicalSheets, products)}`])
+          if (data.sheet.kind === 'EXECUCAO' ? visibleRecipeExecutionHeroFields.recipeCount : visibleRecipePreparoHeroFields.recipeCount) {
+            rows.push(['Quantidade de receitas', formatDecimal(data.recipeCount)])
+          }
+          if (data.sheet.kind === 'EXECUCAO' ? visibleRecipeExecutionHeroFields.desiredYield : visibleRecipePreparoHeroFields.desiredYield) {
+            rows.push(['Rendimento final', `${formatDecimal(data.desiredYield)} ${getTechnicalSheetYieldUnitLabel(data.sheet, technicalSheets, products)}`])
+          }
         }
 
         if (data.sheet.kind === 'EXECUCAO' && exportExecutionBlocks.productImage) {
@@ -34105,54 +34526,79 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
           rows.push([])
           rows.push(['Composicao de insumos'])
           if (data.sheet.kind === 'EXECUCAO') {
-            rows.push(['Insumo', 'Quantidade', '% alcool'])
-            data.ingredientMetrics.forEach((ingredient) => {
-              rows.push([
-                ingredient.label,
-                formatRecipeIngredientOperationalQuantity(ingredient),
-                `${formatDecimal(ingredient.alcoholPercentage)}%`,
-              ])
-            })
+            if (visibleRecipeExecutionIngredientColumnDefinitions.length > 0) {
+              rows.push(visibleRecipeExecutionIngredientColumnDefinitions.map((column) => column.label))
+              data.ingredientMetrics.forEach((ingredient) => {
+                rows.push(
+                  visibleRecipeExecutionIngredientColumnDefinitions.map((column) =>
+                    getRecipeExecutionIngredientColumnText(column.key, ingredient),
+                  ),
+                )
+              })
+            } else {
+              rows.push(['Nenhuma coluna de insumo habilitada para este perfil.'])
+            }
           } else {
-            rows.push(['Insumo', 'Entrada', 'Manipulado', 'Rendimento', '% alcool'])
-            data.ingredientMetrics.forEach((ingredient) => {
-              rows.push([
-                ingredient.label,
-                `${formatDecimal(ingredient.scaledInputQuantity)} ${ingredient.unitLabel}`,
-                ingredient.scaledManipulatedQuantity > 0 ? `${formatDecimal(ingredient.scaledManipulatedQuantity)} ${ingredient.unitLabel}` : '-',
-                `${formatDecimal(ingredient.scaledYieldQuantity)} ${ingredient.unitLabel}`,
-                `${formatDecimal(ingredient.alcoholPercentage)}%`,
-              ])
-            })
+            if (visibleRecipePreparoIngredientColumnDefinitions.length > 0) {
+              rows.push(visibleRecipePreparoIngredientColumnDefinitions.map((column) => column.label))
+              data.ingredientMetrics.forEach((ingredient) => {
+                rows.push(
+                  visibleRecipePreparoIngredientColumnDefinitions.map((column) =>
+                    getRecipePreparoIngredientColumnText(column.key, ingredient),
+                  ),
+                )
+              })
+            } else {
+              rows.push(['Nenhuma coluna de insumo habilitada para este perfil.'])
+            }
           }
         }
 
         if ((data.sheet.kind !== 'EXECUCAO' || exportExecutionBlocks.garnishes) && data.garnishMetrics.length > 0) {
           rows.push([])
           rows.push(['Guarnicoes'])
-          rows.push(['Guarnicao', 'Quantidade', '% alcool'])
-          data.garnishMetrics.forEach((ingredient) => {
-            rows.push([
-              ingredient.label,
-              formatRecipeIngredientOperationalQuantity(ingredient),
-              `${formatDecimal(ingredient.alcoholPercentage)}%`,
-            ])
-          })
+          if (visibleRecipeExecutionGarnishColumnDefinitions.length > 0) {
+            rows.push(visibleRecipeExecutionGarnishColumnDefinitions.map((column) => column.label))
+            data.garnishMetrics.forEach((ingredient) => {
+              rows.push(
+                visibleRecipeExecutionGarnishColumnDefinitions.map((column) =>
+                  getRecipeExecutionGarnishColumnText(column.key, ingredient),
+                ),
+              )
+            })
+          } else {
+            rows.push(['Nenhuma coluna de guarnicao habilitada para este perfil.'])
+          }
         }
 
         if ((data.sheet.kind !== 'EXECUCAO' || exportExecutionBlocks.serviceItems) && data.serviceItemMetrics.length > 0) {
           rows.push([])
           rows.push([recipePanelTab === 'PREPARO' ? 'Recipientes de armazenamento' : 'Recipientes de servico'])
-          rows.push(['Recipiente', 'Entrada', 'Tipo', 'Material', 'Tamanho/capacidade'])
-          data.serviceItemMetrics.forEach((serviceItem) => {
-            rows.push([
-              serviceItem.label,
-              `${formatDecimal(serviceItem.scaledQuantity)} UN`,
-              serviceItem.family || '-',
-              serviceItem.subfamily || '-',
-              serviceItem.sizeLabel || '-',
-            ])
-          })
+          if (data.sheet.kind === 'EXECUCAO') {
+            if (visibleRecipeExecutionServiceItemColumnDefinitions.length > 0) {
+              rows.push(visibleRecipeExecutionServiceItemColumnDefinitions.map((column) => column.label))
+              data.serviceItemMetrics.forEach((serviceItem) => {
+                rows.push(
+                  visibleRecipeExecutionServiceItemColumnDefinitions.map((column) =>
+                    getRecipeExecutionServiceItemColumnText(column.key, serviceItem),
+                  ),
+                )
+              })
+            } else {
+              rows.push(['Nenhuma coluna de recipiente habilitada para este perfil.'])
+            }
+          } else if (visibleRecipePreparoServiceItemColumnDefinitions.length > 0) {
+            rows.push(visibleRecipePreparoServiceItemColumnDefinitions.map((column) => column.label))
+            data.serviceItemMetrics.forEach((serviceItem) => {
+              rows.push(
+                visibleRecipePreparoServiceItemColumnDefinitions.map((column) =>
+                  getRecipePreparoServiceItemColumnText(column.key, serviceItem),
+                ),
+              )
+            })
+          } else {
+            rows.push(['Nenhuma coluna de recipiente habilitada para este perfil.'])
+          }
         }
 
         if (data.sheet.kind !== 'EXECUCAO' || exportExecutionBlocks.preparationMode) {
@@ -34211,10 +34657,18 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
           if (exportExecutionBlocks.costMetrics) {
             rows.push([])
             rows.push(['Dados tecnicos'])
-            rows.push(['Rendimento final', `${formatDecimal(data.desiredYield)} ${getTechnicalSheetYieldUnitLabel(data.sheet, technicalSheets, products)}`])
-            rows.push(['% alcool final', `${formatDecimal(data.finalAlcoholPercentage)}%`])
-            rows.push(['CMV final', `${formatDecimal(data.finalCmvPercentage)}%`])
-            rows.push(['Valor final de venda', `R$ ${formatMoney(data.finalSalePrice)}`])
+            if (visibleRecipeExecutionHeroFields.finalYield) {
+              rows.push(['Rendimento final', `${formatDecimal(data.desiredYield)} ${getTechnicalSheetYieldUnitLabel(data.sheet, technicalSheets, products)}`])
+            }
+            if (visibleRecipeExecutionHeroFields.finalAlcoholPercentage) {
+              rows.push(['% alcool final', `${formatDecimal(data.finalAlcoholPercentage)}%`])
+            }
+            if (visibleRecipeExecutionHeroFields.finalCmvPercentage) {
+              rows.push(['CMV final', `${formatDecimal(data.finalCmvPercentage)}%`])
+            }
+            if (visibleRecipeExecutionHeroFields.finalSalePrice) {
+              rows.push(['Valor final de venda', `R$ ${formatMoney(data.finalSalePrice)}`])
+            }
           }
         }
 
@@ -38875,32 +39329,64 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                               </div>
                             </div>
 
-                            {visibleRecipePanelExecutionBlocks.baseSummary ? (
                             <div className="receituario-summary-grid receituario-summary-grid-execucao">
-                              <article className="receituario-metric-card">
+                              <article
+                                className={
+                                  visibleRecipePanelExecutionBlocks.baseSummary && visibleRecipeExecutionHeroFields.family
+                                    ? 'receituario-metric-card'
+                                    : 'receituario-metric-card recipe-hero-preserve-desktop'
+                                }
+                                aria-hidden={!(visibleRecipePanelExecutionBlocks.baseSummary && visibleRecipeExecutionHeroFields.family)}
+                              >
                                 <span>Familia</span>
                                 <strong>{recipePanelData.sheet.family}</strong>
                               </article>
-                              <article className="receituario-metric-card">
+                              <article
+                                className={
+                                  visibleRecipePanelExecutionBlocks.baseSummary && visibleRecipeExecutionHeroFields.subfamily
+                                    ? 'receituario-metric-card'
+                                    : 'receituario-metric-card recipe-hero-preserve-desktop'
+                                }
+                                aria-hidden={!(visibleRecipePanelExecutionBlocks.baseSummary && visibleRecipeExecutionHeroFields.subfamily)}
+                              >
                                 <span>Subfamilia</span>
                                 <strong>{recipePanelData.sheet.subfamily}</strong>
                               </article>
-                              <article className="receituario-metric-card">
+                              <article
+                                className={
+                                  visibleRecipePanelExecutionBlocks.baseSummary && visibleRecipeExecutionHeroFields.sectors
+                                    ? 'receituario-metric-card'
+                                    : 'receituario-metric-card recipe-hero-preserve-desktop'
+                                }
+                                aria-hidden={!(visibleRecipePanelExecutionBlocks.baseSummary && visibleRecipeExecutionHeroFields.sectors)}
+                              >
                                 <span>Setores</span>
                                 <strong>{recipePanelData.sheet.sectors.join(', ') || '-'}</strong>
                               </article>
-                              <article className="receituario-metric-card">
+                              <article
+                                className={
+                                  visibleRecipePanelExecutionBlocks.baseSummary && visibleRecipeExecutionHeroFields.baseYield
+                                    ? 'receituario-metric-card'
+                                    : 'receituario-metric-card recipe-hero-preserve-desktop'
+                                }
+                                aria-hidden={!(visibleRecipePanelExecutionBlocks.baseSummary && visibleRecipeExecutionHeroFields.baseYield)}
+                              >
                                 <span>Rendimento base</span>
                                 <strong>
                                   {formatDecimal(recipePanelData.baseYield)} {getTechnicalSheetYieldUnitLabel(recipePanelData.sheet, technicalSheets, products)}
                                 </strong>
                               </article>
                             </div>
-                            ) : null}
 
-                            {visibleRecipePanelExecutionBlocks.yieldControls ? (
                             <div className="form-grid receituario-controls-grid receituario-controls-grid-execucao">
-                              <label className="field">
+                              <label
+                                className={
+                                  visibleRecipePanelExecutionBlocks.yieldControls && visibleRecipeExecutionHeroFields.recipeCount
+                                    ? 'field'
+                                    : 'field recipe-hero-preserve-desktop'
+                                }
+                                aria-hidden={!(visibleRecipePanelExecutionBlocks.yieldControls && visibleRecipeExecutionHeroFields.recipeCount)}
+                              >
                                 <span>Quantidade de receitas</span>
                                 <input
                                   value={recipePanelRecipeCount[recipePanelTab]}
@@ -38908,7 +39394,14 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                                   placeholder="1"
                                 />
                               </label>
-                              <label className="field">
+                              <label
+                                className={
+                                  visibleRecipePanelExecutionBlocks.yieldControls && visibleRecipeExecutionHeroFields.desiredYield
+                                    ? 'field'
+                                    : 'field recipe-hero-preserve-desktop'
+                                }
+                                aria-hidden={!(visibleRecipePanelExecutionBlocks.yieldControls && visibleRecipeExecutionHeroFields.desiredYield)}
+                              >
                                 <span>Quantidade final desejada</span>
                                 <input
                                   value={recipePanelDesiredYield[recipePanelTab]}
@@ -38917,30 +39410,55 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                                 />
                               </label>
                             </div>
-                            ) : null}
 
-                            {visibleRecipePanelExecutionBlocks.costMetrics ? (
                             <div className="receituario-summary-grid receituario-summary-grid-metrics">
-                              <article className="receituario-metric-card">
+                              <article
+                                className={
+                                  visibleRecipePanelExecutionBlocks.costMetrics && visibleRecipeExecutionHeroFields.finalYield
+                                    ? 'receituario-metric-card'
+                                    : 'receituario-metric-card recipe-hero-preserve-desktop'
+                                }
+                                aria-hidden={!(visibleRecipePanelExecutionBlocks.costMetrics && visibleRecipeExecutionHeroFields.finalYield)}
+                              >
                                 <span>Rendimento final</span>
                                 <strong>
                                   {formatDecimal(recipePanelData.desiredYield)} {getTechnicalSheetYieldUnitLabel(recipePanelData.sheet, technicalSheets, products)}
                                 </strong>
                               </article>
-                              <article className="receituario-metric-card">
+                              <article
+                                className={
+                                  visibleRecipePanelExecutionBlocks.costMetrics && visibleRecipeExecutionHeroFields.finalAlcoholPercentage
+                                    ? 'receituario-metric-card'
+                                    : 'receituario-metric-card recipe-hero-preserve-desktop'
+                                }
+                                aria-hidden={!(visibleRecipePanelExecutionBlocks.costMetrics && visibleRecipeExecutionHeroFields.finalAlcoholPercentage)}
+                              >
                                 <span>% alcool final</span>
                                 <strong>{formatDecimal(recipePanelData.finalAlcoholPercentage)}%</strong>
                               </article>
-                              <article className="receituario-metric-card">
+                              <article
+                                className={
+                                  visibleRecipePanelExecutionBlocks.costMetrics && visibleRecipeExecutionHeroFields.finalCmvPercentage
+                                    ? 'receituario-metric-card'
+                                    : 'receituario-metric-card recipe-hero-preserve-desktop'
+                                }
+                                aria-hidden={!(visibleRecipePanelExecutionBlocks.costMetrics && visibleRecipeExecutionHeroFields.finalCmvPercentage)}
+                              >
                                 <span>CMV final</span>
                                 <strong>{formatDecimal(recipePanelData.finalCmvPercentage)}%</strong>
                               </article>
-                              <article className="receituario-metric-card">
+                              <article
+                                className={
+                                  visibleRecipePanelExecutionBlocks.costMetrics && visibleRecipeExecutionHeroFields.finalSalePrice
+                                    ? 'receituario-metric-card'
+                                    : 'receituario-metric-card recipe-hero-preserve-desktop'
+                                }
+                                aria-hidden={!(visibleRecipePanelExecutionBlocks.costMetrics && visibleRecipeExecutionHeroFields.finalSalePrice)}
+                              >
                                 <span>Valor final de venda</span>
                                 <strong>R$ {formatMoney(recipePanelData.finalSalePrice)}</strong>
                               </article>
                             </div>
-                            ) : null}
 
                           </div>
 
@@ -39019,28 +39537,43 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                           </div>
 
                           <>
+                            {visibleRecipePreparoHeroFields.family ||
+                            visibleRecipePreparoHeroFields.subfamily ||
+                            visibleRecipePreparoHeroFields.sectors ||
+                            visibleRecipePreparoHeroFields.baseYield ? (
                             <div className="receituario-summary-grid">
+                              {visibleRecipePreparoHeroFields.family ? (
                               <article className="receituario-metric-card">
                                 <span>Familia</span>
                                 <strong>{recipePanelData.sheet.family}</strong>
                               </article>
+                              ) : null}
+                              {visibleRecipePreparoHeroFields.subfamily ? (
                               <article className="receituario-metric-card">
                                 <span>Subfamilia</span>
                                 <strong>{recipePanelData.sheet.subfamily}</strong>
                               </article>
+                              ) : null}
+                              {visibleRecipePreparoHeroFields.sectors ? (
                               <article className="receituario-metric-card">
                                 <span>Setores</span>
                                 <strong>{recipePanelData.sheet.sectors.join(', ') || '-'}</strong>
                               </article>
+                              ) : null}
+                              {visibleRecipePreparoHeroFields.baseYield ? (
                               <article className="receituario-metric-card">
                                 <span>Rendimento base</span>
                                 <strong>
                                   {formatDecimal(recipePanelData.baseYield)} {getTechnicalSheetYieldUnitLabel(recipePanelData.sheet, technicalSheets, products)}
                                 </strong>
                               </article>
+                              ) : null}
                             </div>
+                            ) : null}
 
+                            {visibleRecipePreparoHeroFields.recipeCount || visibleRecipePreparoHeroFields.desiredYield ? (
                             <div className="form-grid receituario-controls-grid">
+                              {visibleRecipePreparoHeroFields.recipeCount ? (
                               <label className="field">
                                 <span>Quantidade de receitas</span>
                                 <input
@@ -39049,6 +39582,8 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                                   placeholder="1"
                                 />
                               </label>
+                              ) : null}
+                              {visibleRecipePreparoHeroFields.desiredYield ? (
                               <label className="field">
                                 <span>Volume final desejado</span>
                                 <input
@@ -39057,7 +39592,9 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                                   placeholder={formatDecimal(recipePanelData.baseYield)}
                                 />
                               </label>
+                              ) : null}
                             </div>
+                            ) : null}
                           </>
                         </div>
                       )}
@@ -39073,35 +39610,32 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                         </div>
                       </div>
 
-                      {recipePanelData.serviceItemMetrics.length > 0 ? (
+                      {recipePanelData.serviceItemMetrics.length > 0 && visibleRecipeExecutionServiceItemColumnDefinitions.length > 0 ? (
                         <div className="table-wrap receituario-service-inline-table">
                           <table className="product-table">
                             <thead>
                               <tr>
-                                <th>Recipiente</th>
-                                <th>Tamanho/capacidade</th>
+                                {visibleRecipeExecutionServiceItemColumnDefinitions.map((column) => (
+                                  <th key={column.key}>{column.label}</th>
+                                ))}
                               </tr>
                             </thead>
                             <tbody>
                               {recipePanelData.serviceItemMetrics.map((serviceItem) => (
                                 <tr key={serviceItem.id}>
-                                  <td>
-                                    <div className="receituario-service-item-cell">
-                                      {serviceItem.imageDataUrl ? (
-                                        <img
-                                          src={serviceItem.imageDataUrl}
-                                          alt={`Foto de ${serviceItem.label}`}
-                                          className="receituario-service-item-image"
-                                        />
-                                      ) : null}
-                                      <strong>{serviceItem.label}</strong>
-                                    </div>
-                                  </td>
-                                  <td>{serviceItem.sizeLabel || '-'}</td>
+                                  {visibleRecipeExecutionServiceItemColumnDefinitions.map((column) => (
+                                    <td key={`${serviceItem.id}-${column.key}`}>
+                                      {renderRecipeExecutionServiceItemColumnValue(column.key, serviceItem)}
+                                    </td>
+                                  ))}
                                 </tr>
                               ))}
                             </tbody>
                           </table>
+                        </div>
+                      ) : recipePanelData.serviceItemMetrics.length > 0 ? (
+                        <div className="empty-state empty-state-inline">
+                          <strong>Nenhuma coluna de recipiente habilitada para este perfil.</strong>
                         </div>
                       ) : (
                         <div className="empty-state empty-state-inline">
@@ -39121,30 +39655,32 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                       </div>
                     </div>
 
-                    {recipePanelData.ingredientMetrics.length > 0 ? (
+                    {recipePanelData.ingredientMetrics.length > 0 && visibleRecipeExecutionIngredientColumnDefinitions.length > 0 ? (
                       <div className="table-wrap">
                         <table className="product-table">
                           <thead>
 	                            <tr>
-	                              <th>Insumo</th>
-	                              <th>Quantidade</th>
-	                              <th>% alcool</th>
+	                              {visibleRecipeExecutionIngredientColumnDefinitions.map((column) => (
+	                                <th key={column.key}>{column.label}</th>
+	                              ))}
 	                            </tr>
                           </thead>
                           <tbody>
                             {recipePanelData.ingredientMetrics.map((ingredient) => (
                               <tr key={ingredient.id}>
-                                <td>
-                                  <strong>{ingredient.label}</strong>
-	                                </td>
-	                                <td>
-	                                  {formatRecipeIngredientOperationalQuantity(ingredient)}
-	                                </td>
-	                                <td>{formatDecimal(ingredient.alcoholPercentage)}%</td>
+                                {visibleRecipeExecutionIngredientColumnDefinitions.map((column) => (
+                                  <td key={`${ingredient.id}-${column.key}`}>
+                                    {renderRecipeExecutionIngredientColumnValue(column.key, ingredient)}
+                                  </td>
+                                ))}
                               </tr>
                             ))}
                           </tbody>
                         </table>
+                      </div>
+                    ) : recipePanelData.ingredientMetrics.length > 0 ? (
+                      <div className="empty-state empty-state-inline">
+                        <strong>Nenhuma coluna de insumo habilitada para este perfil.</strong>
                       </div>
                     ) : (
                       <div className="empty-state empty-state-inline">
@@ -39162,34 +39698,32 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                       </div>
                     </div>
 
-                    {recipePanelData.ingredientMetrics.length > 0 ? (
+                    {recipePanelData.ingredientMetrics.length > 0 && visibleRecipePreparoIngredientColumnDefinitions.length > 0 ? (
                       <div className="table-wrap">
                         <table className="product-table">
                           <thead>
                             <tr>
-                              <th>Insumo</th>
-                              <th>Entrada</th>
-                              <th>Manipulado</th>
-                              <th>Rendimento</th>
-                              <th>% alcool</th>
+                              {visibleRecipePreparoIngredientColumnDefinitions.map((column) => (
+                                <th key={column.key}>{column.label}</th>
+                              ))}
                             </tr>
                           </thead>
                           <tbody>
                             {recipePanelData.ingredientMetrics.map((ingredient) => (
                               <tr key={ingredient.id}>
-                                <td>
-                                  <strong>{ingredient.label}</strong>
-                                </td>
-                                <td>
-                                  {formatDecimal(ingredient.scaledInputQuantity)} {ingredient.unitLabel}
-                                </td>
-                                <td>{ingredient.scaledManipulatedQuantity > 0 ? `${formatDecimal(ingredient.scaledManipulatedQuantity)} ${ingredient.unitLabel}` : '-'}</td>
-                                <td>{formatDecimal(ingredient.scaledYieldQuantity)} {ingredient.unitLabel}</td>
-                                <td>{formatDecimal(ingredient.alcoholPercentage)}%</td>
+                                {visibleRecipePreparoIngredientColumnDefinitions.map((column) => (
+                                  <td key={`${ingredient.id}-${column.key}`}>
+                                    {renderRecipePreparoIngredientColumnValue(column.key, ingredient)}
+                                  </td>
+                                ))}
                               </tr>
                             ))}
                           </tbody>
                         </table>
+                      </div>
+                    ) : recipePanelData.ingredientMetrics.length > 0 ? (
+                      <div className="empty-state empty-state-inline">
+                        <strong>Nenhuma coluna de insumo habilitada para este perfil.</strong>
                       </div>
                     ) : (
                       <div className="empty-state empty-state-inline">
@@ -39212,43 +39746,34 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                         </div>
                       </div>
 
+                      {visibleRecipePreparoServiceItemColumnDefinitions.length > 0 ? (
                       <div className="table-wrap">
                         <table className="product-table">
                           <thead>
                             <tr>
-                              <th>Recipiente</th>
-                              <th>Entrada</th>
-                              <th>Tipo</th>
-                              <th>Material</th>
-                              <th>Tamanho/capacidade</th>
-                              <th>Peso vazio</th>
+                              {visibleRecipePreparoServiceItemColumnDefinitions.map((column) => (
+                                <th key={column.key}>{column.label}</th>
+                              ))}
                             </tr>
                           </thead>
                           <tbody>
                             {recipePanelData.serviceItemMetrics.map((serviceItem) => (
                               <tr key={serviceItem.id}>
-                                <td>
-                                  <div className="receituario-service-item-cell">
-                                    {serviceItem.imageDataUrl ? (
-                                      <img
-                                        src={serviceItem.imageDataUrl}
-                                        alt={`Foto de ${serviceItem.label}`}
-                                        className="receituario-service-item-image"
-                                      />
-                                    ) : null}
-                                    <strong>{serviceItem.label}</strong>
-                                  </div>
-                                </td>
-                                <td>{formatDecimal(serviceItem.scaledQuantity)} UN</td>
-                                <td>{serviceItem.family || '-'}</td>
-                                <td>{serviceItem.subfamily || '-'}</td>
-                                <td>{serviceItem.sizeLabel || '-'}</td>
-                                <td>{serviceItem.emptyWeight || '-'}</td>
+                                {visibleRecipePreparoServiceItemColumnDefinitions.map((column) => (
+                                  <td key={`${serviceItem.id}-${column.key}`}>
+                                    {renderRecipePreparoServiceItemColumnValue(column.key, serviceItem)}
+                                  </td>
+                                ))}
                               </tr>
                             ))}
                           </tbody>
                         </table>
                       </div>
+                      ) : (
+                        <div className="empty-state empty-state-inline">
+                          <strong>Nenhuma coluna de recipiente habilitada para este perfil.</strong>
+                        </div>
+                      )}
                     </section>
                   ) : null}
 
@@ -39315,30 +39840,32 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                           </div>
                         </div>
 
-                        {recipePanelData.garnishMetrics.length > 0 ? (
+                        {recipePanelData.garnishMetrics.length > 0 && visibleRecipeExecutionGarnishColumnDefinitions.length > 0 ? (
                           <div className="table-wrap">
                             <table className="product-table">
                               <thead>
                                 <tr>
-                                  <th>Guarnicao</th>
-                                  <th>Quantidade</th>
-                                  <th>% alcool</th>
+                                  {visibleRecipeExecutionGarnishColumnDefinitions.map((column) => (
+                                    <th key={column.key}>{column.label}</th>
+                                  ))}
                                 </tr>
                               </thead>
                               <tbody>
                                 {recipePanelData.garnishMetrics.map((ingredient) => (
                                   <tr key={ingredient.id}>
-                                    <td>
-                                      <strong>{ingredient.label}</strong>
-                                    </td>
-                                    <td>
-                                      {formatRecipeIngredientOperationalQuantity(ingredient)}
-                                    </td>
-                                    <td>{formatDecimal(ingredient.alcoholPercentage)}%</td>
+                                    {visibleRecipeExecutionGarnishColumnDefinitions.map((column) => (
+                                      <td key={`${ingredient.id}-${column.key}`}>
+                                        {renderRecipeExecutionGarnishColumnValue(column.key, ingredient)}
+                                      </td>
+                                    ))}
                                   </tr>
                                 ))}
                               </tbody>
                             </table>
+                          </div>
+                        ) : recipePanelData.garnishMetrics.length > 0 ? (
+                          <div className="empty-state empty-state-inline">
+                            <strong>Nenhuma coluna de guarnicao habilitada para este perfil.</strong>
                           </div>
                         ) : (
                           <div className="empty-state empty-state-inline">
@@ -44091,6 +44618,119 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                                   </label>
                                 ))}
                               </div>
+                            ) : null}
+                            {accessProfileForm.recipePanelAccess.showPreparoTab ? (
+                              <>
+                                <div className="access-group-subtitle">Pre-preparos: informacoes do cabecalho</div>
+                                <div className="access-group-children">
+                                  {recipePreparoHeroFieldDefinitions.map((field) => (
+                                    <label key={field.key} className="checkbox-row access-group-child">
+                                      <input
+                                        type="checkbox"
+                                        checked={accessProfileForm.recipePanelAccess.preparoHeroFields[field.key]}
+                                        onChange={(event) =>
+                                          updateAccessProfileRecipePanelVisibilityGroup('preparoHeroFields', field.key, event.target.checked)
+                                        }
+                                      />
+                                      <span>{field.label}</span>
+                                    </label>
+                                  ))}
+                                </div>
+                                <div className="access-group-subtitle">Pre-preparos: colunas de insumos</div>
+                                <div className="access-group-children">
+                                  {recipePreparoIngredientColumnDefinitions.map((column) => (
+                                    <label key={column.key} className="checkbox-row access-group-child">
+                                      <input
+                                        type="checkbox"
+                                        checked={accessProfileForm.recipePanelAccess.preparoIngredientColumns[column.key]}
+                                        onChange={(event) =>
+                                          updateAccessProfileRecipePanelVisibilityGroup('preparoIngredientColumns', column.key, event.target.checked)
+                                        }
+                                      />
+                                      <span>{column.label}</span>
+                                    </label>
+                                  ))}
+                                </div>
+                                <div className="access-group-subtitle">Pre-preparos: colunas de recipientes</div>
+                                <div className="access-group-children">
+                                  {recipePreparoServiceItemColumnDefinitions.map((column) => (
+                                    <label key={column.key} className="checkbox-row access-group-child">
+                                      <input
+                                        type="checkbox"
+                                        checked={accessProfileForm.recipePanelAccess.preparoServiceItemColumns[column.key]}
+                                        onChange={(event) =>
+                                          updateAccessProfileRecipePanelVisibilityGroup('preparoServiceItemColumns', column.key, event.target.checked)
+                                        }
+                                      />
+                                      <span>{column.label}</span>
+                                    </label>
+                                  ))}
+                                </div>
+                              </>
+                            ) : null}
+                            {accessProfileForm.recipePanelAccess.showExecucaoTab ? (
+                              <>
+                                <div className="access-group-subtitle">Execucao: informacoes do cabecalho</div>
+                                <div className="access-group-children">
+                                  {recipeExecutionHeroFieldDefinitions.map((field) => (
+                                    <label key={field.key} className="checkbox-row access-group-child">
+                                      <input
+                                        type="checkbox"
+                                        checked={accessProfileForm.recipePanelAccess.executionHeroFields[field.key]}
+                                        onChange={(event) =>
+                                          updateAccessProfileRecipePanelVisibilityGroup('executionHeroFields', field.key, event.target.checked)
+                                        }
+                                      />
+                                      <span>{field.label}</span>
+                                    </label>
+                                  ))}
+                                </div>
+                                <div className="access-group-subtitle">Execucao: colunas de insumos</div>
+                                <div className="access-group-children">
+                                  {recipeExecutionIngredientColumnDefinitions.map((column) => (
+                                    <label key={column.key} className="checkbox-row access-group-child">
+                                      <input
+                                        type="checkbox"
+                                        checked={accessProfileForm.recipePanelAccess.executionIngredientColumns[column.key]}
+                                        onChange={(event) =>
+                                          updateAccessProfileRecipePanelVisibilityGroup('executionIngredientColumns', column.key, event.target.checked)
+                                        }
+                                      />
+                                      <span>{column.label}</span>
+                                    </label>
+                                  ))}
+                                </div>
+                                <div className="access-group-subtitle">Execucao: colunas de guarnicoes</div>
+                                <div className="access-group-children">
+                                  {recipeExecutionGarnishColumnDefinitions.map((column) => (
+                                    <label key={column.key} className="checkbox-row access-group-child">
+                                      <input
+                                        type="checkbox"
+                                        checked={accessProfileForm.recipePanelAccess.executionGarnishColumns[column.key]}
+                                        onChange={(event) =>
+                                          updateAccessProfileRecipePanelVisibilityGroup('executionGarnishColumns', column.key, event.target.checked)
+                                        }
+                                      />
+                                      <span>{column.label}</span>
+                                    </label>
+                                  ))}
+                                </div>
+                                <div className="access-group-subtitle">Execucao: colunas de recipientes</div>
+                                <div className="access-group-children">
+                                  {recipeExecutionServiceItemColumnDefinitions.map((column) => (
+                                    <label key={column.key} className="checkbox-row access-group-child">
+                                      <input
+                                        type="checkbox"
+                                        checked={accessProfileForm.recipePanelAccess.executionServiceItemColumns[column.key]}
+                                        onChange={(event) =>
+                                          updateAccessProfileRecipePanelVisibilityGroup('executionServiceItemColumns', column.key, event.target.checked)
+                                        }
+                                      />
+                                      <span>{column.label}</span>
+                                    </label>
+                                  ))}
+                                </div>
+                              </>
                             ) : null}
                           </div>
                         ) : null}

@@ -932,6 +932,15 @@ h3 {
   background: rgba(248, 251, 255, 0.82);
 }
 
+.access-group-subtitle {
+  margin-top: 4px;
+  color: rgba(20, 33, 61, 0.66);
+  font-size: 0.78rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
 .access-group-title {
   display: grid;
   grid-template-columns: 18px minmax(0, 1fr);
@@ -1715,6 +1724,11 @@ h3 {
   gap: 12px;
   align-content: start;
   min-width: 0;
+}
+
+.recipe-hero-preserve-desktop {
+  visibility: hidden;
+  pointer-events: none;
 }
 
 .receituario-hero-media {
@@ -3798,6 +3812,10 @@ h3 {
   .receituario-hero-copy .field span,
   .receituario-hero-copy .receituario-metric-card span {
     min-height: 0;
+  }
+
+  .receituario-content .recipe-hero-preserve-desktop {
+    display: none !important;
   }
 }
 
