@@ -32597,11 +32597,10 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
   function buildTechnicalSheetExportFileSegment(value: string) {
     return (
       value
-        .normalize('NFD')
-        .replace(/[\u0300-\u036f]/g, '')
-        .replace(/[^A-Z0-9]+/gi, '-')
-        .replace(/^-+|-+$/g, '')
-        .toUpperCase() || 'ARQUIVO'
+        .replace(/[<>:"/\\|?*\u0000-\u001F]+/g, '-')
+        .replace(/\s+/g, ' ')
+        .replace(/-+/g, '-')
+        .replace(/^[\s.]+|[\s.]+$/g, '') || 'Arquivo'
     )
   }
 
@@ -32618,13 +32617,14 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
     extension: 'pdf' | 'xlsx',
   ) {
     const exportDateLabel = buildTechnicalSheetExportDateSegment()
+    const companyLabel = buildTechnicalSheetExportFileSegment(currentCompany?.tradeName || 'Empresa')
+
     if (technicalSheets.length === 1) {
       const sheetLabel = buildTechnicalSheetExportFileSegment(technicalSheets[0].sheet.name)
-      return `${sheetLabel}-${exportDateLabel}.${extension}`
+      return `${sheetLabel} - ${companyLabel} - ${exportDateLabel}.${extension}`
     }
 
-    const companyLabel = buildTechnicalSheetExportFileSegment(currentCompany?.tradeName || 'EMPRESA')
-    return `${companyLabel}-${exportDateLabel}.${extension}`
+    return `Fichas tecnicas - ${companyLabel} - ${exportDateLabel}.${extension}`
   }
 
   function buildTechnicalSheetExportSheetName(value: string) {
@@ -33374,19 +33374,20 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
   function buildRecipeExportFileName(
     tab: RecipePanelTab,
     scope: RecipeExportState['scope'],
+    recipes: RecipePanelComputedData[],
     extension: 'pdf' | 'xlsx',
   ) {
-    const companyLabel = currentCompany?.tradeName || 'EMPRESA'
-    const normalizedCompanyLabel = companyLabel
-      .normalize('NFD')
-      .replace(/[\u0300-\u036f]/g, '')
-      .replace(/[^A-Z0-9]+/gi, '-')
-      .replace(/^-+|-+$/g, '')
-      .toUpperCase()
-    const tabLabel = tab === 'PREPARO' ? 'PRE-PREPAROS' : 'EXECUCAO'
-    const scopeLabel = scope === 'current' ? 'FICHA-ATUAL' : 'TODAS-AS-FICHAS'
+    const exportDateLabel = buildTechnicalSheetExportDateSegment()
+    const companyLabel = buildTechnicalSheetExportFileSegment(currentCompany?.tradeName || 'Empresa')
 
-    return `RECEITUARIOS-${tabLabel}-${scopeLabel}-${normalizedCompanyLabel || 'EMPRESA'}.${extension}`
+    if (recipes.length === 1) {
+      const sheetLabel = buildTechnicalSheetExportFileSegment(recipes[0].sheet.name)
+      return `${sheetLabel} - ${companyLabel} - ${exportDateLabel}.${extension}`
+    }
+
+    const tabLabel = tab === 'PREPARO' ? 'Pre-preparos' : 'Execucao'
+    const scopeLabel = scope === 'current' ? 'Ficha atual' : 'Todas as fichas'
+    return `Receituarios ${tabLabel} - ${scopeLabel} - ${companyLabel} - ${exportDateLabel}.${extension}`
   }
 
   function buildRecipeExportSheetName(value: string) {
@@ -33407,10 +33408,43 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
       .trim()
   }
 
+  function getRecipeExportSheetImageDataUrl(data: RecipePanelComputedData) {
+    if (data.sheet.kind !== 'EXECUCAO') {
+      return data.sheet.imageDataUrl
+    }
+
+    return technicalSheetImageCache[data.sheet.id] ?? data.sheet.imageDataUrl ?? ''
+  }
+
+  async function waitForRecipeExportImages(root: HTMLElement) {
+    const images = Array.from(root.querySelectorAll('img'))
+    await Promise.all(
+      images.map(
+        (image) =>
+          new Promise<void>((resolve) => {
+            if (image.complete && image.naturalWidth > 0) {
+              resolve()
+              return
+            }
+
+            const finish = () => {
+              image.removeEventListener('load', finish)
+              image.removeEventListener('error', finish)
+              resolve()
+            }
+
+            image.addEventListener('load', finish)
+            image.addEventListener('error', finish)
+          }),
+      ),
+    )
+  }
+
   function renderRecipeExportPreview(data: RecipePanelComputedData, tab: RecipePanelTab) {
     const preparationParts = buildPreparationModeMetricParts(data.sheet.preparationMode, data.ingredientMetrics)
     const generatedDescription =
       tab === 'EXECUCAO' ? buildTechnicalSheetGeneratedDescription(data.sheet, technicalSheets) : null
+    const sheetImageDataUrl = getRecipeExportSheetImageDataUrl(data)
 
     return (
       <article className="recipe-export-page" key={`${tab}-${data.sheet.id}`}>
@@ -33456,51 +33490,30 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                     </article>
                   </div>
 
-                  <div className="receituario-service-inline">
-                    <div className="section-heading">
-                      <div>
-                        <p className="kicker">Composicao de recipientes</p>
-                        <h3>Recipientes de servico</h3>
-                      </div>
-                    </div>
-                    {data.serviceItemMetrics.length > 0 ? (
-                      <div className="table-wrap receituario-service-inline-table">
-                        <table className="product-table">
-                          <thead>
-                            <tr>
-                              <th>Recipiente</th>
-                              <th>Tamanho/capacidade</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {data.serviceItemMetrics.map((serviceItem) => (
-                              <tr key={serviceItem.id}>
-                                <td>
-                                  <div className="receituario-service-item-cell">
-                                    {serviceItem.imageDataUrl ? (
-                                      <img src={serviceItem.imageDataUrl} alt={serviceItem.label} className="receituario-service-item-image" />
-                                    ) : null}
-                                    <strong>{serviceItem.label}</strong>
-                                  </div>
-                                </td>
-                                <td>{serviceItem.sizeLabel || '-'}</td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      </div>
-                    ) : (
-                      <div className="empty-state empty-state-inline">
-                        <strong>Nenhum recipiente de servico cadastrado.</strong>
-                      </div>
-                    )}
+                  <div className="receituario-summary-grid receituario-summary-grid-metrics">
+                    <article className="receituario-metric-card">
+                      <span>Rendimento final</span>
+                      <strong>{formatDecimal(data.desiredYield)} {getTechnicalSheetYieldUnitLabel(data.sheet, technicalSheets, products)}</strong>
+                    </article>
+                    <article className="receituario-metric-card">
+                      <span>% alcool final</span>
+                      <strong>{formatDecimal(data.finalAlcoholPercentage)}%</strong>
+                    </article>
+                    <article className="receituario-metric-card">
+                      <span>CMV final</span>
+                      <strong>{formatDecimal(data.finalCmvPercentage)}%</strong>
+                    </article>
+                    <article className="receituario-metric-card">
+                      <span>Valor final de venda</span>
+                      <strong>R$ {formatMoney(data.finalSalePrice)}</strong>
+                    </article>
                   </div>
                 </div>
 
                 <aside className="receituario-hero-media receituario-hero-media-execucao" aria-label="Apresentacao visual do produto">
-                  <div className={data.sheet.imageDataUrl ? 'receituario-hero-image-frame' : 'receituario-hero-image-frame receituario-hero-image-frame-empty'}>
-                    {data.sheet.imageDataUrl ? (
-                      <img src={data.sheet.imageDataUrl} alt={`Foto de ${data.sheet.name}`} className="receituario-hero-image" />
+                  <div className={sheetImageDataUrl ? 'receituario-hero-image-frame' : 'receituario-hero-image-frame receituario-hero-image-frame-empty'}>
+                    {sheetImageDataUrl ? (
+                      <img src={sheetImageDataUrl} alt={`Foto de ${data.sheet.name}`} className="receituario-hero-image" />
                     ) : (
                       <div className="receituario-hero-image-placeholder">
                         <span>Foto do produto nao cadastrada.</span>
@@ -33562,6 +33575,48 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
             )}
           </div>
         </section>
+
+        {tab === 'EXECUCAO' ? (
+          <section className="inner-panel">
+            <div className="section-heading">
+              <div>
+                <p className="kicker">Composicao de recipientes</p>
+                <h2>Recipientes de servico</h2>
+              </div>
+            </div>
+            {data.serviceItemMetrics.length > 0 ? (
+              <div className="table-wrap receituario-service-inline-table">
+                <table className="product-table">
+                  <thead>
+                    <tr>
+                      <th>Recipiente</th>
+                      <th>Tamanho/capacidade</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {data.serviceItemMetrics.map((serviceItem) => (
+                      <tr key={serviceItem.id}>
+                        <td>
+                          <div className="receituario-service-item-cell">
+                            {serviceItem.imageDataUrl ? (
+                              <img src={serviceItem.imageDataUrl} alt={`Foto de ${serviceItem.label}`} className="receituario-service-item-image" />
+                            ) : null}
+                            <strong>{serviceItem.label}</strong>
+                          </div>
+                        </td>
+                        <td>{serviceItem.sizeLabel || '-'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <div className="empty-state empty-state-inline">
+                <strong>Nenhum recipiente de servico cadastrado.</strong>
+              </div>
+            )}
+          </section>
+        ) : null}
 
         <section className="inner-panel">
           <div className="section-heading">
@@ -33750,10 +33805,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                 </div>
               </div>
               {data.garnishMetrics.length > 0 ? (
-                <div
-                  className="table-wrap stock-report-table-wrap"
-                  onScroll={(event) => setStockReportScrollTop(event.currentTarget.scrollTop)}
-                >
+                <div className="table-wrap">
                   <table className="product-table">
                     <thead>
                       <tr>
@@ -33875,20 +33927,6 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
               <p className="recipe-copy-block">{data.sheet.storytelling || 'Storytelling nao informado.'}</p>
             </section>
 
-            <section className="inner-panel">
-              <div className="section-heading">
-                <div>
-                  <p className="kicker">Resumo</p>
-                  <h2>Dados tecnicos</h2>
-                </div>
-              </div>
-              <div className="receituario-summary-grid receituario-summary-grid-metrics">
-                <article className="receituario-metric-card"><span>Rendimento final</span><strong>{formatDecimal(data.desiredYield)} {getTechnicalSheetYieldUnitLabel(data.sheet, technicalSheets, products)}</strong></article>
-                <article className="receituario-metric-card"><span>% alcool final</span><strong>{formatDecimal(data.finalAlcoholPercentage)}%</strong></article>
-                <article className="receituario-metric-card"><span>CMV final</span><strong>{formatDecimal(data.finalCmvPercentage)}%</strong></article>
-                <article className="receituario-metric-card"><span>Valor final de venda</span><strong>R$ {formatMoney(data.finalSalePrice)}</strong></article>
-              </div>
-            </section>
           </>
         )}
       </article>
@@ -34101,7 +34139,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
         xlsxModule.utils.book_append_sheet(workbook, worksheet, buildRecipeExportSheetName(`${index + 1}-${data.sheet.name}`))
       })
 
-      xlsxModule.writeFile(workbook, buildRecipeExportFileName(recipePanelTab, recipeExportState.scope, 'xlsx'))
+      xlsxModule.writeFile(workbook, buildRecipeExportFileName(recipePanelTab, recipeExportState.scope, exportedRecipes, 'xlsx'))
     } else {
       setRecipeExportState(null)
       setRecipeExportRenderState({
@@ -34148,6 +34186,8 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
           throw new Error('nenhuma pagina para exportar')
         }
 
+        await waitForRecipeExportImages(container)
+
         const doc = new jsPDF({
           orientation: 'portrait',
           unit: 'pt',
@@ -34160,6 +34200,8 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
         const targetWidth = pdfWidth - margin * 2
         const targetHeight = pdfHeight - margin * 2
 
+        let hasWrittenPdfPage = false
+
         for (let pageIndex = 0; pageIndex < pages.length; pageIndex += 1) {
           const page = pages[pageIndex]
           const canvas = await html2canvas(page, {
@@ -34169,26 +34211,47 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
             logging: false,
           })
 
-          const canvasScale = Math.min(targetWidth / canvas.width, targetHeight / canvas.height)
-          const renderedWidth = canvas.width * canvasScale
-          const renderedHeight = canvas.height * canvasScale
-          const offsetX = margin + (targetWidth - renderedWidth) / 2
-          const offsetY = margin
+          const canvasScale = targetWidth / canvas.width
+          const sourcePageHeight = Math.floor(targetHeight / canvasScale)
 
-          if (pageIndex > 0) {
-            doc.addPage()
+          for (let sourceY = 0; sourceY < canvas.height; sourceY += sourcePageHeight) {
+            const sliceHeight = Math.min(sourcePageHeight, canvas.height - sourceY)
+            const sliceCanvas = document.createElement('canvas')
+            sliceCanvas.width = canvas.width
+            sliceCanvas.height = sliceHeight
+            const sliceContext = sliceCanvas.getContext('2d')
+            if (!sliceContext) {
+              throw new Error('canvas indisponivel')
+            }
+
+            sliceContext.drawImage(
+              canvas,
+              0,
+              sourceY,
+              canvas.width,
+              sliceHeight,
+              0,
+              0,
+              canvas.width,
+              sliceHeight,
+            )
+
+            if (hasWrittenPdfPage) {
+              doc.addPage()
+            }
+
+            doc.addImage(
+              sliceCanvas.toDataURL('image/png'),
+              'PNG',
+              margin,
+              margin,
+              targetWidth,
+              sliceHeight * canvasScale,
+              undefined,
+              'FAST',
+            )
+            hasWrittenPdfPage = true
           }
-
-          doc.addImage(
-            canvas.toDataURL('image/png'),
-            'PNG',
-            offsetX,
-            offsetY,
-            renderedWidth,
-            renderedHeight,
-            undefined,
-            'FAST',
-          )
         }
 
         if (cancelled) {
@@ -34198,6 +34261,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
         const fileName = buildRecipeExportFileName(
           recipeExportRenderState.tab,
           recipeExportRenderState.scope,
+          recipeExportRenderState.recipes,
           'pdf',
         )
         doc.save(fileName)
@@ -43053,7 +43117,10 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
 
             {!stockReportNeedsCenterSelection && scopedStockReportRows.length > 0 ? (
               <>
-                <div className="table-wrap">
+                <div
+                  className="table-wrap stock-report-table-wrap"
+                  onScroll={(event) => setStockReportScrollTop(event.currentTarget.scrollTop)}
+                >
                   <table className="product-table">
                     <thead>
                       <tr>

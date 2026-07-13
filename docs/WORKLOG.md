@@ -204,11 +204,30 @@ Registrar um historico resumido do que foi feito, do que falhou e do que ficou p
 ### Pendencias abertas
 
 - Prioridade alta, baixo risco:
-  - atualizar [`scripts/sync-online-api-to-local.mjs`](/home/leomassoni/Documentos/Igarapé/Projetos/TCC-SP/gestor-estoque/scripts/sync-online-api-to-local.mjs) para sincronizar tambem `waste-sessions` e `waste-records`
   - mitigar a importacao XLSX atual com limites de tamanho, abas, linhas, colunas e validacao estrita da estrutura esperada
+  - manter checklist de validacao de boot/carregamento inicial apos mudancas de performance
 - Prioridade alta, risco medio:
   - substituir a leitura de arquivos importados por alternativa mantida, preferencialmente `read-excel-file`
   - validar a migracao com imports reais antes de desativar o parser antigo
+  - continuar a modularizacao de [`src/App.tsx`](/home/leomassoni/Documentos/Igarapé/Projetos/TCC-SP/gestor-estoque/src/App.tsx) e o isolamento de calculos pesados em passos pequenos
 - Prioridade media, risco medio:
-  - continuar a modularizacao de [`src/App.tsx`](/home/leomassoni/Documentos/Igarapé/Projetos/TCC-SP/gestor-estoque/src/App.tsx) em passos pequenos
+  - revisar relatorios e listas grandes para paginacao, filtros no servidor e queries mais enxutas
   - remover completamente `xlsx` substituindo tambem as exportacoes por alternativa mantida, como `write-excel-file` ou outra biblioteca validada
+  - virtualizar apenas novas tabelas grandes ou tabelas remanescentes em que a lentidao seja confirmada em uso real
+  - revisar polling por secao quando novos modulos forem criados, preservando carga inicial unica dos dados essenciais
+
+## 2026-07-13
+
+### Revisao do `a fazer`
+
+- A lista de prioridades foi revisada contra o estado atual do codigo.
+- Removida a pendencia de sync local de `waste-sessions` e `waste-records`, pois [`scripts/sync-online-api-to-local.mjs`](/home/leomassoni/Documentos/Igarapé/Projetos/TCC-SP/gestor-estoque/scripts/sync-online-api-to-local.mjs) ja cobre esses endpoints.
+- A frente de performance de baixo risco foi reclassificada como acompanhamento:
+  - `setState` redundante
+  - polling por aba visivel/secao ativa
+  - lazy load de dependencias pesadas
+  - virtualizacao de tabelas grandes principais
+- Mantidas como prioridades reais:
+  - mitigar/substituir `xlsx`
+  - modularizar [`src/App.tsx`](/home/leomassoni/Documentos/Igarapé/Projetos/TCC-SP/gestor-estoque/src/App.tsx) e isolar calculos pesados em passos pequenos
+  - medir storage antes de migracoes de infraestrutura

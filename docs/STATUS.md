@@ -194,13 +194,17 @@ Registrar em que pe o sistema esta hoje, por area, para consulta rapida antes de
   - operacao continua separada por empresa
 - A fazer, por prioridade:
   - prioridade alta, baixo risco:
-    - atualizar o sync local para cobrir tambem `waste-sessions` e `waste-records`
     - mitigar imediatamente a importacao XLSX atual:
       - limitar tamanho maximo do arquivo
       - limitar quantidade de abas, linhas e colunas
       - rejeitar estrutura inesperada antes de processar
       - processar apenas os campos esperados
       - tratar arquivo importado como entrada nao confiavel
+    - manter checklist de validacao de boot/carregamento inicial apos mudancas de performance:
+      - login
+      - escolha de empresa
+      - abertura de `Receituarios`, `Cadastros`, `Estoque`, `Importar vendas` e `Relatorios`
+      - refresh de pagina em secao protegida
     - medir o que mais consome storage hoje:
       - snapshot global
       - imagens
@@ -209,35 +213,27 @@ Registrar em que pe o sistema esta hoje, por area, para consulta rapida antes de
     - substituir a leitura de arquivos importados por alternativa mantida, preferencialmente `read-excel-file`
     - manter exportacoes com `xlsx` apenas temporariamente, enquanto a leitura de usuario deixa de depender dele
     - validar a migracao com imports reais de vendas antes de remover o parser antigo
+    - continuar quebrando [`src/App.tsx`](/home/leomassoni/Documentos/Igarapé/Projetos/TCC-SP/gestor-estoque/src/App.tsx) e isolando calculos pesados em passos pequenos, sempre com build e teste de fluxo antes de avançar
   - prioridade media, risco medio:
-    - continuar quebrando [`src/App.tsx`](/home/leomassoni/Documentos/Igarapé/Projetos/TCC-SP/gestor-estoque/src/App.tsx) em componentes menores
     - revisar relatorios e listas grandes para paginacao, filtros no servidor e queries mais enxutas
     - remover completamente `xlsx` substituindo tambem exportacoes por alternativa mantida, como `write-excel-file` ou outra biblioteca validada
+    - virtualizar apenas novas tabelas grandes ou tabelas remanescentes em que a lentidao seja confirmada em uso real
+    - revisar polling por secao quando novos modulos forem criados, preservando carga inicial unica dos dados essenciais
     - desenhar um construtor de relatorios customizados com filtros, colunas, agrupamentos e exportacao
   - prioridade media/baixa, depende de desenho:
     - definir estrategia futura de integracao com dados de venda externos
     - montar e executar um plano de migracao `Render DB -> Neon` e `imagens -> Cloudflare R2`, sem quebrar o ambiente online
     - tirar imagens do banco/snapshot e guardar apenas URL do objeto
-- Abrir uma frente dedicada de performance do webapp, em camadas:
-  - prioridade alta, baixo risco:
-    - evitar `setState` redundante nos refreshes por API
-    - carregar/pollar dados por tela ativa, em vez de manter polling global de todos os modulos
-    - aplicar `code splitting` nas telas e blocos pesados
-    - virtualizar tabelas e listas muito grandes
-  - prioridade media, risco medio:
-    - quebrar [`src/App.tsx`](/home/leomassoni/Documentos/Igarapé/Projetos/TCC-SP/gestor-estoque/src/App.tsx) em modulos por dominio
-    - tirar calculos pesados do fluxo global de renderizacao
-    - mover relatorios grandes para consultas e agregacoes mais dirigidas
-    - revisar endpoints que hoje devolvem listas completas sem paginacao
-  - evitar por enquanto, risco alto:
-    - reescrever o modelo de sincronizacao entre frontend e backend
-    - trocar de uma vez o modelo local-first / polling sem plano de transicao
-  - criterio de seguranca:
-    - priorizar mudancas que nao alterem persistencia nem concorrencia entre usuarios
-    - deixar mudancas de sincronizacao por ultimo, por maior risco de regressao e perda de dados
-- Avaliar `acoes em lote` no historico de `Importar vendas`:
-  - lancar saida para multiplos lotes `READY_TO_POST`
-  - cancelar multiplos lotes analiticos/pendentes
-  - reprocessar multiplos lotes
-  - exportar inconsistencias de multiplos lotes
+- Performance de baixo risco ja aplicada e deve virar acompanhamento, nao frente aberta generica:
+  - evitar `setState` redundante nos refreshes por API
+  - pausar polling com aba oculta
+  - carregar/pollar dados por tela ativa
+  - aplicar `lazy load` em dependencias pesadas de PDF, XLSX e editor
+  - virtualizar tabelas grandes em imports, relatorios, requisicoes, suprimentos, recebimentos e entrada de producoes
+- Avaliar `acoes em lote` no historico de `Importar vendas` como refinamento, nao como prioridade imediata:
+  - reprocessar multiplos lotes ja possui selecao em lote para lotes reprocessaveis
+  - ainda podem virar melhoria futura:
+    - lancar saida para multiplos lotes `READY_TO_POST`
+    - cancelar multiplos lotes analiticos/pendentes
+    - exportar inconsistencias de multiplos lotes
 - Manter este arquivo atualizado sempre que uma decisao mudar o estado real do sistema.

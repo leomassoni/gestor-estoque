@@ -2077,6 +2077,48 @@ h3 {
   width: 1132px;
 }
 
+.recipe-export-stage .recipe-export-page {
+  gap: 12px;
+}
+
+.recipe-export-stage .inner-panel {
+  padding: 18px;
+}
+
+.recipe-export-stage .table-wrap {
+  margin-top: 10px;
+  overflow: visible;
+  content-visibility: visible;
+  contain-intrinsic-size: auto;
+}
+
+.recipe-export-stage .table-wrap::after {
+  display: none;
+}
+
+.recipe-export-stage .product-table {
+  min-width: 0;
+}
+
+.recipe-export-stage .receituario-hero {
+  grid-template-columns: minmax(0, 1.55fr) minmax(280px, 0.95fr);
+  align-items: start;
+}
+
+.recipe-export-stage .receituario-hero-media {
+  align-self: start;
+}
+
+.recipe-export-stage .receituario-hero-image-frame {
+  width: min(100%, 360px);
+  height: auto;
+  max-height: none;
+}
+
+.recipe-export-stage .recipe-copy-block {
+  padding: 12px 14px;
+}
+
 .field {
   display: flex;
   flex-direction: column;
