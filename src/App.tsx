@@ -140,6 +140,8 @@ import type {
   Session,
   CompanyRecord,
   PackageForm,
+  PackageReferenceCode,
+  PackageReferenceCodeType,
   ProductRecord,
   TechnicalSheetYieldDifferenceDestination,
   ServiceItemRecord,
@@ -1499,6 +1501,10 @@ const initialProducts: ProductRecord[] = [
     packages: [
       {
         id: 1,
+        companyPackageId: 'BEB-001.EMB-001',
+        referenceCodes: [
+          { id: 1, code: '7894900011517', source: 'FABRICANTE', type: 'EAN', isActive: true },
+        ],
         internalCode: buildPackageInternalCode(1),
         barcode: '7894900011517',
         packageQuantity: '200',
@@ -1511,6 +1517,10 @@ const initialProducts: ProductRecord[] = [
       },
       {
         id: 2,
+        companyPackageId: 'BEB-001.EMB-002',
+        referenceCodes: [
+          { id: 2, code: '7894900010015', source: 'FABRICANTE', type: 'EAN', isActive: true },
+        ],
         internalCode: buildPackageInternalCode(2),
         barcode: '7894900010015',
         packageQuantity: '2000',
@@ -1541,6 +1551,10 @@ const initialProducts: ProductRecord[] = [
     packages: [
       {
         id: 3,
+        companyPackageId: 'BEB-014.EMB-001',
+        referenceCodes: [
+          { id: 3, code: '8410221111111', source: 'FABRICANTE', type: 'EAN', isActive: true },
+        ],
         internalCode: buildPackageInternalCode(1),
         barcode: '8410221111111',
         packageQuantity: '700',
@@ -1673,6 +1687,8 @@ const emptyServiceItemForm = (): ServiceItemFormState => ({
 
 const emptyPackage = (): PackageForm => ({
   id: Date.now(),
+  companyPackageId: '',
+  referenceCodes: [],
   internalCode: '',
   barcode: '',
   packageQuantity: '',
@@ -2071,6 +2087,38 @@ function buildPackageDiscardSnapshot(state: {
   context: PackageEditorContext
 }) {
   return JSON.stringify(state)
+}
+
+const packageReferenceCodeTypeOptions: Array<{ value: PackageReferenceCodeType; label: string }> = [
+  { value: 'EAN', label: 'EAN' },
+  { value: 'FORNECEDOR', label: 'Fornecedor' },
+  { value: 'NOTA', label: 'Nota' },
+  { value: 'INTERNO', label: 'Interno' },
+  { value: 'OUTRO', label: 'Outro' },
+]
+
+function buildPackageReferenceCodeId(codes: PackageReferenceCode[]) {
+  const maxId = codes.reduce((max, item) => Math.max(max, item.id), 0)
+  return maxId + 1
+}
+
+function buildEmptyPackageReferenceCode(codes: PackageReferenceCode[] = []): PackageReferenceCode {
+  return {
+    id: buildPackageReferenceCodeId(codes),
+    code: '',
+    source: '',
+    type: 'OUTRO',
+    isActive: true,
+  }
+}
+
+function buildPackageReferenceCodeLabel(code: PackageReferenceCode) {
+  const parts = [code.code, code.type !== 'OUTRO' ? code.type : '', code.source].filter(Boolean)
+  return parts.join(' • ')
+}
+
+function getActivePackageReferenceCodes(packageForm: PackageForm) {
+  return packageForm.referenceCodes.filter((code) => code.isActive && normalizeRegistrationText(code.code) !== '')
 }
 
 function buildEntitySignatureMap<T, K extends string | number>(
@@ -33129,6 +33177,12 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
     setPackageEditorContext(context)
     const nextDraftPackage = {
       ...emptyPackage(),
+      companyPackageId:
+        context === 'product'
+          ? buildCompanyPackageId(productForm.companyProductId, nextCode)
+          : context === 'serviceItem'
+          ? buildCompanyPackageId(serviceItemForm.companyProductId, nextCode)
+          : '',
       internalCode: nextCode,
       packageUnit:
         context === 'technicalSheet'
@@ -33159,11 +33213,19 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
   function openEditPackageModal(item: PackageForm, context: PackageEditorContext = 'product') {
     setEditingPackageId(item.id)
     setPackageEditorContext(context)
-    setDraftPackage({ ...item })
+    setDraftPackage({
+      ...emptyPackage(),
+      ...item,
+      companyPackageId: item.companyPackageId ?? '',
+    })
     setIsPackageModalOpen(true)
     setPackageDiscardBaseline(
       buildPackageDiscardSnapshot({
-        draft: { ...item },
+        draft: {
+          ...emptyPackage(),
+          ...item,
+          companyPackageId: item.companyPackageId ?? '',
+        },
         editingId: item.id,
         context,
       }),
@@ -33171,10 +33233,111 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
   }
 
   function updateDraftPackage<K extends keyof PackageForm>(field: K, value: PackageForm[K]) {
+    if (field === 'companyPackageId' || field === 'internalCode') {
+      setDraftPackage((current) => ({
+        ...current,
+        [field]: normalizeRegistrationText(String(value)) as PackageForm[K],
+      }))
+      return
+    }
+
     setDraftPackage((current) => ({ ...current, [field]: value }))
   }
 
+  function addDraftPackageReferenceCode() {
+    setDraftPackage((current) => ({
+      ...current,
+      referenceCodes: [...current.referenceCodes, buildEmptyPackageReferenceCode(current.referenceCodes)],
+    }))
+  }
+
+  function updateDraftPackageReferenceCode<K extends keyof PackageReferenceCode>(
+    referenceCodeId: number,
+    field: K,
+    value: PackageReferenceCode[K],
+  ) {
+    setDraftPackage((current) => ({
+      ...current,
+      referenceCodes: current.referenceCodes.map((entry) =>
+        entry.id !== referenceCodeId
+          ? entry
+          : {
+              ...entry,
+              [field]:
+                field === 'code' || field === 'source'
+                  ? normalizeRegistrationText(String(value))
+                  : value,
+            },
+      ),
+    }))
+  }
+
+  function removeDraftPackageReferenceCode(referenceCodeId: number) {
+    setDraftPackage((current) => ({
+      ...current,
+      referenceCodes: current.referenceCodes.filter((entry) => entry.id !== referenceCodeId),
+    }))
+  }
+
   function savePackage() {
+    const sourcePackages =
+      packageEditorContext === 'technicalSheet' ? technicalSheetPackages : packageEditorContext === 'serviceItem' ? serviceItemPackages : packages
+    const normalizedCompanyPackageId = normalizeRegistrationText(draftPackage.companyPackageId.trim())
+    const normalizedReferenceCodes = draftPackage.referenceCodes
+      .map((entry) => ({
+        id: entry.id,
+        code: normalizeRegistrationText(entry.code.trim()),
+        source: normalizeRegistrationText(entry.source.trim()),
+        type: entry.type,
+        isActive: entry.isActive,
+      }))
+      .filter((entry) => entry.code !== '')
+
+    const referenceCodeSet = new Set<string>()
+    for (const entry of normalizedReferenceCodes) {
+      if (referenceCodeSet.has(entry.code)) {
+        setSaveFeedback({
+          status: 'error',
+          title: 'Falha ao salvar embalagem',
+          message: `O codigo de referencia ${entry.code} esta repetido na mesma embalagem.`,
+        })
+        return
+      }
+      referenceCodeSet.add(entry.code)
+    }
+
+    const duplicatePackage = sourcePackages.find(
+      (item) =>
+        item.id !== editingPackageId &&
+        normalizeRegistrationText(item.companyPackageId || '') === normalizedCompanyPackageId &&
+        normalizedCompanyPackageId !== '',
+    )
+
+    if (duplicatePackage) {
+      setSaveFeedback({
+        status: 'error',
+        title: 'Falha ao salvar embalagem',
+        message: `Ja existe uma embalagem cadastrada com o codigo interno ${normalizedCompanyPackageId}.`,
+      })
+      return
+    }
+
+    const siblingReferenceCodes = sourcePackages
+      .filter((item) => item.id !== editingPackageId)
+      .flatMap((item) => item.referenceCodes ?? [])
+      .map((entry) => normalizeRegistrationText(entry.code || ''))
+      .filter(Boolean)
+
+    const duplicateSiblingReferenceCode = normalizedReferenceCodes.find((entry) => siblingReferenceCodes.includes(entry.code))
+    if (duplicateSiblingReferenceCode) {
+      setSaveFeedback({
+        status: 'error',
+        title: 'Falha ao salvar embalagem',
+        message: `O codigo de referencia ${duplicateSiblingReferenceCode.code} ja esta vinculado a outra embalagem deste cadastro.`,
+      })
+      return
+    }
+
     const technicalSheetGrossWeight =
       packageEditorContext === 'technicalSheet'
         ? resolveTechnicalSheetPackageGrossWeight(
@@ -33206,6 +33369,8 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
       editingPackageId === null
         ? {
             ...draftPackage,
+            companyPackageId: normalizedCompanyPackageId,
+            referenceCodes: normalizedReferenceCodes,
             grossWeightGrams: resolvedGrossWeightGrams,
             packagingWeightGrams,
             purchasePrice: packageEditorContext === 'technicalSheet' ? '' : draftPackage.purchasePrice,
@@ -33214,6 +33379,8 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
         : {
             ...draftPackage,
             id: editingPackageId,
+            companyPackageId: normalizedCompanyPackageId,
+            referenceCodes: normalizedReferenceCodes,
             grossWeightGrams: resolvedGrossWeightGrams,
             packagingWeightGrams,
             purchasePrice: packageEditorContext === 'technicalSheet' ? '' : draftPackage.purchasePrice,
@@ -35518,6 +35685,14 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
 
                     <div className="package-summary">
                       <div>
+                        <span>Codigo interno opcional</span>
+                        <strong>{item.companyPackageId || 'Nao informado'}</strong>
+                      </div>
+                      <div>
+                        <span>Codigos de referencia</span>
+                        <strong>{getActivePackageReferenceCodes(item).length > 0 ? getActivePackageReferenceCodes(item).map(buildPackageReferenceCodeLabel).slice(0, 2).join(' | ') : 'Nao informados'}</strong>
+                      </div>
+                      <div>
                         <span>Sub-ID interno</span>
                         <strong>{item.internalCode}</strong>
                       </div>
@@ -35908,6 +36083,14 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                       </div>
                     </div>
                     <div className="package-summary">
+                      <div>
+                        <span>Codigo interno opcional</span>
+                        <strong>{item.companyPackageId || 'Nao informado'}</strong>
+                      </div>
+                      <div>
+                        <span>Codigos de referencia</span>
+                        <strong>{getActivePackageReferenceCodes(item).length > 0 ? getActivePackageReferenceCodes(item).map(buildPackageReferenceCodeLabel).slice(0, 2).join(' | ') : 'Nao informados'}</strong>
+                      </div>
                       <div>
                         <span>Sub-ID interno</span>
                         <strong>{item.internalCode}</strong>
@@ -43367,6 +43550,17 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                 <input value={draftPackage.internalCode} disabled />
               </label>
 
+              {packageEditorContext !== 'technicalSheet' ? (
+                <label className="field">
+                  <span>Codigo interno opcional</span>
+                  <input
+                    value={draftPackage.companyPackageId}
+                    onChange={(event) => updateDraftPackage('companyPackageId', event.target.value)}
+                    placeholder="Ex.: BEB-001.EMB-001"
+                  />
+                </label>
+              ) : null}
+
               <label className="field">
                 <span>Quantidade da embalagem</span>
                 <input
@@ -43407,6 +43601,73 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                     placeholder="Opcional"
                   />
                 </label>
+              ) : null}
+
+              {packageEditorContext !== 'technicalSheet' ? (
+                <div className="field field-span-all package-reference-editor">
+                  <div className="section-heading section-heading-compact">
+                    <div>
+                      <span>Codigos de referencia</span>
+                      <p className="compact-feedback">Cadastre quantos codigos forem necessarios para reconhecer esta embalagem em fornecedores e documentos diferentes.</p>
+                    </div>
+                    <button className="ghost-button" type="button" onClick={addDraftPackageReferenceCode}>
+                      Adicionar codigo
+                    </button>
+                  </div>
+                  {draftPackage.referenceCodes.length > 0 ? (
+                    <div className="package-reference-list">
+                      {draftPackage.referenceCodes.map((entry) => (
+                        <div className="package-reference-row" key={entry.id}>
+                          <label className="field">
+                            <span>Codigo</span>
+                            <input
+                              value={entry.code}
+                              onChange={(event) => updateDraftPackageReferenceCode(entry.id, 'code', event.target.value)}
+                              placeholder="Ex.: 7894900011517"
+                            />
+                          </label>
+                          <label className="field">
+                            <span>Origem</span>
+                            <input
+                              value={entry.source}
+                              onChange={(event) => updateDraftPackageReferenceCode(entry.id, 'source', event.target.value)}
+                              placeholder="Ex.: FABRICANTE"
+                            />
+                          </label>
+                          <label className="field">
+                            <span>Tipo</span>
+                            <select
+                              value={entry.type}
+                              onChange={(event) => updateDraftPackageReferenceCode(entry.id, 'type', event.target.value as PackageReferenceCodeType)}
+                            >
+                              {packageReferenceCodeTypeOptions.map((option) => (
+                                <option key={option.value} value={option.value}>
+                                  {option.label}
+                                </option>
+                              ))}
+                            </select>
+                          </label>
+                          <label className="field field-checkbox-inline package-reference-active">
+                            <input
+                              type="checkbox"
+                              checked={entry.isActive}
+                              onChange={(event) => updateDraftPackageReferenceCode(entry.id, 'isActive', event.target.checked)}
+                            />
+                            <span>Ativo</span>
+                          </label>
+                          <button className="ghost-button danger-text-button package-reference-remove" type="button" onClick={() => removeDraftPackageReferenceCode(entry.id)}>
+                            Remover
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="empty-state empty-state-inline">
+                      <strong>Nenhum codigo de referencia cadastrado.</strong>
+                      <p>Use este bloco quando a mesma embalagem puder chegar identificada por codigos diferentes.</p>
+                    </div>
+                  )}
+                </div>
               ) : null}
 
               {packageEditorContext === 'technicalSheet' ? (
@@ -43796,6 +44057,14 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                         </div>
                         <div className="package-summary">
                           <div>
+                            <span>Codigo interno opcional</span>
+                            <strong>{item.companyPackageId || 'Nao informado'}</strong>
+                          </div>
+                          <div>
+                            <span>Codigos de referencia</span>
+                            <strong>{getActivePackageReferenceCodes(item).length > 0 ? getActivePackageReferenceCodes(item).map(buildPackageReferenceCodeLabel).slice(0, 2).join(' | ') : 'Nao informados'}</strong>
+                          </div>
+                          <div>
                             <span>Valor de compra</span>
                             <strong>R$ {item.purchasePrice || '0,00'}</strong>
                           </div>
@@ -44005,6 +44274,14 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                           </div>
                         </div>
                         <div className="package-summary">
+                          <div>
+                            <span>Codigo interno opcional</span>
+                            <strong>{item.companyPackageId || 'Nao informado'}</strong>
+                          </div>
+                          <div>
+                            <span>Codigos de referencia</span>
+                            <strong>{getActivePackageReferenceCodes(item).length > 0 ? getActivePackageReferenceCodes(item).map(buildPackageReferenceCodeLabel).slice(0, 2).join(' | ') : 'Nao informados'}</strong>
+                          </div>
                           <div>
                             <span>Valor de compra</span>
                             <strong>R$ {item.purchasePrice || '0,00'}</strong>
@@ -53767,6 +54044,33 @@ function normalizePackageForm(value: unknown): PackageForm | null {
 
   return {
     id: item.id,
+    companyPackageId: typeof item.companyPackageId === 'string' ? normalizeRegistrationText(item.companyPackageId) : '',
+    referenceCodes: Array.isArray(item.referenceCodes)
+      ? item.referenceCodes
+          .filter((entry): entry is PackageReferenceCode => {
+            return (
+              Boolean(entry) &&
+              typeof entry === 'object' &&
+              typeof entry.id === 'number' &&
+              typeof entry.code === 'string'
+            )
+          })
+          .map((entry) => ({
+            id: entry.id,
+            code: normalizeRegistrationText(entry.code),
+            source: typeof entry.source === 'string' ? normalizeRegistrationText(entry.source) : '',
+            type:
+              entry.type === 'EAN' ||
+              entry.type === 'FORNECEDOR' ||
+              entry.type === 'NOTA' ||
+              entry.type === 'INTERNO' ||
+              entry.type === 'OUTRO'
+                ? entry.type
+                : 'OUTRO',
+            isActive: entry.isActive !== false,
+          }))
+          .filter((entry) => entry.code !== '')
+      : [],
     internalCode: normalizeRegistrationText(item.internalCode),
     barcode: item.barcode,
     packageQuantity: item.packageQuantity,
@@ -53826,6 +54130,17 @@ function buildServiceItemId(name: string, kind: ServiceItemKind) {
 
 function buildPackageInternalCode(sequence: number) {
   return `EMB-${String(sequence).padStart(3, '0')}`
+}
+
+function buildCompanyPackageId(baseCompanyProductId: string, internalCode: string) {
+  const normalizedBaseCompanyProductId = normalizeRegistrationText(baseCompanyProductId)
+  const normalizedInternalCode = normalizeRegistrationText(internalCode)
+
+  if (!normalizedBaseCompanyProductId || !normalizedInternalCode) {
+    return ''
+  }
+
+  return `${normalizedBaseCompanyProductId}.${normalizedInternalCode}`
 }
 
 function buildStockCenterCode(sequence: number) {

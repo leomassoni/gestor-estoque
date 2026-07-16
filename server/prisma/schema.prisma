@@ -196,6 +196,7 @@ model ProductSector {
 model ProductPackage {
   id                     String                 @id @default(cuid())
   productId              String
+  companyPackageId       String?
   internalCode           String
   label                  String?
   barcode                String?
@@ -210,13 +211,32 @@ model ProductPackage {
   createdAt              DateTime               @default(now())
   updatedAt              DateTime               @updatedAt
   product                Product                @relation(fields: [productId], references: [id], onDelete: Cascade)
+  referenceCodes         ProductPackageReferenceCode[]
   inventoryItems         InventoryItem[]
   stockMovements         StockMovement[]
 
   @@unique([productId, label])
   @@unique([productId, barcode])
+  @@unique([productId, companyPackageId])
   @@unique([productId, internalCode])
+  @@index([companyPackageId])
   @@index([productId, isDefault])
+}
+
+model ProductPackageReferenceCode {
+  id               String         @id @default(cuid())
+  productPackageId String
+  code             String
+  source           String?
+  type             String
+  isActive         Boolean        @default(true)
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
+  productPackage   ProductPackage @relation(fields: [productPackageId], references: [id], onDelete: Cascade)
+
+  @@index([productPackageId])
+  @@index([code])
+  @@unique([productPackageId, code])
 }
 
 model InventoryItem {

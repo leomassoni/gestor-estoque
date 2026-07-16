@@ -3343,6 +3343,10 @@ function normalizeProductPayload(value) {
     return null
   }
 
+  const normalizedPackages = product.packages
+    .map(normalizePackagePayload)
+    .filter((item) => item !== null)
+
   return {
     id: product.id,
     companyId: product.companyId,
@@ -3359,7 +3363,7 @@ function normalizeProductPayload(value) {
     ignoreStock: product.ignoreStock,
     isActive: product.isActive,
     technicalSheetId: typeof product.technicalSheetId === 'number' ? product.technicalSheetId : null,
-    packages: product.packages,
+    packages: normalizedPackages,
   }
 }
 
@@ -3390,6 +3394,10 @@ function normalizeServiceItemPayload(value) {
     return null
   }
 
+  const normalizedPackages = serviceItem.packages
+    .map(normalizePackagePayload)
+    .filter((item) => item !== null)
+
   return {
     id: serviceItem.id,
     companyId: serviceItem.companyId,
@@ -3406,7 +3414,64 @@ function normalizeServiceItemPayload(value) {
     sectors: serviceItem.sectors.filter((item) => typeof item === 'string'),
     imageDataUrl: serviceItem.imageDataUrl,
     isActive: serviceItem.isActive,
-    packages: serviceItem.packages,
+    packages: normalizedPackages,
+  }
+}
+
+function normalizePackagePayload(value) {
+  if (!value || typeof value !== 'object') {
+    return null
+  }
+
+  const item = value
+  if (
+    typeof item.id !== 'number' ||
+    typeof item.internalCode !== 'string' ||
+    typeof item.barcode !== 'string' ||
+    typeof item.packageQuantity !== 'string' ||
+    typeof item.packageUnit !== 'string' ||
+    typeof item.grossWeightGrams !== 'string' ||
+    typeof item.packagingWeightGrams !== 'string' ||
+    typeof item.purchasePrice !== 'string' ||
+    typeof item.openingQuantity !== 'string' ||
+    typeof item.isActive !== 'boolean'
+  ) {
+    return null
+  }
+
+  const normalizedReferenceCodes = Array.isArray(item.referenceCodes)
+    ? item.referenceCodes
+        .filter((entry) => Boolean(entry) && typeof entry === 'object' && typeof entry.id === 'number' && typeof entry.code === 'string')
+        .map((entry) => ({
+          id: entry.id,
+          code: normalizeRegistrationText(entry.code),
+          source: typeof entry.source === 'string' ? normalizeRegistrationText(entry.source) : '',
+          type:
+            entry.type === 'EAN' ||
+            entry.type === 'FORNECEDOR' ||
+            entry.type === 'NOTA' ||
+            entry.type === 'INTERNO' ||
+            entry.type === 'OUTRO'
+              ? entry.type
+              : 'OUTRO',
+          isActive: entry.isActive !== false,
+        }))
+        .filter((entry) => entry.code !== '')
+    : []
+
+  return {
+    id: item.id,
+    companyPackageId: typeof item.companyPackageId === 'string' ? normalizeRegistrationText(item.companyPackageId) : '',
+    referenceCodes: normalizedReferenceCodes,
+    internalCode: normalizeRegistrationText(item.internalCode),
+    barcode: item.barcode.trim(),
+    packageQuantity: item.packageQuantity.trim(),
+    packageUnit: item.packageUnit.trim(),
+    grossWeightGrams: item.grossWeightGrams.trim(),
+    packagingWeightGrams: item.packagingWeightGrams.trim(),
+    purchasePrice: item.purchasePrice.trim(),
+    openingQuantity: item.openingQuantity.trim(),
+    isActive: item.isActive,
   }
 }
 

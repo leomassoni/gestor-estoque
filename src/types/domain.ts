@@ -149,8 +149,20 @@ export type CompanyRecord = {
   linkedCompanyIds: number[]
 }
 
+export type PackageReferenceCodeType = 'EAN' | 'FORNECEDOR' | 'NOTA' | 'INTERNO' | 'OUTRO'
+
+export type PackageReferenceCode = {
+  id: number
+  code: string
+  source: string
+  type: PackageReferenceCodeType
+  isActive: boolean
+}
+
 export type PackageForm = {
   id: number
+  companyPackageId: string
+  referenceCodes: PackageReferenceCode[]
   internalCode: string
   barcode: string
   packageQuantity: string
