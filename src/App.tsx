@@ -43603,73 +43603,6 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                 </label>
               ) : null}
 
-              {packageEditorContext !== 'technicalSheet' ? (
-                <div className="field field-span-all package-reference-editor">
-                  <div className="section-heading section-heading-compact">
-                    <div>
-                      <span>Codigos de referencia</span>
-                      <p className="compact-feedback">Cadastre quantos codigos forem necessarios para reconhecer esta embalagem em fornecedores e documentos diferentes.</p>
-                    </div>
-                    <button className="ghost-button" type="button" onClick={addDraftPackageReferenceCode}>
-                      Adicionar codigo
-                    </button>
-                  </div>
-                  {draftPackage.referenceCodes.length > 0 ? (
-                    <div className="package-reference-list">
-                      {draftPackage.referenceCodes.map((entry) => (
-                        <div className="package-reference-row" key={entry.id}>
-                          <label className="field">
-                            <span>Codigo</span>
-                            <input
-                              value={entry.code}
-                              onChange={(event) => updateDraftPackageReferenceCode(entry.id, 'code', event.target.value)}
-                              placeholder="Ex.: 7894900011517"
-                            />
-                          </label>
-                          <label className="field">
-                            <span>Origem</span>
-                            <input
-                              value={entry.source}
-                              onChange={(event) => updateDraftPackageReferenceCode(entry.id, 'source', event.target.value)}
-                              placeholder="Ex.: FABRICANTE"
-                            />
-                          </label>
-                          <label className="field">
-                            <span>Tipo</span>
-                            <select
-                              value={entry.type}
-                              onChange={(event) => updateDraftPackageReferenceCode(entry.id, 'type', event.target.value as PackageReferenceCodeType)}
-                            >
-                              {packageReferenceCodeTypeOptions.map((option) => (
-                                <option key={option.value} value={option.value}>
-                                  {option.label}
-                                </option>
-                              ))}
-                            </select>
-                          </label>
-                          <label className="field field-checkbox-inline package-reference-active">
-                            <input
-                              type="checkbox"
-                              checked={entry.isActive}
-                              onChange={(event) => updateDraftPackageReferenceCode(entry.id, 'isActive', event.target.checked)}
-                            />
-                            <span>Ativo</span>
-                          </label>
-                          <button className="ghost-button danger-text-button package-reference-remove" type="button" onClick={() => removeDraftPackageReferenceCode(entry.id)}>
-                            Remover
-                          </button>
-                        </div>
-                      ))}
-                    </div>
-                  ) : (
-                    <div className="empty-state empty-state-inline">
-                      <strong>Nenhum codigo de referencia cadastrado.</strong>
-                      <p>Use este bloco quando a mesma embalagem puder chegar identificada por codigos diferentes.</p>
-                    </div>
-                  )}
-                </div>
-              ) : null}
-
               {packageEditorContext === 'technicalSheet' ? (
                 <>
                   <label className="field">
@@ -43747,6 +43680,73 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                   </label>
                 </>
               )}
+
+              {packageEditorContext !== 'technicalSheet' ? (
+                <div className="field field-span-all package-reference-editor">
+                  <div className="section-heading section-heading-compact">
+                    <div>
+                      <span>Codigos de referencia</span>
+                      <p className="compact-feedback">Cadastre quantos codigos forem necessarios para reconhecer esta embalagem em fornecedores e documentos diferentes.</p>
+                    </div>
+                    <button className="ghost-button" type="button" onClick={addDraftPackageReferenceCode}>
+                      Adicionar codigo
+                    </button>
+                  </div>
+                  {draftPackage.referenceCodes.length > 0 ? (
+                    <div className="package-reference-list">
+                      {draftPackage.referenceCodes.map((entry) => (
+                        <div className="package-reference-row" key={entry.id}>
+                          <label className="field">
+                            <span>Codigo</span>
+                            <input
+                              value={entry.code}
+                              onChange={(event) => updateDraftPackageReferenceCode(entry.id, 'code', event.target.value)}
+                              placeholder="Ex.: 7894900011517"
+                            />
+                          </label>
+                          <label className="field">
+                            <span>Origem</span>
+                            <input
+                              value={entry.source}
+                              onChange={(event) => updateDraftPackageReferenceCode(entry.id, 'source', event.target.value)}
+                              placeholder="Ex.: FABRICANTE"
+                            />
+                          </label>
+                          <label className="field">
+                            <span>Tipo</span>
+                            <select
+                              value={entry.type}
+                              onChange={(event) => updateDraftPackageReferenceCode(entry.id, 'type', event.target.value as PackageReferenceCodeType)}
+                            >
+                              {packageReferenceCodeTypeOptions.map((option) => (
+                                <option key={option.value} value={option.value}>
+                                  {option.label}
+                                </option>
+                              ))}
+                            </select>
+                          </label>
+                          <label className="field field-checkbox-inline package-reference-active">
+                            <input
+                              type="checkbox"
+                              checked={entry.isActive}
+                              onChange={(event) => updateDraftPackageReferenceCode(entry.id, 'isActive', event.target.checked)}
+                            />
+                            <span>Ativo</span>
+                          </label>
+                          <button className="ghost-button danger-text-button package-reference-remove" type="button" onClick={() => removeDraftPackageReferenceCode(entry.id)}>
+                            Remover
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="empty-state empty-state-inline">
+                      <strong>Nenhum codigo de referencia cadastrado.</strong>
+                      <p>Use este bloco quando a mesma embalagem puder chegar identificada por codigos diferentes.</p>
+                    </div>
+                  )}
+                </div>
+              ) : null}
 
             </div>
 
