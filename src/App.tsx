@@ -3642,7 +3642,7 @@ export default function App() {
     return (
       companyId !== null &&
       (getTechnicalSheetOwnerCompanyId(sheet) === companyId ||
-        (getTechnicalSheetSharedCompanyIds(sheet).includes(companyId) &&
+        (getTechnicalSheetExplicitSharedCompanyIds(sheet).includes(companyId) &&
           getCompanyLinkScopeIds(getTechnicalSheetOwnerCompanyId(sheet)).includes(companyId)))
     )
   }
@@ -28098,18 +28098,15 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
         ? baseSheets.map((sheet) => {
             const dependencyAddition = dependencySheetAdditions.find((item) => item.sheet.id === sheet.id)
             const dependencyRemoval = dependencySheetRemovals.find((item) => item.sheet.id === sheet.id)
-            let nextSharedCompanyIds = getTechnicalSheetSharedCompanyIds(sheet)
+            let nextSharedCompanyIds = getTechnicalSheetExplicitSharedCompanyIds(sheet)
             if (dependencyAddition && dependencyAddition.companyIdsToAdd.length > 0) {
               nextSharedCompanyIds = Array.from(new Set([...nextSharedCompanyIds, ...dependencyAddition.companyIdsToAdd]))
             }
             if (dependencyRemoval && selectedDependencyRemovalIds.has(sheet.id)) {
-              nextSharedCompanyIds = nextSharedCompanyIds.filter(
-                (companyId) =>
-                  companyId === getTechnicalSheetOwnerCompanyId(sheet) || !dependencyRemoval.companyIdsToRemove.includes(companyId),
-              )
+              nextSharedCompanyIds = nextSharedCompanyIds.filter((companyId) => !dependencyRemoval.companyIdsToRemove.includes(companyId))
             }
-            return nextSharedCompanyIds.length !== getTechnicalSheetSharedCompanyIds(sheet).length ||
-              nextSharedCompanyIds.some((companyId, index) => companyId !== getTechnicalSheetSharedCompanyIds(sheet)[index])
+            return nextSharedCompanyIds.length !== getTechnicalSheetExplicitSharedCompanyIds(sheet).length ||
+              nextSharedCompanyIds.some((companyId, index) => companyId !== getTechnicalSheetExplicitSharedCompanyIds(sheet)[index])
               ? {
                   ...sheet,
                   sharedCompanyIds: nextSharedCompanyIds,
@@ -33836,12 +33833,16 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
             setTechnicalSheetForm((current) => ({
               ...current,
               sharedCompanyIds: Array.from(
-                new Set([
-                  technicalSheetOwnerCompanyId ?? currentCompanyId ?? 0,
-                  ...labels
+                new Set(
+                  labels
                     .map((label) => technicalSheetShareableCompanyIdByLabel.get(normalizeRegistrationText(label)) ?? null)
-                    .filter((companyId): companyId is number => typeof companyId === 'number'),
-                ].filter((companyId) => companyId > 0)),
+                    .filter(
+                      (companyId): companyId is number =>
+                        typeof companyId === 'number' &&
+                        companyId > 0 &&
+                        companyId !== (technicalSheetOwnerCompanyId ?? currentCompanyId ?? 0),
+                    ),
+                ),
               ),
             }))
           }
@@ -52224,7 +52225,7 @@ function recoverTechnicalSheetsFromProductsStorage() {
         id: product.technicalSheetId as number,
         companyId: product.companyId,
         ownerCompanyId: product.ownerCompanyId ?? product.companyId,
-        sharedCompanyIds: [product.companyId],
+        sharedCompanyIds: [],
         kind,
         productId: product.id,
         companyProductId: product.companyProductId,

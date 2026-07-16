@@ -3427,7 +3427,7 @@ function normalizeTechnicalSheetPayload(value) {
         new Set(
           sheet.sharedCompanyIds
             .map((item) => parseIntegerParam(item))
-            .filter((item) => item !== null),
+            .filter((item) => item !== null && item !== ownerCompanyId),
         ),
       )
     : []
@@ -3529,7 +3529,7 @@ function normalizeTechnicalSheetPayload(value) {
     id: sheet.id,
     companyId: sheet.companyId,
     ownerCompanyId,
-    sharedCompanyIds: Array.from(new Set([ownerCompanyId, ...sharedCompanyIds])),
+    sharedCompanyIds,
     kind: sheet.kind,
     productId: sheet.productId,
     companyProductId: sheet.companyProductId,
