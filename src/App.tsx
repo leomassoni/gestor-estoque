@@ -5890,6 +5890,25 @@ export default function App() {
   }
 
   useEffect(() => {
+    if (typeof document === 'undefined' || typeof MutationObserver === 'undefined') {
+      return undefined
+    }
+
+    const syncBodyModalState = () => {
+      document.body.classList.toggle('body-modal-open', Boolean(document.querySelector('.modal-backdrop')))
+    }
+
+    syncBodyModalState()
+    const observer = new MutationObserver(syncBodyModalState)
+    observer.observe(document.body, { childList: true, subtree: true })
+
+    return () => {
+      observer.disconnect()
+      document.body.classList.remove('body-modal-open')
+    }
+  }, [])
+
+  useEffect(() => {
     let isCancelled = false
 
     async function bootstrapRemoteAppState() {
@@ -45964,6 +45983,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
               <button
                 className={saveFeedback.status === 'success' ? 'primary-button' : 'danger-button'}
                 type="button"
+                autoFocus
                 onClick={closeSaveFeedback}
               >
                 Fechar

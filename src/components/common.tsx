@@ -1,4 +1,5 @@
 import {
+  useEffect,
   useMemo,
   useRef,
   useState,
@@ -506,6 +507,18 @@ export function ConfirmationModal({
   onConfirm: () => void
   bringToFront?: boolean
 }) {
+  const cancelButtonRef = useRef<HTMLButtonElement | null>(null)
+  const confirmButtonRef = useRef<HTMLButtonElement | null>(null)
+  const shouldFocusConfirm = !actionClass.split(/\s+/).includes('danger-button')
+
+  useEffect(() => {
+    if (shouldFocusConfirm) {
+      confirmButtonRef.current?.focus()
+      return
+    }
+    cancelButtonRef.current?.focus()
+  }, [shouldFocusConfirm])
+
   return (
     <div
       className={bringToFront ? 'modal-backdrop modal-backdrop-front' : 'modal-backdrop'}
@@ -529,10 +542,10 @@ export function ConfirmationModal({
         <p className="confirm-copy">{message}</p>
 
         <div className="modal-actions">
-          <button className="ghost-button" type="button" onClick={onCancel}>
+          <button ref={cancelButtonRef} className="ghost-button" type="button" onClick={onCancel}>
             Cancelar
           </button>
-          <button className={actionClass} type="button" onClick={onConfirm}>
+          <button ref={confirmButtonRef} className={actionClass} type="button" onClick={onConfirm}>
             {actionLabel}
           </button>
         </div>
