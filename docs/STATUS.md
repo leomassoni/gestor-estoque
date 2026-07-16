@@ -157,20 +157,29 @@ Registrar em que pe o sistema esta hoje, por area, para consulta rapida antes de
 ## Riscos e limitacoes atuais
 
 - [`src/App.tsx`](/home/leomassoni/Documentos/Igarapé/Projetos/TCC-SP/gestor-estoque/src/App.tsx) esta muito grande, o que aumenta risco de regressao.
+- A ultima rodada de separacao reduziu [`src/App.tsx`](/home/leomassoni/Documentos/Igarapé/Projetos/TCC-SP/gestor-estoque/src/App.tsx) para aproximadamente 53,8 mil linhas.
 - A separacao inicial de [`src/App.tsx`](/home/leomassoni/Documentos/Igarapé/Projetos/TCC-SP/gestor-estoque/src/App.tsx) ja comecou com:
   - [`src/utils/core.ts`](/home/leomassoni/Documentos/Igarapé/Projetos/TCC-SP/gestor-estoque/src/utils/core.ts)
   - [`src/components/ExecutionPlanningList.tsx`](/home/leomassoni/Documentos/Igarapé/Projetos/TCC-SP/gestor-estoque/src/components/ExecutionPlanningList.tsx)
   - [`src/components/LazyCodeEditor.tsx`](/home/leomassoni/Documentos/Igarapé/Projetos/TCC-SP/gestor-estoque/src/components/LazyCodeEditor.tsx)
+  - [`src/components/common.tsx`](/home/leomassoni/Documentos/Igarapé/Projetos/TCC-SP/gestor-estoque/src/components/common.tsx)
+  - [`src/config/performance.ts`](/home/leomassoni/Documentos/Igarapé/Projetos/TCC-SP/gestor-estoque/src/config/performance.ts)
+  - [`src/types/domain.ts`](/home/leomassoni/Documentos/Igarapé/Projetos/TCC-SP/gestor-estoque/src/types/domain.ts)
+  - [`src/storage/localStorage.ts`](/home/leomassoni/Documentos/Igarapé/Projetos/TCC-SP/gestor-estoque/src/storage/localStorage.ts)
+  - [`src/domain/technicalSheets.ts`](/home/leomassoni/Documentos/Igarapé/Projetos/TCC-SP/gestor-estoque/src/domain/technicalSheets.ts)
+  - [`src/components/PreparationModeInput.tsx`](/home/leomassoni/Documentos/Igarapé/Projetos/TCC-SP/gestor-estoque/src/components/PreparationModeInput.tsx)
+  - [`src/utils/preparationMode.ts`](/home/leomassoni/Documentos/Igarapé/Projetos/TCC-SP/gestor-estoque/src/utils/preparationMode.ts)
 - O projeto ainda depende fortemente de estado local e renderizacao centralizada.
 - O snapshot global ainda duplica parte dos dados que ja existem em tabelas por entidade.
 - Imagens em `base64` ainda tendem a pressionar storage se continuarem dentro do banco/snapshot.
 - O bundle web esta grande; o build gera aviso de chunk acima de 500 kB.
-- O deploy no Render foi concluido com sucesso, mas os logs confirmam que o frontend continua com bundle principal muito grande.
+- O build local separa `react`, `react-dom` e `scheduler` em `react-vendor` via `manualChunks`.
+  - Isso reduziu o chunk principal de aproximadamente 1,23 MB para 1,03 MB minificado.
+- O frontend continua com bundle principal grande por causa da concentracao restante em [`src/App.tsx`](/home/leomassoni/Documentos/Igarapé/Projetos/TCC-SP/gestor-estoque/src/App.tsx).
   - Isso nao bloqueia operacao nem deploy.
   - Fica como melhoria futura de performance:
     - code splitting com `dynamic import()`
     - quebrar [`src/App.tsx`](/home/leomassoni/Documentos/Igarapé/Projetos/TCC-SP/gestor-estoque/src/App.tsx) em modulos menores
-    - avaliar `manualChunks` no Vite/Rollup
 - Ainda nao existe integracao com relatorios de venda / ponto de venda externo.
   - Isso limita relatorios mais avancados de consumo teorico vs venda, CMV real por periodo e comparacoes entre estoque e venda.
 - Ha uma pendencia de regra no roteamento de requisicoes de `PREPARO` quando existir mais de um centro produtor valido para o mesmo item.
@@ -214,6 +223,8 @@ Registrar em que pe o sistema esta hoje, por area, para consulta rapida antes de
     - manter exportacoes com `xlsx` apenas temporariamente, enquanto a leitura de usuario deixa de depender dele
     - validar a migracao com imports reais de vendas antes de remover o parser antigo
     - continuar quebrando [`src/App.tsx`](/home/leomassoni/Documentos/Igarapé/Projetos/TCC-SP/gestor-estoque/src/App.tsx) e isolando calculos pesados em passos pequenos, sempre com build e teste de fluxo antes de avançar
+    - extrair normalizadores de entidade em subfases menores, comecando pelos menos acoplados
+    - separar hooks/paineis por fluxo apenas depois dos normalizadores e calculos estarem isolados
   - prioridade media, risco medio:
     - revisar relatorios e listas grandes para paginacao, filtros no servidor e queries mais enxutas
     - remover completamente `xlsx` substituindo tambem exportacoes por alternativa mantida, como `write-excel-file` ou outra biblioteca validada
@@ -230,6 +241,9 @@ Registrar em que pe o sistema esta hoje, por area, para consulta rapida antes de
   - carregar/pollar dados por tela ativa
   - aplicar `lazy load` em dependencias pesadas de PDF, XLSX e editor
   - virtualizar tabelas grandes em imports, relatorios, requisicoes, suprimentos, recebimentos e entrada de producoes
+- UX de cadastro aplicada:
+  - buscas ao digitar em `SingleValueAutocomplete` e `MultiSelectChips` permitem selecionar sugestoes com setas do teclado e confirmar com `Enter`.
+  - `Escape` fecha a lista de sugestoes.
 - Avaliar `acoes em lote` no historico de `Importar vendas` como refinamento, nao como prioridade imediata:
   - reprocessar multiplos lotes ja possui selecao em lote para lotes reprocessaveis
   - ainda podem virar melhoria futura:

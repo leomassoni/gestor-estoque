@@ -192,7 +192,10 @@ Registrar um historico resumido do que foi feito, do que falhou e do que ficou p
   - restringir polling por secao ativa
   - lazy load de dependencias pesadas de PDF, XLSX e editor
   - virtualizacao de tabelas grandes em imports, relatorios, requisicoes, suprimentos, recebimento e entrada de producoes
+  - separacao de `react`, `react-dom` e `scheduler` em `react-vendor` via `manualChunks`
 - O build ainda mostra chunk principal grande, mas menor e com parte das dependencias pesadas separadas.
+  - Antes do `manualChunks`: `index` com aproximadamente 1,23 MB minificado.
+  - Depois do `manualChunks`: `index` com aproximadamente 1,03 MB minificado e `react-vendor` com aproximadamente 193 kB.
 
 ### Modularizacao
 
@@ -200,6 +203,15 @@ Registrar um historico resumido do que foi feito, do que falhou e do que ficou p
   - [`src/utils/core.ts`](/home/leomassoni/Documentos/Igarapé/Projetos/TCC-SP/gestor-estoque/src/utils/core.ts)
   - [`src/components/ExecutionPlanningList.tsx`](/home/leomassoni/Documentos/Igarapé/Projetos/TCC-SP/gestor-estoque/src/components/ExecutionPlanningList.tsx)
   - [`src/components/LazyCodeEditor.tsx`](/home/leomassoni/Documentos/Igarapé/Projetos/TCC-SP/gestor-estoque/src/components/LazyCodeEditor.tsx)
+  - [`src/components/common.tsx`](/home/leomassoni/Documentos/Igarapé/Projetos/TCC-SP/gestor-estoque/src/components/common.tsx)
+  - [`src/config/performance.ts`](/home/leomassoni/Documentos/Igarapé/Projetos/TCC-SP/gestor-estoque/src/config/performance.ts)
+- Nesta rodada, foram movidos componentes genericos, helpers puros de formatacao/decimal/data/IDs e constantes de polling/virtualizacao.
+- Na continuacao da modularizacao, tambem foram movidos:
+  - tipos de dominio para [`src/types/domain.ts`](/home/leomassoni/Documentos/Igarapé/Projetos/TCC-SP/gestor-estoque/src/types/domain.ts)
+  - chaves/helper de snapshot local para [`src/storage/localStorage.ts`](/home/leomassoni/Documentos/Igarapé/Projetos/TCC-SP/gestor-estoque/src/storage/localStorage.ts)
+  - calculos puros de fichas/produtos para [`src/domain/technicalSheets.ts`](/home/leomassoni/Documentos/Igarapé/Projetos/TCC-SP/gestor-estoque/src/domain/technicalSheets.ts)
+  - componente e helpers de modo de preparo para [`src/components/PreparationModeInput.tsx`](/home/leomassoni/Documentos/Igarapé/Projetos/TCC-SP/gestor-estoque/src/components/PreparationModeInput.tsx) e [`src/utils/preparationMode.ts`](/home/leomassoni/Documentos/Igarapé/Projetos/TCC-SP/gestor-estoque/src/utils/preparationMode.ts)
+- Cada subfase foi validada com `npm run build`; arquivos extraidos foram validados tambem com lint direcionado.
 
 ### Pendencias abertas
 
@@ -216,6 +228,26 @@ Registrar um historico resumido do que foi feito, do que falhou e do que ficou p
   - virtualizar apenas novas tabelas grandes ou tabelas remanescentes em que a lentidao seja confirmada em uso real
   - revisar polling por secao quando novos modulos forem criados, preservando carga inicial unica dos dados essenciais
 
+## 2026-07-16
+
+### Modularizacao e UX de autocompletes
+
+- Progresso registrado da modularizacao segura de [`src/App.tsx`](/home/leomassoni/Documentos/Igarapé/Projetos/TCC-SP/gestor-estoque/src/App.tsx):
+  - tipos de dominio extraidos para [`src/types/domain.ts`](/home/leomassoni/Documentos/Igarapé/Projetos/TCC-SP/gestor-estoque/src/types/domain.ts)
+  - helpers de storage/snapshot local extraidos para [`src/storage/localStorage.ts`](/home/leomassoni/Documentos/Igarapé/Projetos/TCC-SP/gestor-estoque/src/storage/localStorage.ts)
+  - calculos puros de fichas/produtos extraidos para [`src/domain/technicalSheets.ts`](/home/leomassoni/Documentos/Igarapé/Projetos/TCC-SP/gestor-estoque/src/domain/technicalSheets.ts)
+  - modo de preparo extraido para [`src/components/PreparationModeInput.tsx`](/home/leomassoni/Documentos/Igarapé/Projetos/TCC-SP/gestor-estoque/src/components/PreparationModeInput.tsx) e [`src/utils/preparationMode.ts`](/home/leomassoni/Documentos/Igarapé/Projetos/TCC-SP/gestor-estoque/src/utils/preparationMode.ts)
+- Mantido no `a fazer`:
+  - extrair normalizadores de entidade em subfases menores
+  - depois separar hooks/paineis por fluxo, comecando pelos modulos menos acoplados
+  - validar cada subfase com `npm run build` e lint direcionado
+- UX aplicada:
+  - `SingleValueAutocomplete` e `MultiSelectChips` agora aceitam navegacao por teclado com `ArrowDown`, `ArrowUp`, `Enter` e `Escape`.
+  - Isso atende os campos de busca ao digitar usados em cadastros de produtos, fichas e fluxos relacionados.
+- Validacao executada:
+  - `npx eslint src/components/common.tsx`
+  - `npm run build`
+
 ## 2026-07-13
 
 ### Revisao do `a fazer`
@@ -227,6 +259,7 @@ Registrar um historico resumido do que foi feito, do que falhou e do que ficou p
   - polling por aba visivel/secao ativa
   - lazy load de dependencias pesadas
   - virtualizacao de tabelas grandes principais
+  - `manualChunks` conservador para dependencias estaveis do React
 - Mantidas como prioridades reais:
   - mitigar/substituir `xlsx`
   - modularizar [`src/App.tsx`](/home/leomassoni/Documentos/Igarapé/Projetos/TCC-SP/gestor-estoque/src/App.tsx) e isolar calculos pesados em passos pequenos

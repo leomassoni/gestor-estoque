@@ -208,6 +208,9 @@ Registrar o que foi decidido, o que foi adiado e o que foi descartado, com foco 
 - Decisao: evitar uma quebra ampla de uma vez; seguir por modularizacao incremental.
 - Motivo: prioridade e reduzir risco enquanto se diminui o tamanho do arquivo.
 - Risco aceito: manutencao ainda e lenta ate a modularizacao avancar.
+- Diretriz operacional: continuar extraindo apenas blocos isolados e validar com build a cada etapa, evitando mover regras de estoque/importacao/producao sem teste especifico do fluxo.
+- Decisao adicional: normalizadores de entidade continuam no [`src/App.tsx`](/home/leomassoni/Documentos/Igarapé/Projetos/TCC-SP/gestor-estoque/src/App.tsx) por enquanto, pois estao acoplados a defaults de acesso, recuperacao legada e regras de minimo/estoque. Devem ser extraidos em subfases menores.
+- Proxima ordem recomendada: normalizadores menos acoplados primeiro, depois hooks/paineis por fluxo. Nao extrair fluxos de requisicao, producao ou importacao antes de haver teste especifico do fluxo.
 
 ### O bundle grande do frontend fica como melhoria futura, nao como bloqueio de deploy
 
@@ -216,9 +219,9 @@ Registrar o que foi decidido, o que foi adiado e o que foi descartado, com foco 
 - Ja aplicado:
   - `dynamic import()` para PDF, XLSX e editor
   - virtualizacao de tabelas grandes
+  - `manualChunks` conservador para separar `react`, `react-dom` e `scheduler` em `react-vendor`
 - Direcao futura:
   - quebrar [`src/App.tsx`](/home/leomassoni/Documentos/Igarapé/Projetos/TCC-SP/gestor-estoque/src/App.tsx) em partes menores
-  - avaliar `manualChunks`
 - Status: em andamento.
 
 ### Criar modais aninhados para EXECUCAO e VENDA

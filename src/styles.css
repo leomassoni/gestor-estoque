@@ -2402,10 +2402,16 @@ h3 {
 }
 
 .multi-select-option:hover,
+.multi-select-option.active,
 .multi-select-option:focus-visible,
 .multi-select-option-remove:hover,
 .multi-select-option-remove:focus-visible {
   background: rgba(80, 146, 240, 0.1);
+}
+
+.multi-select-option.active {
+  color: #0f4c81;
+  font-weight: 700;
 }
 
 .multi-select-option-create {
