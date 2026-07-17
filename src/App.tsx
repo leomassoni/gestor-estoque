@@ -19489,33 +19489,56 @@ export default function App() {
             typeof product.technicalSheetId !== 'number' &&
             product.controlUnit !== 'COMBO',
         )
-        .flatMap((product) =>
-          product.packages
-            .filter((item) => item.isActive)
-            .map(
-              (item) =>
-                ({
-                  key: buildStockCenterMinimumEntryKey({
+        .flatMap((product) => {
+          const unitKey = buildStockCenterMinimumEntryKey({
+            kind: 'PRODUTO',
+            technicalSheetId: null,
+            productId: product.id,
+            serviceItemId: '',
+            packageId: null,
+          })
+          return [
+            {
+              key: unitKey,
+              kind: 'PRODUTO',
+              name: product.name,
+              typeLabel: 'Produto',
+              family: product.family,
+              referenceLabel: `UNIDADE DE CONTROLE • 1 ${formatControlUnitShort(product.controlUnit)}`,
+              baseQuantity: 1,
+              baseUnit: product.controlUnit,
+              technicalSheetId: null,
+              productId: product.id,
+              serviceItemId: '',
+              packageId: null,
+            } satisfies StockCenterMinimumRow,
+            ...product.packages
+              .filter((item) => item.isActive)
+              .map(
+                (item) =>
+                  ({
+                    key: buildStockCenterMinimumEntryKey({
+                      kind: 'PRODUTO',
+                      technicalSheetId: null,
+                      productId: product.id,
+                      serviceItemId: '',
+                      packageId: item.id,
+                    }),
                     kind: 'PRODUTO',
+                    name: product.name,
+                    typeLabel: 'Produto',
+                    family: product.family,
+                    referenceLabel: buildProductPackageLabel(product, item),
+                    baseQuantity: calculateNormalizedPackageQuantity(item, product.controlUnit),
+                    baseUnit: product.controlUnit,
                     technicalSheetId: null,
                     productId: product.id,
                     serviceItemId: '',
                     packageId: item.id,
-                  }),
-                  kind: 'PRODUTO',
-                  name: product.name,
-                  typeLabel: 'Produto',
-                  family: product.family,
-                  referenceLabel: buildProductPackageLabel(product, item),
-                  baseQuantity: calculateNormalizedPackageQuantity(item, product.controlUnit),
-                  baseUnit: product.controlUnit,
-                  technicalSheetId: null,
-                  productId: product.id,
-                  serviceItemId: '',
-                  packageId: item.id,
-                }) satisfies StockCenterMinimumRow,
-            ),
-        ),
+                  }) satisfies StockCenterMinimumRow,
+              ),
+          ]
+        }),
       ...serviceItems
         .filter((item) => item.companyId === center.companyId && item.isActive)
         .map(
@@ -23723,8 +23746,14 @@ function getRequisitionEffectiveQuantityConfig(line: RequisitionLineRecord) {
   if (line.kind === 'PRODUTO') {
     const product = products.find((item) => item.id === line.productId) ?? null
     const selectedPackage = product?.packages.find((item) => item.id === line.packageId) ?? null
-    if (!product || !selectedPackage) {
+    if (!product) {
       return { multiplier: 1, unitLabel: line.requestUnitLabel }
+    }
+    if (!selectedPackage) {
+      return {
+        multiplier: 1,
+        unitLabel: formatControlUnitShort(product.controlUnit),
+      }
     }
     return {
         multiplier: 1,
@@ -23764,8 +23793,19 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
   if (line.kind === 'PRODUTO') {
     const product = products.find((item) => item.id === line.productId) ?? null
     const selectedPackage = product?.packages.find((item) => item.id === line.packageId) ?? null
-    if (!product || !selectedPackage) {
+    if (!product) {
       return { multiplier: 1, totalUnit: 'MILLILITER' as InventoryCountRecord['totalCountedUnit'] }
+    }
+    if (!selectedPackage) {
+      return {
+        multiplier: 1,
+        totalUnit:
+          product.controlUnit === 'GRAM'
+            ? ('GRAM' as const)
+            : product.controlUnit === 'UNIT'
+              ? ('UNIT' as const)
+              : ('MILLILITER' as const),
+      }
     }
     return {
       multiplier: calculateNormalizedPackageQuantity(selectedPackage, product.controlUnit),
@@ -23794,6 +23834,9 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
     const quantity = parseDecimal(quantityValue) ?? 0
     const config = getRequisitionEffectiveQuantityConfig(line)
     if (line.kind === 'PRODUTO') {
+      if (line.packageId === null) {
+        return `${formatDecimal(quantity * config.multiplier)} ${config.unitLabel}`
+      }
       return `${formatDecimal(quantity)} de ${config.unitLabel}`
     }
     return `${formatDecimal(quantity * config.multiplier)} ${config.unitLabel}`
@@ -50873,6 +50916,9 @@ function getRequisitionRequestUnitLabel(row: StockCenterMinimumRow) {
   }
 
   if (row.kind === 'PRODUTO') {
+    if (row.packageId === null) {
+      return formatControlUnitShort(row.baseUnit)
+    }
     return 'EMBALAGENS'
   }
 
