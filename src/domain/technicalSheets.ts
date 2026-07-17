@@ -283,9 +283,20 @@ export function calculateTechnicalSheetAlcoholPercentage(
 
   const nextVisited = new Set(visited)
   nextVisited.add(sheet.id)
-  const referenceYield = calculateTechnicalSheetIngredientYieldSum(sheet, {
-    includeGarnishes: sheet.kind !== 'EXECUCAO',
-  })
+  const referenceYieldSourceIngredients =
+    sheet.kind === 'EXECUCAO' ? sheet.ingredients : [...sheet.ingredients, ...sheet.garnishIngredients]
+  const referenceYield = referenceYieldSourceIngredients
+    .filter((ingredient) => {
+      if (!ingredient.isActive) {
+        return false
+      }
+      if (sheet.kind !== 'EXECUCAO') {
+        return true
+      }
+      const linkedProduct = products.find((item) => item.id === ingredient.productId) ?? null
+      return linkedProduct?.excludeFromExecutionYield !== true
+    })
+    .reduce((sum, ingredient) => sum + (parseDecimal(ingredient.yieldQuantity) ?? 0), 0)
   const finalYieldScaleFactor = referenceYield > 0 ? totalMixtureVolume / referenceYield : 1
 
   const alcoholSourceIngredients =
@@ -300,6 +311,10 @@ export function calculateTechnicalSheetAlcoholPercentage(
       }
 
       const linkedTechnicalSheet = technicalSheets.find((item) => item.productId === ingredient.productId) ?? null
+      const linkedProduct = products.find((item) => item.id === ingredient.productId) ?? null
+      if (sheet.kind === 'EXECUCAO' && linkedProduct?.excludeFromExecutionYield === true) {
+        return sum
+      }
       if (linkedTechnicalSheet) {
         return (
           sum +
@@ -309,7 +324,6 @@ export function calculateTechnicalSheetAlcoholPercentage(
         )
       }
 
-      const linkedProduct = products.find((item) => item.id === ingredient.productId) ?? null
       const alcoholPercentage = parseDecimal(linkedProduct?.alcoholPercentage ?? '') ?? 0
       const pureAlcoholVolume = yieldQuantity * finalYieldScaleFactor * (alcoholPercentage / 100)
       return sum + pureAlcoholVolume

@@ -841,6 +841,7 @@ model AppProductRecord {
   densitySampleVolume String
   densitySampleWeight String
   ignoreStock         Boolean  @default(false)
+  excludeFromExecutionYield Boolean @default(false)
   isActive            Boolean  @default(true)
   technicalSheetId    Int?
   packages            Json

@@ -3412,6 +3412,7 @@ function normalizeProductPayload(value) {
     densitySampleVolume: product.densitySampleVolume,
     densitySampleWeight: product.densitySampleWeight,
     ignoreStock: product.ignoreStock,
+    excludeFromExecutionYield: product.excludeFromExecutionYield === true,
     isActive: product.isActive,
     technicalSheetId: typeof product.technicalSheetId === 'number' ? product.technicalSheetId : null,
     packages: normalizedPackages,

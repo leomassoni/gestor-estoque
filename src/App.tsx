@@ -1498,6 +1498,7 @@ const initialProducts: ProductRecord[] = [
     densitySampleVolume: '100',
     densitySampleWeight: '110',
     ignoreStock: false,
+    excludeFromExecutionYield: false,
     isActive: true,
     packages: [
       {
@@ -1548,6 +1549,7 @@ const initialProducts: ProductRecord[] = [
     densitySampleVolume: '100',
     densitySampleWeight: '115',
     ignoreStock: false,
+    excludeFromExecutionYield: false,
     isActive: false,
     packages: [
       {
@@ -1580,6 +1582,7 @@ const defaultColumnVisibility: Record<ColumnKey, boolean> = {
   controlUnit: true,
   unitCost: true,
   costStatus: true,
+  executionYield: true,
   packages: true,
   status: true,
 }
@@ -1595,6 +1598,7 @@ const technicalSheetColumnOptions: Array<[TechnicalSheetColumnKey, string]> = [
   ['companyId', 'ID empresa'],
   ['productionCenters', 'Centros produtores'],
   ['costPerYield', 'Custo por rendimento'],
+  ['finalCmvPercentage', 'CMV final'],
   ['finalSalePrice', 'Valor final'],
   ['linkedCompanies', 'Empresas vinculadas'],
   ['sectors', 'Setores'],
@@ -1612,6 +1616,7 @@ const defaultTechnicalSheetColumnVisibility: Record<TechnicalSheetColumnKey, boo
   companyId: true,
   productionCenters: true,
   costPerYield: true,
+  finalCmvPercentage: true,
   finalSalePrice: true,
   linkedCompanies: true,
   family: true,
@@ -1669,6 +1674,7 @@ const emptyProductForm = (): ProductFormState => ({
   densitySampleVolume: '',
   densitySampleWeight: '',
   ignoreStock: false,
+  excludeFromExecutionYield: false,
 })
 
 const emptyServiceItemForm = (): ServiceItemFormState => ({
@@ -1799,6 +1805,7 @@ const columnOptions: Array<[ColumnKey, string]> = [
   ['controlUnit', 'Unidade de controle'],
   ['unitCost', 'Custo unitario'],
   ['costStatus', 'Status de custo'],
+  ['executionYield', 'Volume execucao'],
   ['packages', 'Embalagens'],
   ['status', 'Status'],
 ]
@@ -2051,10 +2058,15 @@ function calculateTechnicalSheetSuggestedYieldFromDraft(
   kind: TechnicalSheetKind,
   ingredients: TechnicalSheetIngredient[],
   garnishIngredients: TechnicalSheetIngredient[],
+  products: ProductRecord[] = [],
 ) {
   const relevantIngredients = kind === 'EXECUCAO' ? ingredients : [...ingredients, ...garnishIngredients]
   return relevantIngredients.reduce((sum, ingredient) => {
     if (!ingredient.isActive) {
+      return sum
+    }
+    const linkedProduct = products.find((product) => product.id === ingredient.productId) ?? null
+    if (kind === 'EXECUCAO' && linkedProduct?.excludeFromExecutionYield === true) {
       return sum
     }
     return sum + (parseDecimal(ingredient.yieldQuantity) ?? 0)
@@ -6738,6 +6750,8 @@ export default function App() {
         const alcoholPercentage = linkedTechnicalSheet
           ? calculateTechnicalSheetAlcoholPercentage(linkedTechnicalSheet, technicalSheets, products)
           : parseDecimal(linkedProduct?.alcoholPercentage ?? '') ?? 0
+        const contributesToExecutionYield =
+          selectedProductionSheet.kind !== 'EXECUCAO' || linkedProduct?.excludeFromExecutionYield !== true
         const unitLabel = linkedProduct
           ? getProductDisplayUnitLabel(linkedProduct, technicalSheets)
           : linkedTechnicalSheet
@@ -6772,12 +6786,16 @@ export default function App() {
           lossQuantity,
           lossCost,
           alcoholPercentage,
+          contributesToExecutionYield,
         } satisfies RecipePanelIngredientMetrics
       })
 
     const totalRecipeCost = adjustedIngredientMetrics.reduce((sum, ingredient) => sum + ingredient.scaledCost, 0)
     const totalPureAlcoholVolume = adjustedIngredientMetrics.reduce(
-      (sum, ingredient) => sum + ingredient.scaledYieldQuantity * (ingredient.alcoholPercentage / 100),
+      (sum, ingredient) =>
+        sum +
+        (ingredient.contributesToExecutionYield ? ingredient.scaledYieldQuantity : 0) *
+          (ingredient.alcoholPercentage / 100),
       0,
     )
     const finalAlcoholPercentage = finalYield > 0 ? (totalPureAlcoholVolume / finalYield) * 100 : 0
@@ -13026,6 +13044,8 @@ export default function App() {
       const alcoholPercentage = linkedTechnicalSheet
         ? calculateTechnicalSheetAlcoholPercentage(linkedTechnicalSheet, technicalSheets, products)
         : parseDecimal(linkedProduct?.alcoholPercentage ?? '') ?? 0
+      const contributesToExecutionYield =
+        technicalSheetForm.kind !== 'EXECUCAO' || linkedProduct?.excludeFromExecutionYield !== true
 
       return {
         ingredientId: ingredient.id,
@@ -13037,6 +13057,7 @@ export default function App() {
         lossQuantity,
         lossCost,
         alcoholPercentage: ingredient.isActive ? alcoholPercentage : 0,
+        contributesToExecutionYield,
         productUnitLabel: linkedProduct
           ? getProductDisplayUnitLabel(linkedProduct, technicalSheets)
           : linkedTechnicalSheet
@@ -13066,6 +13087,8 @@ export default function App() {
       const alcoholPercentage = linkedTechnicalSheet
         ? calculateTechnicalSheetAlcoholPercentage(linkedTechnicalSheet, technicalSheets, products)
         : parseDecimal(linkedProduct?.alcoholPercentage ?? '') ?? 0
+      const contributesToExecutionYield =
+        technicalSheetForm.kind !== 'EXECUCAO' || linkedProduct?.excludeFromExecutionYield !== true
 
       return {
         ingredientId: ingredient.id,
@@ -13077,6 +13100,7 @@ export default function App() {
         lossQuantity,
         lossCost,
         alcoholPercentage: ingredient.isActive ? alcoholPercentage : 0,
+        contributesToExecutionYield,
         productUnitLabel: linkedProduct
           ? getProductDisplayUnitLabel(linkedProduct, technicalSheets)
           : linkedTechnicalSheet
@@ -13101,7 +13125,10 @@ export default function App() {
       technicalSheetForm.kind === 'EXECUCAO' ? technicalSheetIngredientMetrics : allIngredientMetrics
     const totalRecipeCost = allIngredientMetrics.reduce((sum, item) => sum + item.recipeCost, 0)
     const totalInputQuantity = yieldMetrics.reduce((sum, item) => sum + item.inputQuantity, 0)
-    const totalMixtureVolume = yieldMetrics.reduce((sum, item) => sum + item.yieldQuantity, 0)
+    const totalMixtureVolume = yieldMetrics.reduce(
+      (sum, item) => sum + (item.contributesToExecutionYield ? item.yieldQuantity : 0),
+      0,
+    )
     const vendaComboYield = yieldMetrics.reduce(
       (sum, item) => sum + (item.yieldQuantity > 0 ? item.yieldQuantity : item.inputQuantity),
       0,
@@ -13132,7 +13159,11 @@ export default function App() {
     const finalYieldScaleFactor =
       technicalSheetForm.kind === 'PREPARO' && totalMixtureVolume > 0 ? totalYield / totalMixtureVolume : 1
     const totalPureAlcoholVolume = yieldMetrics.reduce(
-      (sum, item) => sum + item.yieldQuantity * finalYieldScaleFactor * (item.alcoholPercentage / 100),
+      (sum, item) =>
+        sum +
+        (item.contributesToExecutionYield ? item.yieldQuantity : 0) *
+          finalYieldScaleFactor *
+          (item.alcoholPercentage / 100),
       0,
     )
     const portionsYield = portionSize > 0 ? totalYield / portionSize : 0
@@ -13575,6 +13606,7 @@ export default function App() {
           const alcoholPercentage = linkedTechnicalSheet
             ? calculateTechnicalSheetAlcoholPercentage(linkedTechnicalSheet, technicalSheets, products)
             : parseDecimal(linkedProduct?.alcoholPercentage ?? '') ?? 0
+          const contributesToExecutionYield = sheet.kind !== 'EXECUCAO' || linkedProduct?.excludeFromExecutionYield !== true
           const unitLabel = linkedProduct
             ? getProductDisplayUnitLabel(linkedProduct, technicalSheets)
             : linkedTechnicalSheet
@@ -13603,6 +13635,7 @@ export default function App() {
             lossQuantity,
             lossCost,
             alcoholPercentage,
+            contributesToExecutionYield,
           }
         })
 
@@ -13632,9 +13665,15 @@ export default function App() {
       })
 
     const totalRecipeCost = allIngredientMetrics.reduce((sum, item) => sum + item.scaledCost, 0)
-    const totalMixtureVolume = yieldMetrics.reduce((sum, item) => sum + item.scaledYieldQuantity, 0)
+    const totalMixtureVolume = yieldMetrics.reduce(
+      (sum, item) => sum + (item.contributesToExecutionYield ? item.scaledYieldQuantity : 0),
+      0,
+    )
     const totalPureAlcoholVolume = yieldMetrics.reduce(
-      (sum, item) => sum + item.scaledYieldQuantity * (item.alcoholPercentage / 100),
+      (sum, item) =>
+        sum +
+        (item.contributesToExecutionYield ? item.scaledYieldQuantity : 0) *
+          (item.alcoholPercentage / 100),
       0,
     )
     const portionSize = isCommercialTechnicalSheetKind(sheet.kind) ? 1 : parseDecimal(sheet.portionSize) ?? 1000
@@ -13948,6 +13987,7 @@ export default function App() {
         setores: product.sectors.join(', '),
         unidade: formatControlUnitShort(product.controlUnit),
         custoUnitario: costPerUnit,
+        volumeExecucao: product.excludeFromExecutionYield ? 'NAO COMPOE' : 'COMPOE',
         embalagens: product.packages.length,
         status: product.isActive ? 'ATIVO' : 'INATIVO',
         subIdEmbalagem: '',
@@ -13974,6 +14014,7 @@ export default function App() {
         setores: '',
         unidade: '',
         custoUnitario: costPerUnit,
+        volumeExecucao: '',
         embalagens: '',
         status: '',
         subIdEmbalagem: item.internalCode,
@@ -26322,6 +26363,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
       densitySampleVolume: product.densitySampleVolume,
       densitySampleWeight: product.densitySampleWeight,
       ignoreStock: product.ignoreStock,
+      excludeFromExecutionYield: product.excludeFromExecutionYield,
     } satisfies ProductFormState
 
     setEditingProductId(product.id)
@@ -26457,6 +26499,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
       densitySampleVolume: productForm.densitySampleVolume.trim(),
       densitySampleWeight: productForm.densitySampleWeight.trim(),
       ignoreStock: productForm.ignoreStock,
+      excludeFromExecutionYield: productForm.excludeFromExecutionYield,
       isActive: hasPackages,
       packages,
     }
@@ -26712,6 +26755,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
       technicalSheet.kind,
       savedIngredients,
       savedGarnishIngredients,
+      products,
     )
     const savedOutputQuantity = parseDecimal(technicalSheet.outputQuantity) ?? 0
     setTechnicalSheetPackages(linkedTechnicalSheetProduct?.packages ?? [])
@@ -26891,6 +26935,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
       sourceSheet.kind,
       savedIngredients,
       savedGarnishIngredients,
+      products,
     )
     const savedOutputQuantity = parseDecimal(sourceSheet.outputQuantity) ?? 0
 
@@ -27140,6 +27185,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
       densitySampleVolume: isCommercialTechnicalSheetKind(sourceSheet.kind) ? '' : sourceSheet.densitySampleVolume,
       densitySampleWeight: isCommercialTechnicalSheetKind(sourceSheet.kind) ? '' : sourceSheet.densitySampleWeight,
       ignoreStock: false,
+      excludeFromExecutionYield: false,
       isActive: true,
       packages: [],
       technicalSheetId: technicalSheetId,
@@ -28382,6 +28428,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
       densitySampleVolume: isCommercialTechnicalSheetKind(technicalSheetForm.kind) ? '' : technicalSheetForm.densitySampleVolume.trim(),
       densitySampleWeight: isCommercialTechnicalSheetKind(technicalSheetForm.kind) ? '' : technicalSheetForm.densitySampleWeight.trim(),
       ignoreStock: linkedExisting?.ignoreStock ?? false,
+      excludeFromExecutionYield: linkedExisting?.excludeFromExecutionYield ?? false,
       isActive: true,
       packages: linkedExisting?.packages ?? [],
       technicalSheetId: technicalSheetId,
@@ -28622,6 +28669,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
       'Setores',
       'Unidade',
       'Custo por unidade',
+      'Volume ficha execucao',
       'Embalagens',
       'Status',
       'Sub-ID embalagem',
@@ -28643,6 +28691,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
       item.setores,
       item.unidade,
       item.custoUnitario,
+      item.volumeExecucao,
       item.embalagens,
       item.status,
       item.subIdEmbalagem,
@@ -35546,6 +35595,20 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                         setColumnSort,
                       )
                     : null}
+                  {columnVisibility.executionYield
+                    ? renderColumnHeader(
+                        'executionYield',
+                        'Volume execucao',
+                        openColumnMenu,
+                        setOpenColumnMenu,
+                        columnFilters,
+                        distinctColumnValues,
+                        setColumnFilters,
+                        setColumnVisibility,
+                        columnSort,
+                        setColumnSort,
+                      )
+                    : null}
                   {columnVisibility.packages
                     ? renderColumnHeader(
                         'packages',
@@ -35609,6 +35672,9 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                             {getProductCostStatus(product, technicalSheets, products)}
                           </span>
                         </td>
+                      ) : null}
+                      {columnVisibility.executionYield ? (
+                        <td>{getProductColumnValue(product, 'executionYield')}</td>
                       ) : null}
                       {columnVisibility.packages ? <td>{String(product.packages.length)}</td> : null}
                       {columnVisibility.status ? (
@@ -35798,6 +35864,14 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                   onChange={(event) => updateProductForm('ignoreStock', event.target.checked)}
                 />
                 <span>Nao contar estoque</span>
+              </label>
+              <label className="field field-checkbox-inline">
+                <input
+                  type="checkbox"
+                  checked={productForm.excludeFromExecutionYield}
+                  onChange={(event) => updateProductForm('excludeFromExecutionYield', event.target.checked)}
+                />
+                <span>Nao compoe volume da ficha de execucao</span>
               </label>
 	              </form>
 	            </section>
@@ -49288,6 +49362,25 @@ function renderStockReportColumnHeader(
   )
 }
 
+function calculateTechnicalSheetFinalCmvPercentage(
+  sheet: TechnicalSheetRecord,
+  technicalSheets: TechnicalSheetRecord[] = [],
+  products: ProductRecord[] = [],
+) {
+  if (!isCommercialTechnicalSheetKind(sheet.kind)) {
+    return null
+  }
+
+  const totalCost = calculateTechnicalSheetCost(sheet, technicalSheets, products)
+  const desiredCmvPercentage = parseDecimal(sheet.desiredCmvPercentage) ?? 0
+  const savedFinalSalePrice = parseDecimal(sheet.finalSalePrice) ?? 0
+  const suggestedSalePrice =
+    desiredCmvPercentage > 0 && totalCost > 0 ? totalCost / (desiredCmvPercentage / 100) : 0
+  const finalSalePrice = savedFinalSalePrice > 0 ? savedFinalSalePrice : suggestedSalePrice
+
+  return finalSalePrice > 0 ? (totalCost / finalSalePrice) * 100 : null
+}
+
 function getTechnicalSheetColumnValue(
   sheet: TechnicalSheetRecord,
   key: TechnicalSheetColumnKey,
@@ -49315,6 +49408,10 @@ function getTechnicalSheetColumnValue(
       const effectiveYield = calculateTechnicalSheetEffectiveYield(sheet)
       const costPerYield = effectiveYield > 0 ? totalCost / effectiveYield : totalCost
       return `R$ ${formatMoney(costPerYield)}`
+    }
+    case 'finalCmvPercentage': {
+      const finalCmvPercentage = calculateTechnicalSheetFinalCmvPercentage(sheet, technicalSheets, products)
+      return finalCmvPercentage === null ? '-' : `${formatDecimal(finalCmvPercentage)}%`
     }
     case 'finalSalePrice':
       return sheet.finalSalePrice.trim() ? `R$ ${formatMoney(parseDecimal(sheet.finalSalePrice) ?? 0)}` : '-'
@@ -49370,6 +49467,8 @@ function getTechnicalSheetSortValue(
       const effectiveYield = calculateTechnicalSheetEffectiveYield(sheet)
       return effectiveYield > 0 ? totalCost / effectiveYield : totalCost
     }
+    case 'finalCmvPercentage':
+      return calculateTechnicalSheetFinalCmvPercentage(sheet, technicalSheets, products) ?? 0
     case 'finalSalePrice':
       return parseDecimal(sheet.finalSalePrice) ?? 0
     case 'yield':
@@ -49397,7 +49496,7 @@ function isNumericProductColumn(key: ColumnKey) {
 }
 
 function isNumericTechnicalSheetColumn(key: TechnicalSheetColumnKey) {
-  return key === 'yield' || key === 'ingredients' || key === 'costPerYield' || key === 'finalSalePrice'
+  return key === 'yield' || key === 'ingredients' || key === 'costPerYield' || key === 'finalCmvPercentage' || key === 'finalSalePrice'
 }
 
 function isNumericItemColumn(key: ItemColumnKey) {
@@ -51156,6 +51255,8 @@ function getProductColumnValue(
       return `R$ ${formatMoney(calculateProductUnitCost(product, technicalSheets, products))} / ${formatControlUnitShort(product.controlUnit)}`
     case 'costStatus':
       return getProductCostStatus(product, technicalSheets, products)
+    case 'executionYield':
+      return product.excludeFromExecutionYield ? 'Nao compoe volume' : 'Compoe volume'
     case 'packages':
       return String(product.packages.length)
     case 'status':
@@ -53996,6 +54097,7 @@ function normalizeProductRecord(value: unknown): ProductRecord | null {
     densitySampleVolume: product.densitySampleVolume,
     densitySampleWeight: product.densitySampleWeight,
     ignoreStock: product.ignoreStock === true,
+    excludeFromExecutionYield: product.excludeFromExecutionYield === true,
     isActive: product.isActive,
     packages,
     technicalSheetId: typeof product.technicalSheetId === 'number' ? product.technicalSheetId : undefined,

@@ -188,6 +188,7 @@ export type ProductRecord = {
   densitySampleVolume: string
   densitySampleWeight: string
   ignoreStock: boolean
+  excludeFromExecutionYield: boolean
   isActive: boolean
   packages: PackageForm[]
   technicalSheetId?: number
@@ -405,6 +406,7 @@ export type ProductFormState = {
   densitySampleVolume: string
   densitySampleWeight: string
   ignoreStock: boolean
+  excludeFromExecutionYield: boolean
 }
 
 export type ServiceItemFormState = {
@@ -432,6 +434,7 @@ export type ColumnKey =
   | 'controlUnit'
   | 'unitCost'
   | 'costStatus'
+  | 'executionYield'
   | 'packages'
   | 'status'
 
@@ -442,6 +445,7 @@ export type TechnicalSheetColumnKey =
   | 'companyId'
   | 'productionCenters'
   | 'costPerYield'
+  | 'finalCmvPercentage'
   | 'finalSalePrice'
   | 'linkedCompanies'
   | 'family'
@@ -1257,6 +1261,7 @@ export type TechnicalSheetIngredientMetrics = {
   lossCost: number
   alcoholPercentage: number
   productUnitLabel: string
+  contributesToExecutionYield: boolean
 }
 
 export type TechnicalSheetTotals = {
@@ -1293,6 +1298,7 @@ export type RecipePanelIngredientMetrics = {
   lossQuantity: number
   lossCost: number
   alcoholPercentage: number
+  contributesToExecutionYield: boolean
 }
 
 export type RecipePanelServiceItemMetrics = {
