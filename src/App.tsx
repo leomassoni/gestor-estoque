@@ -6142,13 +6142,16 @@ export default function App() {
       isReconcilingSalesImportMinimumsRef.current = false
     }
   }, [
+    companies,
     currentCompanyId,
     hasLoadedSalesImportRecords,
     hasLoadedStockCenterRecords,
+    products,
     salesConsumptions,
     salesImportBatches,
     salesImportRows,
     stockCenters,
+    technicalSheets,
   ])
 
   useEffect(() => {
