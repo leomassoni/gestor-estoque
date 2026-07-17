@@ -8992,33 +8992,56 @@ export default function App() {
               packageId: null,
             }) satisfies StockCenterMinimumRow,
         ),
-        ...countableProducts.flatMap((product) =>
-          product.packages
-            .filter((item) => item.isActive)
-            .map(
-              (item) =>
-                ({
-                  key: buildStockCenterMinimumEntryKey({
+        ...countableProducts.flatMap((product) => {
+          const unitKey = buildStockCenterMinimumEntryKey({
+            kind: 'PRODUTO',
+            technicalSheetId: null,
+            productId: product.id,
+            serviceItemId: '',
+            packageId: null,
+          })
+          return [
+            {
+              key: unitKey,
+              kind: 'PRODUTO',
+              name: product.name,
+              typeLabel: 'Produto',
+              family: product.family,
+              referenceLabel: `UNIDADE DE CONTROLE • 1 ${formatControlUnitShort(product.controlUnit)}`,
+              baseQuantity: 1,
+              baseUnit: product.controlUnit,
+              technicalSheetId: null,
+              productId: product.id,
+              serviceItemId: '',
+              packageId: null,
+            } satisfies StockCenterMinimumRow,
+            ...product.packages
+              .filter((item) => item.isActive)
+              .map(
+                (item) =>
+                  ({
+                    key: buildStockCenterMinimumEntryKey({
+                      kind: 'PRODUTO',
+                      technicalSheetId: null,
+                      productId: product.id,
+                      serviceItemId: '',
+                      packageId: item.id,
+                    }),
                     kind: 'PRODUTO',
+                    name: product.name,
+                    typeLabel: 'Produto',
+                    family: product.family,
+                    referenceLabel: buildProductPackageLabel(product, item),
+                    baseQuantity: calculateNormalizedPackageQuantity(item, product.controlUnit),
+                    baseUnit: product.controlUnit,
                     technicalSheetId: null,
                     productId: product.id,
                     serviceItemId: '',
                     packageId: item.id,
-                  }),
-                  kind: 'PRODUTO',
-                  name: product.name,
-                  typeLabel: 'Produto',
-                  family: product.family,
-                  referenceLabel: buildProductPackageLabel(product, item),
-                  baseQuantity: calculateNormalizedPackageQuantity(item, product.controlUnit),
-                  baseUnit: product.controlUnit,
-                  technicalSheetId: null,
-                  productId: product.id,
-                  serviceItemId: '',
-                  packageId: item.id,
-                }) satisfies StockCenterMinimumRow,
-            ),
-        ),
+                  }) satisfies StockCenterMinimumRow,
+              ),
+          ]
+        }),
         ...countableServiceItems.map(
           (item) =>
             ({
@@ -9117,6 +9140,30 @@ export default function App() {
             product.controlUnit !== 'COMBO',
         )
         .forEach((product) => {
+          const unitKey = buildStockCenterMinimumEntryKey({
+            kind: 'PRODUTO',
+            technicalSheetId: null,
+            productId: product.id,
+            serviceItemId: '',
+            packageId: null,
+          })
+          rowEntries.push([
+            unitKey,
+            {
+              key: unitKey,
+              kind: 'PRODUTO',
+              name: product.name,
+              typeLabel: 'Produto',
+              family: product.family,
+              referenceLabel: `UNIDADE DE CONTROLE • 1 ${formatControlUnitShort(product.controlUnit)}`,
+              baseQuantity: 1,
+              baseUnit: product.controlUnit,
+              technicalSheetId: null,
+              productId: product.id,
+              serviceItemId: '',
+              packageId: null,
+            } satisfies StockCenterMinimumRow,
+          ] as const)
           product.packages
             .filter((item) => item.isActive)
             .forEach((item) => {
@@ -9187,7 +9234,7 @@ export default function App() {
           productId: row.productId,
           serviceItemId: row.serviceItemId,
         })
-        const minimumQuantity = getMinimumUseQuantityValue(stock)
+        const minimumQuantity = getRepositionMinimumQuantityValue(stock)
         const currentKey = `${center.id}:${aggregationKey}`
         nextMap.set(currentKey, (nextMap.get(currentKey) ?? 0) + minimumQuantity * row.baseQuantity)
       })
@@ -10618,6 +10665,16 @@ export default function App() {
               ? (() => {
                   const productId = aggregationKey.slice('PRODUTO:'.length)
                   const product = productById.get(productId) ?? null
+                  const productUnitEntry = findStockCenterMinimumEntry(center.minimumStocks, {
+                    kind: 'PRODUTO',
+                    technicalSheetId: null,
+                    productId,
+                    serviceItemId: '',
+                    packageId: null,
+                  })
+                  if (productUnitEntry) {
+                    return productUnitEntry
+                  }
                   const packageEntry =
                     product?.packages.find((packageForm) =>
                       center.minimumStocks.some(
@@ -10643,12 +10700,19 @@ export default function App() {
                     packageId: null,
                   })
                 : null
+        const productMatch = aggregationKey.startsWith('PRODUTO:') ? productById.get(aggregationKey.slice('PRODUTO:'.length)) ?? null : null
         const adoptedDefinitionLabel = minimumEntry
-          ? formatStockCenterMinimumDefinition(minimumEntry.minimumQuantity, minimumEntry, { technicalSheets })
+          ? formatStockCenterMinimumDefinition(minimumEntry.minimumQuantity, minimumEntry, {
+              technicalSheets,
+              baseUnit: productMatch?.controlUnit,
+            })
           : '-'
         const suggestedDefinitionLabel =
           minimumEntry?.suggestedMinimumQuantity?.trim()
-            ? formatStockCenterMinimumDefinition(minimumEntry.suggestedMinimumQuantity, minimumEntry, { technicalSheets })
+            ? formatStockCenterMinimumDefinition(minimumEntry.suggestedMinimumQuantity, minimumEntry, {
+                technicalSheets,
+                baseUnit: productMatch?.controlUnit,
+              })
             : '-'
         const suggestedMinimumQuantity =
           minimumEntry ? getStockCenterSuggestedMinimumEntryBaseQuantity(minimumEntry, technicalSheets, products) : 0
@@ -10700,7 +10764,6 @@ export default function App() {
             date: latestInventoryDateByCenterId.get(center.id) ?? '',
           },
         }
-        const productMatch = aggregationKey.startsWith('PRODUTO:') ? productById.get(aggregationKey.slice('PRODUTO:'.length)) ?? null : null
         rows.push(...(productMatch ? expandStockReportRowsByProductPackages(baseRow, productMatch, currentQuantity, { minimumQuantity, unitCost }) : [baseRow]))
       })
     })
@@ -10840,8 +10903,14 @@ export default function App() {
                 ? 'Sugestao aplicada'
                 : 'Sem origem definida',
           operation: '',
-          recorded: formatStockCenterMinimumDefinition(minimumEntry.minimumQuantity, minimumEntry, { technicalSheets }),
-          quantity: formatStockCenterMinimumDefinition(minimumEntry.suggestedMinimumQuantity ?? '', minimumEntry, { technicalSheets }),
+          recorded: formatStockCenterMinimumDefinition(minimumEntry.minimumQuantity, minimumEntry, {
+            technicalSheets,
+            baseUnit: minimumEntry.kind === 'PRODUTO' ? linkedProduct?.controlUnit : undefined,
+          }),
+          quantity: formatStockCenterMinimumDefinition(minimumEntry.suggestedMinimumQuantity ?? '', minimumEntry, {
+            technicalSheets,
+            baseUnit: minimumEntry.kind === 'PRODUTO' ? linkedProduct?.controlUnit : undefined,
+          }),
           position: '',
           minimum: minimumEntry.kind === 'PREPARO' ? `${leadTimeDays} dia(s)` : '-',
           unit,
@@ -49540,6 +49609,14 @@ function getRealMinimumQuantityText(entry: StockCenterMinimumStock | null) {
   return entry.suggestedMinimumQuantity?.trim() || (entry.minimumSource === 'SUGERIDO_VENDAS' ? entry.minimumQuantity.trim() : '')
 }
 
+function getRepositionMinimumQuantityText(entry: StockCenterMinimumStock | null) {
+  return getMinimumUseQuantityText(entry) || getRealMinimumQuantityText(entry)
+}
+
+function getRepositionMinimumQuantityValue(entry: StockCenterMinimumStock | null) {
+  return parseDecimal(getRepositionMinimumQuantityText(entry)) ?? 0
+}
+
 function getRequisitionDraftColumnSortableValue(line: RequisitionDraftLine, key: RequisitionDraftColumnKey) {
   if (key === 'current') {
     return parseDecimal(line.currentQuantity) ?? 0
@@ -50681,6 +50758,12 @@ function formatStockCenterMinimumDefinition(
 
   if (target.kind === 'PRODUTO' && target.packageId !== null) {
     return `${normalizedValue} embalagem(ns)`
+  }
+
+  if (target.kind === 'PRODUTO') {
+    return options.baseUnit
+      ? `${normalizedValue} ${formatControlUnitShort(options.baseUnit)}`
+      : `${normalizedValue} unidade(s) de controle`
   }
 
   if (target.kind === 'PREPARO') {
