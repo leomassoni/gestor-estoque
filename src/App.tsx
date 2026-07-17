@@ -3686,6 +3686,9 @@ export default function App() {
   function isProductVisibleForCompany(product: ProductRecord, companyId: number | null) {
     return companyId !== null && getCompanyLinkScopeIds(getProductOwnerCompanyId(product)).includes(companyId)
   }
+  function isProductManagedByCompany(product: ProductRecord, companyId: number | null) {
+    return companyId !== null && getProductOwnerCompanyId(product) === companyId
+  }
   function isTechnicalSheetVisibleForCompany(sheet: TechnicalSheetRecord, companyId: number | null) {
     return (
       companyId !== null &&
@@ -8974,7 +8977,7 @@ export default function App() {
       const countableProducts = products
         .filter(
           (product) =>
-            isProductVisibleForCompany(product, companyId) &&
+            isProductManagedByCompany(product, companyId) &&
             product.isActive &&
             isProductStockTracked(product) &&
             typeof product.technicalSheetId !== 'number' &&
@@ -9150,7 +9153,7 @@ export default function App() {
       products
         .filter(
           (product) =>
-            isProductVisibleForCompany(product, center.companyId) &&
+            isProductManagedByCompany(product, center.companyId) &&
             product.isActive &&
             isProductStockTracked(product) &&
             typeof product.technicalSheetId !== 'number' &&
@@ -19490,7 +19493,7 @@ export default function App() {
       ...products
         .filter(
           (product) =>
-            isProductVisibleForCompany(product, center.companyId) &&
+            isProductManagedByCompany(product, center.companyId) &&
             product.isActive &&
             isProductStockTracked(product) &&
             typeof product.technicalSheetId !== 'number' &&
