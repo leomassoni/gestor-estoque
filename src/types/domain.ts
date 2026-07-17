@@ -1604,25 +1604,27 @@ export type TechnicalSheetActionState = {
 }
 
 export type ProductDisableImpactState = {
+  action: Exclude<ProductAction, 'enable'>
   productId: string
   productName: string
   linkedTechnicalSheetName: string | null
   impactedSheets: Array<{
     id: number
     name: string
-    selectedForRemoval: boolean
+    action: 'keep' | 'remove' | 'disable_sheet'
   }>
   impactedStockCenters: string[]
 }
 
 export type TechnicalSheetDisableImpactState = {
+  action: Exclude<ProductAction, 'enable'>
   technicalSheetId: number
   technicalSheetName: string
   linkedProductName: string | null
   impactedMotherSheets: Array<{
     id: number
     name: string
-    selectedForRemoval: boolean
+    action: 'keep' | 'remove' | 'disable_sheet'
     impactedSharedCompanyLabels: string[]
   }>
   impactedStockCenters: string[]

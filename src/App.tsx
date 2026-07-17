@@ -119,6 +119,7 @@ import type {
   PackageUnit,
   ScreenMode,
   CompanyUserRole,
+  ProductAction,
   AppSection,
   TechnicalSheetKind,
   ServiceItemKind,
@@ -3914,7 +3915,7 @@ export default function App() {
       return sheetDependsOnProductId(sheet, dependencySheet.productId)
     })
   }
-  function openProductDisableImpact(productId: string) {
+  function openProductDisableImpact(productId: string, action: Exclude<ProductAction, 'enable'> = 'disable') {
     const product = products.find((item) => item.id === productId) ?? null
     if (!product) {
       return
@@ -3924,7 +3925,7 @@ export default function App() {
       .map((sheet) => ({
         id: sheet.id,
         name: sheet.name,
-        selectedForRemoval: false,
+        action: action === 'delete' ? ('remove' as const) : ('keep' as const),
       }))
       .sort((left, right) => left.name.localeCompare(right.name, 'pt-BR'))
     const impactedStockCenters = stockCenters
@@ -3940,6 +3941,7 @@ export default function App() {
         ? technicalSheets.find((sheet) => sheet.id === product.technicalSheetId) ?? null
         : null
     setProductDisableImpactState({
+      action,
       productId: product.id,
       productName: product.name,
       linkedTechnicalSheetName: linkedTechnicalSheet?.name ?? null,
@@ -3947,7 +3949,10 @@ export default function App() {
       impactedStockCenters,
     })
   }
-  function openTechnicalSheetDisableImpact(technicalSheetId: number) {
+  function openTechnicalSheetDisableImpact(
+    technicalSheetId: number,
+    action: Exclude<ProductAction, 'enable'> = 'disable',
+  ) {
     const sheet = technicalSheets.find((item) => item.id === technicalSheetId) ?? null
     if (!sheet) {
       return
@@ -3957,7 +3962,7 @@ export default function App() {
       .map((candidate) => ({
         id: candidate.id,
         name: candidate.name,
-        selectedForRemoval: false,
+        action: action === 'delete' ? ('remove' as const) : ('keep' as const),
         impactedSharedCompanyLabels: getTechnicalSheetSharedCompanyIds(candidate)
           .filter((companyId) => companyId !== getTechnicalSheetOwnerCompanyId(candidate))
           .map((companyId) => getCompanyTradeName(companyId)),
@@ -3972,6 +3977,7 @@ export default function App() {
       .sort((left, right) => left.localeCompare(right, 'pt-BR'))
     const linkedProduct = products.find((product) => product.technicalSheetId === sheet.id) ?? null
     setTechnicalSheetDisableImpactState({
+      action,
       technicalSheetId: sheet.id,
       technicalSheetName: sheet.name,
       linkedProductName: linkedProduct?.name ?? null,
@@ -19684,7 +19690,7 @@ export default function App() {
           requestedQuantity: formatDecimal(suggestedQuantity),
           requestUnitLabel: getRequisitionRequestUnitLabel(row),
           currentQuantity: formatDecimal(currentRowQuantity),
-          currentUnitLabel: formatControlUnitShort(row.baseUnit),
+          currentUnitLabel: row.kind === 'PREPARO' ? getRequisitionRequestUnitLabel(row) : formatControlUnitShort(row.baseUnit),
           minimumDefinitionLabel:
             [
               manualUseMinimum > 0
@@ -19694,10 +19700,10 @@ export default function App() {
                   })}`
                 : '',
               suggestedRealMinimum > 0
-                ? `Real ${formatStockCenterMinimumDefinition(formatDecimal(suggestedRealMinimum), row, {
+                ? formatStockCenterMinimumDefinition(formatDecimal(suggestedRealMinimum), row, {
                     baseQuantity: row.baseQuantity,
                     baseUnit: row.baseUnit,
-                  })}`
+                  })
                 : '',
             ]
               .filter(Boolean)
@@ -22322,9 +22328,9 @@ export default function App() {
         family: dependencySheet.family,
         suggestedQuantity: formatDecimal(nextRequestedQuantity),
         requestedQuantity: formatDecimal(nextRequestedQuantity),
-        requestUnitLabel: 'PORCOES BASE',
+        requestUnitLabel: `${formatDecimal(baseQuantity)} ${formatControlUnitShort(dependencySheet.outputUnit)}`,
         currentQuantity: '0',
-        currentUnitLabel: formatControlUnitShort(dependencySheet.outputUnit),
+        currentUnitLabel: `${formatDecimal(baseQuantity)} ${formatControlUnitShort(dependencySheet.outputUnit)}`,
         minimumDefinitionLabel: '-',
         destinationType: 'PRODUCOES',
         destinationCenterId: producerCenter?.id ?? null,
@@ -22572,9 +22578,9 @@ export default function App() {
           family: dependencySheet.family,
           suggestedQuantity: formatDecimal(shortageQuantity / baseQuantity),
           requestedQuantity: formatDecimal(shortageQuantity / baseQuantity),
-          requestUnitLabel: 'PORCOES BASE',
+          requestUnitLabel: `${formatDecimal(baseQuantity)} ${formatControlUnitShort(dependencySheet.outputUnit)}`,
           currentQuantity: '0',
-          currentUnitLabel: formatControlUnitShort(dependencySheet.outputUnit),
+          currentUnitLabel: `${formatDecimal(baseQuantity)} ${formatControlUnitShort(dependencySheet.outputUnit)}`,
           minimumDefinitionLabel: '-',
           destinationType: 'PRODUCOES',
           destinationCenterId: supplyResolution.supplierCenter.id,
@@ -23774,7 +23780,7 @@ export default function App() {
       }
       return {
         multiplier: 1,
-        unitLabel: 'PORCOES BASE',
+        unitLabel: `${formatDecimal(getStockCenterBaseQuantity(sheet))} ${formatControlUnitShort(sheet.outputUnit)}`,
       }
     }
 
@@ -23873,6 +23879,9 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
         return `${formatDecimal(quantity * config.multiplier)} ${config.unitLabel}`
       }
       return `${formatDecimal(quantity)} x ${config.unitLabel}`
+    }
+    if (line.kind === 'PREPARO') {
+      return `${formatDecimal(quantity * config.multiplier)} x ${config.unitLabel}`
     }
     return `${formatDecimal(quantity * config.multiplier)} ${config.unitLabel}`
   }
@@ -33683,48 +33692,64 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
       return
     }
 
-    const selectedSheetIds = new Set(
-      productDisableImpactState.impactedSheets.filter((sheet) => sheet.selectedForRemoval).map((sheet) => sheet.id),
+    const impactedSheetActionById = new Map(
+      productDisableImpactState.impactedSheets.map((sheet) => [sheet.id, sheet.action] as const),
     )
-    const nextTechnicalSheets =
-      selectedSheetIds.size > 0
-        ? technicalSheets.map((sheet) =>
-            selectedSheetIds.has(sheet.id)
-              ? {
-                  ...sheet,
-                  ingredients: sheet.ingredients.map((ingredient) =>
-                    ingredient.productId === targetProduct.id ? { ...ingredient, isActive: false } : ingredient,
-                  ),
-                  garnishIngredients: sheet.garnishIngredients.map((ingredient) =>
-                    ingredient.productId === targetProduct.id ? { ...ingredient, isActive: false } : ingredient,
-                  ),
-                }
-              : sheet,
-          )
-        : technicalSheets
+    const nextTechnicalSheets = technicalSheets.map((sheet) => {
+      const action = impactedSheetActionById.get(sheet.id) ?? 'keep'
+      if (action === 'remove') {
+        return {
+          ...sheet,
+          ingredients: sheet.ingredients.map((ingredient) =>
+            ingredient.productId === targetProduct.id ? { ...ingredient, isActive: false } : ingredient,
+          ),
+          garnishIngredients: sheet.garnishIngredients.map((ingredient) =>
+            ingredient.productId === targetProduct.id ? { ...ingredient, isActive: false } : ingredient,
+          ),
+        }
+      }
+      if (action === 'disable_sheet') {
+        return { ...sheet, isActive: false }
+      }
+      return sheet
+    })
 
     try {
-      await fetch(`/api/products/${encodeURIComponent(targetProduct.id)}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          ...targetProduct,
-          isActive: false,
-        }),
-      }).then(async (response) => {
-        if (!response.ok) {
-          const errorPayload = (await response.json().catch(() => null)) as { error?: string } | null
-          throw new Error(errorPayload?.error || 'Nao foi possivel atualizar o produto no servidor.')
-        }
-      })
+      if (productDisableImpactState.action === 'delete') {
+        await fetch(`/api/products/${encodeURIComponent(targetProduct.id)}`, { method: 'DELETE' }).then(async (response) => {
+          if (!response.ok) {
+            const errorPayload = (await response.json().catch(() => null)) as { error?: string } | null
+            throw new Error(errorPayload?.error || 'Nao foi possivel excluir o produto no servidor.')
+          }
+        })
+      } else {
+        await fetch(`/api/products/${encodeURIComponent(targetProduct.id)}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            ...targetProduct,
+            isActive: false,
+          }),
+        }).then(async (response) => {
+          if (!response.ok) {
+            const errorPayload = (await response.json().catch(() => null)) as { error?: string } | null
+            throw new Error(errorPayload?.error || 'Nao foi possivel atualizar o produto no servidor.')
+          }
+        })
+      }
       await persistChangedTechnicalSheetsOnApi(technicalSheets, nextTechnicalSheets)
       await refreshAppCatalogRecordsFromApi()
     } catch (error) {
       console.error(error)
       setSaveFeedback({
         status: 'error',
-        title: 'Falha ao inativar produto',
-        message: error instanceof Error ? error.message : 'Erro ao inativar produto no servidor.',
+        title: productDisableImpactState.action === 'delete' ? 'Falha ao excluir produto' : 'Falha ao inativar produto',
+        message:
+          error instanceof Error
+            ? error.message
+            : productDisableImpactState.action === 'delete'
+              ? 'Erro ao excluir produto no servidor.'
+              : 'Erro ao inativar produto no servidor.',
       })
       return
     }
@@ -33861,56 +33886,73 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
     }
 
     const linkedProduct = products.find((product) => product.technicalSheetId === targetSheet.id) ?? null
-    const selectedMotherSheetIds = new Set(
-      technicalSheetDisableImpactState.impactedMotherSheets
-        .filter((sheet) => sheet.selectedForRemoval)
-        .map((sheet) => sheet.id),
+    const impactedMotherActionById = new Map(
+      technicalSheetDisableImpactState.impactedMotherSheets.map((sheet) => [sheet.id, sheet.action] as const),
     )
-    const nextTechnicalSheets =
-      selectedMotherSheetIds.size > 0
-        ? technicalSheets.map((sheet) =>
-            selectedMotherSheetIds.has(sheet.id)
-              ? {
-                  ...sheet,
-                  ingredients: sheet.ingredients.map((ingredient) =>
-                    ingredient.productId === targetSheet.productId ? { ...ingredient, isActive: false } : ingredient,
-                  ),
-                  garnishIngredients: sheet.garnishIngredients.map((ingredient) =>
-                    ingredient.productId === targetSheet.productId ? { ...ingredient, isActive: false } : ingredient,
-                  ),
-                }
-              : sheet,
-          )
-        : technicalSheets
+    const nextTechnicalSheets = technicalSheets.map((sheet) => {
+      const action = impactedMotherActionById.get(sheet.id) ?? 'keep'
+      if (action === 'remove') {
+        return {
+          ...sheet,
+          ingredients: sheet.ingredients.map((ingredient) =>
+            ingredient.productId === targetSheet.productId ? { ...ingredient, isActive: false } : ingredient,
+          ),
+          garnishIngredients: sheet.garnishIngredients.map((ingredient) =>
+            ingredient.productId === targetSheet.productId ? { ...ingredient, isActive: false } : ingredient,
+          ),
+        }
+      }
+      if (action === 'disable_sheet') {
+        return { ...sheet, isActive: false }
+      }
+      return sheet
+    })
 
     try {
-      await fetch(`/api/technical-sheets/${targetSheet.id}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          ...targetSheet,
-          isActive: false,
-        }),
-      }).then(async (response) => {
-        if (!response.ok) {
-          const errorPayload = (await response.json().catch(() => null)) as { error?: string } | null
-          throw new Error(errorPayload?.error || 'Nao foi possivel atualizar a ficha tecnica no servidor.')
+      if (technicalSheetDisableImpactState.action === 'delete') {
+        await fetch(`/api/technical-sheets/${targetSheet.id}`, { method: 'DELETE' }).then(async (response) => {
+          if (!response.ok) {
+            const errorPayload = (await response.json().catch(() => null)) as { error?: string } | null
+            throw new Error(errorPayload?.error || 'Nao foi possivel excluir a ficha tecnica no servidor.')
+          }
+        })
+        if (linkedProduct) {
+          await fetch(`/api/products/${encodeURIComponent(linkedProduct.id)}`, { method: 'DELETE' }).then(async (response) => {
+            if (!response.ok) {
+              const errorPayload = (await response.json().catch(() => null)) as { error?: string } | null
+              throw new Error(errorPayload?.error || 'A ficha tecnica foi excluida, mas o produto vinculado nao foi removido.')
+            }
+          })
         }
-      })
-      if (linkedProduct) {
-        await fetch(`/api/products/${encodeURIComponent(linkedProduct.id)}`, {
+      } else {
+        await fetch(`/api/technical-sheets/${targetSheet.id}`, {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            ...linkedProduct,
+            ...targetSheet,
             isActive: false,
           }),
         }).then(async (response) => {
           if (!response.ok) {
             const errorPayload = (await response.json().catch(() => null)) as { error?: string } | null
-            throw new Error(errorPayload?.error || 'A ficha tecnica foi atualizada, mas o produto vinculado nao foi sincronizado.')
+            throw new Error(errorPayload?.error || 'Nao foi possivel atualizar a ficha tecnica no servidor.')
           }
         })
+        if (linkedProduct) {
+          await fetch(`/api/products/${encodeURIComponent(linkedProduct.id)}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              ...linkedProduct,
+              isActive: false,
+            }),
+          }).then(async (response) => {
+            if (!response.ok) {
+              const errorPayload = (await response.json().catch(() => null)) as { error?: string } | null
+              throw new Error(errorPayload?.error || 'A ficha tecnica foi atualizada, mas o produto vinculado nao foi sincronizado.')
+            }
+          })
+        }
       }
       await persistChangedTechnicalSheetsOnApi(technicalSheets, nextTechnicalSheets)
       await refreshAppCatalogRecordsFromApi()
@@ -33918,8 +33960,16 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
       console.error(error)
       setSaveFeedback({
         status: 'error',
-        title: 'Falha ao inativar ficha tecnica',
-        message: error instanceof Error ? error.message : 'Erro ao inativar ficha tecnica no servidor.',
+        title:
+          technicalSheetDisableImpactState.action === 'delete'
+            ? 'Falha ao excluir ficha tecnica'
+            : 'Falha ao inativar ficha tecnica',
+        message:
+          error instanceof Error
+            ? error.message
+            : technicalSheetDisableImpactState.action === 'delete'
+              ? 'Erro ao excluir ficha tecnica no servidor.'
+              : 'Erro ao inativar ficha tecnica no servidor.',
       })
       return
     }
@@ -35608,9 +35658,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                               className="icon-button icon-delete"
                               type="button"
                               aria-label="Excluir produto"
-                              onClick={() =>
-                                setProductActionState({ action: 'delete', productId: product.id })
-                              }
+                              onClick={() => openProductDisableImpact(product.id, 'delete')}
                             >
                               <span aria-hidden="true">🗑</span>
                             </button>
@@ -36653,12 +36701,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                                   className="icon-button icon-delete"
                                   type="button"
                                   aria-label="Excluir ficha tecnica"
-                                  onClick={() =>
-                                    setTechnicalSheetActionState({
-                                      action: 'delete',
-                                      technicalSheetId: sheet.id,
-                                    })
-                                  }
+                                  onClick={() => openTechnicalSheetDisableImpact(sheet.id, 'delete')}
                                 >
                                   <span aria-hidden="true">🗑</span>
                                 </button>
@@ -45828,12 +45871,14 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
             <div className="section-heading">
               <div>
                 <p className="kicker">Impacto da inativacao</p>
-                <h2 id="product-disable-impact-title">Inativar produto {productDisableImpactState.productName}?</h2>
+                <h2 id="product-disable-impact-title">
+                  {productDisableImpactState.action === 'delete' ? 'Excluir' : 'Inativar'} produto {productDisableImpactState.productName}?
+                </h2>
               </div>
             </div>
 
             <p className="confirm-copy">
-              O produto sera inativado. Voce pode apenas manter as referencias existentes, ou tambem retirar este insumo das fichas impactadas.
+              O produto sera {productDisableImpactState.action === 'delete' ? 'excluido' : 'inativado'}. Escolha como tratar cada ficha que usa este insumo antes de confirmar.
             </p>
 
             {productDisableImpactState.linkedTechnicalSheetName ? (
@@ -45849,24 +45894,31 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                 <ul className="sector-impact-list">
                   {productDisableImpactState.impactedSheets.map((sheet) => (
                     <li key={`product-disable-impact-sheet-${sheet.id}`}>
-                      <label className="checkbox-line">
-                        <input
-                          type="checkbox"
-                          checked={sheet.selectedForRemoval}
-                          onChange={() =>
+                      <label className="field">
+                        <span>{sheet.name}</span>
+                        <select
+                          value={sheet.action}
+                          onChange={(event) =>
                             setProductDisableImpactState((current) =>
                               current
                                 ? {
                                     ...current,
                                     impactedSheets: current.impactedSheets.map((item) =>
-                                      item.id === sheet.id ? { ...item, selectedForRemoval: !item.selectedForRemoval } : item,
+                                      item.id === sheet.id
+                                        ? { ...item, action: event.target.value as ProductDisableImpactState['impactedSheets'][number]['action'] }
+                                        : item,
                                     ),
                                   }
                                 : current,
                             )
                           }
-                        />
-                        <span>{sheet.name} | Remover este insumo da ficha ao inativar</span>
+                        >
+                          {productDisableImpactState.action === 'disable' ? (
+                            <option value="keep">Manter referencia na ficha</option>
+                          ) : null}
+                          <option value="remove">Remover este insumo da ficha</option>
+                          <option value="disable_sheet">Inativar a ficha impactada</option>
+                        </select>
                       </label>
                     </li>
                   ))}
@@ -45894,7 +45946,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                 Cancelar
               </button>
               <button className="warning-button" type="button" onClick={runProductDisableImpactAction}>
-                Inativar produto
+                {productDisableImpactState.action === 'delete' ? 'Excluir produto' : 'Inativar produto'}
               </button>
             </div>
           </section>
@@ -45988,13 +46040,13 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
               <div>
                 <p className="kicker">Impacto da inativacao</p>
                 <h2 id="technical-sheet-disable-impact-title">
-                  Inativar ficha tecnica {technicalSheetDisableImpactState.technicalSheetName}?
+                  {technicalSheetDisableImpactState.action === 'delete' ? 'Excluir' : 'Inativar'} ficha tecnica {technicalSheetDisableImpactState.technicalSheetName}?
                 </h2>
               </div>
             </div>
 
             <p className="confirm-copy">
-              A ficha tecnica sera inativada. Voce pode manter as referencias nas fichas maes, ou remover este insumo das fichas impactadas.
+              A ficha tecnica sera {technicalSheetDisableImpactState.action === 'delete' ? 'excluida' : 'inativada'}. Escolha como tratar cada ficha mae que usa este insumo antes de confirmar.
             </p>
 
             {technicalSheetDisableImpactState.linkedProductName ? (
@@ -46010,30 +46062,36 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                 <ul className="sector-impact-list">
                   {technicalSheetDisableImpactState.impactedMotherSheets.map((sheet) => (
                     <li key={`technical-sheet-disable-impact-sheet-${sheet.id}`}>
-                      <label className="checkbox-line">
-                        <input
-                          type="checkbox"
-                          checked={sheet.selectedForRemoval}
-                          onChange={() =>
-                            setTechnicalSheetDisableImpactState((current) =>
-                              current
-                                ? {
-                                    ...current,
-                                    impactedMotherSheets: current.impactedMotherSheets.map((item) =>
-                                      item.id === sheet.id ? { ...item, selectedForRemoval: !item.selectedForRemoval } : item,
-                                    ),
-                                  }
-                                : current,
-                            )
-                          }
-                        />
+                      <label className="field">
                         <span>
                           {sheet.name}
                           {sheet.impactedSharedCompanyLabels.length > 0
                             ? ` | Compartilhada com: ${sheet.impactedSharedCompanyLabels.join(', ')}`
                             : ''}
-                          {' | '}Remover este insumo da ficha mae ao inativar
                         </span>
+                        <select
+                          value={sheet.action}
+                          onChange={(event) =>
+                            setTechnicalSheetDisableImpactState((current) =>
+                              current
+                                ? {
+                                    ...current,
+                                    impactedMotherSheets: current.impactedMotherSheets.map((item) =>
+                                      item.id === sheet.id
+                                        ? { ...item, action: event.target.value as TechnicalSheetDisableImpactState['impactedMotherSheets'][number]['action'] }
+                                        : item,
+                                    ),
+                                  }
+                                : current,
+                            )
+                          }
+                        >
+                          {technicalSheetDisableImpactState.action === 'disable' ? (
+                            <option value="keep">Manter referencia na ficha mae</option>
+                          ) : null}
+                          <option value="remove">Remover este insumo da ficha mae</option>
+                          <option value="disable_sheet">Inativar a ficha mae impactada</option>
+                        </select>
                       </label>
                     </li>
                   ))}
@@ -46061,7 +46119,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                 Cancelar
               </button>
               <button className="warning-button" type="button" onClick={runTechnicalSheetDisableImpactAction}>
-                Inativar ficha tecnica
+                {technicalSheetDisableImpactState.action === 'delete' ? 'Excluir ficha tecnica' : 'Inativar ficha tecnica'}
               </button>
             </div>
           </section>
@@ -49652,6 +49710,9 @@ function formatRequisitionDraftColumnQuantity(
       ? `${formatDecimal(quantity)} ${unitLabel}`
       : `${formatDecimal(quantity)} x ${unitLabel}`
   }
+  if (line.kind === 'PREPARO') {
+    return `${formatDecimal(quantity)} x ${unitLabel}`
+  }
   return `${formatDecimal(quantity)} ${unitLabel}`
 }
 
@@ -50868,15 +50929,19 @@ function formatStockCenterMinimumDefinition(
   }
 
   if (target.kind === 'PREPARO') {
-    const prepUnit =
-      options.baseUnit ??
-      (typeof target.technicalSheetId === 'number'
-        ? options.technicalSheets?.find((item) => item.id === target.technicalSheetId)?.outputUnit ?? null
-        : null)
+    const prepSheet =
+      typeof target.technicalSheetId === 'number'
+        ? options.technicalSheets?.find((item) => item.id === target.technicalSheetId) ?? null
+        : null
+    const prepUnit = options.baseUnit ?? prepSheet?.outputUnit ?? null
+    const prepBaseQuantity = options.baseQuantity ?? (prepSheet ? getStockCenterBaseQuantity(prepSheet) : null)
+    if (prepBaseQuantity && prepBaseQuantity > 0 && prepUnit) {
+      return `${normalizedValue} x ${formatDecimal(prepBaseQuantity)} ${formatControlUnitShort(prepUnit)}`
+    }
     if (prepUnit === 'UNIT') {
       return `${normalizedValue} un`
     }
-    return `${normalizedValue} porcao(oes) base`
+    return `${normalizedValue} unidade(s) de preparo`
   }
 
   return `${normalizedValue} un`
@@ -50953,7 +51018,7 @@ function buildInventoryAggregationKey(target: {
 
 function getRequisitionRequestUnitLabel(row: StockCenterMinimumRow) {
   if (row.kind === 'PREPARO') {
-    return 'PORCOES BASE'
+    return `${formatDecimal(row.baseQuantity)} ${formatControlUnitShort(row.baseUnit)}`
   }
 
   if (row.kind === 'PRODUTO') {
