@@ -9267,6 +9267,13 @@ export default function App() {
             return false
           }
 
+          if (row.kind === 'PRODUTO' && row.packageId === null) {
+            const product = products.find((item) => item.id === row.productId) ?? null
+            if (product?.packages.some((item) => item.isActive)) {
+              return false
+            }
+          }
+
           if (row.kind === 'PREPARO') {
             const technicalSheet =
               row.technicalSheetId === null
@@ -9338,7 +9345,7 @@ export default function App() {
             line,
           }
         }),
-    [latestInventoryQuantityByCenterAndAggregation, manualSupplySourceCenter, manualSupplyTargetCenter, stockCenterMinimumRows],
+    [latestInventoryQuantityByCenterAndAggregation, manualSupplySourceCenter, manualSupplyTargetCenter, products, stockCenterMinimumRows, technicalSheets],
   )
   const serviceItemUnitCostById = useMemo(() => {
     const nextMap = new Map<string, number>()
@@ -19448,7 +19455,7 @@ export default function App() {
   }
 
   function buildRequisitionDraftLines(center: StockCenterRecord): RequisitionDraftLine[] {
-    const centerMinimumRows = [
+    const centerMinimumRows: StockCenterMinimumRow[] = [
       ...technicalSheets
         .filter(
           (sheet) =>
@@ -19489,7 +19496,8 @@ export default function App() {
             typeof product.technicalSheetId !== 'number' &&
             product.controlUnit !== 'COMBO',
         )
-        .flatMap((product) => {
+        .flatMap<StockCenterMinimumRow>((product) => {
+          const activePackages = product.packages.filter((item) => item.isActive)
           const unitKey = buildStockCenterMinimumEntryKey({
             kind: 'PRODUTO',
             technicalSheetId: null,
@@ -19497,47 +19505,48 @@ export default function App() {
             serviceItemId: '',
             packageId: null,
           })
-          return [
-            {
-              key: unitKey,
-              kind: 'PRODUTO',
-              name: product.name,
-              typeLabel: 'Produto',
-              family: product.family,
-              referenceLabel: `UNIDADE DE CONTROLE • 1 ${formatControlUnitShort(product.controlUnit)}`,
-              baseQuantity: 1,
-              baseUnit: product.controlUnit,
-              technicalSheetId: null,
-              productId: product.id,
-              serviceItemId: '',
-              packageId: null,
-            } satisfies StockCenterMinimumRow,
-            ...product.packages
-              .filter((item) => item.isActive)
-              .map(
-                (item) =>
-                  ({
-                    key: buildStockCenterMinimumEntryKey({
-                      kind: 'PRODUTO',
-                      technicalSheetId: null,
-                      productId: product.id,
-                      serviceItemId: '',
-                      packageId: item.id,
-                    }),
-                    kind: 'PRODUTO',
-                    name: product.name,
-                    typeLabel: 'Produto',
-                    family: product.family,
-                    referenceLabel: buildProductPackageLabel(product, item),
-                    baseQuantity: calculateNormalizedPackageQuantity(item, product.controlUnit),
-                    baseUnit: product.controlUnit,
-                    technicalSheetId: null,
-                    productId: product.id,
-                    serviceItemId: '',
-                    packageId: item.id,
-                  }) satisfies StockCenterMinimumRow,
-              ),
-          ]
+          if (activePackages.length === 0) {
+            return [
+              {
+                key: unitKey,
+                kind: 'PRODUTO',
+                name: product.name,
+                typeLabel: 'Produto',
+                family: product.family,
+                referenceLabel: `UNIDADE DE CONTROLE • 1 ${formatControlUnitShort(product.controlUnit)}`,
+                baseQuantity: 1,
+                baseUnit: product.controlUnit,
+                technicalSheetId: null,
+                productId: product.id,
+                serviceItemId: '',
+                packageId: null,
+              } satisfies StockCenterMinimumRow,
+            ]
+          }
+
+          return activePackages.map(
+            (item) =>
+              ({
+                key: buildStockCenterMinimumEntryKey({
+                  kind: 'PRODUTO',
+                  technicalSheetId: null,
+                  productId: product.id,
+                  serviceItemId: '',
+                  packageId: item.id,
+                }),
+                kind: 'PRODUTO',
+                name: product.name,
+                typeLabel: 'Produto',
+                family: product.family,
+                referenceLabel: buildProductPackageLabel(product, item),
+                baseQuantity: calculateNormalizedPackageQuantity(item, product.controlUnit),
+                baseUnit: product.controlUnit,
+                technicalSheetId: null,
+                productId: product.id,
+                serviceItemId: '',
+                packageId: item.id,
+              }) satisfies StockCenterMinimumRow,
+          )
         }),
       ...serviceItems
         .filter((item) => item.companyId === center.companyId && item.isActive)
@@ -19588,8 +19597,24 @@ export default function App() {
       })
       .map((row) => {
         const minimumStock = findStockCenterMinimumEntry(center.minimumStocks, row)
-        const manualUseMinimum = getMinimumUseQuantityValue(minimumStock)
-        const suggestedRealMinimum = parseDecimal(minimumStock?.suggestedMinimumQuantity ?? '') ?? 0
+        const productUnitMinimumStock =
+          row.kind === 'PRODUTO' && row.packageId !== null
+            ? findStockCenterMinimumEntry(center.minimumStocks, {
+                kind: 'PRODUTO',
+                technicalSheetId: null,
+                productId: row.productId,
+                serviceItemId: '',
+                packageId: null,
+              })
+            : null
+        const effectiveMinimumStock = minimumStock ?? productUnitMinimumStock
+        const unitMinimumMultiplier =
+          minimumStock === null && productUnitMinimumStock !== null && row.baseQuantity > 0
+            ? 1 / row.baseQuantity
+            : 1
+        const manualUseMinimum = getMinimumUseQuantityValue(effectiveMinimumStock) * unitMinimumMultiplier
+        const suggestedRealMinimum =
+          ((parseDecimal(effectiveMinimumStock?.suggestedMinimumQuantity ?? '') ?? 0) * unitMinimumMultiplier)
         const requiredBaseQuantity = (manualUseMinimum + suggestedRealMinimum) * row.baseQuantity
         const currentBaseQuantity =
           selectedRequisitionCurrentQuantityByKey.get(
@@ -19600,6 +19625,7 @@ export default function App() {
               serviceItemId: row.serviceItemId,
             }),
           ) ?? 0
+        const currentRowQuantity = row.baseQuantity > 0 ? currentBaseQuantity / row.baseQuantity : currentBaseQuantity
         const shortageBaseQuantity = Math.max(requiredBaseQuantity - currentBaseQuantity, 0)
         const suggestedQuantity = row.baseQuantity > 0 ? shortageBaseQuantity / row.baseQuantity : 0
         const distributorCenter = findDistributorCenterForRequisitionLine(center, {
@@ -19654,15 +19680,21 @@ export default function App() {
           suggestedQuantity: formatDecimal(suggestedQuantity),
           requestedQuantity: formatDecimal(suggestedQuantity),
           requestUnitLabel: getRequisitionRequestUnitLabel(row),
-          currentQuantity: formatDecimal(currentBaseQuantity),
+          currentQuantity: formatDecimal(currentRowQuantity),
           currentUnitLabel: formatControlUnitShort(row.baseUnit),
           minimumDefinitionLabel:
             [
               manualUseMinimum > 0
-                ? `Uso ${formatStockCenterMinimumDefinition(formatDecimal(manualUseMinimum), row, { baseUnit: row.baseUnit })}`
+                ? `Uso ${formatStockCenterMinimumDefinition(formatDecimal(manualUseMinimum), row, {
+                    baseQuantity: row.baseQuantity,
+                    baseUnit: row.baseUnit,
+                  })}`
                 : '',
               suggestedRealMinimum > 0
-                ? `Real ${formatStockCenterMinimumDefinition(formatDecimal(suggestedRealMinimum), row, { baseUnit: row.baseUnit })}`
+                ? `Real ${formatStockCenterMinimumDefinition(formatDecimal(suggestedRealMinimum), row, {
+                    baseQuantity: row.baseQuantity,
+                    baseUnit: row.baseUnit,
+                  })}`
                 : '',
             ]
               .filter(Boolean)
@@ -22287,7 +22319,7 @@ export default function App() {
         family: dependencySheet.family,
         suggestedQuantity: formatDecimal(nextRequestedQuantity),
         requestedQuantity: formatDecimal(nextRequestedQuantity),
-        requestUnitLabel: formatControlUnitShort(dependencySheet.outputUnit),
+        requestUnitLabel: 'PORCOES BASE',
         currentQuantity: '0',
         currentUnitLabel: formatControlUnitShort(dependencySheet.outputUnit),
         minimumDefinitionLabel: '-',
@@ -22537,7 +22569,7 @@ export default function App() {
           family: dependencySheet.family,
           suggestedQuantity: formatDecimal(shortageQuantity / baseQuantity),
           requestedQuantity: formatDecimal(shortageQuantity / baseQuantity),
-          requestUnitLabel: formatControlUnitShort(dependencySheet.outputUnit),
+          requestUnitLabel: 'PORCOES BASE',
           currentQuantity: '0',
           currentUnitLabel: formatControlUnitShort(dependencySheet.outputUnit),
           minimumDefinitionLabel: '-',
@@ -23731,35 +23763,35 @@ export default function App() {
     )
   }
 
-function getRequisitionEffectiveQuantityConfig(line: RequisitionLineRecord) {
-  if (line.kind === 'PREPARO' && typeof line.technicalSheetId === 'number') {
-    const sheet = technicalSheets.find((item) => item.id === line.technicalSheetId) ?? null
-    if (!sheet) {
-      return { multiplier: 1, unitLabel: line.requestUnitLabel }
+  function getRequisitionEffectiveQuantityConfig(line: RequisitionLineRecord) {
+    if (line.kind === 'PREPARO' && typeof line.technicalSheetId === 'number') {
+      const sheet = technicalSheets.find((item) => item.id === line.technicalSheetId) ?? null
+      if (!sheet) {
+        return { multiplier: 1, unitLabel: line.requestUnitLabel }
       }
       return {
-        multiplier: getStockCenterBaseQuantity(sheet),
-        unitLabel: formatControlUnitShort(sheet.outputUnit),
+        multiplier: 1,
+        unitLabel: 'PORCOES BASE',
       }
     }
 
-  if (line.kind === 'PRODUTO') {
-    const product = products.find((item) => item.id === line.productId) ?? null
-    const selectedPackage = product?.packages.find((item) => item.id === line.packageId) ?? null
-    if (!product) {
-      return { multiplier: 1, unitLabel: line.requestUnitLabel }
-    }
-    if (!selectedPackage) {
+    if (line.kind === 'PRODUTO') {
+      const product = products.find((item) => item.id === line.productId) ?? null
+      const selectedPackage = product?.packages.find((item) => item.id === line.packageId) ?? null
+      if (!product) {
+        return { multiplier: 1, unitLabel: line.requestUnitLabel }
+      }
+      if (!selectedPackage) {
+        return {
+          multiplier: 1,
+          unitLabel: formatControlUnitShort(product.controlUnit),
+        }
+      }
       return {
         multiplier: 1,
-        unitLabel: formatControlUnitShort(product.controlUnit),
+        unitLabel: `${formatDecimal(parseDecimal(selectedPackage.packageQuantity) ?? 0)} ${formatUnit(selectedPackage.packageUnit)}`,
       }
     }
-    return {
-        multiplier: 1,
-        unitLabel: `${formatDecimal(parseDecimal(selectedPackage.packageQuantity) ?? 0)} ${formatUnit(selectedPackage.packageUnit)}`,
-    }
-  }
 
     if (line.kind === 'ITEM') {
       const serviceItem = serviceItems.find((item) => item.id === line.serviceItemId) ?? null
@@ -23770,8 +23802,8 @@ function getRequisitionEffectiveQuantityConfig(line: RequisitionLineRecord) {
       }
     }
 
-  return { multiplier: 1, unitLabel: line.requestUnitLabel }
-}
+    return { multiplier: 1, unitLabel: line.requestUnitLabel }
+  }
 
 function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
   if (line.kind === 'PREPARO' && typeof line.technicalSheetId === 'number') {
@@ -23837,7 +23869,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
       if (line.packageId === null) {
         return `${formatDecimal(quantity * config.multiplier)} ${config.unitLabel}`
       }
-      return `${formatDecimal(quantity)} de ${config.unitLabel}`
+      return `${formatDecimal(quantity)} x ${config.unitLabel}`
     }
     return `${formatDecimal(quantity * config.multiplier)} ${config.unitLabel}`
   }
@@ -23887,7 +23919,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
       const selectedPackage = product?.packages.find((item) => item.id === line.packageId) ?? null
       if (product && selectedPackage) {
         const packageQuantity = calculateNormalizedPackageQuantity(selectedPackage, product.controlUnit)
-        return `${formatDecimal(availableQuantity)} de ${formatDecimal(packageQuantity)} ${formatControlUnitShort(product.controlUnit)}`
+        return `${formatDecimal(availableQuantity)} x ${formatDecimal(packageQuantity)} ${formatControlUnitShort(product.controlUnit)}`
       }
     }
 
@@ -49613,7 +49645,9 @@ function formatRequisitionDraftColumnQuantity(
 ) {
   const quantity = parseDecimal(quantityValue) ?? 0
   if (line.kind === 'PRODUTO') {
-    return `${formatDecimal(quantity)} de ${unitLabel}`
+    return line.packageId === null
+      ? `${formatDecimal(quantity)} ${unitLabel}`
+      : `${formatDecimal(quantity)} x ${unitLabel}`
   }
   return `${formatDecimal(quantity)} ${unitLabel}`
 }
@@ -50808,6 +50842,7 @@ function formatStockCenterMinimumDefinition(
   },
   options: {
     technicalSheets?: TechnicalSheetRecord[]
+    baseQuantity?: number | null
     baseUnit?: ControlUnit | null
   } = {},
 ) {
@@ -50817,6 +50852,9 @@ function formatStockCenterMinimumDefinition(
   }
 
   if (target.kind === 'PRODUTO' && target.packageId !== null) {
+    if (options.baseQuantity && options.baseQuantity > 0 && options.baseUnit) {
+      return `${normalizedValue} x ${formatDecimal(options.baseQuantity)} ${formatControlUnitShort(options.baseUnit)}`
+    }
     return `${normalizedValue} embalagem(ns)`
   }
 
