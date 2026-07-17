@@ -1655,6 +1655,16 @@ h3 {
   align-self: end;
 }
 
+@media (max-width: 900px) {
+  .package-reference-row {
+    grid-template-columns: 1fr;
+  }
+
+  .package-reference-remove {
+    width: 100%;
+  }
+}
+
 .receituario-layout {
   display: grid;
   grid-template-columns: minmax(260px, 320px) minmax(0, 1fr);
@@ -3467,16 +3477,6 @@ h3 {
   .filter-grid,
   .density-grid,
   .flavor-grid,
-@media (max-width: 900px) {
-  .package-reference-row {
-    grid-template-columns: 1fr;
-  }
-
-  .package-reference-remove {
-    width: 100%;
-  }
-}
-
   .package-form-grid,
   .package-summary,
   .form-grid,

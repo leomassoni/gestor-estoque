@@ -7340,18 +7340,32 @@ export default function App() {
           })()
         : ''
 
+    let lastValidRowDate = ''
+
     return rows
       .slice(salesImportDataStartRowIndex)
       .map((row, index) => {
+        const rawDateValue =
+          salesImportDateMode === 'COLUMN'
+            ? formatSalesImportWorkbookCellValue(row[dateColumnIndex] ?? '', 'DATE')
+            : formatSalesImportWorkbookCellValue(fixedDateValue ?? '', 'DATE')
+        const normalizedRowDate = normalizeSalesImportDateKey(rawDateValue)
+        if (normalizedRowDate) {
+          lastValidRowDate = normalizedRowDate
+        }
+        const codeValue = formatSalesImportWorkbookCellValue(row[codeColumnIndex] ?? '', 'TEXT')
+        const quantityValue = formatSalesImportWorkbookCellValue(row[quantityColumnIndex] ?? '', 'QUANTITY')
+        const consumedAt =
+          salesImportDateMode === 'COLUMN'
+            ? normalizedRowDate ?? (codeValue || quantityValue ? lastValidRowDate : '')
+            : normalizedRowDate ?? rawDateValue
+
         return resolveSalesImportRow(
           {
-          sourceRowKey: `${salesImportCurrentSheet.name}:${salesImportDataStartRowIndex + index + 1}`,
-            consumedAt:
-              salesImportDateMode === 'COLUMN'
-                ? formatSalesImportWorkbookCellValue(row[dateColumnIndex] ?? '', 'DATE')
-                : formatSalesImportWorkbookCellValue(fixedDateValue ?? '', 'DATE'),
-            companyProductId: formatSalesImportWorkbookCellValue(row[codeColumnIndex] ?? '', 'TEXT'),
-            quantity: formatSalesImportWorkbookCellValue(row[quantityColumnIndex] ?? '', 'QUANTITY'),
+            sourceRowKey: `${salesImportCurrentSheet.name}:${salesImportDataStartRowIndex + index + 1}`,
+            consumedAt,
+            companyProductId: codeValue,
+            quantity: quantityValue,
           },
           salesImportCandidateTechnicalSheets,
         )
@@ -30892,7 +30906,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
       },
     }
 
-    const nextRowId = getNextPersistedIntId(currentCompanySalesImportBatches.map((batch) => batch.id).concat([nextBatchId + 1000]))
+    const nextRowId = getNextPersistedIntId(salesImportRows.map((row) => row.id).concat([nextBatchId + 1000]))
     const rowsToSave = activeSalesImportPreviewRows.map((row, index) => ({
       id: nextRowId + index,
       batchId: batchToSave.id,
@@ -30908,7 +30922,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
       errorMessage: row.errorMessage,
     }))
 
-    const nextConsumptionId = getNextPersistedIntId(currentCompanySalesConsumptions.map((item) => item.id).concat([nextBatchId + 2000]))
+    const nextConsumptionId = getNextPersistedIntId(salesConsumptions.map((item) => item.id).concat([nextBatchId + 2000]))
     const consumptionsToSave = buildSalesImportConsumptionsForMatchedRows({
       companyId: currentCompanyId,
       stockCenterId: targetCenter.id,
