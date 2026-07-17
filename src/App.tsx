@@ -5556,11 +5556,21 @@ export default function App() {
     await Promise.all(changedSheets.map((sheet) => upsertTechnicalSheetRecordOnApi(sheet)))
   }
 
-  async function upsertStockCenterRecordOnApi(stockCenter: StockCenterRecord) {
+  async function upsertStockCenterRecordOnApi(
+    stockCenter: StockCenterRecord,
+    options: { allowSalesImportMinimumPrune?: boolean } = {},
+  ) {
     const response = await fetch(`/api/stock-centers/${stockCenter.id}`, {
       method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(stockCenter),
+      headers: {
+        'Content-Type': 'application/json',
+        ...(options.allowSalesImportMinimumPrune ? { 'x-allow-sales-import-minimum-prune': 'true' } : {}),
+      },
+      body: JSON.stringify(
+        options.allowSalesImportMinimumPrune
+          ? { ...stockCenter, allowSalesImportMinimumPrune: true }
+          : stockCenter,
+      ),
     })
     if (!response.ok) {
       const errorPayload = (await response.json().catch(() => null)) as { error?: string } | null
@@ -5568,13 +5578,17 @@ export default function App() {
     }
   }
 
-  async function persistChangedStockCentersOnApi(previousCenters: StockCenterRecord[], nextCenters: StockCenterRecord[]) {
+  async function persistChangedStockCentersOnApi(
+    previousCenters: StockCenterRecord[],
+    nextCenters: StockCenterRecord[],
+    options: { allowSalesImportMinimumPrune?: boolean } = {},
+  ) {
     const previousById = new Map(previousCenters.map((center) => [center.id, JSON.stringify(center)] as const))
     const changedCenters = nextCenters.filter((center) => previousById.get(center.id) !== JSON.stringify(center))
     if (changedCenters.length === 0) {
       return
     }
-    await Promise.all(changedCenters.map((center) => upsertStockCenterRecordOnApi(center)))
+    await Promise.all(changedCenters.map((center) => upsertStockCenterRecordOnApi(center, options)))
   }
 
   async function upsertRequisitionRecordOnApi(requisition: RequisitionRecord) {
@@ -29630,7 +29644,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
       ),
     })
     try {
-      await persistChangedStockCentersOnApi(stockCenters, nextStockCenters)
+      await persistChangedStockCentersOnApi(stockCenters, nextStockCenters, { allowSalesImportMinimumPrune: true })
     } catch (error) {
       console.error(error)
       setSaveFeedback({
@@ -29731,7 +29745,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
       availableConsumptions: salesConsumptions.filter((consumption) => consumption.sourceBatchId !== batch.id),
     })
     try {
-      await persistChangedStockCentersOnApi(stockCenters, nextStockCenters)
+      await persistChangedStockCentersOnApi(stockCenters, nextStockCenters, { allowSalesImportMinimumPrune: true })
     } catch (error) {
       console.error(error)
       setSaveFeedback({
@@ -30071,7 +30085,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
         availableConsumptions: snapshotConsumptions.filter((consumption) => consumption.sourceBatchId !== batch.id),
       })
       try {
-        await persistChangedStockCentersOnApi(stockCenterSnapshot, nextStockCenters)
+        await persistChangedStockCentersOnApi(stockCenterSnapshot, nextStockCenters, { allowSalesImportMinimumPrune: true })
       } catch (error) {
         console.error(error)
         setSaveFeedback({
@@ -30123,7 +30137,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
     })
 
     try {
-      await persistChangedStockCentersOnApi(stockCenterSnapshot, nextStockCenters)
+      await persistChangedStockCentersOnApi(stockCenterSnapshot, nextStockCenters, { allowSalesImportMinimumPrune: true })
     } catch (error) {
       console.error(error)
       setSaveFeedback({
@@ -31174,7 +31188,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
       availableConsumptions: [...salesConsumptions, ...normalizedConsumptionsToSave],
     })
     try {
-      await persistChangedStockCentersOnApi(stockCenters, nextStockCenters)
+      await persistChangedStockCentersOnApi(stockCenters, nextStockCenters, { allowSalesImportMinimumPrune: true })
     } catch (error) {
       console.error(error)
       setSaveFeedback({

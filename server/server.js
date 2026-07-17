@@ -774,6 +774,19 @@ app.put('/api/stock-centers/:id', async (request, response) => {
     return
   }
 
+  const allowSalesImportMinimumPrune =
+    request.body?.allowSalesImportMinimumPrune === true ||
+    request.get('x-allow-sales-import-minimum-prune') === 'true'
+  if (!allowSalesImportMinimumPrune) {
+    const existing = await prisma.appStockCenterRecord.findUnique({ where: { id: stockCenterId } })
+    if (existing) {
+      stockCenter.minimumStocks = mergeProtectedSalesImportMinimumStocks(
+        Array.isArray(existing.minimumStocks) ? existing.minimumStocks : [],
+        stockCenter.minimumStocks,
+      )
+    }
+  }
+
   const saved = await prisma.appStockCenterRecord.upsert({
     where: { id: stockCenterId },
     create: stockCenter,
@@ -1694,6 +1707,44 @@ function remapStockCenterMinimumEntry(entry, stockCenterIdMap) {
     destinationCenterId:
       entry.destinationCenterId === null ? null : remapSafeInt32Id(entry.destinationCenterId, stockCenterIdMap),
   }
+}
+
+function buildStockCenterMinimumEntryKey(entry) {
+  if (!entry || typeof entry !== 'object') {
+    return ''
+  }
+
+  if (entry.kind === 'PREPARO') {
+    return `PREPARO:${entry.technicalSheetId ?? ''}`
+  }
+
+  if (entry.kind === 'PRODUTO') {
+    return `PRODUTO:${entry.productId ?? ''}:${entry.packageId ?? ''}`
+  }
+
+  return `ITEM:${entry.serviceItemId ?? ''}`
+}
+
+function isSalesImportSuggestedMinimumEntry(entry) {
+  return (
+    entry &&
+    typeof entry === 'object' &&
+    (entry.minimumSource === 'SUGERIDO_VENDAS' ||
+      entry.realMinimumSource === 'SUGERIDO_VENDAS' ||
+      entry.suggestedContext === 'CONSUMO_PROPRIO')
+  )
+}
+
+function mergeProtectedSalesImportMinimumStocks(existingMinimumStocks, incomingMinimumStocks) {
+  const incomingByKey = new Map(incomingMinimumStocks.map((entry) => [buildStockCenterMinimumEntryKey(entry), entry]))
+  const protectedExistingEntries = existingMinimumStocks.filter((entry) => {
+    if (!isSalesImportSuggestedMinimumEntry(entry)) {
+      return false
+    }
+    return !incomingByKey.has(buildStockCenterMinimumEntryKey(entry))
+  })
+
+  return [...incomingMinimumStocks, ...protectedExistingEntries]
 }
 
 function remapInventorySessionLikeRecord(record, inventoryIdMap, stockCenterIdMap, sessionIdMap) {
