@@ -5397,71 +5397,94 @@ export default function App() {
   }
 
   async function refreshAppCatalogRecordsFromApi() {
-    const [productsResponse, serviceItemsResponse, technicalSheetsResponse, flavorProfilesResponse] = await Promise.all([
-      fetch('/api/products', { cache: 'no-store' }),
-      fetch('/api/service-items', { cache: 'no-store' }),
-      fetch('/api/technical-sheets', { cache: 'no-store' }),
-      fetch('/api/flavor-profiles', { cache: 'no-store' }),
-    ])
-
-    if (!productsResponse.ok || !serviceItemsResponse.ok || !technicalSheetsResponse.ok || !flavorProfilesResponse.ok) {
-      throw new Error('Falha ao carregar produtos, itens, perfis de sabor ou fichas tecnicas pelo backend.')
+    const catalogCompanyIds = currentCompanyId === null ? [] : getCompanyLinkScopeIds(currentCompanyId)
+    if (catalogCompanyIds.length === 0) {
+      return
     }
 
-    const [productsData, serviceItemsData, technicalSheetsData, flavorProfilesData] = await Promise.all([
-      productsResponse.json(),
-      serviceItemsResponse.json(),
-      technicalSheetsResponse.json(),
-      flavorProfilesResponse.json(),
+    const fetchScopedRecords = async <T extends { id: string | number }>(
+      path: string,
+      responseKey: string,
+      normalize: (value: unknown) => T | null,
+    ) => {
+      const responses = await Promise.all(
+        catalogCompanyIds.map((companyId) => fetch(`${path}?companyId=${companyId}`, { cache: 'no-store' })),
+      )
+      const failedResponse = responses.find((response) => !response.ok)
+      if (failedResponse) {
+        throw new Error('Falha ao carregar produtos, itens, perfis de sabor ou fichas tecnicas pelo backend.')
+      }
+
+      const payloads = await Promise.all(responses.map((response) => response.json()))
+      const recordsByKey = new Map<string, T>()
+      for (const payload of payloads) {
+        const rawRecords = Array.isArray(payload?.[responseKey]) ? (payload[responseKey] as unknown[]) : []
+        for (const record of rawRecords) {
+          const normalized = normalize(record)
+          if (!normalized) {
+            continue
+          }
+          recordsByKey.set(String(normalized.id), normalized)
+        }
+      }
+      return Array.from(recordsByKey.values())
+    }
+
+    const [scopedProducts, scopedServiceItems, scopedTechnicalSheets, scopedFlavorProfiles] = await Promise.all([
+      fetchScopedRecords('/api/products', 'products', normalizeProductRecord),
+      fetchScopedRecords('/api/service-items', 'serviceItems', normalizeServiceItemRecord),
+      fetchScopedRecords('/api/technical-sheets', 'technicalSheets', normalizeTechnicalSheetRecord),
+      fetchScopedRecords('/api/flavor-profiles', 'flavorProfiles', normalizeFlavorProfileRecord),
     ])
 
-    const nextProducts = Array.isArray(productsData?.products)
-      ? (productsData.products as unknown[])
-          .map(normalizeProductRecord)
-          .filter((item): item is ProductRecord => item !== null)
-      : []
-    const nextServiceItems = Array.isArray(serviceItemsData?.serviceItems)
-      ? (serviceItemsData.serviceItems as unknown[])
-          .map(normalizeServiceItemRecord)
-          .filter((item): item is ServiceItemRecord => item !== null)
-      : []
-    const nextTechnicalSheets = Array.isArray(technicalSheetsData?.technicalSheets)
-      ? (technicalSheetsData.technicalSheets as unknown[])
-          .map(normalizeTechnicalSheetRecord)
-          .filter((item): item is TechnicalSheetRecord => item !== null)
-      : []
-    const nextFlavorProfiles = Array.isArray(flavorProfilesData?.flavorProfiles)
-      ? (flavorProfilesData.flavorProfiles as unknown[])
-          .map(normalizeFlavorProfileRecord)
-          .filter((item): item is FlavorProfileRecord => item !== null)
-      : []
+    const catalogCompanyIdSet = new Set(catalogCompanyIds)
+    const mergeScopedRecords = <T extends { companyId: number; id: string | number }>(current: T[], scoped: T[]) => [
+      ...current.filter((record) => !catalogCompanyIdSet.has(record.companyId)),
+      ...scoped,
+    ]
 
     const localProducts = loadProductsState()
     const localServiceItems = loadServiceItemsState()
     const localTechnicalSheets = loadTechnicalSheetsState()
     const localFlavorProfiles = loadFlavorProfilesState()
-    const missingProducts = nextProducts.length === 0 && localProducts.length > 0
-    const missingServiceItems = nextServiceItems.length === 0 && localServiceItems.length > 0
-    const missingTechnicalSheets = nextTechnicalSheets.length === 0 && localTechnicalSheets.length > 0
-    const missingFlavorProfiles = nextFlavorProfiles.length === 0 && localFlavorProfiles.length > 0
+    const localScopedProducts = localProducts.filter((record) => catalogCompanyIdSet.has(record.companyId))
+    const localScopedServiceItems = localServiceItems.filter((record) => catalogCompanyIdSet.has(record.companyId))
+    const localScopedTechnicalSheets = localTechnicalSheets.filter((record) => catalogCompanyIdSet.has(record.companyId))
+    const localScopedFlavorProfiles = localFlavorProfiles.filter((record) => catalogCompanyIdSet.has(record.companyId))
+    const missingProducts = scopedProducts.length === 0 && localScopedProducts.length > 0
+    const missingServiceItems = scopedServiceItems.length === 0 && localScopedServiceItems.length > 0
+    const missingTechnicalSheets = scopedTechnicalSheets.length === 0 && localScopedTechnicalSheets.length > 0
+    const missingFlavorProfiles = scopedFlavorProfiles.length === 0 && localScopedFlavorProfiles.length > 0
 
     if (missingProducts || missingServiceItems || missingTechnicalSheets || missingFlavorProfiles) {
       await Promise.all([
-        ...(missingProducts ? localProducts.map((product) => upsertProductRecordOnApi(product, null)) : []),
-        ...(missingServiceItems ? localServiceItems.map((item) => upsertServiceItemRecordOnApi(item, null)) : []),
-        ...(missingTechnicalSheets ? localTechnicalSheets.map((sheet) => upsertTechnicalSheetRecordOnApi(sheet)) : []),
-        ...(missingFlavorProfiles ? localFlavorProfiles.map((profile) => upsertFlavorProfileRecordOnApi(profile)) : []),
+        ...(missingProducts ? localScopedProducts.map((product) => upsertProductRecordOnApi(product, null)) : []),
+        ...(missingServiceItems ? localScopedServiceItems.map((item) => upsertServiceItemRecordOnApi(item, null)) : []),
+        ...(missingTechnicalSheets ? localScopedTechnicalSheets.map((sheet) => upsertTechnicalSheetRecordOnApi(sheet)) : []),
+        ...(missingFlavorProfiles ? localScopedFlavorProfiles.map((profile) => upsertFlavorProfileRecordOnApi(profile)) : []),
       ])
 
-      setFlavorProfiles(missingFlavorProfiles ? localFlavorProfiles : nextFlavorProfiles)
-      setProducts(missingProducts ? localProducts : nextProducts)
-      setServiceItems(missingServiceItems ? localServiceItems : nextServiceItems)
-      setTechnicalSheets(missingTechnicalSheets ? localTechnicalSheets : nextTechnicalSheets)
+      setFlavorProfiles((current) =>
+        mergeScopedRecords(current, missingFlavorProfiles ? localScopedFlavorProfiles : scopedFlavorProfiles),
+      )
+      setProducts((current) => mergeScopedRecords(current, missingProducts ? localScopedProducts : scopedProducts))
+      setServiceItems((current) =>
+        mergeScopedRecords(current, missingServiceItems ? localScopedServiceItems : scopedServiceItems),
+      )
+      setTechnicalSheets((current) =>
+        mergeScopedRecords(current, missingTechnicalSheets ? localScopedTechnicalSheets : scopedTechnicalSheets),
+      )
       logRemoteAppStateMessage(
         'Os registros de catalogo deste navegador foram usados para restaurar dados ausentes no servidor.',
       )
       return
     }
+
+    const nextProducts = mergeScopedRecords(products, scopedProducts)
+    const nextServiceItems = mergeScopedRecords(serviceItems, scopedServiceItems)
+    const nextTechnicalSheets = mergeScopedRecords(technicalSheets, scopedTechnicalSheets)
+    const nextFlavorProfiles = mergeScopedRecords(flavorProfiles, scopedFlavorProfiles)
+
     const nextProductsById = buildEntitySignatureMap(nextProducts, (record) => record.id)
     const currentProductsById = buildEntitySignatureMap(products, (record) => record.id)
     const nextServiceItemsById = buildEntitySignatureMap(nextServiceItems, (record) => record.id)
@@ -6084,6 +6107,31 @@ export default function App() {
       isCancelled = true
     }
   }, [])
+
+  useEffect(() => {
+    if (currentCompanyId === null) {
+      return
+    }
+
+    let isCancelled = false
+
+    const loadCatalogForActiveCompany = async () => {
+      try {
+        await refreshAppCatalogRecordsFromApi()
+      } catch (error) {
+        console.error(error)
+        if (!isCancelled) {
+          logRemoteAppStateMessage('Falha ao carregar catalogo da empresa ativa pelo backend. O cache local continuara como fallback.')
+        }
+      }
+    }
+
+    void loadCatalogForActiveCompany()
+
+    return () => {
+      isCancelled = true
+    }
+  }, [currentCompanyId])
 
   useEffect(() => {
     let isCancelled = false
