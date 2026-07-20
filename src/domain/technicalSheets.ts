@@ -276,11 +276,6 @@ export function calculateTechnicalSheetAlcoholPercentage(
     return 0
   }
 
-  const totalMixtureVolume = calculateTechnicalSheetAlcoholReferenceYield(sheet)
-  if (totalMixtureVolume <= 0) {
-    return 0
-  }
-
   const nextVisited = new Set(visited)
   nextVisited.add(sheet.id)
   const referenceYieldSourceIngredients =
@@ -297,7 +292,17 @@ export function calculateTechnicalSheetAlcoholPercentage(
       return linkedProduct?.excludeFromExecutionYield !== true
     })
     .reduce((sum, ingredient) => sum + (parseDecimal(ingredient.yieldQuantity) ?? 0), 0)
-  const finalYieldScaleFactor = referenceYield > 0 ? totalMixtureVolume / referenceYield : 1
+  const executionDilutionRate =
+    sheet.kind === 'EXECUCAO' ? Math.max(parseDecimal(sheet.dilutionRatePercentage) ?? 0, 0) : 0
+  const executionDilutionQuantity =
+    sheet.kind === 'EXECUCAO' ? referenceYield * (executionDilutionRate / 100) : 0
+  const totalMixtureVolume =
+    sheet.kind === 'EXECUCAO' ? referenceYield + executionDilutionQuantity : calculateTechnicalSheetAlcoholReferenceYield(sheet)
+  if (totalMixtureVolume <= 0) {
+    return 0
+  }
+
+  const finalYieldScaleFactor = sheet.kind === 'EXECUCAO' ? 1 : referenceYield > 0 ? totalMixtureVolume / referenceYield : 1
 
   const alcoholSourceIngredients =
     sheet.kind === 'EXECUCAO' ? sheet.ingredients : [...sheet.ingredients, ...sheet.garnishIngredients]

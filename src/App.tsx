@@ -13582,6 +13582,9 @@ export default function App() {
 
     void fetchTechnicalSheetRecordFromApi(selectedRecipePanelSheet.id)
       .then((fullSheet) => {
+        setTechnicalSheets((current) =>
+          current.map((sheet) => (sheet.id === fullSheet.id ? fullSheet : sheet)),
+        )
         if (fullSheet.imageDataUrl.trim() !== '') {
           setTechnicalSheetImageCache((current) => ({
             ...current,
@@ -13688,11 +13691,16 @@ export default function App() {
           (item.alcoholPercentage / 100),
       0,
     )
+    const dilutionRatePercentage =
+      sheet.kind === 'EXECUCAO' ? Math.max(parseDecimal(sheet.dilutionRatePercentage) ?? 0, 0) : 0
+    const dilutionQuantity = sheet.kind === 'EXECUCAO' ? totalMixtureVolume * (dilutionRatePercentage / 100) : 0
     const portionSize = isCommercialTechnicalSheetKind(sheet.kind) ? 1 : parseDecimal(sheet.portionSize) ?? 1000
     const portionsYield = portionSize > 0 ? safeDesiredYield / portionSize : 0
     const costPerPortion = portionsYield > 0 ? totalRecipeCost / portionsYield : 0
     const alcoholDenominator =
-      sheet.kind === 'EXECUCAO' ? safeDesiredYield : totalMixtureVolume > 0 ? totalMixtureVolume : safeDesiredYield
+      sheet.kind === 'EXECUCAO'
+        ? totalMixtureVolume + dilutionQuantity
+        : totalMixtureVolume > 0 ? totalMixtureVolume : safeDesiredYield
     const finalAlcoholPercentage =
       alcoholDenominator > 0 ? (totalPureAlcoholVolume / alcoholDenominator) * 100 : 0
     const desiredCmvPercentage = parseDecimal(sheet.desiredCmvPercentage) ?? 0
