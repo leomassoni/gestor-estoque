@@ -13582,9 +13582,6 @@ export default function App() {
 
     void fetchTechnicalSheetRecordFromApi(selectedRecipePanelSheet.id)
       .then((fullSheet) => {
-        setTechnicalSheets((current) =>
-          current.map((sheet) => (sheet.id === fullSheet.id ? fullSheet : sheet)),
-        )
         if (fullSheet.imageDataUrl.trim() !== '') {
           setTechnicalSheetImageCache((current) => ({
             ...current,
