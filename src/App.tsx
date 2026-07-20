@@ -2330,6 +2330,7 @@ export default function App() {
   const [technicalSheetScreenMode, setTechnicalSheetScreenMode] = useState<ScreenMode>('list')
   const [technicalSheets, setTechnicalSheets] = useState<TechnicalSheetRecord[]>(() => loadTechnicalSheetsState())
   const [technicalSheetImageCache, setTechnicalSheetImageCache] = useState<Record<number, string>>({})
+  const [recipePanelFullSheet, setRecipePanelFullSheet] = useState<TechnicalSheetRecord | null>(null)
   const [technicalSheetFlavorProfileInput, setTechnicalSheetFlavorProfileInput] = useState('')
   const [technicalSheetSearch, setTechnicalSheetSearch] = useState('')
   const [stockCenters, setStockCenters] = useState<StockCenterRecord[]>(() => loadStockCentersState())
@@ -13533,10 +13534,13 @@ export default function App() {
 
     return recipePanelSheetsByTab[recipePanelTab].find((sheet) => sheet.id === selectedId) ?? null
   }, [recipePanelSelectedId, recipePanelSheetsByTab, recipePanelTab])
+  const selectedRecipePanelFullSheet =
+    selectedRecipePanelSheet && recipePanelFullSheet?.id === selectedRecipePanelSheet.id ? recipePanelFullSheet : null
+  const selectedRecipePanelDisplaySheet = selectedRecipePanelFullSheet ?? selectedRecipePanelSheet
   const selectedRecipePanelSheetImageDataUrl =
-    selectedRecipePanelSheet && selectedRecipePanelSheet.kind === 'EXECUCAO'
-      ? technicalSheetImageCache[selectedRecipePanelSheet.id] ?? selectedRecipePanelSheet.imageDataUrl ?? ''
-      : selectedRecipePanelSheet?.imageDataUrl ?? ''
+    selectedRecipePanelDisplaySheet && selectedRecipePanelDisplaySheet.kind === 'EXECUCAO'
+      ? technicalSheetImageCache[selectedRecipePanelDisplaySheet.id] ?? selectedRecipePanelDisplaySheet.imageDataUrl ?? ''
+      : selectedRecipePanelDisplaySheet?.imageDataUrl ?? ''
   const exportableTechnicalSheetsByKind = useMemo<Record<TechnicalSheetKind, TechnicalSheetRecord[]>>(
     () => ({
       PREPARO: technicalSheets
@@ -13573,15 +13577,22 @@ export default function App() {
   }, [exportableTechnicalSheetsByKind, technicalSheetExportState?.kind, technicalSheetExportState?.scope, technicalSheetExportState?.technicalSheetId])
   useEffect(() => {
     if (!selectedRecipePanelSheet || selectedRecipePanelSheet.kind !== 'EXECUCAO') {
+      setRecipePanelFullSheet(null)
       return
     }
 
-    if ((technicalSheetImageCache[selectedRecipePanelSheet.id] ?? selectedRecipePanelSheet.imageDataUrl ?? '').trim() !== '') {
+    if (recipePanelFullSheet?.id === selectedRecipePanelSheet.id) {
       return
     }
 
+    let isCurrentRequest = true
     void fetchTechnicalSheetRecordFromApi(selectedRecipePanelSheet.id)
       .then((fullSheet) => {
+        if (!isCurrentRequest) {
+          return
+        }
+
+        setRecipePanelFullSheet(fullSheet)
         if (fullSheet.imageDataUrl.trim() !== '') {
           setTechnicalSheetImageCache((current) => ({
             ...current,
@@ -13590,7 +13601,11 @@ export default function App() {
         }
       })
       .catch(() => {})
-  }, [selectedRecipePanelSheet, technicalSheetImageCache])
+
+    return () => {
+      isCurrentRequest = false
+    }
+  }, [recipePanelFullSheet?.id, selectedRecipePanelSheet?.id, selectedRecipePanelSheet?.kind])
   function buildRecipePanelDataForSheet(
     sheet: TechnicalSheetRecord,
     desiredYieldInput: number,
@@ -13736,7 +13751,7 @@ export default function App() {
   }
 
   const recipePanelData = useMemo(() => {
-    const sheet = selectedRecipePanelSheet
+    const sheet = selectedRecipePanelDisplaySheet
     if (!sheet) {
       return null
     }
@@ -13751,7 +13766,7 @@ export default function App() {
     recipePanelDesiredYield,
     recipePanelRecipeCount,
     recipePanelTab,
-    selectedRecipePanelSheet,
+    selectedRecipePanelDisplaySheet,
     serviceItems,
     technicalSheets,
   ])
@@ -32883,8 +32898,8 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
   function buildRecipeExportDataSet(tab: RecipePanelTab, scope: RecipeExportState['scope']) {
     const sheets =
       scope === 'current'
-        ? selectedRecipePanelSheet && recipePanelTab === tab
-          ? [selectedRecipePanelSheet]
+        ? selectedRecipePanelDisplaySheet && recipePanelTab === tab
+          ? [selectedRecipePanelDisplaySheet]
           : []
         : recipePanelSheetsByTab[tab]
 
