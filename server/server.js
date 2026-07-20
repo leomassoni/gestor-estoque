@@ -3748,15 +3748,15 @@ function normalizeTechnicalSheetFlavorProfileRating(value) {
 
   const flavorProfileId = normalizeRegistrationText(rating.flavorProfileId)
   const label = normalizeRegistrationText(rating.label)
-  const parsedValue = Number.parseInt(rating.value.trim(), 10)
-  if (!flavorProfileId || !label || !Number.isFinite(parsedValue) || parsedValue < 1 || parsedValue > 5) {
+  const parsedValue = Number.parseFloat(rating.value.trim().replace(',', '.'))
+  if (!flavorProfileId || !label || !Number.isFinite(parsedValue) || parsedValue < 0 || parsedValue > 5) {
     return null
   }
 
   return {
     flavorProfileId,
     label,
-    value: String(parsedValue),
+    value: String(parsedValue).replace(/\.0$/, ''),
   }
 }
 
@@ -3764,7 +3764,7 @@ function buildLegacyFlavorProfileRatings(companyId, values) {
   return defaultFlavorProfileNames
     .map((label) => {
       const rawValue = typeof values?.[label] === 'string' ? values[label].trim() : '0'
-      const parsedValue = Number.parseInt(rawValue, 10)
+      const parsedValue = Number.parseFloat(rawValue.replace(',', '.'))
       if (!Number.isFinite(parsedValue) || parsedValue <= 0) {
         return null
       }
@@ -3772,7 +3772,7 @@ function buildLegacyFlavorProfileRatings(companyId, values) {
       return {
         flavorProfileId: buildDefaultFlavorProfileId(companyId, label),
         label,
-        value: String(Math.max(1, Math.min(5, parsedValue))),
+        value: String(Math.max(0, Math.min(5, parsedValue))).replace(/\.0$/, ''),
       }
     })
     .filter((rating) => rating !== null)

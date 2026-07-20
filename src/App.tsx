@@ -28137,7 +28137,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
       errors.push('adicione ao menos 1 perfil de sabor')
     }
     if (technicalSheetForm.kind === 'EXECUCAO' && normalizedFlavorProfileRatings.length !== technicalSheetForm.flavorProfileRatings.length) {
-      errors.push('verifique os perfis de sabor e mantenha apenas notas de 1 a 5')
+      errors.push('verifique os perfis de sabor e mantenha apenas notas de 0 a 5')
     }
     if (isTechnicalSheetFieldRequired(technicalSheetForm.kind, 'finalSalePrice') && !technicalSheetForm.finalSalePrice.trim()) {
       errors.push('valor de venda final obrigatorio')
@@ -37783,7 +37783,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                     </button>
                   </div>
                   <p className="helper-text">
-                    Escolha apenas os perfis que representam esta ficha e atribua uma nota de 1 a 5 para cada um.
+                    Escolha os perfis que representam esta ficha e atribua uma nota de 0 a 5 para cada um.
                   </p>
                 </label>
                 {technicalSheetForm.flavorProfileRatings.length > 0 ? (
@@ -37796,14 +37796,14 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                             <span>Nota</span>
                             <input
                               type="number"
-                              min="1"
+                              min="0"
                               max="5"
-                              step="1"
+                              step="0.1"
                               value={rating.value}
                               onChange={(event) =>
                                 updateTechnicalSheetFlavorProfileRating(rating.flavorProfileId, 'value', event.target.value)
                               }
-                              placeholder="1 a 5"
+                              placeholder="0 a 5"
                             />
                           </label>
                           <button
@@ -52659,15 +52659,15 @@ function normalizeTechnicalSheetFlavorProfileRating(
 
   const normalizedLabel = normalizeRegistrationText(rating.label)
   const normalizedValue = rating.value.trim()
-  const parsedValue = Number.parseInt(normalizedValue, 10)
-  if (!normalizedLabel || !Number.isFinite(parsedValue) || parsedValue < 1 || parsedValue > 5) {
+  const parsedValue = Number.parseFloat(normalizedValue.replace(',', '.'))
+  if (!normalizedLabel || !Number.isFinite(parsedValue) || parsedValue < 0 || parsedValue > 5) {
     return null
   }
 
   return {
     flavorProfileId: normalizeRegistrationText(rating.flavorProfileId) || buildDefaultFlavorProfileId(companyId, normalizedLabel),
     label: normalizedLabel,
-    value: String(parsedValue),
+    value: String(parsedValue).replace(/\.0$/, ''),
   }
 }
 
@@ -52678,7 +52678,7 @@ function buildLegacyTechnicalSheetFlavorProfileRatings(
   return (Object.entries(values) as Array<[keyof typeof values, string | undefined]>)
     .map(([label, rawValue]) => {
       const normalizedValue = typeof rawValue === 'string' ? rawValue.trim() : '0'
-      const parsedValue = Number.parseInt(normalizedValue, 10)
+      const parsedValue = Number.parseFloat(normalizedValue.replace(',', '.'))
       if (!Number.isFinite(parsedValue) || parsedValue <= 0) {
         return null
       }
@@ -52686,7 +52686,7 @@ function buildLegacyTechnicalSheetFlavorProfileRatings(
       return {
         flavorProfileId: buildDefaultFlavorProfileId(companyId, label),
         label: String(label),
-        value: String(Math.max(1, Math.min(5, parsedValue))),
+        value: String(Math.max(0, Math.min(5, parsedValue))).replace(/\.0$/, ''),
       } satisfies TechnicalSheetFlavorProfileRating
     })
     .filter((item): item is TechnicalSheetFlavorProfileRating => item !== null)
