@@ -50,6 +50,7 @@ import {
 } from './config/performance'
 import {
   calculateNormalizedPackageQuantity,
+  calculateExecutionTechnicalSheetFinalYield,
   calculatePackagingWeight,
   calculateProductUnitCost,
   calculateTechnicalSheetAlcoholPercentage,
@@ -13659,7 +13660,7 @@ export default function App() {
     desiredYieldInput: number,
     recipeCountInput: number,
   ): RecipePanelComputedData {
-    const baseYield = getTechnicalSheetBaseYield(sheet)
+    const baseYield = getRecipePanelBaseYield(sheet)
     const safeDesiredYield = desiredYieldInput > 0 ? desiredYieldInput : baseYield
     const recipeCount = recipeCountInput > 0 ? recipeCountInput : 1
     const multiplier = safeDesiredYield / baseYield
@@ -13798,13 +13799,24 @@ export default function App() {
     }
   }
 
+  function getRecipePanelBaseYield(sheet: TechnicalSheetRecord) {
+    if (sheet.kind === 'EXECUCAO') {
+      const calculatedYield = calculateExecutionTechnicalSheetFinalYield(sheet, products)
+      if (calculatedYield > 0) {
+        return calculatedYield
+      }
+    }
+
+    return getTechnicalSheetBaseYield(sheet)
+  }
+
   const recipePanelData = useMemo(() => {
     const sheet = selectedRecipePanelDisplaySheet
     if (!sheet) {
       return null
     }
 
-    const baseYield = getTechnicalSheetBaseYield(sheet)
+    const baseYield = getRecipePanelBaseYield(sheet)
     const desiredYieldInput = parseDecimal(recipePanelDesiredYield[recipePanelTab]) ?? baseYield
     const safeDesiredYield = desiredYieldInput > 0 ? desiredYieldInput : baseYield
     const recipeCountInput = parseDecimal(recipePanelRecipeCount[recipePanelTab]) ?? safeDesiredYield / baseYield
@@ -14243,7 +14255,7 @@ export default function App() {
     }))
     setRecipePanelDesiredYield((current) => ({
       ...current,
-      [tab]: formatDecimal(getTechnicalSheetBaseYield(selectedSheet)),
+      [tab]: formatDecimal(getRecipePanelBaseYield(selectedSheet)),
     }))
     setRecipePanelRecipeCount((current) => ({
       ...current,
@@ -14294,7 +14306,7 @@ export default function App() {
 
     setRecipePanelDesiredYield((current) => ({
       ...current,
-      [tab]: formatDecimal(getTechnicalSheetBaseYield(selectedSheet) * recipeCount),
+      [tab]: formatDecimal(getRecipePanelBaseYield(selectedSheet) * recipeCount),
     }))
   }
 
@@ -14318,7 +14330,7 @@ export default function App() {
       return
     }
 
-    const baseYield = getTechnicalSheetBaseYield(selectedSheet)
+    const baseYield = getRecipePanelBaseYield(selectedSheet)
     setRecipePanelRecipeCount((current) => ({
       ...current,
       [tab]: formatDecimal(desiredYield / baseYield),
@@ -31996,7 +32008,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
       }),
     )
 
-    return fullSheets.map((sheet) => buildRecipePanelDataForSheet(sheet, getTechnicalSheetBaseYield(sheet), 1))
+    return fullSheets.map((sheet) => buildRecipePanelDataForSheet(sheet, getRecipePanelBaseYield(sheet), 1))
   }
 
   async function confirmTechnicalSheetExport() {
@@ -32963,7 +32975,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
         return recipePanelData
       }
 
-      const baseYield = getTechnicalSheetBaseYield(sheet)
+      const baseYield = getRecipePanelBaseYield(sheet)
       const desiredYield =
         scope === 'all'
           ? baseYield * safeRecipeCount

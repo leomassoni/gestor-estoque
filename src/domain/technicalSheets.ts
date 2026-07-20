@@ -341,31 +341,54 @@ export function calculateTechnicalSheetIngredientYieldSum(
   sheet: TechnicalSheetRecord,
   options: {
     includeGarnishes?: boolean
+    products?: ProductRecord[]
   } = {},
 ) {
-  const { includeGarnishes = true } = options
+  const { includeGarnishes = true, products = [] } = options
   const sourceIngredients = includeGarnishes ? [...sheet.ingredients, ...sheet.garnishIngredients] : sheet.ingredients
   const ingredientYield = sourceIngredients
-    .filter((ingredient) => ingredient.isActive)
+    .filter((ingredient) => {
+      if (!ingredient.isActive) {
+        return false
+      }
+
+      if (sheet.kind !== 'EXECUCAO') {
+        return true
+      }
+
+      const linkedProduct = products.find((product) => product.id === ingredient.productId) ?? null
+      return linkedProduct?.excludeFromExecutionYield !== true
+    })
     .reduce((sum, ingredient) => sum + (parseDecimal(ingredient.yieldQuantity) ?? 0), 0)
 
   return ingredientYield
+}
+
+export function calculateExecutionTechnicalSheetFinalYield(
+  sheet: TechnicalSheetRecord,
+  products: ProductRecord[] = [],
+) {
+  const mixtureYield = calculateTechnicalSheetIngredientYieldSum(sheet, {
+    includeGarnishes: false,
+    products,
+  })
+  const dilutionRatePercentage = Math.max(parseDecimal(sheet.dilutionRatePercentage) ?? 0, 0)
+  return mixtureYield + mixtureYield * (dilutionRatePercentage / 100)
 }
 
 export function calculateTechnicalSheetEffectiveYield(sheet: TechnicalSheetRecord) {
   const includeGarnishesInYield = sheet.kind !== 'EXECUCAO'
 
   if (sheet.kind === 'EXECUCAO') {
+    const ingredientYield = calculateExecutionTechnicalSheetFinalYield(sheet)
+    if (ingredientYield > 0) {
+      return ingredientYield
+    }
+
     const savedYield = parseDecimal(sheet.outputQuantity) ?? 0
     if (savedYield > 0) {
       return savedYield
     }
-
-    const ingredientYield = calculateTechnicalSheetIngredientYieldSum(sheet, {
-      includeGarnishes: includeGarnishesInYield,
-    })
-
-    return ingredientYield
   }
 
   if (sheet.kind === 'PREPARO') {
