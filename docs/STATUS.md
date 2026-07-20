@@ -1,6 +1,6 @@
 # Status do Sistema
 
- Ultima atualizacao: 2026-07-13
+ Ultima atualizacao: 2026-07-19
 
 ## Objetivo deste arquivo
 
@@ -219,6 +219,14 @@ Registrar em que pe o sistema esta hoje, por area, para consulta rapida antes de
       - imagens
       - duplicacao entre snapshot e tabelas por entidade
   - prioridade alta, risco medio:
+    - implementar tratamento de imagem no cadastro de fichas tecnicas:
+      - ao subir imagem, abrir etapa de ajuste antes de salvar
+      - sugerir automaticamente corte quadrado com foco central no drink/produto
+      - permitir ao usuario reposicionar e ajustar zoom do corte sugerido
+      - aplicar limite de tamanho em dimensao e peso do arquivo antes de persistir
+      - gerar imagem otimizada para exibicao no webapp, preferencialmente quadrada
+      - manter compatibilidade com imagens antigas em `base64` ou caminhos ja cadastrados
+      - validar impacto em cadastro, edicao, receituarios, exportacao PDF/XLSX e sincronizacao online/local
     - substituir a leitura de arquivos importados por alternativa mantida, preferencialmente `read-excel-file`
     - manter exportacoes com `xlsx` apenas temporariamente, enquanto a leitura de usuario deixa de depender dele
     - validar a migracao com imports reais de vendas antes de remover o parser antigo

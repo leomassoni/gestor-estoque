@@ -12921,15 +12921,27 @@ export default function App() {
               typeof product.technicalSheetId === 'number'
                 ? technicalSheets.find((sheet) => sheet.id === product.technicalSheetId) ?? null
                 : null
+            const isTechnicalSheetProductId =
+              product.id.startsWith('PRE-') || product.id.startsWith('EXE-') || product.id.startsWith('VEN-')
+            const isValidTechnicalSheetProduct =
+              !isTechnicalSheetProductId ||
+              (linkedTechnicalSheet !== null &&
+                linkedTechnicalSheet.productId === product.id &&
+                isTechnicalSheetVisibleForCompany(linkedTechnicalSheet, currentCompanyId))
+            const isSaleTechnicalProduct = linkedTechnicalSheet?.kind === 'VENDA' || product.id.startsWith('VEN-')
 
             const allowedByVendaCombo =
               technicalSheetForm.kind === 'VENDA' && technicalSheetForm.outputUnit === 'COMBO'
-                ? linkedTechnicalSheet?.kind === 'VENDA' || linkedTechnicalSheet?.kind === 'EXECUCAO'
+                ? linkedTechnicalSheet === null ||
+                  linkedTechnicalSheet.kind === 'PREPARO' ||
+                  linkedTechnicalSheet.kind === 'EXECUCAO'
                 : true
 
             return (
               isProductVisibleForCompany(product, currentCompanyId) &&
               product.isActive &&
+              isValidTechnicalSheetProduct &&
+              !isSaleTechnicalProduct &&
               !excludedTechnicalSheetProductIds.has(product.id) &&
               allowedByVendaCombo &&
               hasSectorOverlap(product.sectors, technicalSheetForm.sectors)
