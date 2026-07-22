@@ -31,6 +31,56 @@ const inventoryStorageLocationsStorageKey = 'gestor-estoque:inventory-storage-lo
 const inventoryActiveRecordsStorageKey = 'gestor-estoque:inventory-active-records'
 const inventoryActiveSessionsStorageKey = 'gestor-estoque:inventory-active-sessions'
 const defaultFlavorProfileNames = ['Doce', 'Azedo', 'Amargo', 'Salgado', 'Umami']
+const technicalSheetListSelect = {
+  id: true,
+  companyId: true,
+  ownerCompanyId: true,
+  sharedCompanyIds: true,
+  kind: true,
+  productId: true,
+  companyProductId: true,
+  name: true,
+  family: true,
+  subfamily: true,
+  sectors: true,
+  outputQuantity: true,
+  outputUnit: true,
+  densitySampleVolume: true,
+  densitySampleWeight: true,
+  yieldDifferenceDestination: true,
+  yieldDifferenceByproductName: true,
+  yieldDifferenceByproductTechnicalSheetId: true,
+  targetPh: true,
+  targetBrix: true,
+  portionSize: true,
+  colorTagOne: true,
+  colorTagTwo: true,
+  desiredCmvPercentage: true,
+  dilutionRatePercentage: true,
+  finalSalePrice: true,
+  flavorProfileRatings: true,
+  flavorSweet: true,
+  flavorSour: true,
+  flavorBitter: true,
+  flavorSalty: true,
+  flavorUmami: true,
+  storytelling: true,
+  salesArguments: true,
+  harmonization: true,
+  preparationMode: true,
+  preparationLeadTimeDays: true,
+  shelfLifeRoom: true,
+  shelfLifeRefrigerated: true,
+  shelfLifeFrozen: true,
+  productionCenters: true,
+  supplyRoutes: true,
+  ingredients: true,
+  garnishIngredients: true,
+  serviceItems: true,
+  isActive: true,
+  createdAt: true,
+  updatedAt: true,
+}
 const maxInt32Id = 2147483647
 let hasSeededAppAdminRecords = false
 let hasSeededAppStockCenterRecords = false
@@ -1511,6 +1561,7 @@ app.get('/api/technical-sheets', async (request, response) => {
   const companyId = parseIntegerParam(request.query.companyId)
   const technicalSheets = await prisma.appTechnicalSheetRecord.findMany({
     where: companyId === null ? undefined : { companyId },
+    select: technicalSheetListSelect,
     orderBy: [{ name: 'asc' }, { id: 'asc' }],
   })
   response.json({
