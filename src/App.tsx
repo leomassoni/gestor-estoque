@@ -5451,43 +5451,6 @@ export default function App() {
       ...scoped,
     ]
 
-    const localProducts = loadProductsState()
-    const localServiceItems = loadServiceItemsState()
-    const localTechnicalSheets = loadTechnicalSheetsState()
-    const localFlavorProfiles = loadFlavorProfilesState()
-    const localScopedProducts = localProducts.filter((record) => catalogCompanyIdSet.has(record.companyId))
-    const localScopedServiceItems = localServiceItems.filter((record) => catalogCompanyIdSet.has(record.companyId))
-    const localScopedTechnicalSheets = localTechnicalSheets.filter((record) => catalogCompanyIdSet.has(record.companyId))
-    const localScopedFlavorProfiles = localFlavorProfiles.filter((record) => catalogCompanyIdSet.has(record.companyId))
-    const missingProducts = scopedProducts.length === 0 && localScopedProducts.length > 0
-    const missingServiceItems = scopedServiceItems.length === 0 && localScopedServiceItems.length > 0
-    const missingTechnicalSheets = scopedTechnicalSheets.length === 0 && localScopedTechnicalSheets.length > 0
-    const missingFlavorProfiles = scopedFlavorProfiles.length === 0 && localScopedFlavorProfiles.length > 0
-
-    if (missingProducts || missingServiceItems || missingTechnicalSheets || missingFlavorProfiles) {
-      await Promise.all([
-        ...(missingProducts ? localScopedProducts.map((product) => upsertProductRecordOnApi(product, null)) : []),
-        ...(missingServiceItems ? localScopedServiceItems.map((item) => upsertServiceItemRecordOnApi(item, null)) : []),
-        ...(missingTechnicalSheets ? localScopedTechnicalSheets.map((sheet) => upsertTechnicalSheetRecordOnApi(sheet)) : []),
-        ...(missingFlavorProfiles ? localScopedFlavorProfiles.map((profile) => upsertFlavorProfileRecordOnApi(profile)) : []),
-      ])
-
-      setFlavorProfiles((current) =>
-        mergeScopedRecords(current, missingFlavorProfiles ? localScopedFlavorProfiles : scopedFlavorProfiles),
-      )
-      setProducts((current) => mergeScopedRecords(current, missingProducts ? localScopedProducts : scopedProducts))
-      setServiceItems((current) =>
-        mergeScopedRecords(current, missingServiceItems ? localScopedServiceItems : scopedServiceItems),
-      )
-      setTechnicalSheets((current) =>
-        mergeScopedRecords(current, missingTechnicalSheets ? localScopedTechnicalSheets : scopedTechnicalSheets),
-      )
-      logRemoteAppStateMessage(
-        'Os registros de catalogo deste navegador foram usados para restaurar dados ausentes no servidor.',
-      )
-      return
-    }
-
     const nextProducts = mergeScopedRecords(products, scopedProducts)
     const nextServiceItems = mergeScopedRecords(serviceItems, scopedServiceItems)
     const nextTechnicalSheets = mergeScopedRecords(technicalSheets, scopedTechnicalSheets)
@@ -5589,9 +5552,9 @@ export default function App() {
     }
   }
 
-  async function upsertTechnicalSheetRecordOnApi(sheet: TechnicalSheetRecord) {
-    const response = await fetch(`/api/technical-sheets/${sheet.id}`, {
-      method: 'PUT',
+  async function upsertTechnicalSheetRecordOnApi(sheet: TechnicalSheetRecord, options: { isNew?: boolean } = {}) {
+    const response = await fetch(options.isNew ? '/api/technical-sheets' : `/api/technical-sheets/${sheet.id}`, {
+      method: options.isNew ? 'POST' : 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(sheet),
     })
@@ -28706,8 +28669,11 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
     })
     let postSaveWarning: string | null = null
     try {
-      await upsertTechnicalSheetRecordOnApi(technicalSheetToSave)
-      await persistChangedTechnicalSheetsOnApi(technicalSheets, nextTechnicalSheets)
+      await upsertTechnicalSheetRecordOnApi(technicalSheetToSave, { isNew: editingTechnicalSheetId === null })
+      await persistChangedTechnicalSheetsOnApi(
+        technicalSheets,
+        nextTechnicalSheets.filter((sheet) => sheet.id !== technicalSheetId),
+      )
       await upsertProductRecordOnApi(technicalProduct, linkedExisting?.id ?? null)
       if (
         previousTechnicalSheet &&

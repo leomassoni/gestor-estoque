@@ -38,6 +38,8 @@ let hasSeededAppCatalogRecords = false
 let hasSeededAppRequisitionRecords = false
 let hasSeededAppProductionRecords = false
 let hasSeededAppInventoryRecords = false
+const defaultFlavorProfilesSeededCompanyIds = new Set()
+const defaultFlavorProfilesSeedPromises = new Map()
 let hasSanitizedLegacyEntitySnapshotIds = false
 
 app.use(cors())
@@ -1400,13 +1402,10 @@ app.post('/api/products', async (request, response) => {
   }
 
   try {
+    await ensureProductIdCanBeCreated(product)
     await ensureProductTechnicalSheetLinkCanBeSaved(product)
     await ensureUniqueProductName(product)
-    const saved = await prisma.appProductRecord.upsert({
-      where: { id: product.id },
-      create: product,
-      update: product,
-    })
+    const saved = await prisma.appProductRecord.create({ data: product })
     response.json({ product: saved })
   } catch (error) {
     response.status(error.statusCode ?? 500).json({ error: error.message ?? 'Erro ao salvar produto.' })
@@ -1424,14 +1423,15 @@ app.put('/api/products/:id', async (request, response) => {
   try {
     await ensureProductTechnicalSheetLinkCanBeSaved(product)
     await ensureUniqueProductName(product)
-    const saved = await prisma.appProductRecord.upsert({
+    const saved = await prisma.appProductRecord.update({
       where: { id: productId },
-      create: product,
-      update: product,
+      data: product,
     })
     response.json({ product: saved })
   } catch (error) {
-    response.status(error.statusCode ?? 500).json({ error: error.message ?? 'Erro ao salvar produto.' })
+    response.status(error.code === 'P2025' ? 404 : error.statusCode ?? 500).json({
+      error: error.code === 'P2025' ? 'Produto nao encontrado para atualizacao.' : error.message ?? 'Erro ao salvar produto.',
+    })
   }
 })
 
@@ -1464,12 +1464,9 @@ app.post('/api/service-items', async (request, response) => {
   }
 
   try {
+    await ensureServiceItemIdCanBeCreated(serviceItem)
     await ensureUniqueServiceItemName(serviceItem)
-    const saved = await prisma.appServiceItemRecord.upsert({
-      where: { id: serviceItem.id },
-      create: serviceItem,
-      update: serviceItem,
-    })
+    const saved = await prisma.appServiceItemRecord.create({ data: serviceItem })
     response.json({ serviceItem: saved })
   } catch (error) {
     response.status(error.statusCode ?? 500).json({ error: error.message ?? 'Erro ao salvar item.' })
@@ -1486,14 +1483,15 @@ app.put('/api/service-items/:id', async (request, response) => {
 
   try {
     await ensureUniqueServiceItemName(serviceItem)
-    const saved = await prisma.appServiceItemRecord.upsert({
+    const saved = await prisma.appServiceItemRecord.update({
       where: { id: serviceItemId },
-      create: serviceItem,
-      update: serviceItem,
+      data: serviceItem,
     })
     response.json({ serviceItem: saved })
   } catch (error) {
-    response.status(error.statusCode ?? 500).json({ error: error.message ?? 'Erro ao salvar item.' })
+    response.status(error.code === 'P2025' ? 404 : error.statusCode ?? 500).json({
+      error: error.code === 'P2025' ? 'Item nao encontrado para atualizacao.' : error.message ?? 'Erro ao salvar item.',
+    })
   }
 })
 
@@ -1558,13 +1556,9 @@ app.post('/api/technical-sheets', async (request, response) => {
   }
 
   try {
-    await ensureTechnicalSheetIdCanBeSaved(technicalSheet)
+    await ensureTechnicalSheetIdCanBeCreated(technicalSheet)
     await ensureUniqueTechnicalSheetName(technicalSheet)
-    const saved = await prisma.appTechnicalSheetRecord.upsert({
-      where: { id: technicalSheet.id },
-      create: technicalSheet,
-      update: technicalSheet,
-    })
+    const saved = await prisma.appTechnicalSheetRecord.create({ data: technicalSheet })
     response.json({ technicalSheet: saved })
   } catch (error) {
     response.status(error.statusCode ?? 500).json({ error: error.message ?? 'Erro ao salvar ficha tecnica.' })
@@ -1582,14 +1576,15 @@ app.put('/api/technical-sheets/:id', async (request, response) => {
   try {
     await ensureTechnicalSheetIdCanBeSaved(technicalSheet)
     await ensureUniqueTechnicalSheetName(technicalSheet)
-    const saved = await prisma.appTechnicalSheetRecord.upsert({
+    const saved = await prisma.appTechnicalSheetRecord.update({
       where: { id: technicalSheetId },
-      create: technicalSheet,
-      update: technicalSheet,
+      data: technicalSheet,
     })
     response.json({ technicalSheet: saved })
   } catch (error) {
-    response.status(error.statusCode ?? 500).json({ error: error.message ?? 'Erro ao salvar ficha tecnica.' })
+    response.status(error.code === 'P2025' ? 404 : error.statusCode ?? 500).json({
+      error: error.code === 'P2025' ? 'Ficha tecnica nao encontrada para atualizacao.' : error.message ?? 'Erro ao salvar ficha tecnica.',
+    })
   }
 })
 
@@ -2071,6 +2066,32 @@ async function ensureUniqueProductName(product) {
   }
 }
 
+async function ensureProductIdCanBeCreated(product) {
+  const existing = await prisma.appProductRecord.findUnique({
+    where: { id: product.id },
+    select: { id: true, name: true },
+  })
+
+  if (existing) {
+    const error = new Error(`ID de produto ja pertence a ${existing.name}. Atualize a pagina e tente salvar novamente.`)
+    error.statusCode = 409
+    throw error
+  }
+}
+
+async function ensureServiceItemIdCanBeCreated(serviceItem) {
+  const existing = await prisma.appServiceItemRecord.findUnique({
+    where: { id: serviceItem.id },
+    select: { id: true, name: true },
+  })
+
+  if (existing) {
+    const error = new Error(`ID de item ja pertence a ${existing.name}. Atualize a pagina e tente salvar novamente.`)
+    error.statusCode = 409
+    throw error
+  }
+}
+
 async function ensureUniqueServiceItemName(serviceItem) {
   const existing = await prisma.appServiceItemRecord.findMany({
     where: { companyId: serviceItem.companyId },
@@ -2129,6 +2150,21 @@ async function ensureProductTechnicalSheetLinkCanBeSaved(product) {
   ) {
     const error = new Error(
       `A ficha tecnica vinculada ao produto pertence a outra empresa: ${technicalSheet.name}.`,
+    )
+    error.statusCode = 409
+    throw error
+  }
+}
+
+async function ensureTechnicalSheetIdCanBeCreated(technicalSheet) {
+  const existing = await prisma.appTechnicalSheetRecord.findUnique({
+    where: { id: technicalSheet.id },
+    select: { id: true, name: true },
+  })
+
+  if (existing) {
+    const error = new Error(
+      `ID de ficha tecnica ja pertence a ${existing.name}. Atualize a pagina e tente salvar novamente.`,
     )
     error.statusCode = 409
     throw error
@@ -4029,39 +4065,57 @@ function buildDefaultFlavorProfileId(companyId, name) {
 }
 
 async function ensureDefaultFlavorProfiles(companyId = null) {
-  const companies = await prisma.appCompanyRecord.findMany({
-    where: companyId === null ? undefined : { id: companyId },
-    select: { id: true },
-  })
-
-  if (companies.length === 0) {
+  const seedKey = companyId === null ? 'all' : String(companyId)
+  const existingSeedPromise = defaultFlavorProfilesSeedPromises.get(seedKey)
+  if (existingSeedPromise) {
+    await existingSeedPromise
     return
   }
 
-  await prisma.$transaction(async (transaction) => {
-    for (const company of companies) {
-      for (const name of defaultFlavorProfileNames) {
-        const id = buildDefaultFlavorProfileId(company.id, name)
-        await transaction.appFlavorProfileRecord.upsert({
-          where: { id },
-          create: {
-            id,
-            companyId: company.id,
-            name,
-            isActive: true,
-          },
-          update: {
-            name,
-          },
-        })
-      }
+  const seedPromise = (async () => {
+    const companies = await prisma.appCompanyRecord.findMany({
+      where: companyId === null ? undefined : { id: companyId },
+      select: { id: true },
+    })
+    const companyIds = companies.map((company) => company.id)
+    const companyIdsToSeed =
+      companyId === null
+        ? companyIds.filter((id) => !defaultFlavorProfilesSeededCompanyIds.has(id))
+        : companyIds
+
+    if (companyIdsToSeed.length === 0) {
+      return
     }
-  })
+
+    const records = companyIdsToSeed.flatMap((id) =>
+      defaultFlavorProfileNames.map((name) => ({
+        id: buildDefaultFlavorProfileId(id, name),
+        companyId: id,
+        name,
+        isActive: true,
+      })),
+    )
+
+    if (records.length > 0) {
+      await prisma.appFlavorProfileRecord.createMany({
+        data: records,
+        skipDuplicates: true,
+      })
+    }
+
+    companyIdsToSeed.forEach((id) => defaultFlavorProfilesSeededCompanyIds.add(id))
+  })()
+
+  defaultFlavorProfilesSeedPromises.set(seedKey, seedPromise)
+  try {
+    await seedPromise
+  } finally {
+    defaultFlavorProfilesSeedPromises.delete(seedKey)
+  }
 }
 
 async function ensureAppCatalogRecordsSeeded() {
   if (hasSeededAppCatalogRecords) {
-    await ensureDefaultFlavorProfiles()
     return
   }
 
@@ -4073,7 +4127,6 @@ async function ensureAppCatalogRecordsSeeded() {
 
   if (productsCount > 0 || serviceItemsCount > 0 || technicalSheetsCount > 0) {
     hasSeededAppCatalogRecords = true
-    await ensureDefaultFlavorProfiles()
     return
   }
 
@@ -4084,7 +4137,6 @@ async function ensureAppCatalogRecordsSeeded() {
   const entries = payload && typeof payload === 'object' && !Array.isArray(payload) ? payload.entries : null
   if (!entries || typeof entries !== 'object' || Array.isArray(entries)) {
     hasSeededAppCatalogRecords = true
-    await ensureDefaultFlavorProfiles()
     return
   }
 
@@ -4119,7 +4171,6 @@ async function ensureAppCatalogRecordsSeeded() {
   })
 
   hasSeededAppCatalogRecords = true
-  await ensureDefaultFlavorProfiles()
 }
 
 async function ensureAppStockCenterRecordsSeeded() {
