@@ -53,6 +53,7 @@ import {
   calculateExecutionTechnicalSheetFinalYield,
   calculatePackagingWeight,
   calculateProductUnitCost,
+  calculateServiceItemUnitCost,
   calculateTechnicalSheetAlcoholPercentage,
   calculateTechnicalSheetCost,
   calculateTechnicalSheetEffectiveYield,
@@ -539,7 +540,7 @@ const technicalSheetConfigurationFieldDefinitions: Array<{
   { key: 'productionCenters', label: 'Centros produtores e estoque minimo', kinds: ['PREPARO'], block: 'Producao' },
   { key: 'ingredients', label: 'Produtos de entrada', kinds: ['PREPARO', 'EXECUCAO', 'VENDA'], block: 'Composicao' },
   { key: 'ingredientManipulatedQuantity', label: 'Manipulado em produtos de entrada', kinds: ['PREPARO', 'EXECUCAO'], block: 'Composicao' },
-  { key: 'serviceItems', label: 'Recipientes vinculados', kinds: ['PREPARO', 'EXECUCAO'], block: 'Composicao' },
+  { key: 'serviceItems', label: 'Recipientes vinculados', kinds: ['PREPARO', 'EXECUCAO', 'VENDA'], block: 'Composicao' },
   { key: 'garnishIngredients', label: 'Guarnicoes', kinds: ['EXECUCAO'], block: 'Composicao' },
   { key: 'densitySampleVolume', label: 'Volume da amostra', kinds: ['PREPARO'], block: 'Opcional' },
   { key: 'densitySampleWeight', label: 'Peso da amostra', kinds: ['PREPARO'], block: 'Opcional' },
@@ -6796,7 +6797,7 @@ export default function App() {
           technicalSheets.find((entry) => entry.productId === ingredient.productId && entry.companyId === selectedProductionSheet.companyId) ?? null
         const linkedProduct =
           products.find((entry) => entry.id === ingredient.productId && entry.companyId === selectedProductionSheet.companyId) ?? null
-        const costPerUnit = linkedProduct ? calculateProductUnitCost(linkedProduct, technicalSheets, products) : 0
+        const costPerUnit = linkedProduct ? calculateProductUnitCost(linkedProduct, technicalSheets, products, serviceItems) : 0
         const alcoholPercentage = linkedTechnicalSheet
           ? calculateTechnicalSheetAlcoholPercentage(linkedTechnicalSheet, technicalSheets, products)
           : parseDecimal(linkedProduct?.alcoholPercentage ?? '') ?? 0
@@ -6869,7 +6870,7 @@ export default function App() {
       finalSalePrice,
       finalCmvPercentage,
     }
-  }, [productionBaseRecipeData, productionDraftState, products, selectedProductionSheet, technicalSheets])
+  }, [productionBaseRecipeData, productionDraftState, products, selectedProductionSheet, serviceItems, technicalSheets])
   const productionPreparationModeParts = useMemo(
     () =>
       productionPreparedData
@@ -9430,47 +9431,7 @@ export default function App() {
     serviceItems
       .filter((item) => item.companyId === currentCompanyId && item.isActive)
       .forEach((item) => {
-        const activePackages = item.packages.filter((packageForm) => packageForm.isActive)
-        if (activePackages.length === 0) {
-          nextMap.set(item.id, 0)
-          return
-        }
-
-        const weightedPackages = activePackages
-          .map((packageForm) => {
-            const quantity = calculateNormalizedPackageQuantity(packageForm, 'UNIT')
-            const price = parseDecimal(packageForm.purchasePrice) ?? 0
-            const stock = parseDecimal(packageForm.openingQuantity) ?? 0
-            const unitCost = quantity > 0 ? price / quantity : 0
-            return {
-              unitCost,
-              weight: stock > 0 ? stock * quantity : quantity,
-            }
-          })
-          .filter((packageForm) => packageForm.unitCost > 0 && packageForm.weight > 0)
-
-        if (weightedPackages.length > 0) {
-          const totalWeight = weightedPackages.reduce((sum, packageForm) => sum + packageForm.weight, 0)
-          const weightedCost =
-            totalWeight > 0
-              ? weightedPackages.reduce((sum, packageForm) => sum + packageForm.unitCost * packageForm.weight, 0) / totalWeight
-              : 0
-          nextMap.set(item.id, weightedCost)
-          return
-        }
-
-        const simpleAverage = activePackages
-          .map((packageForm) => {
-            const quantity = calculateNormalizedPackageQuantity(packageForm, 'UNIT')
-            const price = parseDecimal(packageForm.purchasePrice) ?? 0
-            return quantity > 0 ? price / quantity : 0
-          })
-          .filter((value) => value > 0)
-
-        nextMap.set(
-          item.id,
-          simpleAverage.length > 0 ? simpleAverage.reduce((sum, value) => sum + value, 0) / simpleAverage.length : 0,
-        )
+        nextMap.set(item.id, calculateServiceItemUnitCost(item))
       })
 
     return nextMap
@@ -9493,7 +9454,7 @@ export default function App() {
           productId: '',
           serviceItemId: '',
         })
-        const totalCost = calculateTechnicalSheetCost(sheet, technicalSheets, products)
+        const totalCost = calculateTechnicalSheetCost(sheet, technicalSheets, products, new Set<number>(), serviceItems)
         const totalYield = calculateTechnicalSheetEffectiveYield(sheet)
         nextMap.set(aggregationKey, totalYield > 0 ? totalCost / totalYield : totalCost)
       })
@@ -9507,7 +9468,7 @@ export default function App() {
           productId: product.id,
           serviceItemId: '',
         })
-        nextMap.set(aggregationKey, calculateProductUnitCost(product, technicalSheets, products))
+        nextMap.set(aggregationKey, calculateProductUnitCost(product, technicalSheets, products, serviceItems))
       })
 
     serviceItems
@@ -13091,7 +13052,7 @@ export default function App() {
         technicalSheets.find((item) => item.productId === ingredient.productId && isTechnicalSheetVisibleForCompany(item, currentCompanyId)) ?? null
       const linkedProduct =
         products.find((item) => item.id === ingredient.productId && isProductVisibleForCompany(item, currentCompanyId)) ?? null
-      const costPerUnit = linkedProduct ? calculateProductUnitCost(linkedProduct, technicalSheets, products) : 0
+      const costPerUnit = linkedProduct ? calculateProductUnitCost(linkedProduct, technicalSheets, products, serviceItems) : 0
       const inputQuantity = parseDecimal(ingredient.quantity) ?? 0
       const manipulatedQuantity = isTechnicalSheetIngredientManipulatedQuantityVisible(technicalSheetForm.kind)
         ? parseDecimal(ingredient.manipulatedQuantity) ?? 0
@@ -13127,14 +13088,14 @@ export default function App() {
             : '--',
       } satisfies TechnicalSheetIngredientMetrics
     })
-  }, [currentCompanyId, isProductVisibleForCompany, isTechnicalSheetVisibleForCompany, products, technicalSheetIngredients, technicalSheets])
+  }, [currentCompanyId, isProductVisibleForCompany, isTechnicalSheetVisibleForCompany, products, serviceItems, technicalSheetIngredients, technicalSheets])
   const technicalSheetGarnishIngredientMetrics = useMemo(() => {
     return technicalSheetGarnishIngredients.map((ingredient) => {
       const linkedTechnicalSheet =
         technicalSheets.find((item) => item.productId === ingredient.productId && isTechnicalSheetVisibleForCompany(item, currentCompanyId)) ?? null
       const linkedProduct =
         products.find((item) => item.id === ingredient.productId && isProductVisibleForCompany(item, currentCompanyId)) ?? null
-      const costPerUnit = linkedProduct ? calculateProductUnitCost(linkedProduct, technicalSheets, products) : 0
+      const costPerUnit = linkedProduct ? calculateProductUnitCost(linkedProduct, technicalSheets, products, serviceItems) : 0
       const inputQuantity = parseDecimal(ingredient.quantity) ?? 0
       const manipulatedQuantity = isTechnicalSheetIngredientManipulatedQuantityVisible(technicalSheetForm.kind)
         ? parseDecimal(ingredient.manipulatedQuantity) ?? 0
@@ -13170,7 +13131,7 @@ export default function App() {
             : '--',
       } satisfies TechnicalSheetIngredientMetrics
     })
-  }, [currentCompanyId, isProductVisibleForCompany, isTechnicalSheetVisibleForCompany, products, technicalSheetGarnishIngredients, technicalSheets])
+  }, [currentCompanyId, isProductVisibleForCompany, isTechnicalSheetVisibleForCompany, products, serviceItems, technicalSheetGarnishIngredients, technicalSheets])
   const technicalSheetMixtureUnitLabel = useMemo(() => {
     const units = [...technicalSheetIngredientMetrics, ...technicalSheetGarnishIngredientMetrics]
       .map((item) => item.productUnitLabel)
@@ -13185,7 +13146,19 @@ export default function App() {
     const allIngredientMetrics = [...technicalSheetIngredientMetrics, ...technicalSheetGarnishIngredientMetrics]
     const yieldMetrics =
       technicalSheetForm.kind === 'EXECUCAO' ? technicalSheetIngredientMetrics : allIngredientMetrics
-    const totalRecipeCost = allIngredientMetrics.reduce((sum, item) => sum + item.recipeCost, 0)
+    const totalIngredientCost = allIngredientMetrics.reduce((sum, item) => sum + item.recipeCost, 0)
+    const totalServiceItemCost =
+      technicalSheetForm.kind === 'VENDA'
+        ? technicalSheetServiceItems
+            .filter((item) => item.isActive && item.itemId.trim() !== '' && item.quantity.trim() !== '')
+            .reduce((sum, item) => {
+              const linkedServiceItem =
+                serviceItems.find((serviceItem) => serviceItem.id === item.itemId && serviceItem.companyId === currentCompanyId) ?? null
+              const quantity = parseDecimal(item.quantity) ?? 0
+              return sum + (linkedServiceItem ? calculateServiceItemUnitCost(linkedServiceItem) * quantity : 0)
+            }, 0)
+        : 0
+    const totalRecipeCost = totalIngredientCost + totalServiceItemCost
     const totalInputQuantity = yieldMetrics.reduce((sum, item) => sum + item.inputQuantity, 0)
     const totalMixtureVolume = yieldMetrics.reduce(
       (sum, item) => sum + (item.contributesToExecutionYield ? item.yieldQuantity : 0),
@@ -13281,6 +13254,9 @@ export default function App() {
     technicalSheetForm.yieldDifferenceDestination,
     technicalSheetGarnishIngredientMetrics,
     technicalSheetIngredientMetrics,
+    technicalSheetServiceItems,
+    serviceItems,
+    currentCompanyId,
   ])
   const visibleProducts = useMemo(
     () =>
@@ -13315,13 +13291,13 @@ export default function App() {
             return product.sectors.some((sector) => selectedValues.includes(sector))
           }
 
-          return selectedValues.includes(getProductColumnValue(product, key, technicalSheets, products))
+          return selectedValues.includes(getProductColumnValue(product, key, technicalSheets, products, serviceItems))
         })
 
           return matchesSearch && matchesColumnFilters
         }),
         columnSort,
-        (product, key) => getProductSortValue(product, key, technicalSheets, products),
+        (product, key) => getProductSortValue(product, key, technicalSheets, products, serviceItems),
       ),
     [
       columnFilters,
@@ -13331,6 +13307,7 @@ export default function App() {
       isProductVisibleForCompany,
       productSearch,
       products,
+      serviceItems,
       shouldFilterByUserSectors,
       technicalSheets,
     ],
@@ -13461,13 +13438,13 @@ export default function App() {
             if (key === 'sectors') {
               return sheet.sectors.some((sector) => selectedValues.includes(sector))
             }
-            return selectedValues.includes(getTechnicalSheetColumnValue(sheet, key, technicalSheets, products, stockCenters, companies))
+            return selectedValues.includes(getTechnicalSheetColumnValue(sheet, key, technicalSheets, products, stockCenters, companies, serviceItems))
           }),
         ),
         technicalSheetColumnSort,
-        (sheet, key) => getTechnicalSheetSortValue(sheet, key, technicalSheets, products, stockCenters, companies),
+        (sheet, key) => getTechnicalSheetSortValue(sheet, key, technicalSheets, products, stockCenters, companies, serviceItems),
       ),
-    [companies, products, stockCenters, technicalSheetColumnFilters, technicalSheetColumnSort, technicalSheets, visibleTechnicalSheets],
+    [companies, products, serviceItems, stockCenters, technicalSheetColumnFilters, technicalSheetColumnSort, technicalSheets, visibleTechnicalSheets],
   )
   const distinctTechnicalSheetColumnValues = useMemo(
     () =>
@@ -13486,14 +13463,14 @@ export default function App() {
                   new Set(
                     technicalSheets
                       .filter((sheet) => isTechnicalSheetVisibleForCompany(sheet, currentCompanyId))
-                      .map((sheet) => getTechnicalSheetColumnValue(sheet, key, technicalSheets, products, stockCenters, companies)),
+                      .map((sheet) => getTechnicalSheetColumnValue(sheet, key, technicalSheets, products, stockCenters, companies, serviceItems)),
                   ),
                 )
 
           return [key, sortDistinctValues(values, isNumericTechnicalSheetColumn(key))]
         }),
       ) as Record<TechnicalSheetColumnKey, string[]>,
-    [companies, currentCompanyId, products, stockCenters, technicalSheets],
+    [companies, currentCompanyId, products, serviceItems, stockCenters, technicalSheets],
   )
   useEffect(() => {
     setTechnicalSheetColumnFilters((current) => {
@@ -13678,7 +13655,7 @@ export default function App() {
             technicalSheets.find((entry) => entry.productId === ingredient.productId) ?? null
           const linkedProduct =
             products.find((entry) => entry.id === ingredient.productId) ?? null
-          const costPerUnit = linkedProduct ? calculateProductUnitCost(linkedProduct, technicalSheets, products) : 0
+          const costPerUnit = linkedProduct ? calculateProductUnitCost(linkedProduct, technicalSheets, products, serviceItems) : 0
           const alcoholPercentage = linkedTechnicalSheet
             ? calculateTechnicalSheetAlcoholPercentage(linkedTechnicalSheet, technicalSheets, products)
             : parseDecimal(linkedProduct?.alcoholPercentage ?? '') ?? 0
@@ -14050,7 +14027,7 @@ export default function App() {
                           isProductVisibleForCompany(product, currentCompanyId) &&
                           !isCommercialTechnicalSheetProduct(product, technicalSheets),
                       )
-                      .map((product) => getProductColumnValue(product, key, technicalSheets, products)),
+                      .map((product) => getProductColumnValue(product, key, technicalSheets, products, serviceItems)),
                   ),
                 )
 
@@ -14060,7 +14037,7 @@ export default function App() {
           ]
         }),
       ) as Record<ColumnKey, string[]>,
-    [currentCompanyId, products, technicalSheets],
+    [currentCompanyId, products, serviceItems, technicalSheets],
   )
   const hiddenColumns = useMemo(
     () => columnOptions.filter(([key]) => !columnVisibility[key]),
@@ -14068,7 +14045,7 @@ export default function App() {
   )
   const exportableProductRows = useMemo(() => {
     return visibleProducts.flatMap((product) => {
-      const costPerUnit = calculateProductUnitCost(product, technicalSheets, products)
+      const costPerUnit = calculateProductUnitCost(product, technicalSheets, products, serviceItems)
       const productRow = {
         tipo: 'PRODUTO',
         produto: product.name,
@@ -16335,7 +16312,7 @@ export default function App() {
       setSaveFeedback({
         status: 'success',
         title: 'Item salvo com sucesso',
-        message: 'O recipiente foi cadastrado e vinculado a ficha de execucao.',
+        message: 'O recipiente foi cadastrado e vinculado a ficha tecnica.',
       })
       return
     }
@@ -28073,7 +28050,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
             )
         : []
     const normalizedServiceItems =
-      technicalSheetForm.kind === 'EXECUCAO' || technicalSheetForm.kind === 'PREPARO'
+      technicalSheetForm.kind === 'EXECUCAO' || technicalSheetForm.kind === 'PREPARO' || technicalSheetForm.kind === 'VENDA'
         ? technicalSheetServiceItems
             .map((item) => ({
               ...item,
@@ -35750,7 +35727,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                         <td>{getProductColumnValue(product, 'controlUnit')}</td>
                       ) : null}
                       {columnVisibility.unitCost ? (
-                        <td>{getProductColumnValue(product, 'unitCost', technicalSheets, products)}</td>
+                        <td>{getProductColumnValue(product, 'unitCost', technicalSheets, products, serviceItems)}</td>
                       ) : null}
                       {columnVisibility.costStatus ? (
                         <td>
@@ -36824,7 +36801,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
 
                             return (
                               <td key={`${sheet.id}-${key}`}>
-                                {getTechnicalSheetColumnValue(sheet, key, technicalSheets, products, stockCenters, companies) || '-'}
+                                {getTechnicalSheetColumnValue(sheet, key, technicalSheets, products, stockCenters, companies, serviceItems) || '-'}
                               </td>
                             )
                           })}
@@ -37518,7 +37495,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
 	            </section>
 	            ) : null}
 
-		            {technicalSheetForm.kind === 'EXECUCAO' && isTechnicalSheetFieldVisible(technicalSheetForm.kind, 'serviceItems') ? (
+		            {(technicalSheetForm.kind === 'EXECUCAO' || technicalSheetForm.kind === 'VENDA') && isTechnicalSheetFieldVisible(technicalSheetForm.kind, 'serviceItems') ? (
 		            <section className="panel">
               <div className="section-heading">
                 <div>
@@ -49458,12 +49435,13 @@ function calculateTechnicalSheetFinalCmvPercentage(
   sheet: TechnicalSheetRecord,
   technicalSheets: TechnicalSheetRecord[] = [],
   products: ProductRecord[] = [],
+  serviceItems: ServiceItemRecord[] = [],
 ) {
   if (!isCommercialTechnicalSheetKind(sheet.kind)) {
     return null
   }
 
-  const totalCost = calculateTechnicalSheetCost(sheet, technicalSheets, products)
+  const totalCost = calculateTechnicalSheetCost(sheet, technicalSheets, products, new Set<number>(), serviceItems)
   const desiredCmvPercentage = parseDecimal(sheet.desiredCmvPercentage) ?? 0
   const savedFinalSalePrice = parseDecimal(sheet.finalSalePrice) ?? 0
   const suggestedSalePrice =
@@ -49480,6 +49458,7 @@ function getTechnicalSheetColumnValue(
   products: ProductRecord[] = [],
   stockCenters: StockCenterRecord[] = [],
   companies: CompanyRecord[] = [],
+  serviceItems: ServiceItemRecord[] = [],
 ) {
   switch (key) {
     case 'product':
@@ -49496,13 +49475,13 @@ function getTechnicalSheetColumnValue(
         .filter(Boolean)
         .join(', ')
     case 'costPerYield': {
-      const totalCost = calculateTechnicalSheetCost(sheet, technicalSheets, products)
+      const totalCost = calculateTechnicalSheetCost(sheet, technicalSheets, products, new Set<number>(), serviceItems)
       const effectiveYield = calculateTechnicalSheetEffectiveYield(sheet)
       const costPerYield = effectiveYield > 0 ? totalCost / effectiveYield : totalCost
       return `R$ ${formatMoney(costPerYield)}`
     }
     case 'finalCmvPercentage': {
-      const finalCmvPercentage = calculateTechnicalSheetFinalCmvPercentage(sheet, technicalSheets, products)
+      const finalCmvPercentage = calculateTechnicalSheetFinalCmvPercentage(sheet, technicalSheets, products, serviceItems)
       return finalCmvPercentage === null ? '-' : `${formatDecimal(finalCmvPercentage)}%`
     }
     case 'finalSalePrice':
@@ -49534,14 +49513,15 @@ function getProductSortValue(
   key: ColumnKey,
   technicalSheets: TechnicalSheetRecord[] = [],
   products: ProductRecord[] = [],
+  serviceItems: ServiceItemRecord[] = [],
 ) {
   switch (key) {
     case 'unitCost':
-      return calculateProductUnitCost(product, technicalSheets, products)
+      return calculateProductUnitCost(product, technicalSheets, products, serviceItems)
     case 'packages':
       return product.packages.length
     default:
-      return getProductColumnValue(product, key, technicalSheets, products)
+      return getProductColumnValue(product, key, technicalSheets, products, serviceItems)
   }
 }
 
@@ -49552,15 +49532,16 @@ function getTechnicalSheetSortValue(
   products: ProductRecord[] = [],
   stockCenters: StockCenterRecord[] = [],
   companies: CompanyRecord[] = [],
+  serviceItems: ServiceItemRecord[] = [],
 ) {
   switch (key) {
     case 'costPerYield': {
-      const totalCost = calculateTechnicalSheetCost(sheet, technicalSheets, products)
+      const totalCost = calculateTechnicalSheetCost(sheet, technicalSheets, products, new Set<number>(), serviceItems)
       const effectiveYield = calculateTechnicalSheetEffectiveYield(sheet)
       return effectiveYield > 0 ? totalCost / effectiveYield : totalCost
     }
     case 'finalCmvPercentage':
-      return calculateTechnicalSheetFinalCmvPercentage(sheet, technicalSheets, products) ?? 0
+      return calculateTechnicalSheetFinalCmvPercentage(sheet, technicalSheets, products, serviceItems) ?? 0
     case 'finalSalePrice':
       return parseDecimal(sheet.finalSalePrice) ?? 0
     case 'yield':
@@ -49568,7 +49549,7 @@ function getTechnicalSheetSortValue(
     case 'ingredients':
       return sheet.ingredients.filter((ingredient) => ingredient.isActive).length
     default:
-      return getTechnicalSheetColumnValue(sheet, key, technicalSheets, products, stockCenters, companies)
+      return getTechnicalSheetColumnValue(sheet, key, technicalSheets, products, stockCenters, companies, serviceItems)
   }
 }
 
@@ -51324,6 +51305,7 @@ function getProductColumnValue(
   key: ColumnKey,
   technicalSheets: TechnicalSheetRecord[] = [],
   products: ProductRecord[] = [],
+  serviceItems: ServiceItemRecord[] = [],
 ) {
   switch (key) {
     case 'product':
@@ -51344,7 +51326,7 @@ function getProductColumnValue(
       if (product.controlUnit === 'UNIT') return 'Unidade'
       return 'Combo'
     case 'unitCost':
-      return `R$ ${formatMoney(calculateProductUnitCost(product, technicalSheets, products))} / ${formatControlUnitShort(product.controlUnit)}`
+      return `R$ ${formatMoney(calculateProductUnitCost(product, technicalSheets, products, serviceItems))} / ${formatControlUnitShort(product.controlUnit)}`
     case 'costStatus':
       return getProductCostStatus(product, technicalSheets, products)
     case 'executionYield':

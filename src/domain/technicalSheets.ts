@@ -2,6 +2,7 @@ import type {
   ControlUnit,
   PackageForm,
   ProductRecord,
+  ServiceItemRecord,
   TechnicalSheetKind,
   TechnicalSheetRecord,
 } from '../types/domain'
@@ -150,17 +151,57 @@ export function calculateProductUnitCost(
   product: ProductRecord,
   technicalSheets: TechnicalSheetRecord[] = [],
   products: ProductRecord[] = [],
+  serviceItems: ServiceItemRecord[] = [],
 ) {
   if (typeof product.technicalSheetId === 'number') {
     const linkedTechnicalSheet = technicalSheets.find((sheet) => sheet.id === product.technicalSheetId) ?? null
     if (linkedTechnicalSheet) {
-      const totalCost = calculateTechnicalSheetCost(linkedTechnicalSheet, technicalSheets, products)
+      const totalCost = calculateTechnicalSheetCost(linkedTechnicalSheet, technicalSheets, products, new Set<number>(), serviceItems)
       const totalYield = parseDecimal(linkedTechnicalSheet.outputQuantity) ?? 0
       return totalYield > 0 ? totalCost / totalYield : totalCost
     }
   }
 
   return calculatePackageOnlyProductUnitCost(product)
+}
+
+export function calculateServiceItemUnitCost(serviceItem: ServiceItemRecord) {
+  const activePackages = serviceItem.packages.filter((item) => item.isActive)
+  if (activePackages.length === 0) {
+    return 0
+  }
+
+  const weightedPackages = activePackages
+    .map((item) => {
+      const quantity = calculateNormalizedPackageQuantity(item, 'UNIT')
+      const price = parseDecimal(item.purchasePrice) ?? 0
+      const stock = parseDecimal(item.openingQuantity) ?? 0
+      const unitCost = quantity > 0 ? price / quantity : 0
+      return {
+        unitCost,
+        weight: stock > 0 ? stock * quantity : quantity,
+      }
+    })
+    .filter((item) => item.unitCost > 0 && item.weight > 0)
+
+  if (weightedPackages.length > 0) {
+    const totalWeight = weightedPackages.reduce((sum, item) => sum + item.weight, 0)
+    return totalWeight > 0
+      ? weightedPackages.reduce((sum, item) => sum + item.unitCost * item.weight, 0) / totalWeight
+      : 0
+  }
+
+  const simpleAverage = activePackages
+    .map((item) => {
+      const quantity = calculateNormalizedPackageQuantity(item, 'UNIT')
+      const price = parseDecimal(item.purchasePrice) ?? 0
+      return quantity > 0 ? price / quantity : 0
+    })
+    .filter((item) => item > 0)
+
+  return simpleAverage.length > 0
+    ? simpleAverage.reduce((sum, item) => sum + item, 0) / simpleAverage.length
+    : 0
 }
 
 export function calculatePackageOnlyProductUnitCost(product: ProductRecord) {
@@ -238,6 +279,7 @@ export function calculateTechnicalSheetCost(
   technicalSheets: TechnicalSheetRecord[],
   products: ProductRecord[] = [],
   visited = new Set<number>(),
+  serviceItems: ServiceItemRecord[] = [],
 ): number {
   if (visited.has(sheet.id)) {
     return 0
@@ -246,7 +288,7 @@ export function calculateTechnicalSheetCost(
   const nextVisited = new Set(visited)
   nextVisited.add(sheet.id)
 
-  return [...sheet.ingredients, ...sheet.garnishIngredients]
+  const ingredientsCost = [...sheet.ingredients, ...sheet.garnishIngredients]
     .filter((ingredient) => ingredient.isActive)
     .reduce((sum, ingredient) => {
       const quantity = parseDecimal(ingredient.quantity) ?? 0
@@ -254,7 +296,7 @@ export function calculateTechnicalSheetCost(
         technicalSheets.find((item) => item.productId === ingredient.productId) ?? null
 
       if (linkedTechnicalSheet) {
-      const linkedCost: number = calculateTechnicalSheetCost(linkedTechnicalSheet, technicalSheets, products, nextVisited)
+      const linkedCost: number = calculateTechnicalSheetCost(linkedTechnicalSheet, technicalSheets, products, nextVisited, serviceItems)
       const linkedYield = calculateTechnicalSheetEffectiveYield(linkedTechnicalSheet)
       const linkedUnitCost: number = linkedYield > 0 ? linkedCost / linkedYield : linkedCost
       return sum + linkedUnitCost * quantity
@@ -264,6 +306,21 @@ export function calculateTechnicalSheetCost(
       const linkedProductUnitCost = linkedProduct ? calculatePackageOnlyProductUnitCost(linkedProduct) : 0
       return sum + linkedProductUnitCost * quantity
     }, 0)
+
+  if (sheet.kind !== 'VENDA') {
+    return ingredientsCost
+  }
+
+  const serviceItemsCost = sheet.serviceItems
+    .filter((item) => item.isActive && item.itemId.trim() !== '')
+    .reduce((sum, item) => {
+      const linkedServiceItem =
+        serviceItems.find((serviceItem) => serviceItem.id === item.itemId && serviceItem.companyId === sheet.companyId) ?? null
+      const quantity = parseDecimal(item.quantity) ?? 0
+      return sum + (linkedServiceItem ? calculateServiceItemUnitCost(linkedServiceItem) * quantity : 0)
+    }, 0)
+
+  return ingredientsCost + serviceItemsCost
 }
 
 export function calculateTechnicalSheetAlcoholPercentage(
