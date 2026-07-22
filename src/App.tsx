@@ -5532,6 +5532,19 @@ export default function App() {
     return technicalSheet
   }
 
+  async function fetchNextTechnicalSheetIdFromApi() {
+    const fallbackId = technicalSheets.length > 0 ? Math.max(...technicalSheets.map((item) => item.id)) + 1 : 1
+    const response = await fetch('/api/technical-sheets-next-id', { cache: 'no-store' })
+    if (!response.ok) {
+      return fallbackId
+    }
+
+    const payload = (await response.json().catch(() => null)) as { nextId?: unknown } | null
+    return typeof payload?.nextId === 'number' && Number.isFinite(payload.nextId) && payload.nextId > 0
+      ? payload.nextId
+      : fallbackId
+  }
+
   async function upsertProductRecordOnApi(product: ProductRecord, previousId?: string | null) {
     const targetId = previousId ?? product.id
     const response = await fetch(previousId ? `/api/products/${encodeURIComponent(targetId)}` : '/api/products', {
@@ -27383,7 +27396,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
 
     const { sourceSheet, targetCompanyId, targetCompanyLabel, newName, dependencySheets, willResetProductionCenters } =
       technicalSheetCopyPreviewState
-    const technicalSheetId = technicalSheets.length > 0 ? Math.max(...technicalSheets.map((item) => item.id)) + 1 : 1
+    const technicalSheetId = await fetchNextTechnicalSheetIdFromApi()
     const generatedProductId = buildTechnicalSheetProductId(newName, sourceSheet.kind)
     const nextCopiedTechnicalSheet: TechnicalSheetRecord = {
       ...sourceSheet,
@@ -28406,9 +28419,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
       return
     }
 
-    const technicalSheetId =
-      editingTechnicalSheetId ??
-      (technicalSheets.length > 0 ? Math.max(...technicalSheets.map((item) => item.id)) + 1 : 1)
+    const technicalSheetId = editingTechnicalSheetId ?? (await fetchNextTechnicalSheetIdFromApi())
     const generatedProductId = previousTechnicalSheet?.productId ?? buildTechnicalSheetProductId(normalizedName, technicalSheetForm.kind)
     const technicalSheetOwnerCompanyId =
       previousTechnicalSheet?.ownerCompanyId ?? previousTechnicalSheet?.companyId ?? currentCompanyId ?? 0
@@ -28649,7 +28660,12 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
         )
       : cascadedBaseSheets
 
-    const linkedExisting = products.find((product) => product.technicalSheetId === technicalSheetId)
+    const linkedExisting =
+      products.find((product) => product.id === previousTechnicalSheet?.productId) ??
+      products.find(
+        (product) =>
+          product.technicalSheetId === technicalSheetId && getProductOwnerCompanyId(product) === technicalSheetOwnerCompanyId,
+      )
     const technicalProduct: ProductRecord = {
       companyId: linkedExisting?.companyId ?? previousTechnicalSheet?.companyId ?? currentCompanyId ?? 0,
       ownerCompanyId:
@@ -28679,9 +28695,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
     }
 
     const nextProducts = linkedExisting
-      ? products.map((product) =>
-          product.technicalSheetId === technicalSheetId ? { ...linkedExisting, ...technicalProduct } : product,
-        )
+      ? products.map((product) => (product.id === linkedExisting.id ? { ...linkedExisting, ...technicalProduct } : product))
       : [technicalProduct, ...products]
     const nextStockCenters = syncStockCentersForTechnicalSheetChange(stockCenters, technicalSheetToSave)
 

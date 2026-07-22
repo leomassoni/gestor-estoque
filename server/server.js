@@ -1400,6 +1400,7 @@ app.post('/api/products', async (request, response) => {
   }
 
   try {
+    await ensureProductTechnicalSheetLinkCanBeSaved(product)
     await ensureUniqueProductName(product)
     const saved = await prisma.appProductRecord.upsert({
       where: { id: product.id },
@@ -1421,6 +1422,7 @@ app.put('/api/products/:id', async (request, response) => {
   }
 
   try {
+    await ensureProductTechnicalSheetLinkCanBeSaved(product)
     await ensureUniqueProductName(product)
     const saved = await prisma.appProductRecord.upsert({
       where: { id: productId },
@@ -1521,6 +1523,14 @@ app.get('/api/technical-sheets', async (request, response) => {
   })
 })
 
+app.get('/api/technical-sheets-next-id', async (_request, response) => {
+  await ensureAppCatalogRecordsSeeded()
+  const result = await prisma.appTechnicalSheetRecord.aggregate({
+    _max: { id: true },
+  })
+  response.json({ nextId: (result._max.id ?? 0) + 1 })
+})
+
 app.get('/api/technical-sheets/:id', async (request, response) => {
   await ensureAppCatalogRecordsSeeded()
   const technicalSheetId = parseIntegerParam(request.params.id)
@@ -1548,6 +1558,7 @@ app.post('/api/technical-sheets', async (request, response) => {
   }
 
   try {
+    await ensureTechnicalSheetIdCanBeSaved(technicalSheet)
     await ensureUniqueTechnicalSheetName(technicalSheet)
     const saved = await prisma.appTechnicalSheetRecord.upsert({
       where: { id: technicalSheet.id },
@@ -1569,6 +1580,7 @@ app.put('/api/technical-sheets/:id', async (request, response) => {
   }
 
   try {
+    await ensureTechnicalSheetIdCanBeSaved(technicalSheet)
     await ensureUniqueTechnicalSheetName(technicalSheet)
     const saved = await prisma.appTechnicalSheetRecord.upsert({
       where: { id: technicalSheetId },
@@ -2090,6 +2102,52 @@ async function ensureUniqueTechnicalSheetName(technicalSheet) {
 
   if (duplicate) {
     const error = new Error(`Ja existe uma ficha tecnica cadastrada com o nome ${technicalSheet.name}.`)
+    error.statusCode = 409
+    throw error
+  }
+}
+
+async function ensureProductTechnicalSheetLinkCanBeSaved(product) {
+  if (typeof product.technicalSheetId !== 'number') {
+    return
+  }
+
+  const technicalSheet = await prisma.appTechnicalSheetRecord.findUnique({
+    where: { id: product.technicalSheetId },
+    select: { id: true, companyId: true, ownerCompanyId: true, name: true },
+  })
+
+  if (!technicalSheet) {
+    const error = new Error('A ficha tecnica vinculada ao produto nao foi encontrada.')
+    error.statusCode = 409
+    throw error
+  }
+
+  if (
+    technicalSheet.companyId !== product.companyId ||
+    technicalSheet.ownerCompanyId !== product.ownerCompanyId
+  ) {
+    const error = new Error(
+      `A ficha tecnica vinculada ao produto pertence a outra empresa: ${technicalSheet.name}.`,
+    )
+    error.statusCode = 409
+    throw error
+  }
+}
+
+async function ensureTechnicalSheetIdCanBeSaved(technicalSheet) {
+  const existing = await prisma.appTechnicalSheetRecord.findUnique({
+    where: { id: technicalSheet.id },
+    select: { id: true, companyId: true, ownerCompanyId: true, name: true },
+  })
+
+  if (
+    existing &&
+    (existing.companyId !== technicalSheet.companyId || existing.ownerCompanyId !== technicalSheet.ownerCompanyId)
+  ) {
+    const error = new Error(
+      `ID de ficha tecnica ja pertence a ${existing.name}. Atualize a pagina e tente salvar novamente.`,
+    )
     error.statusCode = 409
     throw error
   }
