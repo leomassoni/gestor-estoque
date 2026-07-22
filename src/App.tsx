@@ -5638,6 +5638,16 @@ export default function App() {
     await Promise.all(changedCenters.map((center) => upsertStockCenterRecordOnApi(center, options)))
   }
 
+  async function deleteStockCenterRecordOnApi(stockCenterId: number) {
+    const response = await fetch(`/api/stock-centers/${stockCenterId}`, {
+      method: 'DELETE',
+    })
+    if (!response.ok) {
+      const errorPayload = (await response.json().catch(() => null)) as { error?: string } | null
+      throw new Error(errorPayload?.error || 'Nao foi possivel excluir o centro de estoque no servidor.')
+    }
+  }
+
   async function upsertRequisitionRecordOnApi(requisition: RequisitionRecord) {
     const response = await fetch(`/api/requisitions/${requisition.id}`, {
       method: 'PUT',
@@ -9087,7 +9097,8 @@ export default function App() {
               packageId: null,
             }) satisfies StockCenterMinimumRow,
         ),
-        ...countableProducts.flatMap((product) => {
+        ...countableProducts.flatMap<StockCenterMinimumRow>((product) => {
+          const activePackages = product.packages.filter((item) => item.isActive)
           const unitKey = buildStockCenterMinimumEntryKey({
             kind: 'PRODUTO',
             technicalSheetId: null,
@@ -9095,47 +9106,48 @@ export default function App() {
             serviceItemId: '',
             packageId: null,
           })
-          return [
-            {
-              key: unitKey,
-              kind: 'PRODUTO',
-              name: product.name,
-              typeLabel: 'Produto',
-              family: product.family,
-              referenceLabel: `UNIDADE DE CONTROLE • 1 ${formatControlUnitShort(product.controlUnit)}`,
-              baseQuantity: 1,
-              baseUnit: product.controlUnit,
-              technicalSheetId: null,
-              productId: product.id,
-              serviceItemId: '',
-              packageId: null,
-            } satisfies StockCenterMinimumRow,
-            ...product.packages
-              .filter((item) => item.isActive)
-              .map(
-                (item) =>
-                  ({
-                    key: buildStockCenterMinimumEntryKey({
-                      kind: 'PRODUTO',
-                      technicalSheetId: null,
-                      productId: product.id,
-                      serviceItemId: '',
-                      packageId: item.id,
-                    }),
-                    kind: 'PRODUTO',
-                    name: product.name,
-                    typeLabel: 'Produto',
-                    family: product.family,
-                    referenceLabel: buildProductPackageLabel(product, item),
-                    baseQuantity: calculateNormalizedPackageQuantity(item, product.controlUnit),
-                    baseUnit: product.controlUnit,
-                    technicalSheetId: null,
-                    productId: product.id,
-                    serviceItemId: '',
-                    packageId: item.id,
-                  }) satisfies StockCenterMinimumRow,
-              ),
-          ]
+          const unitRow = {
+            key: unitKey,
+            kind: 'PRODUTO',
+            name: product.name,
+            typeLabel: 'Produto',
+            family: product.family,
+            referenceLabel: `UNIDADE DE CONTROLE • 1 ${formatControlUnitShort(product.controlUnit)}`,
+            baseQuantity: 1,
+            baseUnit: product.controlUnit,
+            technicalSheetId: null,
+            productId: product.id,
+            serviceItemId: '',
+            packageId: null,
+          } satisfies StockCenterMinimumRow
+
+          if (activePackages.length === 0) {
+            return [unitRow]
+          }
+
+          return activePackages.map(
+            (item) =>
+              ({
+                key: buildStockCenterMinimumEntryKey({
+                  kind: 'PRODUTO',
+                  technicalSheetId: null,
+                  productId: product.id,
+                  serviceItemId: '',
+                  packageId: item.id,
+                }),
+                kind: 'PRODUTO',
+                name: product.name,
+                typeLabel: 'Produto',
+                family: product.family,
+                referenceLabel: buildProductPackageLabel(product, item),
+                baseQuantity: calculateNormalizedPackageQuantity(item, product.controlUnit),
+                baseUnit: product.controlUnit,
+                technicalSheetId: null,
+                productId: product.id,
+                serviceItemId: '',
+                packageId: item.id,
+              }) satisfies StockCenterMinimumRow,
+          )
         }),
         ...countableServiceItems.map(
           (item) =>
@@ -17745,7 +17757,8 @@ export default function App() {
   function updateStockCenterMinimumStock(row: StockCenterMinimumRow, minimumQuantity: string) {
     setStockCenterForm((current) => {
       const normalizedValue = minimumQuantity.trim()
-      const targetKey = buildStockCenterMinimumEntryKey(row)
+      const storageTarget = buildStockCenterMinimumStorageTarget(row)
+      const targetKey = buildStockCenterMinimumEntryKey(storageTarget)
       const existing =
         current.minimumStocks.find((item) => buildStockCenterMinimumEntryKey(item) === targetKey) ?? null
 
@@ -17777,7 +17790,7 @@ export default function App() {
               buildStockCenterMinimumEntryKey(item) === targetKey
                 ? {
                     ...item,
-                    minimumQuantity: normalizedValue,
+                    minimumQuantity: convertStockCenterMinimumRowQuantityTextToStorageText(normalizedValue, row),
                     minimumSource: 'MANUAL',
                     overriddenAt: new Date().toISOString(),
                   }
@@ -17786,12 +17799,12 @@ export default function App() {
           : [
               ...current.minimumStocks,
               {
-                kind: row.technicalSheetId !== null ? 'PREPARO' : row.productId ? 'PRODUTO' : 'ITEM',
-                technicalSheetId: row.technicalSheetId,
-                productId: row.productId,
-                serviceItemId: row.serviceItemId,
-                packageId: row.packageId,
-                minimumQuantity: normalizedValue,
+                kind: storageTarget.kind,
+                technicalSheetId: storageTarget.technicalSheetId,
+                productId: storageTarget.productId,
+                serviceItemId: storageTarget.serviceItemId,
+                packageId: storageTarget.packageId,
+                minimumQuantity: convertStockCenterMinimumRowQuantityTextToStorageText(normalizedValue, row),
                 minimumSource: 'MANUAL',
                 overriddenAt: new Date().toISOString(),
               },
@@ -17803,7 +17816,8 @@ export default function App() {
   function updateStockCenterRealMinimumStock(row: StockCenterMinimumRow, realMinimumQuantity: string) {
     setStockCenterForm((current) => {
       const normalizedValue = realMinimumQuantity.trim()
-      const targetKey = buildStockCenterMinimumEntryKey(row)
+      const storageTarget = buildStockCenterMinimumStorageTarget(row)
+      const targetKey = buildStockCenterMinimumEntryKey(storageTarget)
       const existing =
         current.minimumStocks.find((item) => buildStockCenterMinimumEntryKey(item) === targetKey) ?? null
 
@@ -17837,7 +17851,7 @@ export default function App() {
               buildStockCenterMinimumEntryKey(item) === targetKey
                 ? {
                     ...item,
-                    suggestedMinimumQuantity: normalizedValue,
+                    suggestedMinimumQuantity: convertStockCenterMinimumRowQuantityTextToStorageText(normalizedValue, row),
                     realMinimumSource: 'MANUAL',
                     suggestedAt: new Date().toISOString(),
                   }
@@ -17846,13 +17860,13 @@ export default function App() {
           : [
               ...current.minimumStocks,
               {
-                kind: row.technicalSheetId !== null ? 'PREPARO' : row.productId ? 'PRODUTO' : 'ITEM',
-                technicalSheetId: row.technicalSheetId,
-                productId: row.productId,
-                serviceItemId: row.serviceItemId,
-                packageId: row.packageId,
+                kind: storageTarget.kind,
+                technicalSheetId: storageTarget.technicalSheetId,
+                productId: storageTarget.productId,
+                serviceItemId: storageTarget.serviceItemId,
+                packageId: storageTarget.packageId,
                 minimumQuantity: '',
-                suggestedMinimumQuantity: normalizedValue,
+                suggestedMinimumQuantity: convertStockCenterMinimumRowQuantityTextToStorageText(normalizedValue, row),
                 realMinimumSource: 'MANUAL',
                 suggestedAt: new Date().toISOString(),
               },
@@ -19557,20 +19571,175 @@ export default function App() {
     })
   }
 
-  function toggleStockCenterStatus(stockCenterId: number) {
-    setStockCenters((current) =>
-      current.map((center) =>
-        center.id === stockCenterId ? { ...center, isActive: !center.isActive } : center,
-      ),
+  function collectStockCenterImpactSummary(stockCenterId: number) {
+    const targetCenter = stockCenters.find((center) => center.id === stockCenterId) ?? null
+    const impactedProductionSheets = technicalSheets
+      .filter(
+        (sheet) =>
+          sheet.kind === 'PREPARO' &&
+          (
+            (sheet.productionCenters ?? []).some((assignment) => assignment.stockCenterId === stockCenterId) ||
+            (targetCenter?.producedTechnicalSheetIds ?? []).includes(sheet.id)
+          ),
+      )
+      .map((sheet) => sheet.name)
+      .sort((a, b) => a.localeCompare(b, 'pt-BR'))
+    const impactedSupplyRouteSheets = technicalSheets
+      .filter((sheet) =>
+        normalizeTechnicalSheetSupplyRoutes(sheet.supplyRoutes).some(
+          (route) => route.consumerCenterId === stockCenterId || route.supplierCenterId === stockCenterId,
+        ),
+      )
+      .map((sheet) => sheet.name)
+      .sort((a, b) => a.localeCompare(b, 'pt-BR'))
+    const impactedRequisitions = requisitions.filter(
+      (record) =>
+        record.stockCenterId === stockCenterId ||
+        record.supplyCenterId === stockCenterId ||
+        record.lines.some(
+          (line) =>
+            line.destinationCenterId === stockCenterId ||
+            line.supplierCenterId === stockCenterId,
+        ),
     )
+
+    return {
+      impactedProductionSheets,
+      impactedSupplyRouteSheets,
+      impactedRequisitionsCount: impactedRequisitions.length,
+      minimumStocksCount: targetCenter?.minimumStocks.length ?? 0,
+    }
   }
 
-  function deleteStockCenter(stockCenterId: number) {
+  function formatStockCenterImpactConfirmationMessage(
+    center: StockCenterRecord,
+    actionLabel: 'inativar' | 'excluir',
+  ) {
+    const impact = collectStockCenterImpactSummary(center.id)
+    const lines = [
+      `Confirmar ${actionLabel} o centro ${center.name} (${center.code})?`,
+      '',
+      `Fichas em que aparece como centro produtor: ${impact.impactedProductionSheets.length || 'nenhuma'}.`,
+      `Fichas com rotas de suprimento envolvendo este centro: ${impact.impactedSupplyRouteSheets.length || 'nenhuma'}.`,
+      `Estoques minimos configurados neste centro: ${impact.minimumStocksCount || 'nenhum'}.`,
+      `Requisicoes/suprimentos historicos relacionados: ${impact.impactedRequisitionsCount || 'nenhum'}.`,
+    ]
+
+    if (actionLabel === 'excluir') {
+      lines.push('', 'Ao excluir, o centro sera removido das fichas tecnicas em que estiver vinculado antes da exclusao.')
+    }
+
+    if (impact.impactedProductionSheets.length > 0) {
+      lines.push('', `Fichas produtoras impactadas: ${impact.impactedProductionSheets.join(', ')}.`)
+    }
+
+    if (impact.impactedSupplyRouteSheets.length > 0) {
+      lines.push('', `Rotas impactadas: ${impact.impactedSupplyRouteSheets.join(', ')}.`)
+    }
+
+    return lines.join('\n')
+  }
+
+  function removeStockCenterReferencesFromTechnicalSheets(stockCenterId: number) {
+    return technicalSheets.map((sheet) => {
+      const nextProductionCenters = (sheet.productionCenters ?? []).filter(
+        (assignment) => assignment.stockCenterId !== stockCenterId,
+      )
+      const nextSupplyRoutes = normalizeTechnicalSheetSupplyRoutes(sheet.supplyRoutes).filter(
+        (route) => route.consumerCenterId !== stockCenterId && route.supplierCenterId !== stockCenterId,
+      )
+      const hasProductionCenterChange = nextProductionCenters.length !== (sheet.productionCenters ?? []).length
+      const hasSupplyRouteChange = nextSupplyRoutes.length !== normalizeTechnicalSheetSupplyRoutes(sheet.supplyRoutes).length
+
+      return hasProductionCenterChange || hasSupplyRouteChange
+        ? {
+            ...sheet,
+            productionCenters: nextProductionCenters,
+            supplyRoutes: nextSupplyRoutes,
+          }
+        : sheet
+    })
+  }
+
+  async function toggleStockCenterStatus(stockCenterId: number) {
+    const targetCenter = stockCenters.find((center) => center.id === stockCenterId) ?? null
+    if (!targetCenter) {
+      return
+    }
+
+    if (
+      targetCenter.isActive &&
+      typeof window !== 'undefined' &&
+      !window.confirm(formatStockCenterImpactConfirmationMessage(targetCenter, 'inativar'))
+    ) {
+      return
+    }
+
+    const nextCenter = { ...targetCenter, isActive: !targetCenter.isActive }
+    try {
+      await upsertStockCenterRecordOnApi(nextCenter)
+    } catch (error) {
+      console.error(error)
+      setSaveFeedback({
+        status: 'error',
+        title: 'Falha ao atualizar centro de estoque',
+        message: error instanceof Error ? error.message : 'Erro ao salvar o status do centro de estoque no servidor.',
+      })
+      return
+    }
+
+    setStockCenters((current) => current.map((center) => (center.id === stockCenterId ? nextCenter : center)))
+    await refreshAppStockCenterRecordsFromApi()
+    setSaveFeedback({
+      status: 'success',
+      title: nextCenter.isActive ? 'Centro de estoque ativado' : 'Centro de estoque inativado',
+      message: `${nextCenter.name} foi ${nextCenter.isActive ? 'ativado' : 'inativado'} com sucesso.`,
+    })
+  }
+
+  async function deleteStockCenter(stockCenterId: number) {
+    const targetCenter = stockCenters.find((center) => center.id === stockCenterId) ?? null
+    if (!targetCenter) {
+      return
+    }
+
+    if (
+      typeof window !== 'undefined' &&
+      !window.confirm(formatStockCenterImpactConfirmationMessage(targetCenter, 'excluir'))
+    ) {
+      return
+    }
+
+    const nextTechnicalSheets = removeStockCenterReferencesFromTechnicalSheets(stockCenterId)
+    try {
+      await persistChangedTechnicalSheetsOnApi(technicalSheets, nextTechnicalSheets)
+      await deleteStockCenterRecordOnApi(stockCenterId)
+    } catch (error) {
+      console.error(error)
+      setSaveFeedback({
+        status: 'error',
+        title: 'Falha ao excluir centro de estoque',
+        message: error instanceof Error ? error.message : 'Erro ao excluir o centro de estoque no servidor.',
+      })
+      return
+    }
+
+    setTechnicalSheets(nextTechnicalSheets)
     setStockCenters((current) => current.filter((center) => center.id !== stockCenterId))
     if (editingStockCenterId === stockCenterId) {
       setEditingStockCenterId(null)
       setStockCenterForm(emptyStockCenterForm())
     }
+
+    await Promise.all([
+      refreshAppStockCenterRecordsFromApi(),
+      refreshAppCatalogRecordsFromApi(),
+    ])
+    setSaveFeedback({
+      status: 'success',
+      title: 'Centro de estoque excluido',
+      message: `${targetCenter.name} foi excluido com sucesso e removido das fichas tecnicas afetadas.`,
+    })
   }
 
   function buildRequisitionDraftLines(center: StockCenterRecord): RequisitionDraftLine[] {
@@ -24957,8 +25126,8 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
               <tbody>
                 {visibleStockCenterMinimumRows.length > 0 ? visibleStockCenterMinimumRows.map((row) => {
                   const minimumStockEntry = findStockCenterMinimumEntry(stockCenterForm.minimumStocks, row)
-                  const minimumStock = getMinimumUseQuantityText(minimumStockEntry)
-                  const realMinimum = getRealMinimumQuantityText(minimumStockEntry)
+                  const minimumStock = getMinimumUseQuantityTextForRow(row, minimumStockEntry)
+                  const realMinimum = getRealMinimumQuantityTextForRow(row, minimumStockEntry)
                   const consolidatedMinimum = getStockCenterConsolidatedMinimumText(row)
                   return (
                     <tr key={row.key}>
@@ -49939,6 +50108,63 @@ function getRealMinimumQuantityText(entry: StockCenterMinimumStock | null) {
   return entry.suggestedMinimumQuantity?.trim() || (entry.minimumSource === 'SUGERIDO_VENDAS' ? entry.minimumQuantity.trim() : '')
 }
 
+function buildStockCenterMinimumStorageTarget(row: StockCenterMinimumRow) {
+  return {
+    kind: row.kind,
+    technicalSheetId: row.technicalSheetId,
+    productId: row.productId,
+    serviceItemId: row.serviceItemId,
+    packageId: row.kind === 'PRODUTO' ? null : row.packageId,
+  }
+}
+
+function isProductBaseMinimumDisplayedAsPackage(
+  row: StockCenterMinimumRow,
+  entry: StockCenterMinimumStock | null,
+) {
+  return row.kind === 'PRODUTO' && row.packageId !== null && entry?.kind === 'PRODUTO' && entry.packageId === null
+}
+
+function convertStockCenterMinimumStorageTextToRowText(
+  quantityText: string,
+  row: StockCenterMinimumRow,
+  entry: StockCenterMinimumStock | null,
+) {
+  const normalizedValue = quantityText.trim()
+  if (!normalizedValue) {
+    return ''
+  }
+
+  if (isProductBaseMinimumDisplayedAsPackage(row, entry) && row.baseQuantity > 0) {
+    const quantity = parseDecimal(normalizedValue)
+    return quantity === null ? normalizedValue : formatDecimal(quantity / row.baseQuantity)
+  }
+
+  return normalizedValue
+}
+
+function convertStockCenterMinimumRowQuantityTextToStorageText(quantityText: string, row: StockCenterMinimumRow) {
+  const normalizedValue = quantityText.trim()
+  if (!normalizedValue) {
+    return ''
+  }
+
+  if (row.kind === 'PRODUTO' && row.packageId !== null && row.baseQuantity > 0) {
+    const quantity = parseDecimal(normalizedValue)
+    return quantity === null ? normalizedValue : formatDecimal(quantity * row.baseQuantity)
+  }
+
+  return normalizedValue
+}
+
+function getMinimumUseQuantityTextForRow(row: StockCenterMinimumRow, entry: StockCenterMinimumStock | null) {
+  return convertStockCenterMinimumStorageTextToRowText(getMinimumUseQuantityText(entry), row, entry)
+}
+
+function getRealMinimumQuantityTextForRow(row: StockCenterMinimumRow, entry: StockCenterMinimumStock | null) {
+  return convertStockCenterMinimumStorageTextToRowText(getRealMinimumQuantityText(entry), row, entry)
+}
+
 function getRepositionMinimumQuantityText(entry: StockCenterMinimumStock | null) {
   return getMinimumUseQuantityText(entry) || getRealMinimumQuantityText(entry)
 }
@@ -51066,6 +51292,14 @@ function findStockCenterMinimumEntry(
     return minimumStocks.find((item) => item.kind === 'PREPARO' && item.productId.trim() === target.productId.trim()) ?? null
   }
 
+  if (target.kind === 'PRODUTO' && target.packageId !== null && target.productId.trim() !== '') {
+    return (
+      minimumStocks.find(
+        (item) => item.kind === 'PRODUTO' && item.productId.trim() === target.productId.trim() && item.packageId === null,
+      ) ?? null
+    )
+  }
+
   return null
 }
 
@@ -51223,9 +51457,9 @@ function getStockCenterMinimumColumnValue(
     case 'yield':
       return `${formatDecimal(row.baseQuantity)} ${formatControlUnitShort(row.baseUnit)}`
     case 'minimum':
-      return getMinimumUseQuantityText(minimumEntry)
+      return getMinimumUseQuantityTextForRow(row, minimumEntry)
     case 'realMinimum':
-      return getRealMinimumQuantityText(minimumEntry)
+      return getRealMinimumQuantityTextForRow(row, minimumEntry)
     case 'consolidatedMinimum':
       return options.consolidatedMinimumText ?? ''
   }
