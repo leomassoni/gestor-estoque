@@ -1,4 +1,5 @@
 import {
+  Fragment,
   useEffect,
   useId,
   useMemo,
@@ -1583,6 +1584,7 @@ const defaultColumnVisibility: Record<ColumnKey, boolean> = {
   sectors: true,
   controlUnit: true,
   unitCost: true,
+  purchaseCost: true,
   costStatus: true,
   executionYield: true,
   packages: true,
@@ -1808,6 +1810,7 @@ const columnOptions: Array<[ColumnKey, string]> = [
   ['subfamily', 'Subfamilia'],
   ['controlUnit', 'Unidade de controle'],
   ['unitCost', 'Custo unitario'],
+  ['purchaseCost', 'Custo de compra'],
   ['costStatus', 'Status de custo'],
   ['executionYield', 'Volume execucao'],
   ['packages', 'Embalagens'],
@@ -2277,6 +2280,7 @@ export default function App() {
   const [columnFilters, setColumnFilters] =
     useState<Partial<Record<ColumnKey, string[]>>>(defaultColumnFilters)
   const [columnSort, setColumnSort] = useState<ColumnSort<ColumnKey> | null>(null)
+  const [expandedProductPackageIds, setExpandedProductPackageIds] = useState<Set<string>>(() => new Set())
   const [productActionState, setProductActionState] = useState<ProductActionState | null>(null)
   const [productDisableImpactState, setProductDisableImpactState] = useState<ProductDisableImpactState | null>(null)
   const [itemScreenMode, setItemScreenMode] = useState<ScreenMode>('list')
@@ -35821,6 +35825,20 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                         setColumnSort,
                       )
                     : null}
+                  {columnVisibility.purchaseCost
+                    ? renderColumnHeader(
+                        'purchaseCost',
+                        'Custo de compra',
+                        openColumnMenu,
+                        setOpenColumnMenu,
+                        columnFilters,
+                        distinctColumnValues,
+                        setColumnFilters,
+                        setColumnVisibility,
+                        columnSort,
+                        setColumnSort,
+                      )
+                    : null}
                   {columnVisibility.costStatus
                     ? renderColumnHeader(
                         'costStatus',
@@ -35882,97 +35900,148 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
               </thead>
               <tbody>
                 {visibleProducts.length > 0 ? (
-                  visibleProducts.map((product) => (
-                    <tr key={product.id}>
-                      {columnVisibility.product ? (
-                        <td className="sticky-product-cell">
-                          <strong>{product.name}</strong>
-                        </td>
-                      ) : null}
-                      {columnVisibility.internalId ? <td>{product.id}</td> : null}
-                      {columnVisibility.companyId ? <td>{product.companyProductId || '-'}</td> : null}
-                      {columnVisibility.sectors ? <td>{product.sectors.join(', ')}</td> : null}
-                      {columnVisibility.family ? <td>{product.family}</td> : null}
-                      {columnVisibility.subfamily ? <td>{product.subfamily}</td> : null}
-                      {columnVisibility.controlUnit ? (
-                        <td>{getProductColumnValue(product, 'controlUnit')}</td>
-                      ) : null}
-                      {columnVisibility.unitCost ? (
-                        <td>{getProductColumnValue(product, 'unitCost', technicalSheets, products, serviceItems)}</td>
-                      ) : null}
-                      {columnVisibility.costStatus ? (
-                        <td>
-                          <span
-                            className={
-                              getProductCostStatus(product, technicalSheets, products) === 'OK'
-                                ? 'package-chip package-chip-success'
-                                : 'package-chip package-chip-warning'
-                            }
-                          >
-                            {getProductCostStatus(product, technicalSheets, products)}
-                          </span>
-                        </td>
-                      ) : null}
-                      {columnVisibility.executionYield ? (
-                        <td>{getProductColumnValue(product, 'executionYield')}</td>
-                      ) : null}
-                      {columnVisibility.packages ? <td>{String(product.packages.length)}</td> : null}
-                      {columnVisibility.status ? (
-                        <td>
-                          <span
-                            className={
-                              product.isActive
-                                ? 'package-chip package-chip-success'
-                                : 'package-chip package-chip-warning'
-                            }
-                          >
-                            {product.isActive ? 'Ativo' : 'Inativo'}
-                          </span>
-                        </td>
-                      ) : null}
-                      <td className="sticky-actions-cell">
-                        <div className="table-actions">
-                          <button
-                            className="icon-button icon-edit"
-                            type="button"
-                            aria-label="Editar produto"
-                            onClick={() =>
-                              typeof product.technicalSheetId === 'number'
-                                ? openEditTechnicalSheetForm(product.technicalSheetId)
-                                : openEditProductForm(product.id)
-                            }
-                          >
-                            <span aria-hidden="true">✎</span>
-                          </button>
-                          <button
-                            className="icon-button icon-disable"
-                            type="button"
-                            aria-label={product.isActive ? 'Inativar produto' : 'Ativar produto'}
-                            onClick={() =>
-                              product.isActive
-                                ? openProductDisableImpact(product.id)
-                                : setProductActionState({
-                                    action: 'enable',
-                                    productId: product.id,
-                                  })
-                            }
-                          >
-                            <span aria-hidden="true">{product.isActive ? '◐' : '◑'}</span>
-                          </button>
-                          {canDeleteRecords ? (
-                            <button
-                              className="icon-button icon-delete"
-                              type="button"
-                              aria-label="Excluir produto"
-                              onClick={() => openProductDisableImpact(product.id, 'delete')}
-                            >
-                              <span aria-hidden="true">🗑</span>
-                            </button>
+                  visibleProducts.map((product) => {
+                    const activePackages = getActiveProductPackages(product)
+                    const isPackageDetailsExpanded = expandedProductPackageIds.has(product.id)
+                    return (
+                      <Fragment key={product.id}>
+                        <tr>
+                          {columnVisibility.product ? (
+                            <td className="sticky-product-cell">
+                              <strong>{product.name}</strong>
+                            </td>
                           ) : null}
-                        </div>
-                      </td>
-                    </tr>
-                  ))
+                          {columnVisibility.internalId ? <td>{product.id}</td> : null}
+                          {columnVisibility.companyId ? <td>{product.companyProductId || '-'}</td> : null}
+                          {columnVisibility.sectors ? <td>{product.sectors.join(', ')}</td> : null}
+                          {columnVisibility.family ? <td>{product.family}</td> : null}
+                          {columnVisibility.subfamily ? <td>{product.subfamily}</td> : null}
+                          {columnVisibility.controlUnit ? (
+                            <td>{getProductColumnValue(product, 'controlUnit')}</td>
+                          ) : null}
+                          {columnVisibility.unitCost ? (
+                            <td>{getProductColumnValue(product, 'unitCost', technicalSheets, products, serviceItems)}</td>
+                          ) : null}
+                          {columnVisibility.purchaseCost ? (
+                            <td>
+                              <div className="package-cost-cell">
+                                <span>{getProductColumnValue(product, 'purchaseCost', technicalSheets, products, serviceItems)}</span>
+                                {activePackages.length > 1 ? (
+                                  <button
+                                    type="button"
+                                    className="link-button package-cost-toggle"
+                                    onClick={() =>
+                                      setExpandedProductPackageIds((current) => {
+                                        const next = new Set(current)
+                                        if (next.has(product.id)) {
+                                          next.delete(product.id)
+                                        } else {
+                                          next.add(product.id)
+                                        }
+                                        return next
+                                      })
+                                    }
+                                  >
+                                    {isPackageDetailsExpanded ? 'Ocultar' : 'Detalhar'}
+                                  </button>
+                                ) : null}
+                              </div>
+                            </td>
+                          ) : null}
+                          {columnVisibility.costStatus ? (
+                            <td>
+                              <span
+                                className={
+                                  getProductCostStatus(product, technicalSheets, products) === 'OK'
+                                    ? 'package-chip package-chip-success'
+                                    : 'package-chip package-chip-warning'
+                                }
+                              >
+                                {getProductCostStatus(product, technicalSheets, products)}
+                              </span>
+                            </td>
+                          ) : null}
+                          {columnVisibility.executionYield ? (
+                            <td>{getProductColumnValue(product, 'executionYield')}</td>
+                          ) : null}
+                          {columnVisibility.packages ? <td>{String(product.packages.length)}</td> : null}
+                          {columnVisibility.status ? (
+                            <td>
+                              <span
+                                className={
+                                  product.isActive
+                                    ? 'package-chip package-chip-success'
+                                    : 'package-chip package-chip-warning'
+                                }
+                              >
+                                {product.isActive ? 'Ativo' : 'Inativo'}
+                              </span>
+                            </td>
+                          ) : null}
+                          <td className="sticky-actions-cell">
+                            <div className="table-actions">
+                              <button
+                                className="icon-button icon-edit"
+                                type="button"
+                                aria-label="Editar produto"
+                                onClick={() =>
+                                  typeof product.technicalSheetId === 'number'
+                                    ? openEditTechnicalSheetForm(product.technicalSheetId)
+                                    : openEditProductForm(product.id)
+                                }
+                              >
+                                <span aria-hidden="true">✎</span>
+                              </button>
+                              <button
+                                className="icon-button icon-disable"
+                                type="button"
+                                aria-label={product.isActive ? 'Inativar produto' : 'Ativar produto'}
+                                onClick={() =>
+                                  product.isActive
+                                    ? openProductDisableImpact(product.id)
+                                    : setProductActionState({
+                                        action: 'enable',
+                                        productId: product.id,
+                                      })
+                                }
+                              >
+                                <span aria-hidden="true">{product.isActive ? '◐' : '◑'}</span>
+                              </button>
+                              {canDeleteRecords ? (
+                                <button
+                                  className="icon-button icon-delete"
+                                  type="button"
+                                  aria-label="Excluir produto"
+                                  onClick={() => openProductDisableImpact(product.id, 'delete')}
+                                >
+                                  <span aria-hidden="true">🗑</span>
+                                </button>
+                              ) : null}
+                            </div>
+                          </td>
+                        </tr>
+                        {isPackageDetailsExpanded ? (
+                          <tr className="package-cost-detail-row">
+                            <td colSpan={Object.values(columnVisibility).filter(Boolean).length + 1}>
+                              <div className="package-cost-detail-panel">
+                                <strong>Embalagens ativas de {product.name}</strong>
+                                <div className="package-cost-detail-grid">
+                                  {activePackages.map((packageForm) => (
+                                    <article key={packageForm.id} className="package-cost-detail-card">
+                                      <span>{packageForm.internalCode || `EMB-${packageForm.id}`}</span>
+                                      <strong>
+                                        {formatProductPackagePurchasePriceLabel(packageForm)} / {formatProductPackageQuantityLabel(product, packageForm)}
+                                      </strong>
+                                    </article>
+                                  ))}
+                                </div>
+                              </div>
+                            </td>
+                          </tr>
+                        ) : null}
+                      </Fragment>
+                    )
+                  })
                 ) : (
                   <tr>
                     <td colSpan={Object.values(columnVisibility).filter(Boolean).length + 1}>
@@ -49691,6 +49760,8 @@ function getProductSortValue(
   switch (key) {
     case 'unitCost':
       return calculateProductUnitCost(product, technicalSheets, products, serviceItems)
+    case 'purchaseCost':
+      return getProductPurchaseCostSortValue(product)
     case 'packages':
       return product.packages.length
     default:
@@ -49740,7 +49811,7 @@ function getServiceItemSortValue(item: ServiceItemRecord, key: ItemColumnKey) {
 }
 
 function isNumericProductColumn(key: ColumnKey) {
-  return key === 'unitCost' || key === 'packages'
+  return key === 'unitCost' || key === 'purchaseCost' || key === 'packages'
 }
 
 function isNumericTechnicalSheetColumn(key: TechnicalSheetColumnKey) {
@@ -51547,6 +51618,42 @@ function formatServiceItemSize(value: string, unit: ServiceItemSizeUnit) {
   return `${value} ${label}`
 }
 
+function getActiveProductPackages(product: ProductRecord) {
+  return product.packages.filter((item) => item.isActive)
+}
+
+function formatProductPackageQuantityLabel(product: ProductRecord, packageForm: PackageForm) {
+  const quantity = calculateNormalizedPackageQuantity(packageForm, product.controlUnit)
+  return quantity > 0 ? `${formatDecimal(quantity)} ${formatControlUnitShort(product.controlUnit)}` : 'SEM QUANTIDADE'
+}
+
+function formatProductPackagePurchasePriceLabel(packageForm: PackageForm) {
+  const purchasePrice = parseDecimal(packageForm.purchasePrice) ?? 0
+  return purchasePrice > 0 ? `R$ ${formatMoney(purchasePrice)}` : 'Sem custo'
+}
+
+function getProductPurchaseCostSummary(product: ProductRecord) {
+  const activePackages = getActiveProductPackages(product)
+  if (activePackages.length === 0) {
+    return 'Sem embalagem ativa'
+  }
+
+  if (activePackages.length > 1) {
+    return `${activePackages.length} embalagens`
+  }
+
+  const [packageForm] = activePackages
+  return `${formatProductPackagePurchasePriceLabel(packageForm)} / ${formatProductPackageQuantityLabel(product, packageForm)}`
+}
+
+function getProductPurchaseCostSortValue(product: ProductRecord) {
+  const activePackages = getActiveProductPackages(product)
+  const prices = activePackages
+    .map((item) => parseDecimal(item.purchasePrice) ?? 0)
+    .filter((price) => price > 0)
+  return prices.length > 0 ? Math.min(...prices) : 0
+}
+
 function getProductColumnValue(
   product: ProductRecord,
   key: ColumnKey,
@@ -51574,6 +51681,8 @@ function getProductColumnValue(
       return 'Combo'
     case 'unitCost':
       return `R$ ${formatMoney(calculateProductUnitCost(product, technicalSheets, products, serviceItems))} / ${formatControlUnitShort(product.controlUnit)}`
+    case 'purchaseCost':
+      return getProductPurchaseCostSummary(product)
     case 'costStatus':
       return getProductCostStatus(product, technicalSheets, products)
     case 'executionYield':

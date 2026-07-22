@@ -1174,6 +1174,63 @@ h3 {
   box-shadow: -10px 0 18px rgba(20, 33, 61, 0.06);
 }
 
+.link-button {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  color: #7c3f12;
+  cursor: pointer;
+  font: inherit;
+  font-weight: 700;
+  padding: 0;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.package-cost-cell {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.package-cost-toggle {
+  font-size: 0.82rem;
+}
+
+.package-cost-detail-row td {
+  background: rgba(246, 232, 217, 0.48);
+  white-space: normal;
+}
+
+.package-cost-detail-panel {
+  display: grid;
+  gap: 12px;
+  padding: 6px 4px;
+}
+
+.package-cost-detail-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 10px;
+}
+
+.package-cost-detail-card {
+  display: grid;
+  gap: 4px;
+  padding: 12px;
+  border: 1px solid rgba(20, 33, 61, 0.08);
+  border-radius: 14px;
+  background: rgba(255, 250, 244, 0.92);
+}
+
+.package-cost-detail-card span {
+  color: rgba(20, 33, 61, 0.64);
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
 .inventory-review-zero-row td {
   background: rgba(252, 163, 17, 0.12);
 }

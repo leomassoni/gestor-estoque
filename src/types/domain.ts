@@ -433,6 +433,7 @@ export type ColumnKey =
   | 'sectors'
   | 'controlUnit'
   | 'unitCost'
+  | 'purchaseCost'
   | 'costStatus'
   | 'executionYield'
   | 'packages'
