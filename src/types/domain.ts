@@ -445,6 +445,7 @@ export type TechnicalSheetColumnKey =
   | 'companyId'
   | 'productionCenters'
   | 'costPerYield'
+  | 'totalRecipeCost'
   | 'finalCmvPercentage'
   | 'finalSalePrice'
   | 'linkedCompanies'

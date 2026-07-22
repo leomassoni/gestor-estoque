@@ -1600,6 +1600,7 @@ const technicalSheetColumnOptions: Array<[TechnicalSheetColumnKey, string]> = [
   ['companyId', 'ID empresa'],
   ['productionCenters', 'Centros produtores'],
   ['costPerYield', 'Custo por rendimento'],
+  ['totalRecipeCost', 'Custo total da receita'],
   ['finalCmvPercentage', 'CMV final'],
   ['finalSalePrice', 'Valor final'],
   ['linkedCompanies', 'Empresas vinculadas'],
@@ -1618,6 +1619,7 @@ const defaultTechnicalSheetColumnVisibility: Record<TechnicalSheetColumnKey, boo
   companyId: true,
   productionCenters: true,
   costPerYield: true,
+  totalRecipeCost: true,
   finalCmvPercentage: true,
   finalSalePrice: true,
   linkedCompanies: true,
@@ -49649,6 +49651,8 @@ function getTechnicalSheetColumnValue(
       const costPerYield = effectiveYield > 0 ? totalCost / effectiveYield : totalCost
       return `R$ ${formatMoney(costPerYield)}`
     }
+    case 'totalRecipeCost':
+      return `R$ ${formatMoney(calculateTechnicalSheetCost(sheet, technicalSheets, products, new Set<number>(), serviceItems))}`
     case 'finalCmvPercentage': {
       const finalCmvPercentage = calculateTechnicalSheetFinalCmvPercentage(sheet, technicalSheets, products, serviceItems)
       return finalCmvPercentage === null ? '-' : `${formatDecimal(finalCmvPercentage)}%`
@@ -49709,6 +49713,8 @@ function getTechnicalSheetSortValue(
       const effectiveYield = calculateTechnicalSheetEffectiveYield(sheet)
       return effectiveYield > 0 ? totalCost / effectiveYield : totalCost
     }
+    case 'totalRecipeCost':
+      return calculateTechnicalSheetCost(sheet, technicalSheets, products, new Set<number>(), serviceItems)
     case 'finalCmvPercentage':
       return calculateTechnicalSheetFinalCmvPercentage(sheet, technicalSheets, products, serviceItems) ?? 0
     case 'finalSalePrice':
@@ -49738,7 +49744,14 @@ function isNumericProductColumn(key: ColumnKey) {
 }
 
 function isNumericTechnicalSheetColumn(key: TechnicalSheetColumnKey) {
-  return key === 'yield' || key === 'ingredients' || key === 'costPerYield' || key === 'finalCmvPercentage' || key === 'finalSalePrice'
+  return (
+    key === 'yield' ||
+    key === 'ingredients' ||
+    key === 'costPerYield' ||
+    key === 'totalRecipeCost' ||
+    key === 'finalCmvPercentage' ||
+    key === 'finalSalePrice'
+  )
 }
 
 function isNumericItemColumn(key: ItemColumnKey) {
