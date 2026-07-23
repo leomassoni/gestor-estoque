@@ -2419,6 +2419,9 @@ export default function App() {
   const [wasteErrors, setWasteErrors] = useState<Partial<Record<keyof InventoryFormState, string>>>({})
   const [editingInventoryCountId, setEditingInventoryCountId] = useState<number | null>(null)
   const [inventoryDraftBeforeEdit, setInventoryDraftBeforeEdit] = useState<InventoryFormState | null>(null)
+  const [isStartingInventoryRecord, setIsStartingInventoryRecord] = useState(false)
+  const [isSavingInventoryCount, setIsSavingInventoryCount] = useState(false)
+  const [isStartingInventoryCountSession, setIsStartingInventoryCountSession] = useState(false)
   const [selectedInventoryId, setSelectedInventoryId] = useState<number | null>(null)
   const [selectedInventorySessionId, setSelectedInventorySessionId] = useState<number | null>(null)
   const [selectedWasteSessionId, setSelectedWasteSessionId] = useState<number | null>(null)
@@ -18506,7 +18509,11 @@ export default function App() {
     return Object.keys(nextErrors).length === 0
   }
 
-  function saveInventoryCount() {
+  async function saveInventoryCount() {
+    if (isSavingInventoryCount) {
+      return
+    }
+
     if (
       currentCompanyId === null ||
       !validateInventoryForm() ||
@@ -18567,58 +18574,77 @@ export default function App() {
       createdByUserId: existingRecord?.createdByUserId ?? currentAppUser?.id ?? null,
       createdByUserName: existingRecord?.createdByUserName ?? currentAppUser?.fullName ?? 'Administrador do sistema',
     }
+    const isEditingCount = editingInventoryCountId !== null
+    const nextInventoryCounts = isEditingCount
+      ? inventoryCounts.map((record) => (record.id === editingInventoryCountId ? nextRecord : record))
+      : [nextRecord, ...inventoryCounts]
 
-    setInventoryCounts((current) =>
-      editingInventoryCountId === null
-        ? [nextRecord, ...current]
-        : current.map((record) => (record.id === editingInventoryCountId ? nextRecord : record)),
-    )
-    setInventoryStorageLocations((current) => {
-      const existingIndex = current.findIndex(
-        (location) => location.companyId === currentCompanyId && location.name === normalizedLocation,
-      )
-      if (existingIndex >= 0) {
-        return current.map((location, index) =>
-          index === existingIndex ? { ...location, isActive: true } : location,
+    setIsSavingInventoryCount(true)
+    try {
+      await upsertInventoryCountOnApi(nextRecord)
+      syncedInventoryCountMapRef.current = buildEntitySignatureMap(nextInventoryCounts, (record) => record.id)
+      setInventoryCounts(nextInventoryCounts)
+      saveInventoryCountsState(nextInventoryCounts)
+      setInventoryStorageLocations((current) => {
+        const existingIndex = current.findIndex(
+          (location) => location.companyId === currentCompanyId && location.name === normalizedLocation,
+        )
+        if (existingIndex >= 0) {
+          return current.map((location, index) =>
+            index === existingIndex ? { ...location, isActive: true } : location,
+          )
+        }
+        return [...current, { companyId: currentCompanyId, name: normalizedLocation, isActive: true }]
+      })
+
+      if (!isEditingCount) {
+        setInventoryForm((current) => ({
+          ...emptyInventoryForm(),
+          stockCenterId: current.stockCenterId,
+          countedAt: current.countedAt,
+          storageLocation: normalizedLocation,
+        }))
+      } else {
+        const draftToRestore = inventoryDraftBeforeEdit
+        setEditingInventoryCountId(null)
+        setInventoryDraftBeforeEdit(null)
+        setInventoryForm(
+          draftToRestore
+            ? draftToRestore
+            : {
+                ...emptyInventoryForm(),
+                stockCenterId: inventoryForm.stockCenterId,
+                countedAt: inventoryForm.countedAt,
+                storageLocation: normalizedLocation,
+              },
         )
       }
-      return [...current, { companyId: currentCompanyId, name: normalizedLocation, isActive: true }]
-    })
-
-    if (editingInventoryCountId === null) {
-      setInventoryForm((current) => ({
-        ...emptyInventoryForm(),
-        stockCenterId: current.stockCenterId,
-        countedAt: current.countedAt,
-        storageLocation: normalizedLocation,
-      }))
-    } else {
-      const draftToRestore = inventoryDraftBeforeEdit
-      setEditingInventoryCountId(null)
-      setInventoryDraftBeforeEdit(null)
-      setInventoryForm(
-        draftToRestore
-          ? draftToRestore
-          : {
-              ...emptyInventoryForm(),
-              stockCenterId: inventoryForm.stockCenterId,
-              countedAt: inventoryForm.countedAt,
-              storageLocation: normalizedLocation,
-            },
-      )
+      setInventoryErrors({})
+      setSaveFeedback({
+        status: 'success',
+        title: !isEditingCount ? 'Contagem registrada com sucesso' : 'Contagem atualizada com sucesso',
+        message:
+          !isEditingCount
+            ? 'O inventario foi registrado para o centro de estoque selecionado.'
+            : 'A contagem foi atualizada no historico do centro de estoque selecionado.',
+      })
+    } catch (error) {
+      console.error(error)
+      setSaveFeedback({
+        status: 'error',
+        title: 'Falha ao salvar item da contagem',
+        message: error instanceof Error ? error.message : 'Nao foi possivel salvar o item da contagem no servidor.',
+      })
+    } finally {
+      setIsSavingInventoryCount(false)
     }
-    setInventoryErrors({})
-    setSaveFeedback({
-      status: 'success',
-      title: editingInventoryCountId === null ? 'Contagem registrada com sucesso' : 'Contagem atualizada com sucesso',
-      message:
-        editingInventoryCountId === null
-          ? 'O inventario foi registrado para o centro de estoque selecionado.'
-          : 'A contagem foi atualizada no historico do centro de estoque selecionado.',
-    })
   }
 
-  function startInventoryRecord() {
+  async function startInventoryRecord() {
+    if (isStartingInventoryRecord) {
+      return
+    }
+
     const selectedCenter = inventoryEligibleStockCenters.find((center) => String(center.id) === inventoryForm.stockCenterId) ?? null
 
     if (currentCompanyId === null || !selectedCenter) {
@@ -18673,16 +18699,32 @@ export default function App() {
       discardedOpenSessionCount: 0,
       appliedPendingMovementCount: 0,
     }
+    const nextInventoryRecords = [nextInventory, ...inventoryRecords]
 
-    setInventoryRecords((current) => [nextInventory, ...current])
-    setSelectedInventoryId(nextInventory.id)
-    setSelectedInventorySessionId(null)
-    setInventoryErrors((current) => ({ ...current, stockCenterId: '', countedAt: '' }))
-    setSaveFeedback({
-      status: 'success',
-      title: 'Inventario iniciado com sucesso',
-      message: 'O inventario foi aberto e ja pode receber novas contagens.',
-    })
+    setIsStartingInventoryRecord(true)
+    try {
+      await upsertInventoryRecordOnApi(nextInventory)
+      syncedInventoryRecordMapRef.current = buildEntitySignatureMap(nextInventoryRecords, (record) => record.id)
+      setInventoryRecords(nextInventoryRecords)
+      saveInventoryRecordsState(nextInventoryRecords)
+      setSelectedInventoryId(nextInventory.id)
+      setSelectedInventorySessionId(null)
+      setInventoryErrors((current) => ({ ...current, stockCenterId: '', countedAt: '' }))
+      setSaveFeedback({
+        status: 'success',
+        title: 'Inventario iniciado com sucesso',
+        message: 'O inventario foi aberto e ja pode receber novas contagens.',
+      })
+    } catch (error) {
+      console.error(error)
+      setSaveFeedback({
+        status: 'error',
+        title: 'Falha ao iniciar inventario',
+        message: error instanceof Error ? error.message : 'Nao foi possivel iniciar o inventario no servidor.',
+      })
+    } finally {
+      setIsStartingInventoryRecord(false)
+    }
   }
 
   function joinOpenInventoryRecord(inventoryId: number) {
@@ -18743,7 +18785,11 @@ export default function App() {
     })
   }
 
-  function startInventoryCountSession() {
+  async function startInventoryCountSession() {
+    if (isStartingInventoryCountSession) {
+      return
+    }
+
     if (currentCompanyId === null || !selectedInventoryRecord) {
       setInventoryErrors((current) => ({
         ...current,
@@ -18761,29 +18807,45 @@ export default function App() {
       ) ?? null
 
     if (existingSession) {
-      if (existingSession.isClosed) {
-        setInventoryCountSessions((current) =>
-          current.map((sessionRecord) =>
-            sessionRecord.id === existingSession.id
-              ? {
-                  ...sessionRecord,
-                  isClosed: false,
-                  closedAt: '',
-                  closedByUserId: null,
-                  closedByUserName: '',
-                }
-              : sessionRecord,
-          ),
-        )
+      const nextSession = existingSession.isClosed
+        ? {
+            ...existingSession,
+            isClosed: false,
+            closedAt: '',
+            closedByUserId: null,
+            closedByUserName: '',
+          }
+        : existingSession
+      const nextSessions = inventoryCountSessions.map((sessionRecord) =>
+        sessionRecord.id === existingSession.id ? nextSession : sessionRecord,
+      )
+
+      setIsStartingInventoryCountSession(true)
+      try {
+        if (existingSession.isClosed) {
+          await upsertInventoryCountSessionOnApi(nextSession)
+        }
+        syncedInventoryCountSessionMapRef.current = buildEntitySignatureMap(nextSessions, (record) => record.id)
+        setInventoryCountSessions(nextSessions)
+        saveInventoryCountSessionsState(nextSessions)
+        setSelectedInventorySessionId(existingSession.id)
+        setSaveFeedback({
+          status: 'success',
+          title: 'Contagem retomada',
+          message: existingSession.isClosed
+            ? 'Sua contagem anterior foi reaberta neste inventario e pode continuar sendo ajustada.'
+            : 'Ja existia uma contagem aberta sua neste inventario. Ela foi retomada na tela atual.',
+        })
+      } catch (error) {
+        console.error(error)
+        setSaveFeedback({
+          status: 'error',
+          title: 'Falha ao retomar contagem',
+          message: error instanceof Error ? error.message : 'Nao foi possivel retomar a contagem no servidor.',
+        })
+      } finally {
+        setIsStartingInventoryCountSession(false)
       }
-      setSelectedInventorySessionId(existingSession.id)
-      setSaveFeedback({
-        status: 'success',
-        title: 'Contagem retomada',
-        message: existingSession.isClosed
-          ? 'Sua contagem anterior foi reaberta neste inventario e pode continuar sendo ajustada.'
-          : 'Ja existia uma contagem aberta sua neste inventario. Ela foi retomada na tela atual.',
-      })
       return
     }
 
@@ -18802,17 +18864,37 @@ export default function App() {
       closedByUserName: '',
     }
 
-    setInventoryCountSessions((current) => [nextSession, ...current])
-    setSelectedInventorySessionId(nextSession.id)
-    setInventoryErrors((current) => ({ ...current, stockCenterId: '', countedAt: '' }))
-    setSaveFeedback({
-      status: 'success',
-      title: 'Contagem iniciada com sucesso',
-      message: 'A contagem foi iniciada dentro do inventario aberto e os itens ja podem ser registrados.',
-    })
+    const nextSessions = [nextSession, ...inventoryCountSessions]
+    setIsStartingInventoryCountSession(true)
+    try {
+      await upsertInventoryCountSessionOnApi(nextSession)
+      syncedInventoryCountSessionMapRef.current = buildEntitySignatureMap(nextSessions, (record) => record.id)
+      setInventoryCountSessions(nextSessions)
+      saveInventoryCountSessionsState(nextSessions)
+      setSelectedInventorySessionId(nextSession.id)
+      setInventoryErrors((current) => ({ ...current, stockCenterId: '', countedAt: '' }))
+      setSaveFeedback({
+        status: 'success',
+        title: 'Contagem iniciada com sucesso',
+        message: 'A contagem foi iniciada dentro do inventario aberto e os itens ja podem ser registrados.',
+      })
+    } catch (error) {
+      console.error(error)
+      setSaveFeedback({
+        status: 'error',
+        title: 'Falha ao iniciar contagem',
+        message: error instanceof Error ? error.message : 'Nao foi possivel iniciar a contagem no servidor.',
+      })
+    } finally {
+      setIsStartingInventoryCountSession(false)
+    }
   }
 
-  function continueInventoryCountSession(sessionId: number) {
+  async function continueInventoryCountSession(sessionId: number) {
+    if (isStartingInventoryCountSession) {
+      return
+    }
+
     const targetSession =
       inventoryCountSessions.find(
         (sessionRecord) =>
@@ -18825,19 +18907,33 @@ export default function App() {
     }
 
     if (targetSession.isClosed) {
-      setInventoryCountSessions((current) =>
-        current.map((sessionRecord) =>
-          sessionRecord.id === sessionId
-            ? {
-                ...sessionRecord,
-                isClosed: false,
-                closedAt: '',
-                closedByUserId: null,
-                closedByUserName: '',
-              }
-            : sessionRecord,
-        ),
+      const nextSession = {
+        ...targetSession,
+        isClosed: false,
+        closedAt: '',
+        closedByUserId: null,
+        closedByUserName: '',
+      }
+      const nextSessions = inventoryCountSessions.map((sessionRecord) =>
+        sessionRecord.id === sessionId ? nextSession : sessionRecord,
       )
+      setIsStartingInventoryCountSession(true)
+      try {
+        await upsertInventoryCountSessionOnApi(nextSession)
+        syncedInventoryCountSessionMapRef.current = buildEntitySignatureMap(nextSessions, (record) => record.id)
+        setInventoryCountSessions(nextSessions)
+        saveInventoryCountSessionsState(nextSessions)
+      } catch (error) {
+        console.error(error)
+        setSaveFeedback({
+          status: 'error',
+          title: 'Falha ao reabrir contagem',
+          message: error instanceof Error ? error.message : 'Nao foi possivel reabrir a contagem no servidor.',
+        })
+        setIsStartingInventoryCountSession(false)
+        return
+      }
+      setIsStartingInventoryCountSession(false)
     }
 
     setSelectedInventorySessionId(sessionId)
@@ -39336,13 +39432,27 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                   </label>
                   <div className="form-actions field-span-all">
                     {!selectedInventoryRecord || selectedInventoryRecord.isClosed ? (
-                      <button type="button" className="primary-button" onClick={startInventoryRecord}>
-                        Iniciar inventario
+                      <button
+                        type="button"
+                        className="primary-button"
+                        onClick={() => void startInventoryRecord()}
+                        disabled={isStartingInventoryRecord}
+                      >
+                        {isStartingInventoryRecord ? 'Salvando inventario...' : 'Iniciar inventario'}
                       </button>
                     ) : null}
                     {selectedInventoryRecord && !selectedInventoryRecord.isClosed && (!selectedInventoryCountSession || selectedInventoryCountSession.isClosed) ? (
-                      <button type="button" className="primary-button" onClick={startInventoryCountSession}>
-                    {selectedUserInventoryCountSessions.length > 0 ? 'Continuar contagem' : 'Iniciar contagem'}
+                      <button
+                        type="button"
+                        className="primary-button"
+                        onClick={() => void startInventoryCountSession()}
+                        disabled={isStartingInventoryCountSession}
+                      >
+                    {isStartingInventoryCountSession
+                      ? 'Salvando contagem...'
+                      : selectedUserInventoryCountSessions.length > 0
+                        ? 'Continuar contagem'
+                        : 'Iniciar contagem'}
                       </button>
                     ) : null}
                   </div>
@@ -39391,7 +39501,8 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                                   <button
                                     type="button"
                                     className={selectedInventoryCountSession?.id === sessionRecord.id ? 'ghost-button' : 'primary-button'}
-                                    onClick={() => continueInventoryCountSession(sessionRecord.id)}
+                                    onClick={() => void continueInventoryCountSession(sessionRecord.id)}
+                                    disabled={isStartingInventoryCountSession}
                                   >
                                     {selectedInventoryCountSession?.id === sessionRecord.id && !sessionRecord.isClosed
                                       ? 'Contagem atual'
@@ -39709,10 +39820,14 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                           <button
                             type="button"
                             className="primary-button"
-                            onClick={saveInventoryCount}
-                            disabled={selectedInventoryCountSession.isClosed}
+                            onClick={() => void saveInventoryCount()}
+                            disabled={selectedInventoryCountSession.isClosed || isSavingInventoryCount}
                           >
-                            {editingInventoryCountId === null ? 'Registrar item' : 'Salvar alteracoes do item'}
+                            {isSavingInventoryCount
+                              ? 'Salvando item...'
+                              : editingInventoryCountId === null
+                                ? 'Registrar item'
+                                : 'Salvar alteracoes do item'}
                           </button>
                         </div>
                       </>
