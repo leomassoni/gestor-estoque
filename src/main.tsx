@@ -2,6 +2,39 @@ import React from 'react'
 import ReactDOM from 'react-dom/client'
 import App from './App'
 import './styles.css'
+import {
+  accessProfilesStorageKey,
+  companiesStorageKey,
+  syncedAppStorageKeys,
+  usersStorageKey,
+} from './storage/localStorage'
+
+const clientCacheVersionStorageKey = 'gestor-estoque:client-cache-version'
+const clientCacheVersion = '2026-07-24-fichas-cache-reset'
+
+function resetIncompatibleLocalCache() {
+  if (typeof window === 'undefined') {
+    return
+  }
+
+  try {
+    if (window.localStorage.getItem(clientCacheVersionStorageKey) === clientCacheVersion) {
+      return
+    }
+
+    ;[
+      ...syncedAppStorageKeys,
+      companiesStorageKey,
+      usersStorageKey,
+      accessProfilesStorageKey,
+    ].forEach((key) => window.localStorage.removeItem(key))
+    window.localStorage.setItem(clientCacheVersionStorageKey, clientCacheVersion)
+  } catch {
+    return
+  }
+}
+
+resetIncompatibleLocalCache()
 
 class AppErrorBoundary extends React.Component<
   { children: React.ReactNode },

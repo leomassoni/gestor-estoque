@@ -1650,7 +1650,15 @@ app.delete('/api/technical-sheets/:id', async (request, response) => {
 })
 
 if (fs.existsSync(clientDistPath)) {
-  app.use(express.static(clientDistPath))
+  app.use(
+    express.static(clientDistPath, {
+      setHeaders: (response) => {
+        response.set('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate')
+        response.set('Pragma', 'no-cache')
+        response.set('Expires', '0')
+      },
+    }),
+  )
 
   app.get(/^(?!\/api\/).*/, (request, response, next) => {
     if (request.path.startsWith('/api/')) {
@@ -1658,6 +1666,9 @@ if (fs.existsSync(clientDistPath)) {
       return
     }
 
+    response.set('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate')
+    response.set('Pragma', 'no-cache')
+    response.set('Expires', '0')
     response.sendFile(path.join(clientDistPath, 'index.html'))
   })
 }

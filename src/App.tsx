@@ -2784,17 +2784,24 @@ export default function App() {
   )
 
   const isSystemAdmin = session?.kind === 'systemAdmin'
+  const sessionAppUser = useMemo(() => {
+    if (session?.kind !== 'appUser') {
+      return null
+    }
+
+    return users.find((user) => user.id === session.user.id) ?? session.user
+  }, [session, users])
   const effectiveSessionAppUser =
-    session?.kind === 'appUser'
+    sessionAppUser
       ? (() => {
           const membership =
             currentCompanyId === null
               ? null
-              : session.user.memberships.find((entry) => entry.companyId === currentCompanyId && entry.isActive) ?? null
+              : sessionAppUser.memberships.find((entry) => entry.companyId === currentCompanyId && entry.isActive) ?? null
           const profile = membership ? getAccessProfileForMembership(membership) : null
           return membership
             ? {
-                ...session.user,
+                ...sessionAppUser,
                 companyId: membership.companyId,
                 role: profile?.role ?? membership.role,
                 sectors: membership.sectors,
@@ -2803,7 +2810,7 @@ export default function App() {
                 recipePanelAccess: profile?.recipePanelAccess ?? membership.recipePanelAccess,
                 accessProfileId: membership.accessProfileId,
               }
-            : session.user
+            : sessionAppUser
         })()
       : null
   const isAdministrative = effectiveSessionAppUser?.role === 'Administrativo'
@@ -2918,7 +2925,16 @@ export default function App() {
       ]),
     [technicalSheetGarnishIngredients, technicalSheetIngredients],
   )
-  const rawSessionAppUser = session?.kind === 'appUser' ? session.user : null
+  const rawSessionAppUser = sessionAppUser
+  useEffect(() => {
+    if (session?.kind !== 'appUser' || !sessionAppUser) {
+      return
+    }
+
+    if (JSON.stringify(session.user) !== JSON.stringify(sessionAppUser)) {
+      setSession({ kind: 'appUser', user: sessionAppUser })
+    }
+  }, [session, sessionAppUser])
   const currentAppUser = useMemo(
     () => (rawSessionAppUser ? buildEffectiveAppUserForCompany(rawSessionAppUser, currentCompanyId) : null),
     [accessProfiles, currentCompanyId, rawSessionAppUser],
