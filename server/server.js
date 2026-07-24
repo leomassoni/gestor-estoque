@@ -2271,7 +2271,7 @@ async function createTechnicalSheetRecordWithAllocatedId(technicalSheet) {
     try {
       return await prisma.$transaction(async (transaction) => {
         await transaction.$queryRawUnsafe(
-          'SELECT pg_advisory_xact_lock($1)',
+          'SELECT 1 AS locked FROM pg_advisory_xact_lock($1)',
           technicalSheetIdAllocationLockKey,
         )
 
