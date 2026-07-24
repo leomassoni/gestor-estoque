@@ -5565,6 +5565,41 @@ export default function App() {
       const errorPayload = (await response.json().catch(() => null)) as { error?: string } | null
       throw new Error(errorPayload?.error || 'Nao foi possivel salvar a ficha tecnica no servidor.')
     }
+
+    const payload = (await response.json().catch(() => null)) as { technicalSheet?: unknown } | null
+    const savedTechnicalSheet = normalizeTechnicalSheetRecord(payload?.technicalSheet)
+    if (!savedTechnicalSheet) {
+      throw new Error('A ficha tecnica retornada pelo servidor e invalida.')
+    }
+
+    return savedTechnicalSheet
+  }
+
+  async function createTechnicalSheetRecordOnApiWithRetry(sheet: TechnicalSheetRecord) {
+    let sheetToCreate = sheet
+    const attemptedIds = new Set<number>()
+
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      attemptedIds.add(sheetToCreate.id)
+
+      try {
+        return await upsertTechnicalSheetRecordOnApi(sheetToCreate, { isNew: true })
+      } catch (error) {
+        const message = error instanceof Error ? error.message : ''
+        if (!message.includes('ID de ficha tecnica ja pertence')) {
+          throw error
+        }
+
+        const nextId = await fetchNextTechnicalSheetIdFromApi()
+        const fallbackId = Math.max(...Array.from(attemptedIds), sheetToCreate.id) + 1
+        sheetToCreate = {
+          ...sheetToCreate,
+          id: attemptedIds.has(nextId) ? fallbackId : nextId,
+        }
+      }
+    }
+
+    throw new Error('Nao foi possivel reservar um ID unico para a ficha tecnica. Atualize a pagina e tente novamente.')
   }
 
   async function upsertFlavorProfileRecordOnApi(profile: FlavorProfileRecord) {
@@ -27452,9 +27487,9 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
 
     const { sourceSheet, targetCompanyId, targetCompanyLabel, newName, dependencySheets, willResetProductionCenters } =
       technicalSheetCopyPreviewState
-    const technicalSheetId = await fetchNextTechnicalSheetIdFromApi()
+    let technicalSheetId = await fetchNextTechnicalSheetIdFromApi()
     const generatedProductId = buildTechnicalSheetProductId(newName, sourceSheet.kind)
-    const nextCopiedTechnicalSheet: TechnicalSheetRecord = {
+    let nextCopiedTechnicalSheet: TechnicalSheetRecord = {
       ...sourceSheet,
       id: technicalSheetId,
       companyId: targetCompanyId,
@@ -27467,43 +27502,52 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
       productionCenters: willResetProductionCenters ? [] : sourceSheet.productionCenters,
       supplyRoutes: [],
     }
-    const baseTechnicalSheets = [nextCopiedTechnicalSheet, ...technicalSheets]
     const dependencyIdsToShare = new Set(
       dependencySheets.filter((sheet) => sheet.status === 'share_now').map((sheet) => sheet.id),
     )
-    const nextTechnicalSheets = baseTechnicalSheets.map((sheet) =>
-      dependencyIdsToShare.has(sheet.id)
-        ? {
-            ...sheet,
-            sharedCompanyIds: Array.from(
-              new Set([...getTechnicalSheetExplicitSharedCompanyIds(sheet), targetCompanyId]),
-            ),
-          }
-        : sheet,
-    )
-    const copiedTechnicalProduct: ProductRecord = {
-      companyId: targetCompanyId,
-      ownerCompanyId: targetCompanyId,
-      id: generatedProductId,
-      companyProductId: '',
-      name: newName,
-      controlUnit: sourceSheet.outputUnit,
-      family: sourceSheet.family,
-      subfamily: sourceSheet.subfamily,
-      sectors: [...sourceSheet.sectors],
-      alcoholPercentage:
-        sourceSheet.kind === 'PREPARO'
-          ? formatDecimal(calculateTechnicalSheetAlcoholPercentage(nextCopiedTechnicalSheet, nextTechnicalSheets, products))
-          : '',
-      densitySampleVolume: isCommercialTechnicalSheetKind(sourceSheet.kind) ? '' : sourceSheet.densitySampleVolume,
-      densitySampleWeight: isCommercialTechnicalSheetKind(sourceSheet.kind) ? '' : sourceSheet.densitySampleWeight,
-      ignoreStock: false,
-      excludeFromExecutionYield: false,
-      isActive: true,
-      packages: [],
-      technicalSheetId: technicalSheetId,
+
+    const buildCopySaveState = (sheetToCopy: TechnicalSheetRecord) => {
+      const nextTechnicalSheets = [sheetToCopy, ...technicalSheets].map((sheet) =>
+        dependencyIdsToShare.has(sheet.id)
+          ? {
+              ...sheet,
+              sharedCompanyIds: Array.from(
+                new Set([...getTechnicalSheetExplicitSharedCompanyIds(sheet), targetCompanyId]),
+              ),
+            }
+          : sheet,
+      )
+      const copiedTechnicalProduct: ProductRecord = {
+        companyId: targetCompanyId,
+        ownerCompanyId: targetCompanyId,
+        id: generatedProductId,
+        companyProductId: '',
+        name: newName,
+        controlUnit: sourceSheet.outputUnit,
+        family: sourceSheet.family,
+        subfamily: sourceSheet.subfamily,
+        sectors: [...sourceSheet.sectors],
+        alcoholPercentage:
+          sourceSheet.kind === 'PREPARO'
+            ? formatDecimal(calculateTechnicalSheetAlcoholPercentage(sheetToCopy, nextTechnicalSheets, products))
+            : '',
+        densitySampleVolume: isCommercialTechnicalSheetKind(sourceSheet.kind) ? '' : sourceSheet.densitySampleVolume,
+        densitySampleWeight: isCommercialTechnicalSheetKind(sourceSheet.kind) ? '' : sourceSheet.densitySampleWeight,
+        ignoreStock: false,
+        excludeFromExecutionYield: false,
+        isActive: true,
+        packages: [],
+        technicalSheetId: sheetToCopy.id,
+      }
+
+      return {
+        nextTechnicalSheets,
+        copiedTechnicalProduct,
+        nextProducts: [copiedTechnicalProduct, ...products],
+      }
     }
-    const nextProducts = [copiedTechnicalProduct, ...products]
+
+    let { nextTechnicalSheets, copiedTechnicalProduct, nextProducts } = buildCopySaveState(nextCopiedTechnicalSheet)
 
     setIsSavingTechnicalSheet(true)
     setSaveProgressState({
@@ -27511,7 +27555,19 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
       message: 'Registrando, aguarde. Nao feche a tela nem clique novamente em confirmar.',
     })
     try {
-      await persistChangedTechnicalSheetsOnApi(technicalSheets, nextTechnicalSheets)
+      const savedTechnicalSheet = await createTechnicalSheetRecordOnApiWithRetry(nextCopiedTechnicalSheet)
+      if (savedTechnicalSheet.id !== technicalSheetId) {
+        technicalSheetId = savedTechnicalSheet.id
+        nextCopiedTechnicalSheet = {
+          ...nextCopiedTechnicalSheet,
+          id: savedTechnicalSheet.id,
+        }
+        ;({ nextTechnicalSheets, copiedTechnicalProduct, nextProducts } = buildCopySaveState(nextCopiedTechnicalSheet))
+      }
+      await persistChangedTechnicalSheetsOnApi(
+        technicalSheets,
+        nextTechnicalSheets.filter((sheet) => sheet.id !== technicalSheetId),
+      )
       await upsertProductRecordOnApi(copiedTechnicalProduct, null)
     } catch (error) {
       console.error(error)
@@ -28475,7 +28531,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
       return
     }
 
-    const technicalSheetId = editingTechnicalSheetId ?? (await fetchNextTechnicalSheetIdFromApi())
+    let technicalSheetId = editingTechnicalSheetId ?? (await fetchNextTechnicalSheetIdFromApi())
     const generatedProductId = previousTechnicalSheet?.productId ?? buildTechnicalSheetProductId(normalizedName, technicalSheetForm.kind)
     const technicalSheetOwnerCompanyId =
       previousTechnicalSheet?.ownerCompanyId ?? previousTechnicalSheet?.companyId ?? currentCompanyId ?? 0
@@ -28614,7 +28670,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
       }
     }
 
-    const technicalSheetToSave: TechnicalSheetRecord = {
+    let technicalSheetToSave: TechnicalSheetRecord = {
       id: technicalSheetId,
       companyId: previousTechnicalSheet?.companyId ?? currentCompanyId ?? 0,
       ownerCompanyId: technicalSheetOwnerCompanyId,
@@ -28673,10 +28729,6 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
       isActive: true,
     }
 
-    const baseSheets = editingTechnicalSheetId
-      ? technicalSheets.map((item) => (item.id === editingTechnicalSheetId ? technicalSheetToSave : item))
-      : [technicalSheetToSave, ...technicalSheets]
-
     const selectedDependencyRemovalIds =
       cascadeDecisionState?.mode === 'unshare'
         ? new Set(
@@ -28685,75 +28737,95 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
               .map((sheet) => sheet.id),
           )
         : new Set<number>()
-    const cascadedBaseSheets =
-      dependencySheetAdditions.some((item) => item.companyIdsToAdd.length > 0) || selectedDependencyRemovalIds.size > 0
-        ? baseSheets.map((sheet) => {
-            const dependencyAddition = dependencySheetAdditions.find((item) => item.sheet.id === sheet.id)
-            const dependencyRemoval = dependencySheetRemovals.find((item) => item.sheet.id === sheet.id)
-            let nextSharedCompanyIds = getTechnicalSheetExplicitSharedCompanyIds(sheet)
-            if (dependencyAddition && dependencyAddition.companyIdsToAdd.length > 0) {
-              nextSharedCompanyIds = Array.from(new Set([...nextSharedCompanyIds, ...dependencyAddition.companyIdsToAdd]))
-            }
-            if (dependencyRemoval && selectedDependencyRemovalIds.has(sheet.id)) {
-              nextSharedCompanyIds = nextSharedCompanyIds.filter((companyId) => !dependencyRemoval.companyIdsToRemove.includes(companyId))
-            }
-            return nextSharedCompanyIds.length !== getTechnicalSheetExplicitSharedCompanyIds(sheet).length ||
-              nextSharedCompanyIds.some((companyId, index) => companyId !== getTechnicalSheetExplicitSharedCompanyIds(sheet)[index])
-              ? {
-                  ...sheet,
-                  sharedCompanyIds: nextSharedCompanyIds,
-                }
-              : sheet
-          })
-        : baseSheets
 
-    const nextTechnicalSheets = previousTechnicalSheet
-      ? syncTechnicalSheetIngredientReferences(
-          cascadedBaseSheets,
-          previousTechnicalSheet.productId,
-          technicalSheetToSave.productId,
-          technicalSheetToSave.name,
+    const buildTechnicalSheetSaveState = (sheetToSave: TechnicalSheetRecord) => {
+      const baseSheets = editingTechnicalSheetId
+        ? technicalSheets.map((item) => (item.id === editingTechnicalSheetId ? sheetToSave : item))
+        : [sheetToSave, ...technicalSheets]
+
+      const cascadedBaseSheets =
+        dependencySheetAdditions.some((item) => item.companyIdsToAdd.length > 0) || selectedDependencyRemovalIds.size > 0
+          ? baseSheets.map((sheet) => {
+              const dependencyAddition = dependencySheetAdditions.find((item) => item.sheet.id === sheet.id)
+              const dependencyRemoval = dependencySheetRemovals.find((item) => item.sheet.id === sheet.id)
+              let nextSharedCompanyIds = getTechnicalSheetExplicitSharedCompanyIds(sheet)
+              if (dependencyAddition && dependencyAddition.companyIdsToAdd.length > 0) {
+                nextSharedCompanyIds = Array.from(new Set([...nextSharedCompanyIds, ...dependencyAddition.companyIdsToAdd]))
+              }
+              if (dependencyRemoval && selectedDependencyRemovalIds.has(sheet.id)) {
+                nextSharedCompanyIds = nextSharedCompanyIds.filter((companyId) => !dependencyRemoval.companyIdsToRemove.includes(companyId))
+              }
+              return nextSharedCompanyIds.length !== getTechnicalSheetExplicitSharedCompanyIds(sheet).length ||
+                nextSharedCompanyIds.some((companyId, index) => companyId !== getTechnicalSheetExplicitSharedCompanyIds(sheet)[index])
+                ? {
+                    ...sheet,
+                    sharedCompanyIds: nextSharedCompanyIds,
+                  }
+                : sheet
+            })
+          : baseSheets
+
+      const nextTechnicalSheets = previousTechnicalSheet
+        ? syncTechnicalSheetIngredientReferences(
+            cascadedBaseSheets,
+            previousTechnicalSheet.productId,
+            sheetToSave.productId,
+            sheetToSave.name,
+          )
+        : cascadedBaseSheets
+
+      const linkedExisting =
+        products.find((product) => product.id === previousTechnicalSheet?.productId) ??
+        products.find(
+          (product) =>
+            product.technicalSheetId === sheetToSave.id && getProductOwnerCompanyId(product) === technicalSheetOwnerCompanyId,
         )
-      : cascadedBaseSheets
+      const technicalProduct: ProductRecord = {
+        companyId: linkedExisting?.companyId ?? previousTechnicalSheet?.companyId ?? currentCompanyId ?? 0,
+        ownerCompanyId:
+          linkedExisting?.ownerCompanyId ??
+          previousTechnicalSheet?.ownerCompanyId ??
+          previousTechnicalSheet?.companyId ??
+          currentCompanyId ??
+          0,
+        id: generatedProductId,
+        companyProductId: normalizedCompanyProductId,
+        name: normalizedName,
+        controlUnit: technicalSheetForm.outputUnit,
+        family: normalizedFamily,
+        subfamily: normalizedSubfamily,
+        sectors: normalizedSectors,
+        alcoholPercentage:
+          technicalSheetForm.kind === 'PREPARO'
+            ? formatDecimal(calculateTechnicalSheetAlcoholPercentage(sheetToSave, nextTechnicalSheets, products))
+            : '',
+        densitySampleVolume: isCommercialTechnicalSheetKind(technicalSheetForm.kind) ? '' : technicalSheetForm.densitySampleVolume.trim(),
+        densitySampleWeight: isCommercialTechnicalSheetKind(technicalSheetForm.kind) ? '' : technicalSheetForm.densitySampleWeight.trim(),
+        ignoreStock: linkedExisting?.ignoreStock ?? false,
+        excludeFromExecutionYield: linkedExisting?.excludeFromExecutionYield ?? false,
+        isActive: true,
+        packages: linkedExisting?.packages ?? [],
+        technicalSheetId: sheetToSave.id,
+      }
 
-    const linkedExisting =
-      products.find((product) => product.id === previousTechnicalSheet?.productId) ??
-      products.find(
-        (product) =>
-          product.technicalSheetId === technicalSheetId && getProductOwnerCompanyId(product) === technicalSheetOwnerCompanyId,
-      )
-    const technicalProduct: ProductRecord = {
-      companyId: linkedExisting?.companyId ?? previousTechnicalSheet?.companyId ?? currentCompanyId ?? 0,
-      ownerCompanyId:
-        linkedExisting?.ownerCompanyId ??
-        previousTechnicalSheet?.ownerCompanyId ??
-        previousTechnicalSheet?.companyId ??
-        currentCompanyId ??
-        0,
-      id: generatedProductId,
-      companyProductId: normalizedCompanyProductId,
-      name: normalizedName,
-      controlUnit: technicalSheetForm.outputUnit,
-      family: normalizedFamily,
-      subfamily: normalizedSubfamily,
-      sectors: normalizedSectors,
-      alcoholPercentage:
-        technicalSheetForm.kind === 'PREPARO'
-          ? formatDecimal(calculateTechnicalSheetAlcoholPercentage(technicalSheetToSave, nextTechnicalSheets, products))
-          : '',
-      densitySampleVolume: isCommercialTechnicalSheetKind(technicalSheetForm.kind) ? '' : technicalSheetForm.densitySampleVolume.trim(),
-      densitySampleWeight: isCommercialTechnicalSheetKind(technicalSheetForm.kind) ? '' : technicalSheetForm.densitySampleWeight.trim(),
-      ignoreStock: linkedExisting?.ignoreStock ?? false,
-      excludeFromExecutionYield: linkedExisting?.excludeFromExecutionYield ?? false,
-      isActive: true,
-      packages: linkedExisting?.packages ?? [],
-      technicalSheetId: technicalSheetId,
+      return {
+        nextTechnicalSheets,
+        linkedExisting,
+        technicalProduct,
+        nextProducts: linkedExisting
+          ? products.map((product) => (product.id === linkedExisting.id ? { ...linkedExisting, ...technicalProduct } : product))
+          : [technicalProduct, ...products],
+        nextStockCenters: syncStockCentersForTechnicalSheetChange(stockCenters, sheetToSave),
+      }
     }
 
-    const nextProducts = linkedExisting
-      ? products.map((product) => (product.id === linkedExisting.id ? { ...linkedExisting, ...technicalProduct } : product))
-      : [technicalProduct, ...products]
-    const nextStockCenters = syncStockCentersForTechnicalSheetChange(stockCenters, technicalSheetToSave)
+    let {
+      nextTechnicalSheets,
+      linkedExisting,
+      technicalProduct,
+      nextProducts,
+      nextStockCenters,
+    } = buildTechnicalSheetSaveState(technicalSheetToSave)
 
     setIsSavingTechnicalSheet(true)
     setSaveProgressState({
@@ -28762,7 +28834,24 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
     })
     let postSaveWarning: string | null = null
     try {
-      await upsertTechnicalSheetRecordOnApi(technicalSheetToSave, { isNew: editingTechnicalSheetId === null })
+      const savedTechnicalSheet =
+        editingTechnicalSheetId === null
+          ? await createTechnicalSheetRecordOnApiWithRetry(technicalSheetToSave)
+          : await upsertTechnicalSheetRecordOnApi(technicalSheetToSave)
+      if (savedTechnicalSheet.id !== technicalSheetId) {
+        technicalSheetId = savedTechnicalSheet.id
+        technicalSheetToSave = {
+          ...technicalSheetToSave,
+          id: savedTechnicalSheet.id,
+        }
+        ;({
+          nextTechnicalSheets,
+          linkedExisting,
+          technicalProduct,
+          nextProducts,
+          nextStockCenters,
+        } = buildTechnicalSheetSaveState(technicalSheetToSave))
+      }
       await persistChangedTechnicalSheetsOnApi(
         technicalSheets,
         nextTechnicalSheets.filter((sheet) => sheet.id !== technicalSheetId),
