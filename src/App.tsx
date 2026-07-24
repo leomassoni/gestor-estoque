@@ -70,7 +70,7 @@ import {
   isCommercialTechnicalSheetProduct,
   isExecutionTechnicalSheetKind,
   isLegacyImportedProduct,
-  isPrepTechnicalSheetProduct,
+  isTechnicalSheetCatalogProduct,
   resolvePackageGrossWeight,
   resolveSectorDeletion,
   resolveTechnicalSheetPackageGrossWeight,
@@ -12796,7 +12796,7 @@ export default function App() {
             .filter(
               (product) =>
                 isProductVisibleForCompany(product, currentCompanyId) &&
-                !isCommercialTechnicalSheetProduct(product, technicalSheets) &&
+                !isTechnicalSheetCatalogProduct(product, technicalSheets) &&
                 (!shouldFilterByUserSectors || hasSectorOverlap(product.sectors, currentUserSectorScope)),
             )
             .map((product) => product.name),
@@ -12826,7 +12826,7 @@ export default function App() {
         ...products
           .filter(
             (product) =>
-              isProductVisibleForCompany(product, currentCompanyId) && !isCommercialTechnicalSheetProduct(product, technicalSheets),
+              isProductVisibleForCompany(product, currentCompanyId) && !isTechnicalSheetCatalogProduct(product, technicalSheets),
           )
           .map((product) => product.family),
       ]),
@@ -12847,7 +12847,7 @@ export default function App() {
         ...products
           .filter(
             (product) =>
-              isProductVisibleForCompany(product, currentCompanyId) && !isCommercialTechnicalSheetProduct(product, technicalSheets),
+              isProductVisibleForCompany(product, currentCompanyId) && !isTechnicalSheetCatalogProduct(product, technicalSheets),
           )
           .map((product) => product.subfamily),
       ]),
@@ -12868,7 +12868,7 @@ export default function App() {
           ...products
             .filter(
               (product) =>
-                isProductVisibleForCompany(product, currentCompanyId) && !isCommercialTechnicalSheetProduct(product, technicalSheets),
+                isProductVisibleForCompany(product, currentCompanyId) && !isTechnicalSheetCatalogProduct(product, technicalSheets),
             )
             .flatMap((product) => product.sectors),
           ...serviceItems
@@ -13265,10 +13265,7 @@ export default function App() {
         if (shouldFilterByUserSectors && !hasSectorOverlap(product.sectors, currentUserSectorScope)) {
           return false
         }
-        if (isCommercialTechnicalSheetProduct(product, technicalSheets)) {
-          return false
-        }
-        if (isPrepTechnicalSheetProduct(product, technicalSheets)) {
+        if (isTechnicalSheetCatalogProduct(product, technicalSheets)) {
           return false
         }
 

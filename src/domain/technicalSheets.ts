@@ -20,6 +20,18 @@ export function isExecutionTechnicalSheetKind(kind: TechnicalSheetKind) {
   return kind === 'EXECUCAO'
 }
 
+export function hasTechnicalSheetProductIdPrefix(productId: string) {
+  return /^(PRE|EXE|VEN|TSP|TSE)-/.test(productId)
+}
+
+export function isTechnicalSheetCatalogProduct(product: ProductRecord, technicalSheets: TechnicalSheetRecord[]) {
+  if (isCommercialTechnicalSheetProduct(product, technicalSheets) || isPrepTechnicalSheetProduct(product, technicalSheets)) {
+    return true
+  }
+
+  return hasTechnicalSheetProductIdPrefix(product.id) && product.packages.length === 0
+}
+
 export function getDefaultTechnicalSheetOutputUnit(kind: TechnicalSheetKind): ControlUnit {
   if (kind === 'EXECUCAO') {
     return 'UNIT'

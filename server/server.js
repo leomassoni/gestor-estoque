@@ -2100,6 +2100,10 @@ function normalizeRegistrationNameKey(value) {
     .trim()
 }
 
+function hasTechnicalSheetProductIdPrefix(productId) {
+  return /^(PRE|EXE|VEN|TSP|TSE)-/.test(productId)
+}
+
 async function ensureUniqueProductName(product) {
   const existing = await prisma.appProductRecord.findMany({
     where: { companyId: product.companyId },
@@ -2181,6 +2185,12 @@ async function ensureUniqueTechnicalSheetName(technicalSheet) {
 
 async function ensureProductTechnicalSheetLinkCanBeSaved(product) {
   if (typeof product.technicalSheetId !== 'number') {
+    if (hasTechnicalSheetProductIdPrefix(product.id)) {
+      const error = new Error('ID reservado de ficha tecnica nao pode ser salvo como produto sem ficha vinculada.')
+      error.statusCode = 409
+      throw error
+    }
+
     return
   }
 
