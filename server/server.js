@@ -82,6 +82,7 @@ const technicalSheetListSelect = {
   updatedAt: true,
 }
 const maxInt32Id = 2147483647
+const technicalSheetIdAllocationLockKey = 74261001
 let hasSeededAppAdminRecords = false
 let hasSeededAppStockCenterRecords = false
 let hasSeededAppCatalogRecords = false
@@ -1607,9 +1608,7 @@ app.post('/api/technical-sheets', async (request, response) => {
   }
 
   try {
-    await ensureTechnicalSheetIdCanBeCreated(technicalSheet)
-    await ensureUniqueTechnicalSheetName(technicalSheet)
-    const saved = await prisma.appTechnicalSheetRecord.create({ data: technicalSheet })
+    const saved = await createTechnicalSheetRecordWithAllocatedId(technicalSheet)
     response.json({ technicalSheet: saved })
   } catch (error) {
     response.status(error.statusCode ?? 500).json({ error: error.message ?? 'Erro ao salvar ficha tecnica.' })
@@ -2104,18 +2103,34 @@ function hasTechnicalSheetProductIdPrefix(productId) {
   return /^(PRE|EXE|VEN|TSP|TSE)-/.test(productId)
 }
 
-async function ensureUniqueProductName(product) {
-  const existing = await prisma.appProductRecord.findMany({
+async function ensureUniqueProductName(product, client = prisma) {
+  const existing = await client.appProductRecord.findMany({
     where: { companyId: product.companyId },
-    select: { id: true, name: true },
+    select: { id: true, name: true, companyProductId: true },
   })
 
-  const duplicate = existing.find(
+  const duplicateName = existing.find(
     (record) => record.id !== product.id && normalizeRegistrationNameKey(record.name) === normalizeRegistrationNameKey(product.name),
   )
 
-  if (duplicate) {
+  if (duplicateName) {
     const error = new Error(`Ja existe um produto cadastrado com o nome ${product.name}.`)
+    error.statusCode = 409
+    throw error
+  }
+
+  const normalizedCompanyProductId = normalizeRegistrationText(product.companyProductId)
+  const duplicateCompanyProductId =
+    normalizedCompanyProductId === ''
+      ? null
+      : existing.find(
+          (record) =>
+            record.id !== product.id &&
+            normalizeRegistrationText(record.companyProductId) === normalizedCompanyProductId,
+        )
+
+  if (duplicateCompanyProductId) {
+    const error = new Error(`Ja existe um produto cadastrado com o ID empresa ${normalizedCompanyProductId}.`)
     error.statusCode = 409
     throw error
   }
@@ -2147,37 +2162,69 @@ async function ensureServiceItemIdCanBeCreated(serviceItem) {
   }
 }
 
-async function ensureUniqueServiceItemName(serviceItem) {
-  const existing = await prisma.appServiceItemRecord.findMany({
+async function ensureUniqueServiceItemName(serviceItem, client = prisma) {
+  const existing = await client.appServiceItemRecord.findMany({
     where: { companyId: serviceItem.companyId },
-    select: { id: true, name: true },
+    select: { id: true, name: true, companyProductId: true },
   })
 
-  const duplicate = existing.find(
+  const duplicateName = existing.find(
     (record) => record.id !== serviceItem.id && normalizeRegistrationNameKey(record.name) === normalizeRegistrationNameKey(serviceItem.name),
   )
 
-  if (duplicate) {
+  if (duplicateName) {
     const error = new Error(`Ja existe um item cadastrado com o nome ${serviceItem.name}.`)
+    error.statusCode = 409
+    throw error
+  }
+
+  const normalizedCompanyProductId = normalizeRegistrationText(serviceItem.companyProductId)
+  const duplicateCompanyProductId =
+    normalizedCompanyProductId === ''
+      ? null
+      : existing.find(
+          (record) =>
+            record.id !== serviceItem.id &&
+            normalizeRegistrationText(record.companyProductId) === normalizedCompanyProductId,
+        )
+
+  if (duplicateCompanyProductId) {
+    const error = new Error(`Ja existe um item cadastrado com o ID empresa ${normalizedCompanyProductId}.`)
     error.statusCode = 409
     throw error
   }
 }
 
-async function ensureUniqueTechnicalSheetName(technicalSheet) {
-  const existing = await prisma.appTechnicalSheetRecord.findMany({
+async function ensureUniqueTechnicalSheetName(technicalSheet, client = prisma) {
+  const existing = await client.appTechnicalSheetRecord.findMany({
     where: { companyId: technicalSheet.companyId },
-    select: { id: true, name: true },
+    select: { id: true, name: true, companyProductId: true },
   })
 
-  const duplicate = existing.find(
+  const duplicateName = existing.find(
     (record) =>
       record.id !== technicalSheet.id &&
       normalizeRegistrationNameKey(record.name) === normalizeRegistrationNameKey(technicalSheet.name),
   )
 
-  if (duplicate) {
+  if (duplicateName) {
     const error = new Error(`Ja existe uma ficha tecnica cadastrada com o nome ${technicalSheet.name}.`)
+    error.statusCode = 409
+    throw error
+  }
+
+  const normalizedCompanyProductId = normalizeRegistrationText(technicalSheet.companyProductId)
+  const duplicateCompanyProductId =
+    normalizedCompanyProductId === ''
+      ? null
+      : existing.find(
+          (record) =>
+            record.id !== technicalSheet.id &&
+            normalizeRegistrationText(record.companyProductId) === normalizedCompanyProductId,
+        )
+
+  if (duplicateCompanyProductId) {
+    const error = new Error(`Ja existe uma ficha tecnica cadastrada com o ID empresa ${normalizedCompanyProductId}.`)
     error.statusCode = 409
     throw error
   }
@@ -2217,19 +2264,60 @@ async function ensureProductTechnicalSheetLinkCanBeSaved(product) {
   }
 }
 
-async function ensureTechnicalSheetIdCanBeCreated(technicalSheet) {
-  const existing = await prisma.appTechnicalSheetRecord.findUnique({
-    where: { id: technicalSheet.id },
-    select: { id: true, name: true },
-  })
+async function createTechnicalSheetRecordWithAllocatedId(technicalSheet) {
+  let lastError = null
 
-  if (existing) {
-    const error = new Error(
-      `ID de ficha tecnica ja pertence a ${existing.name}. Atualize a pagina e tente salvar novamente.`,
-    )
-    error.statusCode = 409
-    throw error
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    try {
+      return await prisma.$transaction(async (transaction) => {
+        await transaction.$queryRawUnsafe(
+          'SELECT pg_advisory_xact_lock($1)',
+          technicalSheetIdAllocationLockKey,
+        )
+
+        const result = await transaction.appTechnicalSheetRecord.aggregate({
+          _max: { id: true },
+        })
+        let nextId = (result._max.id ?? 0) + 1
+
+        if (nextId > maxInt32Id) {
+          const error = new Error('Nao ha IDs de ficha tecnica disponiveis.')
+          error.statusCode = 409
+          throw error
+        }
+
+        await ensureUniqueTechnicalSheetName({ ...technicalSheet, id: nextId }, transaction)
+
+        while (nextId <= maxInt32Id) {
+          const existing = await transaction.appTechnicalSheetRecord.findUnique({
+            where: { id: nextId },
+            select: { id: true },
+          })
+          if (!existing) {
+            break
+          }
+          nextId += 1
+        }
+
+        if (nextId > maxInt32Id) {
+          const error = new Error('Nao ha IDs de ficha tecnica disponiveis.')
+          error.statusCode = 409
+          throw error
+        }
+
+        return transaction.appTechnicalSheetRecord.create({
+          data: { ...technicalSheet, id: nextId },
+        })
+      })
+    } catch (error) {
+      lastError = error
+      if (error.statusCode || error.code !== 'P2002') {
+        throw error
+      }
+    }
   }
+
+  throw lastError ?? new Error('Erro ao salvar ficha tecnica.')
 }
 
 async function ensureTechnicalSheetIdCanBeSaved(technicalSheet) {
