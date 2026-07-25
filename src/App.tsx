@@ -2215,6 +2215,12 @@ function getCachedXlsxModule() {
   return xlsxDependencyModule
 }
 
+function getRecipePreparationModeMetrics(data: RecipePanelComputedData) {
+  return data.sheet.kind === 'EXECUCAO'
+    ? [...data.ingredientMetrics, ...data.garnishMetrics]
+    : data.ingredientMetrics
+}
+
 export default function App() {
   const productListId = useId()
   const serviceItemListId = useId()
@@ -13852,6 +13858,7 @@ export default function App() {
     serviceItems,
     technicalSheets,
   ])
+
   const wasteExecutionPreviewEntries = useMemo(
     () =>
       selectedWasteCenter &&
@@ -13868,7 +13875,7 @@ export default function App() {
   const recipePanelPreparationModeParts = useMemo(
     () =>
       recipePanelData
-        ? buildPreparationModeMetricParts(recipePanelData.sheet.preparationMode, recipePanelData.ingredientMetrics)
+        ? buildPreparationModeMetricParts(recipePanelData.sheet.preparationMode, getRecipePreparationModeMetrics(recipePanelData))
         : [],
     [recipePanelData],
   )
@@ -31869,7 +31876,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
 
   function renderTechnicalSheetExportPreview(data: RecipePanelComputedData) {
     const sheet = data.sheet
-    const preparationParts = buildPreparationModeMetricParts(sheet.preparationMode, data.ingredientMetrics)
+    const preparationParts = buildPreparationModeMetricParts(sheet.preparationMode, getRecipePreparationModeMetrics(data))
     const sharedCompanyLabels = getTechnicalSheetExportSharedCompanyLabels(sheet)
     const exportBaseQuantity = getTechnicalSheetExportBaseQuantity(data)
     const negativeDifferenceQuantity = getTechnicalSheetExportNegativeDifference(data)
@@ -32637,7 +32644,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
   }
 
   function buildRecipePreparationText(data: RecipePanelComputedData) {
-    return buildPreparationModeMetricParts(data.sheet.preparationMode, data.ingredientMetrics)
+    return buildPreparationModeMetricParts(data.sheet.preparationMode, getRecipePreparationModeMetrics(data))
       .map((part) => (part.type === 'ingredient' ? `${part.quantityLabel} ${part.text}` : part.text))
       .join('')
       .replace(/\s+\n/g, '\n')
@@ -32677,7 +32684,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
   }
 
   function renderRecipeExportPreview(data: RecipePanelComputedData, tab: RecipePanelTab) {
-    const preparationParts = buildPreparationModeMetricParts(data.sheet.preparationMode, data.ingredientMetrics)
+    const preparationParts = buildPreparationModeMetricParts(data.sheet.preparationMode, getRecipePreparationModeMetrics(data))
     const generatedDescription =
       tab === 'EXECUCAO' ? buildTechnicalSheetGeneratedDescription(data.sheet, technicalSheets) : null
     const sheetImageDataUrl = getRecipeExportSheetImageDataUrl(data)
