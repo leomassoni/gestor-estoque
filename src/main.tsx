@@ -10,7 +10,7 @@ import {
 } from './storage/localStorage'
 
 const clientCacheVersionStorageKey = 'gestor-estoque:client-cache-version'
-const clientCacheVersion = '2026-07-24-fichas-cache-reset'
+const clientCacheVersion = '2026-07-25-receitas-cache-reset'
 
 function resetIncompatibleLocalCache() {
   if (typeof window === 'undefined') {
