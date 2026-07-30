@@ -218,12 +218,13 @@ export function buildPreparationModeMetricParts(value: string, ingredients: Reci
 }
 
 export function formatPreparationModeIngredientQuantity(ingredient: RecipePanelIngredientMetrics) {
-  const inputLabel = `${formatDecimal(ingredient.scaledInputQuantity)} ${ingredient.unitLabel}`
-  if (ingredient.scaledManipulatedQuantity <= 0) {
-    return inputLabel
+  const inputLabel = formatRecipeIngredientInputQuantity(ingredient)
+  const manipulatedLabel = formatRecipeIngredientManipulatedQuantity(ingredient)
+  if (!manipulatedLabel) {
+    return `Entrada ${inputLabel}`
   }
 
-  return `${inputLabel} (${formatDecimal(ingredient.scaledManipulatedQuantity)} ${ingredient.unitLabel} manip.)`
+  return `Manipulado ${manipulatedLabel} (entrada ${inputLabel})`
 }
 
 export function getRecipeIngredientOperationalQuantity(ingredient: RecipePanelIngredientMetrics) {
@@ -232,7 +233,29 @@ export function getRecipeIngredientOperationalQuantity(ingredient: RecipePanelIn
     : ingredient.scaledInputQuantity
 }
 
+export function formatRecipeIngredientInputQuantity(ingredient: RecipePanelIngredientMetrics) {
+  return `${formatDecimal(ingredient.scaledInputQuantity)} ${ingredient.unitLabel}`
+}
+
+export function formatRecipeIngredientManipulatedQuantity(ingredient: RecipePanelIngredientMetrics) {
+  return ingredient.scaledManipulatedQuantity > 0
+    ? `${formatDecimal(ingredient.scaledManipulatedQuantity)} ${ingredient.unitLabel}`
+    : ''
+}
+
+export function formatRecipeIngredientYieldQuantity(ingredient: RecipePanelIngredientMetrics) {
+  return `${formatDecimal(ingredient.scaledYieldQuantity)} ${ingredient.unitLabel}`
+}
+
+export function formatRecipeIngredientLossQuantity(ingredient: RecipePanelIngredientMetrics) {
+  return ingredient.lossQuantity > 0 ? `${formatDecimal(ingredient.lossQuantity)} ${ingredient.unitLabel}` : '-'
+}
+
 export function formatRecipeIngredientOperationalQuantity(ingredient: RecipePanelIngredientMetrics) {
-  const suffix = ingredient.scaledManipulatedQuantity > 0 ? ' manip.' : ''
-  return `${formatDecimal(getRecipeIngredientOperationalQuantity(ingredient))} ${ingredient.unitLabel}${suffix}`
+  const manipulatedLabel = formatRecipeIngredientManipulatedQuantity(ingredient)
+  if (!manipulatedLabel) {
+    return formatRecipeIngredientInputQuantity(ingredient)
+  }
+
+  return `${manipulatedLabel} manip. (entrada ${formatRecipeIngredientInputQuantity(ingredient)})`
 }
