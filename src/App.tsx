@@ -62,6 +62,8 @@ import {
   calculateTechnicalSheetAlcoholPercentage,
   calculateTechnicalSheetCost,
   calculateTechnicalSheetEffectiveYield,
+  calculateTechnicalSheetIngredientBaseQuantity,
+  getTechnicalSheetIngredientOperationalConversion,
   getDefaultTechnicalSheetOutputUnit,
   getInventoryClosedItemReferenceQuantity,
   getInventoryClosedItemReferenceUnit,
@@ -1794,6 +1796,9 @@ const emptyTechnicalSheetIngredient = (): TechnicalSheetIngredient => ({
   productId: '',
   productLabel: '',
   quantity: '',
+  operationalQuantity: '',
+  operationalUnit: '',
+  operationalConversionFactor: '',
   manipulatedQuantity: '',
   yieldQuantity: '',
   isActive: true,
@@ -3454,7 +3459,7 @@ export default function App() {
           return sum
         }
 
-        return sum + candidateRequiredOutput * ((parseDecimal(ingredient.quantity) ?? 0) / candidateBaseYield)
+        return sum + candidateRequiredOutput * (calculateTechnicalSheetIngredientBaseQuantity(ingredient) / candidateBaseYield)
       }, 0)
 
       return directDemand + productionContribution
@@ -3614,7 +3619,7 @@ export default function App() {
           return sum
         }
 
-        return sum + candidateRequiredOutput * ((parseDecimal(ingredient.quantity) ?? 0) / candidateBaseYield)
+        return sum + candidateRequiredOutput * (calculateTechnicalSheetIngredientBaseQuantity(ingredient) / candidateBaseYield)
       }, 0)
 
       const total = ownUseMinimum + ownRealMinimum + externalUseMinimum + productionContribution
@@ -6924,7 +6929,10 @@ export default function App() {
     const adjustedIngredientMetrics = selectedProductionSheet.ingredients
       .filter((ingredient) => ingredient.isActive && ingredient.productId.trim() !== '')
       .map((ingredient) => {
-        const inputQuantity = parseDecimal(ingredient.quantity) ?? 0
+        const inputQuantity = calculateTechnicalSheetIngredientBaseQuantity(ingredient)
+        const operationalConversion = getTechnicalSheetIngredientOperationalConversion(ingredient)
+        const operationalQuantity = operationalConversion?.operationalQuantity ?? 0
+        const operationalUnitLabel = operationalConversion?.operationalUnitLabel ?? ''
         const manipulatedQuantity = isTechnicalSheetIngredientManipulatedQuantityVisible(selectedProductionSheet.kind)
           ? parseDecimal(ingredient.manipulatedQuantity) ?? 0
           : 0
@@ -6947,10 +6955,15 @@ export default function App() {
             ? formatControlUnitShort(linkedTechnicalSheet.outputUnit)
             : '--'
         const suggestedInputQuantity = inputQuantity * multiplier
+        const suggestedOperationalQuantity = operationalQuantity * multiplier
         const suggestedManipulatedQuantity = manipulatedQuantity * multiplier
         const suggestedYieldQuantity = yieldQuantity * multiplier
         const overrideInput = parseDecimal(productionDraftState.ingredientOverrides[ingredient.id] ?? '')
         const scaledInputQuantity = overrideInput ?? suggestedInputQuantity
+        const scaledOperationalQuantity =
+          operationalConversion && operationalConversion.conversionFactor > 0
+            ? scaledInputQuantity / operationalConversion.conversionFactor
+            : suggestedOperationalQuantity
         const manipulatedRatio = suggestedInputQuantity > 0 ? suggestedManipulatedQuantity / suggestedInputQuantity : 0
         const scaledManipulatedQuantity = manipulatedRatio > 0 ? scaledInputQuantity * manipulatedRatio : suggestedManipulatedQuantity
         const yieldRatio = suggestedInputQuantity > 0 ? suggestedYieldQuantity / suggestedInputQuantity : 0
@@ -6965,6 +6978,9 @@ export default function App() {
           label: ingredient.productLabel,
           unitLabel,
           inputQuantity,
+          operationalQuantity,
+          scaledOperationalQuantity,
+          operationalUnitLabel,
           manipulatedQuantity,
           yieldQuantity,
           scaledInputQuantity,
@@ -12192,6 +12208,7 @@ export default function App() {
             if (!dependencySheet) {
               return null
             }
+            const baseQuantity = calculateTechnicalSheetIngredientBaseQuantity(ingredient)
 
             const producerNames = reportEligibleStockCenters
               .filter((center) => doesCenterProduceTechnicalSheet(center, sheet))
@@ -12209,7 +12226,7 @@ export default function App() {
               center: producerNames.join(', ') || 'Sem centro produtor',
               date: '',
               status: 'Depende de',
-              quantity: formatDecimal(parseDecimal(ingredient.quantity) ?? 0),
+              quantity: formatDecimal(baseQuantity),
               unitCost: formatCurrencyLabel(
                 stockUnitCostByAggregationKey.get(
                   buildInventoryAggregationKey({
@@ -12221,7 +12238,7 @@ export default function App() {
                 ) ?? 0,
               ),
               totalCost: formatCurrencyLabel(
-                (parseDecimal(ingredient.quantity) ?? 0) *
+                baseQuantity *
                   (stockUnitCostByAggregationKey.get(
                     buildInventoryAggregationKey({
                       kind: 'PREPARO',
@@ -12234,7 +12251,7 @@ export default function App() {
               unit: formatControlUnitShort(dependencySheet.outputUnit),
               user: '',
               sortValues: {
-                quantity: parseDecimal(ingredient.quantity) ?? 0,
+                quantity: baseQuantity,
                 unitCost:
                   stockUnitCostByAggregationKey.get(
                     buildInventoryAggregationKey({
@@ -12245,7 +12262,7 @@ export default function App() {
                     }),
                   ) ?? 0,
                 totalCost:
-                  (parseDecimal(ingredient.quantity) ?? 0) *
+                  baseQuantity *
                   (stockUnitCostByAggregationKey.get(
                     buildInventoryAggregationKey({
                       kind: 'PREPARO',
@@ -13227,7 +13244,9 @@ export default function App() {
       const costPerUnit = linkedProduct
         ? calculateProductUnitCost(linkedProduct, technicalSheets, products, serviceItems, currentCompanyCostContext)
         : 0
-      const inputQuantity = parseDecimal(ingredient.quantity) ?? 0
+      const inputQuantity = calculateTechnicalSheetIngredientBaseQuantity(ingredient)
+      const operationalConversion = getTechnicalSheetIngredientOperationalConversion(ingredient)
+      const operationalQuantity = operationalConversion?.operationalQuantity ?? 0
       const manipulatedQuantity = isTechnicalSheetIngredientManipulatedQuantityVisible(technicalSheetForm.kind)
         ? parseDecimal(ingredient.manipulatedQuantity) ?? 0
         : 0
@@ -13248,6 +13267,9 @@ export default function App() {
         ingredientId: ingredient.id,
         costPerUnit,
         inputQuantity: effectiveInputQuantity,
+        operationalQuantity: ingredient.isActive ? operationalQuantity : 0,
+        scaledOperationalQuantity: ingredient.isActive ? operationalQuantity : 0,
+        operationalUnitLabel: operationalConversion?.operationalUnitLabel ?? '',
         manipulatedQuantity: effectiveManipulatedQuantity,
         yieldQuantity: effectiveYieldQuantity,
         recipeCost,
@@ -13281,7 +13303,9 @@ export default function App() {
       const costPerUnit = linkedProduct
         ? calculateProductUnitCost(linkedProduct, technicalSheets, products, serviceItems, currentCompanyCostContext)
         : 0
-      const inputQuantity = parseDecimal(ingredient.quantity) ?? 0
+      const inputQuantity = calculateTechnicalSheetIngredientBaseQuantity(ingredient)
+      const operationalConversion = getTechnicalSheetIngredientOperationalConversion(ingredient)
+      const operationalQuantity = operationalConversion?.operationalQuantity ?? 0
       const manipulatedQuantity = isTechnicalSheetIngredientManipulatedQuantityVisible(technicalSheetForm.kind)
         ? parseDecimal(ingredient.manipulatedQuantity) ?? 0
         : 0
@@ -13302,6 +13326,9 @@ export default function App() {
         ingredientId: ingredient.id,
         costPerUnit,
         inputQuantity: effectiveInputQuantity,
+        operationalQuantity: ingredient.isActive ? operationalQuantity : 0,
+        scaledOperationalQuantity: ingredient.isActive ? operationalQuantity : 0,
+        operationalUnitLabel: operationalConversion?.operationalUnitLabel ?? '',
         manipulatedQuantity: effectiveManipulatedQuantity,
         yieldQuantity: effectiveYieldQuantity,
         recipeCost,
@@ -13882,7 +13909,9 @@ export default function App() {
       ingredients
         .filter((ingredient) => ingredient.isActive && ingredient.productId.trim() !== '')
         .map((ingredient) => {
-          const inputQuantity = parseDecimal(ingredient.quantity) ?? 0
+          const inputQuantity = calculateTechnicalSheetIngredientBaseQuantity(ingredient)
+          const operationalConversion = getTechnicalSheetIngredientOperationalConversion(ingredient)
+          const operationalQuantity = operationalConversion?.operationalQuantity ?? 0
           const manipulatedQuantity = isTechnicalSheetIngredientManipulatedQuantityVisible(sheet.kind)
             ? parseDecimal(ingredient.manipulatedQuantity) ?? 0
             : 0
@@ -13904,6 +13933,7 @@ export default function App() {
               ? formatControlUnitShort(linkedTechnicalSheet.outputUnit)
               : '--'
           const scaledInputQuantity = inputQuantity * multiplier
+          const scaledOperationalQuantity = operationalQuantity * multiplier
           const scaledManipulatedQuantity = manipulatedQuantity * multiplier
           const scaledYieldQuantity = yieldQuantity * multiplier
           const scaledCost = costPerUnit * scaledInputQuantity
@@ -13916,6 +13946,9 @@ export default function App() {
             label: ingredient.productLabel,
             unitLabel,
             inputQuantity,
+            operationalQuantity,
+            scaledOperationalQuantity,
+            operationalUnitLabel: operationalConversion?.operationalUnitLabel ?? '',
             manipulatedQuantity,
             yieldQuantity,
             scaledInputQuantity,
@@ -14383,13 +14416,7 @@ export default function App() {
           return false
         }
 
-        return (
-          ingredient.productId.trim() !== '' ||
-          ingredient.productLabel.trim() !== '' ||
-          ingredient.quantity.trim() !== '' ||
-          ingredient.manipulatedQuantity.trim() !== '' ||
-          ingredient.yieldQuantity.trim() !== ''
-        )
+        return hasTechnicalSheetIngredientDraftContent(ingredient)
       }),
     [technicalSheetEditingIngredient?.id, technicalSheetIngredients],
   )
@@ -14400,13 +14427,7 @@ export default function App() {
           return false
         }
 
-        return (
-          ingredient.productId.trim() !== '' ||
-          ingredient.productLabel.trim() !== '' ||
-          ingredient.quantity.trim() !== '' ||
-          ingredient.manipulatedQuantity.trim() !== '' ||
-          ingredient.yieldQuantity.trim() !== ''
-        )
+        return hasTechnicalSheetIngredientDraftContent(ingredient)
       }),
     [technicalSheetEditingGarnishIngredient?.id, technicalSheetGarnishIngredients],
   )
@@ -27933,14 +27954,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
       if (nextKind === 'EXECUCAO') {
         const nextGarnishIngredient = emptyTechnicalSheetIngredient()
         setTechnicalSheetGarnishIngredients((current) =>
-          current.some(
-            (ingredient) =>
-              ingredient.productLabel.trim() !== '' ||
-              ingredient.quantity.trim() !== '' ||
-              ingredient.manipulatedQuantity.trim() !== '' ||
-              ingredient.yieldQuantity.trim() !== '' ||
-              ingredient.productId.trim() !== '',
-          )
+          current.some((ingredient) => hasTechnicalSheetIngredientDraftContent(ingredient))
             ? current
             : [nextGarnishIngredient],
         )
@@ -28301,8 +28315,49 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
     )
   }
 
+  function hasTechnicalSheetIngredientOperationalConversionDraft(ingredient: TechnicalSheetIngredient) {
+    return (
+      ingredient.operationalQuantity.trim() !== '' ||
+      ingredient.operationalUnit.trim() !== '' ||
+      ingredient.operationalConversionFactor.trim() !== ''
+    )
+  }
+
+  function hasTechnicalSheetIngredientDraftContent(ingredient: TechnicalSheetIngredient) {
+    return (
+      ingredient.productId.trim() !== '' ||
+      ingredient.productLabel.trim() !== '' ||
+      ingredient.quantity.trim() !== '' ||
+      hasTechnicalSheetIngredientOperationalConversionDraft(ingredient) ||
+      ingredient.manipulatedQuantity.trim() !== '' ||
+      ingredient.yieldQuantity.trim() !== ''
+    )
+  }
+
+  function isTechnicalSheetIngredientOperationalConversionComplete(ingredient: TechnicalSheetIngredient) {
+    if (!hasTechnicalSheetIngredientOperationalConversionDraft(ingredient)) {
+      return true
+    }
+
+    return (
+      (parseDecimal(ingredient.operationalQuantity) ?? 0) > 0 &&
+      ingredient.operationalUnit.trim() !== '' &&
+      (parseDecimal(ingredient.operationalConversionFactor) ?? 0) > 0
+    )
+  }
+
+  function getTechnicalSheetIngredientSaveQuantity(ingredient: TechnicalSheetIngredient) {
+    const convertedQuantity = getTechnicalSheetIngredientOperationalConversion(ingredient)?.baseQuantity ?? null
+    return convertedQuantity && convertedQuantity > 0 ? formatDecimal(convertedQuantity) : ingredient.quantity.trim()
+  }
+
   function isTechnicalSheetIngredientComplete(ingredient: TechnicalSheetIngredient) {
-    return ingredient.productId.trim() !== '' && ingredient.quantity.trim() !== '' && ingredient.yieldQuantity.trim() !== ''
+    return (
+      ingredient.productId.trim() !== '' &&
+      (ingredient.quantity.trim() !== '' || getTechnicalSheetIngredientOperationalConversion(ingredient) !== null) &&
+      ingredient.yieldQuantity.trim() !== '' &&
+      isTechnicalSheetIngredientOperationalConversionComplete(ingredient)
+    )
   }
 
   function isTechnicalSheetServiceItemComplete(serviceItem: TechnicalSheetServiceItem) {
@@ -28601,7 +28656,10 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
         ...ingredient,
         productId: ingredient.productId,
         productLabel: ingredient.productLabel,
-        quantity: ingredient.quantity.trim(),
+        quantity: getTechnicalSheetIngredientSaveQuantity(ingredient),
+        operationalQuantity: ingredient.operationalQuantity.trim(),
+        operationalUnit: normalizeRegistrationText(ingredient.operationalUnit.trim()),
+        operationalConversionFactor: ingredient.operationalConversionFactor.trim(),
         manipulatedQuantity: ingredient.manipulatedQuantity.trim(),
         yieldQuantity: ingredient.yieldQuantity.trim(),
       }))
@@ -28619,7 +28677,10 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
               ...ingredient,
               productId: ingredient.productId,
               productLabel: ingredient.productLabel,
-              quantity: ingredient.quantity.trim(),
+              quantity: getTechnicalSheetIngredientSaveQuantity(ingredient),
+              operationalQuantity: ingredient.operationalQuantity.trim(),
+              operationalUnit: normalizeRegistrationText(ingredient.operationalUnit.trim()),
+              operationalConversionFactor: ingredient.operationalConversionFactor.trim(),
               manipulatedQuantity: ingredient.manipulatedQuantity.trim(),
               yieldQuantity: ingredient.yieldQuantity.trim(),
             }))
@@ -28709,6 +28770,17 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
     }
     if (isTechnicalSheetFieldRequired(technicalSheetForm.kind, 'ingredients') && normalizedIngredients.length === 0) {
       errors.push('adicione ao menos 1 produto na ficha')
+    }
+    if (
+      [...technicalSheetIngredients, ...(technicalSheetForm.kind === 'EXECUCAO' ? technicalSheetGarnishIngredients : [])].some(
+        (ingredient) =>
+          ingredient.isActive &&
+          ingredient.productId.trim() !== '' &&
+          hasTechnicalSheetIngredientOperationalConversionDraft(ingredient) &&
+          !isTechnicalSheetIngredientOperationalConversionComplete(ingredient),
+      )
+    ) {
+      errors.push('complete a conversao operacional com quantidade, unidade e base por unidade')
     }
     if (
       isTechnicalSheetFieldRequired(technicalSheetForm.kind, 'productionCenters') &&
@@ -35433,6 +35505,43 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                   })()}
                 </strong>
               </div>
+              <label className="field">
+                <span>Qtd. op.</span>
+                <input
+                  value={technicalSheetEditingIngredient.operationalQuantity}
+                  onChange={(event) =>
+                    updateTechnicalSheetIngredient(technicalSheetEditingIngredient.id, 'operationalQuantity', event.target.value)
+                  }
+                  onKeyDown={(event) => handleTechnicalSheetIngredientEnter(event, technicalSheetEditingIngredient.id)}
+                  placeholder="EX.: 3"
+                />
+              </label>
+              <label className="field">
+                <span>Un. op.</span>
+                <input
+                  value={technicalSheetEditingIngredient.operationalUnit}
+                  onChange={(event) =>
+                    updateTechnicalSheetIngredient(technicalSheetEditingIngredient.id, 'operationalUnit', event.target.value)
+                  }
+                  onKeyDown={(event) => handleTechnicalSheetIngredientEnter(event, technicalSheetEditingIngredient.id)}
+                  placeholder="EX.: FATIA"
+                />
+              </label>
+              <label className="field">
+                <span>Base/un</span>
+                <input
+                  value={technicalSheetEditingIngredient.operationalConversionFactor}
+                  onChange={(event) =>
+                    updateTechnicalSheetIngredient(
+                      technicalSheetEditingIngredient.id,
+                      'operationalConversionFactor',
+                      event.target.value,
+                    )
+                  }
+                  onKeyDown={(event) => handleTechnicalSheetIngredientEnter(event, technicalSheetEditingIngredient.id)}
+                  placeholder="EX.: 5"
+                />
+              </label>
               <div className="ingredient-entry-actions">
                 <button
                   type="button"
@@ -35441,6 +35550,9 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                   disabled={
                     technicalSheetEditingIngredient.productLabel.trim() === '' &&
                     technicalSheetEditingIngredient.quantity.trim() === '' &&
+                    technicalSheetEditingIngredient.operationalQuantity.trim() === '' &&
+                    technicalSheetEditingIngredient.operationalUnit.trim() === '' &&
+                    technicalSheetEditingIngredient.operationalConversionFactor.trim() === '' &&
                     technicalSheetEditingIngredient.manipulatedQuantity.trim() === '' &&
                     technicalSheetEditingIngredient.yieldQuantity.trim() === ''
                   }
@@ -35478,6 +35590,14 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                         <span>Entrada</span>
                         <strong>{ingredient.quantity || '0'}</strong>
                       </div>
+                      {metrics && metrics.operationalQuantity > 0 && metrics.operationalUnitLabel ? (
+                        <div className="ingredient-summary-block">
+                          <span>Operacional</span>
+                          <strong>
+                            {formatDecimal(metrics.operationalQuantity)} {metrics.operationalUnitLabel}
+                          </strong>
+                        </div>
+                      ) : null}
                       {isTechnicalSheetIngredientManipulatedQuantityVisible('PREPARO') ? (
                         <div className="ingredient-summary-block">
                           <span>Manipulado</span>
@@ -37931,6 +38051,43 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                         })()}
                       </strong>
                     </div>
+                    <label className="field">
+                      <span>Qtd. op.</span>
+                      <input
+                        value={technicalSheetEditingIngredient.operationalQuantity}
+                        onChange={(event) =>
+                          updateTechnicalSheetIngredient(technicalSheetEditingIngredient.id, 'operationalQuantity', event.target.value)
+                        }
+                        onKeyDown={(event) => handleTechnicalSheetIngredientEnter(event, technicalSheetEditingIngredient.id)}
+                        placeholder="EX.: 3"
+                      />
+                    </label>
+                    <label className="field">
+                      <span>Un. op.</span>
+                      <input
+                        value={technicalSheetEditingIngredient.operationalUnit}
+                        onChange={(event) =>
+                          updateTechnicalSheetIngredient(technicalSheetEditingIngredient.id, 'operationalUnit', event.target.value)
+                        }
+                        onKeyDown={(event) => handleTechnicalSheetIngredientEnter(event, technicalSheetEditingIngredient.id)}
+                        placeholder="EX.: FATIA"
+                      />
+                    </label>
+                    <label className="field">
+                      <span>Base/un</span>
+                      <input
+                        value={technicalSheetEditingIngredient.operationalConversionFactor}
+                        onChange={(event) =>
+                          updateTechnicalSheetIngredient(
+                            technicalSheetEditingIngredient.id,
+                            'operationalConversionFactor',
+                            event.target.value,
+                          )
+                        }
+                        onKeyDown={(event) => handleTechnicalSheetIngredientEnter(event, technicalSheetEditingIngredient.id)}
+                        placeholder="EX.: 5"
+                      />
+                    </label>
                     <div className="ingredient-entry-actions">
                       <button
                         type="button"
@@ -37939,6 +38096,9 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                         disabled={
                           technicalSheetEditingIngredient.productLabel.trim() === '' &&
                           technicalSheetEditingIngredient.quantity.trim() === '' &&
+                          technicalSheetEditingIngredient.operationalQuantity.trim() === '' &&
+                          technicalSheetEditingIngredient.operationalUnit.trim() === '' &&
+                          technicalSheetEditingIngredient.operationalConversionFactor.trim() === '' &&
                           technicalSheetEditingIngredient.manipulatedQuantity.trim() === '' &&
                           technicalSheetEditingIngredient.yieldQuantity.trim() === ''
                         }
@@ -37976,6 +38136,14 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                               <span>Entrada</span>
                               <strong>{ingredient.quantity || '0'}</strong>
                             </div>
+                            {metrics && metrics.operationalQuantity > 0 && metrics.operationalUnitLabel ? (
+                              <div className="ingredient-summary-block">
+                                <span>Operacional</span>
+                                <strong>
+                                  {formatDecimal(metrics.operationalQuantity)} {metrics.operationalUnitLabel}
+                                </strong>
+                              </div>
+                            ) : null}
                             {isTechnicalSheetIngredientManipulatedQuantityVisible(technicalSheetForm.kind) ? (
                               <div className="ingredient-summary-block">
                                 <span>Manipulado</span>
@@ -38155,6 +38323,57 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                             })()}
                           </strong>
                         </div>
+                        <label className="field">
+                          <span>Qtd. op.</span>
+                          <input
+                            value={technicalSheetEditingGarnishIngredient.operationalQuantity}
+                            onChange={(event) =>
+                              updateTechnicalSheetGarnishIngredient(
+                                technicalSheetEditingGarnishIngredient.id,
+                                'operationalQuantity',
+                                event.target.value,
+                              )
+                            }
+                            onKeyDown={(event) =>
+                              handleTechnicalSheetGarnishIngredientEnter(event, technicalSheetEditingGarnishIngredient.id)
+                            }
+                            placeholder="EX.: 3"
+                          />
+                        </label>
+                        <label className="field">
+                          <span>Un. op.</span>
+                          <input
+                            value={technicalSheetEditingGarnishIngredient.operationalUnit}
+                            onChange={(event) =>
+                              updateTechnicalSheetGarnishIngredient(
+                                technicalSheetEditingGarnishIngredient.id,
+                                'operationalUnit',
+                                event.target.value,
+                              )
+                            }
+                            onKeyDown={(event) =>
+                              handleTechnicalSheetGarnishIngredientEnter(event, technicalSheetEditingGarnishIngredient.id)
+                            }
+                            placeholder="EX.: FATIA"
+                          />
+                        </label>
+                        <label className="field">
+                          <span>Base/un</span>
+                          <input
+                            value={technicalSheetEditingGarnishIngredient.operationalConversionFactor}
+                            onChange={(event) =>
+                              updateTechnicalSheetGarnishIngredient(
+                                technicalSheetEditingGarnishIngredient.id,
+                                'operationalConversionFactor',
+                                event.target.value,
+                              )
+                            }
+                            onKeyDown={(event) =>
+                              handleTechnicalSheetGarnishIngredientEnter(event, technicalSheetEditingGarnishIngredient.id)
+                            }
+                            placeholder="EX.: 5"
+                          />
+                        </label>
                         <div className="ingredient-entry-actions">
                           <button
                             type="button"
@@ -38163,6 +38382,9 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                             disabled={
                               technicalSheetEditingGarnishIngredient.productLabel.trim() === '' &&
                               technicalSheetEditingGarnishIngredient.quantity.trim() === '' &&
+                              technicalSheetEditingGarnishIngredient.operationalQuantity.trim() === '' &&
+                              technicalSheetEditingGarnishIngredient.operationalUnit.trim() === '' &&
+                              technicalSheetEditingGarnishIngredient.operationalConversionFactor.trim() === '' &&
                               technicalSheetEditingGarnishIngredient.manipulatedQuantity.trim() === '' &&
                               technicalSheetEditingGarnishIngredient.yieldQuantity.trim() === ''
                             }
@@ -38200,6 +38422,14 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                                   <span>Entrada</span>
                                   <strong>{ingredient.quantity || '0'}</strong>
                                 </div>
+                                {metrics && metrics.operationalQuantity > 0 && metrics.operationalUnitLabel ? (
+                                  <div className="ingredient-summary-block">
+                                    <span>Operacional</span>
+                                    <strong>
+                                      {formatDecimal(metrics.operationalQuantity)} {metrics.operationalUnitLabel}
+                                    </strong>
+                                  </div>
+                                ) : null}
                                 {isTechnicalSheetIngredientManipulatedQuantityVisible(technicalSheetForm.kind) ? (
                                   <div className="ingredient-summary-block">
                                     <span>Manipulado</span>
@@ -55219,6 +55449,9 @@ function normalizeTechnicalSheetRecord(value: unknown): TechnicalSheetRecord | n
         typeof ingredient.productId === 'string' &&
         typeof ingredient.productLabel === 'string' &&
         typeof ingredient.quantity === 'string' &&
+        (ingredient.operationalQuantity === undefined || typeof ingredient.operationalQuantity === 'string') &&
+        (ingredient.operationalUnit === undefined || typeof ingredient.operationalUnit === 'string') &&
+        (ingredient.operationalConversionFactor === undefined || typeof ingredient.operationalConversionFactor === 'string') &&
         (ingredient.manipulatedQuantity === undefined || typeof ingredient.manipulatedQuantity === 'string') &&
         typeof ingredient.yieldQuantity === 'string'
       )
@@ -55228,6 +55461,10 @@ function normalizeTechnicalSheetRecord(value: unknown): TechnicalSheetRecord | n
       productId: ingredient.productId,
       productLabel: ingredient.productLabel,
       quantity: ingredient.quantity,
+      operationalQuantity: typeof ingredient.operationalQuantity === 'string' ? ingredient.operationalQuantity : '',
+      operationalUnit: typeof ingredient.operationalUnit === 'string' ? ingredient.operationalUnit : '',
+      operationalConversionFactor:
+        typeof ingredient.operationalConversionFactor === 'string' ? ingredient.operationalConversionFactor : '',
       manipulatedQuantity: typeof ingredient.manipulatedQuantity === 'string' ? ingredient.manipulatedQuantity : '',
       yieldQuantity: ingredient.yieldQuantity,
       isActive: ingredient.isActive ?? true,
@@ -55242,6 +55479,9 @@ function normalizeTechnicalSheetRecord(value: unknown): TechnicalSheetRecord | n
             typeof ingredient.productId === 'string' &&
             typeof ingredient.productLabel === 'string' &&
             typeof ingredient.quantity === 'string' &&
+            (ingredient.operationalQuantity === undefined || typeof ingredient.operationalQuantity === 'string') &&
+            (ingredient.operationalUnit === undefined || typeof ingredient.operationalUnit === 'string') &&
+            (ingredient.operationalConversionFactor === undefined || typeof ingredient.operationalConversionFactor === 'string') &&
             (ingredient.manipulatedQuantity === undefined || typeof ingredient.manipulatedQuantity === 'string') &&
             typeof ingredient.yieldQuantity === 'string'
           )
@@ -55251,6 +55491,10 @@ function normalizeTechnicalSheetRecord(value: unknown): TechnicalSheetRecord | n
           productId: ingredient.productId,
           productLabel: ingredient.productLabel,
           quantity: ingredient.quantity,
+          operationalQuantity: typeof ingredient.operationalQuantity === 'string' ? ingredient.operationalQuantity : '',
+          operationalUnit: typeof ingredient.operationalUnit === 'string' ? ingredient.operationalUnit : '',
+          operationalConversionFactor:
+            typeof ingredient.operationalConversionFactor === 'string' ? ingredient.operationalConversionFactor : '',
           manipulatedQuantity: typeof ingredient.manipulatedQuantity === 'string' ? ingredient.manipulatedQuantity : '',
           yieldQuantity: ingredient.yieldQuantity,
           isActive: ingredient.isActive ?? true,
@@ -55262,7 +55506,7 @@ function normalizeTechnicalSheetRecord(value: unknown): TechnicalSheetRecord | n
     if (!ingredient.isActive) {
       return sum
     }
-    return sum + (parseDecimal(ingredient.quantity) ?? 0)
+    return sum + calculateTechnicalSheetIngredientBaseQuantity(ingredient)
   }, 0)
   const declaredOutputQuantity = parseDecimal(item.outputQuantity) ?? 0
   const normalizedYieldDifferenceDestination =

@@ -4,6 +4,7 @@ import type {
   PackageForm,
   ProductRecord,
   ServiceItemRecord,
+  TechnicalSheetIngredient,
   TechnicalSheetKind,
   TechnicalSheetRecord,
 } from '../types/domain'
@@ -12,6 +13,27 @@ import { formatControlUnitShort, parseDecimal } from '../utils/core'
 export type TechnicalSheetCostContext = {
   consumerCompanyId?: number | null
   sharingSaleFees?: CatalogSharingSaleFeeRecord[]
+}
+
+export function getTechnicalSheetIngredientOperationalConversion(ingredient: TechnicalSheetIngredient) {
+  const operationalQuantity = parseDecimal(ingredient.operationalQuantity) ?? 0
+  const conversionFactor = parseDecimal(ingredient.operationalConversionFactor) ?? 0
+  const operationalUnitLabel = ingredient.operationalUnit.trim()
+
+  if (operationalQuantity <= 0 || conversionFactor <= 0 || operationalUnitLabel === '') {
+    return null
+  }
+
+  return {
+    operationalQuantity,
+    conversionFactor,
+    operationalUnitLabel,
+    baseQuantity: operationalQuantity * conversionFactor,
+  }
+}
+
+export function calculateTechnicalSheetIngredientBaseQuantity(ingredient: TechnicalSheetIngredient) {
+  return getTechnicalSheetIngredientOperationalConversion(ingredient)?.baseQuantity ?? parseDecimal(ingredient.quantity) ?? 0
 }
 
 export function isLegacyImportedProduct(product: ProductRecord | null) {
@@ -320,7 +342,7 @@ export function calculateTechnicalSheetCost(
   const ingredientsCost = [...sheet.ingredients, ...sheet.garnishIngredients]
     .filter((ingredient) => ingredient.isActive)
     .reduce((sum, ingredient) => {
-      const quantity = parseDecimal(ingredient.quantity) ?? 0
+      const quantity = calculateTechnicalSheetIngredientBaseQuantity(ingredient)
       const linkedTechnicalSheet =
         technicalSheets.find((item) => item.productId === ingredient.productId) ?? null
 
@@ -517,7 +539,7 @@ export function calculateTechnicalSheetEffectiveYield(sheet: TechnicalSheetRecor
     if (sheet.outputUnit === 'COMBO') {
       const comboUnits = (includeGarnishesInYield ? [...sheet.ingredients, ...sheet.garnishIngredients] : sheet.ingredients)
         .filter((ingredient) => ingredient.isActive)
-        .reduce((sum, ingredient) => sum + (parseDecimal(ingredient.yieldQuantity) ?? parseDecimal(ingredient.quantity) ?? 0), 0)
+        .reduce((sum, ingredient) => sum + (parseDecimal(ingredient.yieldQuantity) ?? calculateTechnicalSheetIngredientBaseQuantity(ingredient)), 0)
 
       if (comboUnits > 0) {
         return comboUnits

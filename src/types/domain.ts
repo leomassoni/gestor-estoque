@@ -220,6 +220,9 @@ export type TechnicalSheetIngredient = {
   productId: string
   productLabel: string
   quantity: string
+  operationalQuantity: string
+  operationalUnit: string
+  operationalConversionFactor: string
   manipulatedQuantity: string
   yieldQuantity: string
   isActive: boolean
@@ -1256,6 +1259,9 @@ export type TechnicalSheetIngredientMetrics = {
   ingredientId: number
   costPerUnit: number
   inputQuantity: number
+  operationalQuantity: number
+  scaledOperationalQuantity: number
+  operationalUnitLabel: string
   manipulatedQuantity: number
   yieldQuantity: number
   recipeCost: number
@@ -1290,6 +1296,9 @@ export type RecipePanelIngredientMetrics = {
   label: string
   unitLabel: string
   inputQuantity: number
+  operationalQuantity: number
+  scaledOperationalQuantity: number
+  operationalUnitLabel: string
   manipulatedQuantity: number
   yieldQuantity: number
   scaledInputQuantity: number

@@ -3980,27 +3980,37 @@ function normalizeTechnicalSheetPayload(value) {
     return null
   }
 
-  const normalizedIngredients = sheet.ingredients.filter(
-    (ingredient) =>
-      Boolean(ingredient) &&
-      typeof ingredient === 'object' &&
-      typeof ingredient.id === 'number' &&
-      typeof ingredient.productId === 'string' &&
-      typeof ingredient.productLabel === 'string' &&
-      typeof ingredient.quantity === 'string' &&
-      typeof ingredient.yieldQuantity === 'string',
-  )
+  const normalizedIngredients = sheet.ingredients
+    .filter(
+      (ingredient) =>
+        Boolean(ingredient) &&
+        typeof ingredient === 'object' &&
+        typeof ingredient.id === 'number' &&
+        typeof ingredient.productId === 'string' &&
+        typeof ingredient.productLabel === 'string' &&
+        typeof ingredient.quantity === 'string' &&
+        (ingredient.operationalQuantity === undefined || typeof ingredient.operationalQuantity === 'string') &&
+        (ingredient.operationalUnit === undefined || typeof ingredient.operationalUnit === 'string') &&
+        (ingredient.operationalConversionFactor === undefined || typeof ingredient.operationalConversionFactor === 'string') &&
+        typeof ingredient.yieldQuantity === 'string',
+    )
+    .map(normalizeTechnicalSheetIngredientPayload)
   const normalizedGarnishIngredients = Array.isArray(sheet.garnishIngredients)
-    ? sheet.garnishIngredients.filter(
-        (ingredient) =>
-          Boolean(ingredient) &&
-          typeof ingredient === 'object' &&
-          typeof ingredient.id === 'number' &&
-          typeof ingredient.productId === 'string' &&
-          typeof ingredient.productLabel === 'string' &&
-          typeof ingredient.quantity === 'string' &&
-          typeof ingredient.yieldQuantity === 'string',
-      )
+    ? sheet.garnishIngredients
+        .filter(
+          (ingredient) =>
+            Boolean(ingredient) &&
+            typeof ingredient === 'object' &&
+            typeof ingredient.id === 'number' &&
+            typeof ingredient.productId === 'string' &&
+            typeof ingredient.productLabel === 'string' &&
+            typeof ingredient.quantity === 'string' &&
+            (ingredient.operationalQuantity === undefined || typeof ingredient.operationalQuantity === 'string') &&
+            (ingredient.operationalUnit === undefined || typeof ingredient.operationalUnit === 'string') &&
+            (ingredient.operationalConversionFactor === undefined || typeof ingredient.operationalConversionFactor === 'string') &&
+            typeof ingredient.yieldQuantity === 'string',
+        )
+        .map(normalizeTechnicalSheetIngredientPayload)
     : []
   const yieldDifferenceReferenceIngredients =
     sheet.kind === 'EXECUCAO' ? normalizedIngredients : [...normalizedIngredients, ...normalizedGarnishIngredients]
@@ -4008,7 +4018,7 @@ function normalizeTechnicalSheetPayload(value) {
     if (ingredient.isActive === false) {
       return sum
     }
-    return sum + (Number.parseFloat(ingredient.quantity) || 0)
+    return sum + calculateTechnicalSheetIngredientBaseQuantityPayload(ingredient)
   }, 0)
   const declaredOutputQuantity = Number.parseFloat(sheet.outputQuantity) || 0
   const normalizedYieldDifferenceDestination =
@@ -4083,11 +4093,56 @@ function normalizeTechnicalSheetPayload(value) {
         route.supplierCenterId > 0 &&
         route.consumerCenterId !== route.supplierCenterId,
     ),
-    ingredients: sheet.ingredients,
-    garnishIngredients: sheet.garnishIngredients,
+    ingredients: normalizedIngredients,
+    garnishIngredients: normalizedGarnishIngredients,
     serviceItems: sheet.serviceItems,
     isActive: sheet.isActive,
   }
+}
+
+function normalizeTechnicalSheetIngredientPayload(ingredient) {
+  const operationalQuantity =
+    typeof ingredient.operationalQuantity === 'string' ? ingredient.operationalQuantity.trim() : ''
+  const operationalUnit = typeof ingredient.operationalUnit === 'string' ? ingredient.operationalUnit.trim() : ''
+  const operationalConversionFactor =
+    typeof ingredient.operationalConversionFactor === 'string' ? ingredient.operationalConversionFactor.trim() : ''
+  const convertedQuantity = calculateTechnicalSheetIngredientBaseQuantityPayload({
+    ...ingredient,
+    operationalQuantity,
+    operationalUnit,
+    operationalConversionFactor,
+  })
+
+  return {
+    ...ingredient,
+    productId: ingredient.productId,
+    productLabel: ingredient.productLabel,
+    quantity: convertedQuantity > 0 ? String(convertedQuantity) : ingredient.quantity.trim(),
+    operationalQuantity,
+    operationalUnit,
+    operationalConversionFactor,
+    manipulatedQuantity: typeof ingredient.manipulatedQuantity === 'string' ? ingredient.manipulatedQuantity.trim() : '',
+    yieldQuantity: ingredient.yieldQuantity.trim(),
+    isActive: ingredient.isActive !== false,
+  }
+}
+
+function calculateTechnicalSheetIngredientBaseQuantityPayload(ingredient) {
+  const operationalQuantity = Number.parseFloat(String(ingredient.operationalQuantity ?? '').replace(',', '.'))
+  const conversionFactor = Number.parseFloat(String(ingredient.operationalConversionFactor ?? '').replace(',', '.'))
+  if (
+    Number.isFinite(operationalQuantity) &&
+    operationalQuantity > 0 &&
+    Number.isFinite(conversionFactor) &&
+    conversionFactor > 0 &&
+    typeof ingredient.operationalUnit === 'string' &&
+    ingredient.operationalUnit.trim() !== ''
+  ) {
+    return operationalQuantity * conversionFactor
+  }
+
+  const quantity = Number.parseFloat(String(ingredient.quantity ?? '').replace(',', '.'))
+  return Number.isFinite(quantity) && quantity > 0 ? quantity : 0
 }
 
 function normalizeFlavorProfilePayload(value) {
