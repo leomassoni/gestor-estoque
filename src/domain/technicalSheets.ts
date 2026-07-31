@@ -17,23 +17,20 @@ export type TechnicalSheetCostContext = {
 
 export function getTechnicalSheetIngredientOperationalConversion(ingredient: TechnicalSheetIngredient) {
   const operationalQuantity = parseDecimal(ingredient.operationalQuantity) ?? 0
-  const conversionFactor = parseDecimal(ingredient.operationalConversionFactor) ?? 0
   const operationalUnitLabel = ingredient.operationalUnit.trim()
 
-  if (operationalQuantity <= 0 || conversionFactor <= 0 || operationalUnitLabel === '') {
+  if (operationalQuantity <= 0 || operationalUnitLabel === '') {
     return null
   }
 
   return {
     operationalQuantity,
-    conversionFactor,
     operationalUnitLabel,
-    baseQuantity: operationalQuantity * conversionFactor,
   }
 }
 
 export function calculateTechnicalSheetIngredientBaseQuantity(ingredient: TechnicalSheetIngredient) {
-  return getTechnicalSheetIngredientOperationalConversion(ingredient)?.baseQuantity ?? parseDecimal(ingredient.quantity) ?? 0
+  return parseDecimal(ingredient.quantity) ?? 0
 }
 
 export function isLegacyImportedProduct(product: ProductRecord | null) {

@@ -3991,7 +3991,6 @@ function normalizeTechnicalSheetPayload(value) {
         typeof ingredient.quantity === 'string' &&
         (ingredient.operationalQuantity === undefined || typeof ingredient.operationalQuantity === 'string') &&
         (ingredient.operationalUnit === undefined || typeof ingredient.operationalUnit === 'string') &&
-        (ingredient.operationalConversionFactor === undefined || typeof ingredient.operationalConversionFactor === 'string') &&
         typeof ingredient.yieldQuantity === 'string',
     )
     .map(normalizeTechnicalSheetIngredientPayload)
@@ -4007,7 +4006,6 @@ function normalizeTechnicalSheetPayload(value) {
             typeof ingredient.quantity === 'string' &&
             (ingredient.operationalQuantity === undefined || typeof ingredient.operationalQuantity === 'string') &&
             (ingredient.operationalUnit === undefined || typeof ingredient.operationalUnit === 'string') &&
-            (ingredient.operationalConversionFactor === undefined || typeof ingredient.operationalConversionFactor === 'string') &&
             typeof ingredient.yieldQuantity === 'string',
         )
         .map(normalizeTechnicalSheetIngredientPayload)
@@ -4104,23 +4102,14 @@ function normalizeTechnicalSheetIngredientPayload(ingredient) {
   const operationalQuantity =
     typeof ingredient.operationalQuantity === 'string' ? ingredient.operationalQuantity.trim() : ''
   const operationalUnit = typeof ingredient.operationalUnit === 'string' ? ingredient.operationalUnit.trim() : ''
-  const operationalConversionFactor =
-    typeof ingredient.operationalConversionFactor === 'string' ? ingredient.operationalConversionFactor.trim() : ''
-  const convertedQuantity = calculateTechnicalSheetIngredientBaseQuantityPayload({
-    ...ingredient,
-    operationalQuantity,
-    operationalUnit,
-    operationalConversionFactor,
-  })
 
   return {
     ...ingredient,
     productId: ingredient.productId,
     productLabel: ingredient.productLabel,
-    quantity: convertedQuantity > 0 ? String(convertedQuantity) : ingredient.quantity.trim(),
+    quantity: ingredient.quantity.trim(),
     operationalQuantity,
     operationalUnit,
-    operationalConversionFactor,
     manipulatedQuantity: typeof ingredient.manipulatedQuantity === 'string' ? ingredient.manipulatedQuantity.trim() : '',
     yieldQuantity: ingredient.yieldQuantity.trim(),
     isActive: ingredient.isActive !== false,
@@ -4128,19 +4117,6 @@ function normalizeTechnicalSheetIngredientPayload(ingredient) {
 }
 
 function calculateTechnicalSheetIngredientBaseQuantityPayload(ingredient) {
-  const operationalQuantity = Number.parseFloat(String(ingredient.operationalQuantity ?? '').replace(',', '.'))
-  const conversionFactor = Number.parseFloat(String(ingredient.operationalConversionFactor ?? '').replace(',', '.'))
-  if (
-    Number.isFinite(operationalQuantity) &&
-    operationalQuantity > 0 &&
-    Number.isFinite(conversionFactor) &&
-    conversionFactor > 0 &&
-    typeof ingredient.operationalUnit === 'string' &&
-    ingredient.operationalUnit.trim() !== ''
-  ) {
-    return operationalQuantity * conversionFactor
-  }
-
   const quantity = Number.parseFloat(String(ingredient.quantity ?? '').replace(',', '.'))
   return Number.isFinite(quantity) && quantity > 0 ? quantity : 0
 }

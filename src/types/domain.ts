@@ -222,7 +222,6 @@ export type TechnicalSheetIngredient = {
   quantity: string
   operationalQuantity: string
   operationalUnit: string
-  operationalConversionFactor: string
   manipulatedQuantity: string
   yieldQuantity: string
   isActive: boolean

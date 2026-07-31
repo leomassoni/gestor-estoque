@@ -1798,7 +1798,6 @@ const emptyTechnicalSheetIngredient = (): TechnicalSheetIngredient => ({
   quantity: '',
   operationalQuantity: '',
   operationalUnit: '',
-  operationalConversionFactor: '',
   manipulatedQuantity: '',
   yieldQuantity: '',
   isActive: true,
@@ -6960,10 +6959,7 @@ export default function App() {
         const suggestedYieldQuantity = yieldQuantity * multiplier
         const overrideInput = parseDecimal(productionDraftState.ingredientOverrides[ingredient.id] ?? '')
         const scaledInputQuantity = overrideInput ?? suggestedInputQuantity
-        const scaledOperationalQuantity =
-          operationalConversion && operationalConversion.conversionFactor > 0
-            ? scaledInputQuantity / operationalConversion.conversionFactor
-            : suggestedOperationalQuantity
+        const scaledOperationalQuantity = suggestedOperationalQuantity
         const manipulatedRatio = suggestedInputQuantity > 0 ? suggestedManipulatedQuantity / suggestedInputQuantity : 0
         const scaledManipulatedQuantity = manipulatedRatio > 0 ? scaledInputQuantity * manipulatedRatio : suggestedManipulatedQuantity
         const yieldRatio = suggestedInputQuantity > 0 ? suggestedYieldQuantity / suggestedInputQuantity : 0
@@ -28318,8 +28314,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
   function hasTechnicalSheetIngredientOperationalConversionDraft(ingredient: TechnicalSheetIngredient) {
     return (
       ingredient.operationalQuantity.trim() !== '' ||
-      ingredient.operationalUnit.trim() !== '' ||
-      ingredient.operationalConversionFactor.trim() !== ''
+      ingredient.operationalUnit.trim() !== ''
     )
   }
 
@@ -28341,20 +28336,18 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
 
     return (
       (parseDecimal(ingredient.operationalQuantity) ?? 0) > 0 &&
-      ingredient.operationalUnit.trim() !== '' &&
-      (parseDecimal(ingredient.operationalConversionFactor) ?? 0) > 0
+      ingredient.operationalUnit.trim() !== ''
     )
   }
 
   function getTechnicalSheetIngredientSaveQuantity(ingredient: TechnicalSheetIngredient) {
-    const convertedQuantity = getTechnicalSheetIngredientOperationalConversion(ingredient)?.baseQuantity ?? null
-    return convertedQuantity && convertedQuantity > 0 ? formatDecimal(convertedQuantity) : ingredient.quantity.trim()
+    return ingredient.quantity.trim()
   }
 
   function isTechnicalSheetIngredientComplete(ingredient: TechnicalSheetIngredient) {
     return (
       ingredient.productId.trim() !== '' &&
-      (ingredient.quantity.trim() !== '' || getTechnicalSheetIngredientOperationalConversion(ingredient) !== null) &&
+      ingredient.quantity.trim() !== '' &&
       ingredient.yieldQuantity.trim() !== '' &&
       isTechnicalSheetIngredientOperationalConversionComplete(ingredient)
     )
@@ -28659,7 +28652,6 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
         quantity: getTechnicalSheetIngredientSaveQuantity(ingredient),
         operationalQuantity: ingredient.operationalQuantity.trim(),
         operationalUnit: normalizeRegistrationText(ingredient.operationalUnit.trim()),
-        operationalConversionFactor: ingredient.operationalConversionFactor.trim(),
         manipulatedQuantity: ingredient.manipulatedQuantity.trim(),
         yieldQuantity: ingredient.yieldQuantity.trim(),
       }))
@@ -28680,7 +28672,6 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
               quantity: getTechnicalSheetIngredientSaveQuantity(ingredient),
               operationalQuantity: ingredient.operationalQuantity.trim(),
               operationalUnit: normalizeRegistrationText(ingredient.operationalUnit.trim()),
-              operationalConversionFactor: ingredient.operationalConversionFactor.trim(),
               manipulatedQuantity: ingredient.manipulatedQuantity.trim(),
               yieldQuantity: ingredient.yieldQuantity.trim(),
             }))
@@ -28780,7 +28771,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
           !isTechnicalSheetIngredientOperationalConversionComplete(ingredient),
       )
     ) {
-      errors.push('complete a conversao operacional com quantidade, unidade e base por unidade')
+      errors.push('complete a conversao operacional com quantidade e unidade operacional')
     }
     if (
       isTechnicalSheetFieldRequired(technicalSheetForm.kind, 'productionCenters') &&
@@ -35527,21 +35518,6 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                   placeholder="EX.: FATIA"
                 />
               </label>
-              <label className="field">
-                <span>Base/un</span>
-                <input
-                  value={technicalSheetEditingIngredient.operationalConversionFactor}
-                  onChange={(event) =>
-                    updateTechnicalSheetIngredient(
-                      technicalSheetEditingIngredient.id,
-                      'operationalConversionFactor',
-                      event.target.value,
-                    )
-                  }
-                  onKeyDown={(event) => handleTechnicalSheetIngredientEnter(event, technicalSheetEditingIngredient.id)}
-                  placeholder="EX.: 5"
-                />
-              </label>
               <div className="ingredient-entry-actions">
                 <button
                   type="button"
@@ -35552,7 +35528,6 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                     technicalSheetEditingIngredient.quantity.trim() === '' &&
                     technicalSheetEditingIngredient.operationalQuantity.trim() === '' &&
                     technicalSheetEditingIngredient.operationalUnit.trim() === '' &&
-                    technicalSheetEditingIngredient.operationalConversionFactor.trim() === '' &&
                     technicalSheetEditingIngredient.manipulatedQuantity.trim() === '' &&
                     technicalSheetEditingIngredient.yieldQuantity.trim() === ''
                   }
@@ -38073,21 +38048,6 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                         placeholder="EX.: FATIA"
                       />
                     </label>
-                    <label className="field">
-                      <span>Base/un</span>
-                      <input
-                        value={technicalSheetEditingIngredient.operationalConversionFactor}
-                        onChange={(event) =>
-                          updateTechnicalSheetIngredient(
-                            technicalSheetEditingIngredient.id,
-                            'operationalConversionFactor',
-                            event.target.value,
-                          )
-                        }
-                        onKeyDown={(event) => handleTechnicalSheetIngredientEnter(event, technicalSheetEditingIngredient.id)}
-                        placeholder="EX.: 5"
-                      />
-                    </label>
                     <div className="ingredient-entry-actions">
                       <button
                         type="button"
@@ -38098,7 +38058,6 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                           technicalSheetEditingIngredient.quantity.trim() === '' &&
                           technicalSheetEditingIngredient.operationalQuantity.trim() === '' &&
                           technicalSheetEditingIngredient.operationalUnit.trim() === '' &&
-                          technicalSheetEditingIngredient.operationalConversionFactor.trim() === '' &&
                           technicalSheetEditingIngredient.manipulatedQuantity.trim() === '' &&
                           technicalSheetEditingIngredient.yieldQuantity.trim() === ''
                         }
@@ -38357,23 +38316,6 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                             placeholder="EX.: FATIA"
                           />
                         </label>
-                        <label className="field">
-                          <span>Base/un</span>
-                          <input
-                            value={technicalSheetEditingGarnishIngredient.operationalConversionFactor}
-                            onChange={(event) =>
-                              updateTechnicalSheetGarnishIngredient(
-                                technicalSheetEditingGarnishIngredient.id,
-                                'operationalConversionFactor',
-                                event.target.value,
-                              )
-                            }
-                            onKeyDown={(event) =>
-                              handleTechnicalSheetGarnishIngredientEnter(event, technicalSheetEditingGarnishIngredient.id)
-                            }
-                            placeholder="EX.: 5"
-                          />
-                        </label>
                         <div className="ingredient-entry-actions">
                           <button
                             type="button"
@@ -38384,7 +38326,6 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                               technicalSheetEditingGarnishIngredient.quantity.trim() === '' &&
                               technicalSheetEditingGarnishIngredient.operationalQuantity.trim() === '' &&
                               technicalSheetEditingGarnishIngredient.operationalUnit.trim() === '' &&
-                              technicalSheetEditingGarnishIngredient.operationalConversionFactor.trim() === '' &&
                               technicalSheetEditingGarnishIngredient.manipulatedQuantity.trim() === '' &&
                               technicalSheetEditingGarnishIngredient.yieldQuantity.trim() === ''
                             }
@@ -55451,7 +55392,6 @@ function normalizeTechnicalSheetRecord(value: unknown): TechnicalSheetRecord | n
         typeof ingredient.quantity === 'string' &&
         (ingredient.operationalQuantity === undefined || typeof ingredient.operationalQuantity === 'string') &&
         (ingredient.operationalUnit === undefined || typeof ingredient.operationalUnit === 'string') &&
-        (ingredient.operationalConversionFactor === undefined || typeof ingredient.operationalConversionFactor === 'string') &&
         (ingredient.manipulatedQuantity === undefined || typeof ingredient.manipulatedQuantity === 'string') &&
         typeof ingredient.yieldQuantity === 'string'
       )
@@ -55463,8 +55403,6 @@ function normalizeTechnicalSheetRecord(value: unknown): TechnicalSheetRecord | n
       quantity: ingredient.quantity,
       operationalQuantity: typeof ingredient.operationalQuantity === 'string' ? ingredient.operationalQuantity : '',
       operationalUnit: typeof ingredient.operationalUnit === 'string' ? ingredient.operationalUnit : '',
-      operationalConversionFactor:
-        typeof ingredient.operationalConversionFactor === 'string' ? ingredient.operationalConversionFactor : '',
       manipulatedQuantity: typeof ingredient.manipulatedQuantity === 'string' ? ingredient.manipulatedQuantity : '',
       yieldQuantity: ingredient.yieldQuantity,
       isActive: ingredient.isActive ?? true,
@@ -55481,7 +55419,6 @@ function normalizeTechnicalSheetRecord(value: unknown): TechnicalSheetRecord | n
             typeof ingredient.quantity === 'string' &&
             (ingredient.operationalQuantity === undefined || typeof ingredient.operationalQuantity === 'string') &&
             (ingredient.operationalUnit === undefined || typeof ingredient.operationalUnit === 'string') &&
-            (ingredient.operationalConversionFactor === undefined || typeof ingredient.operationalConversionFactor === 'string') &&
             (ingredient.manipulatedQuantity === undefined || typeof ingredient.manipulatedQuantity === 'string') &&
             typeof ingredient.yieldQuantity === 'string'
           )
@@ -55493,8 +55430,6 @@ function normalizeTechnicalSheetRecord(value: unknown): TechnicalSheetRecord | n
           quantity: ingredient.quantity,
           operationalQuantity: typeof ingredient.operationalQuantity === 'string' ? ingredient.operationalQuantity : '',
           operationalUnit: typeof ingredient.operationalUnit === 'string' ? ingredient.operationalUnit : '',
-          operationalConversionFactor:
-            typeof ingredient.operationalConversionFactor === 'string' ? ingredient.operationalConversionFactor : '',
           manipulatedQuantity: typeof ingredient.manipulatedQuantity === 'string' ? ingredient.manipulatedQuantity : '',
           yieldQuantity: ingredient.yieldQuantity,
           isActive: ingredient.isActive ?? true,
