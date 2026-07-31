@@ -198,6 +198,15 @@ async function syncCompanyLinkedCompanyIds(transaction, companyId, linkedCompany
     data: { linkedCompanyIds: nextLinkedCompanyIds },
   })
 
+  await transaction.appCatalogSharingSaleFeeRecord.deleteMany({
+    where: {
+      OR: [
+        { ownerCompanyId: companyId, targetCompanyId: { notIn: nextLinkedCompanyIds } },
+        { targetCompanyId: companyId, ownerCompanyId: { notIn: nextLinkedCompanyIds } },
+      ],
+    },
+  })
+
   for (const company of allCompanies) {
     if (company.id === companyId) {
       continue
@@ -323,6 +332,11 @@ app.delete('/api/companies/:id', async (request, response) => {
 
     await transaction.appAccessProfileRecord.deleteMany({ where: { companyId } })
     await transaction.appStockModuleSettingsRecord.deleteMany({ where: { companyId } })
+    await transaction.appCatalogSharingSaleFeeRecord.deleteMany({
+      where: {
+        OR: [{ ownerCompanyId: companyId }, { targetCompanyId: companyId }],
+      },
+    })
     await transaction.appAuditLogRecord.deleteMany({ where: { companyId } })
     await transaction.appStockCenterRecord.deleteMany({ where: { companyId } })
     await transaction.appSalesImportTemplateRecord.deleteMany({ where: { companyId } })
@@ -541,6 +555,73 @@ app.put('/api/stock-module-settings/:companyId', async (request, response) => {
     update: stockModuleSettings,
   })
   response.json({ stockModuleSettings: saved })
+})
+
+app.get('/api/catalog-sharing-sale-fees', async (request, response) => {
+  await ensureAppAdminRecordsSeeded()
+  const ownerCompanyId = parseIntegerParam(request.query.ownerCompanyId)
+  const targetCompanyId = parseIntegerParam(request.query.targetCompanyId)
+  const records = await prisma.appCatalogSharingSaleFeeRecord.findMany({
+    where: {
+      ...(ownerCompanyId === null ? {} : { ownerCompanyId }),
+      ...(targetCompanyId === null ? {} : { targetCompanyId }),
+    },
+    orderBy: [{ ownerCompanyId: 'asc' }, { targetCompanyId: 'asc' }],
+  })
+  const companies = await prisma.appCompanyRecord.findMany({
+    select: { id: true, linkedCompanyIds: true },
+  })
+  const companyById = new Map(companies.map((company) => [company.id, company]))
+  const linkedRecords = records.filter((record) =>
+    areCompanyRecordsLinked(companyById, record.ownerCompanyId, record.targetCompanyId),
+  )
+  response.json({ catalogSharingSaleFees: linkedRecords })
+})
+
+app.put('/api/catalog-sharing-sale-fees/:ownerCompanyId/:targetCompanyId', async (request, response) => {
+  const ownerCompanyId = parseIntegerParam(request.params.ownerCompanyId)
+  const targetCompanyId = parseIntegerParam(request.params.targetCompanyId)
+  const normalized = normalizeCatalogSharingSaleFeePayload({
+    ...request.body,
+    ownerCompanyId,
+    targetCompanyId,
+  })
+
+  if (ownerCompanyId === null || targetCompanyId === null || !normalized) {
+    response.status(400).json({ error: 'Payload de taxa de compartilhamento invalido.' })
+    return
+  }
+
+  const companies = await prisma.appCompanyRecord.findMany({
+    where: { id: { in: [ownerCompanyId, targetCompanyId] } },
+    select: { id: true, linkedCompanyIds: true },
+  })
+  const companyById = new Map(companies.map((company) => [company.id, company]))
+  if (!areCompanyRecordsLinked(companyById, ownerCompanyId, targetCompanyId)) {
+    response.status(400).json({ error: 'As empresas informadas nao estao vinculadas para compartilhamento.' })
+    return
+  }
+
+  const percentage = Number.parseFloat(normalized.preparationSaleFeePercentage)
+  if (!Number.isFinite(percentage) || percentage <= 0) {
+    await prisma.appCatalogSharingSaleFeeRecord.deleteMany({
+      where: { ownerCompanyId, targetCompanyId },
+    })
+    response.json({ catalogSharingSaleFee: null })
+    return
+  }
+
+  const saved = await prisma.appCatalogSharingSaleFeeRecord.upsert({
+    where: {
+      ownerCompanyId_targetCompanyId: {
+        ownerCompanyId,
+        targetCompanyId,
+      },
+    },
+    create: normalized,
+    update: normalized,
+  })
+  response.json({ catalogSharingSaleFee: saved })
 })
 
 app.get('/api/audit-logs', async (_request, response) => {
@@ -2622,6 +2703,58 @@ function normalizeStockModuleSettingsPayload(value) {
         ? record.salesImportDuplicateRowPolicy.trim()
         : 'BLOCK',
   }
+}
+
+function normalizeCatalogSharingSaleFeePayload(value) {
+  if (!value || typeof value !== 'object') {
+    return null
+  }
+
+  const record = value
+  const ownerCompanyId = parseIntegerParam(record.ownerCompanyId)
+  const targetCompanyId = parseIntegerParam(record.targetCompanyId)
+  if (ownerCompanyId === null || targetCompanyId === null || ownerCompanyId === targetCompanyId) {
+    return null
+  }
+
+  const rawPercentage =
+    typeof record.preparationSaleFeePercentage === 'string' || typeof record.preparationSaleFeePercentage === 'number'
+      ? String(record.preparationSaleFeePercentage).trim().replace(',', '.')
+      : ''
+  if (rawPercentage === '') {
+    return {
+      ownerCompanyId,
+      targetCompanyId,
+      preparationSaleFeePercentage: '0',
+    }
+  }
+
+  const percentage = Number.parseFloat(rawPercentage)
+  if (!Number.isFinite(percentage) || percentage < 0 || percentage > 1000) {
+    return null
+  }
+
+  return {
+    ownerCompanyId,
+    targetCompanyId,
+    preparationSaleFeePercentage: String(percentage),
+  }
+}
+
+function areCompanyRecordsLinked(companyById, ownerCompanyId, targetCompanyId) {
+  if (ownerCompanyId === targetCompanyId) {
+    return false
+  }
+
+  const ownerCompany = companyById.get(ownerCompanyId)
+  const targetCompany = companyById.get(targetCompanyId)
+  if (!ownerCompany || !targetCompany) {
+    return false
+  }
+
+  const ownerLinks = Array.isArray(ownerCompany.linkedCompanyIds) ? ownerCompany.linkedCompanyIds : []
+  const targetLinks = Array.isArray(targetCompany.linkedCompanyIds) ? targetCompany.linkedCompanyIds : []
+  return ownerLinks.includes(targetCompanyId) || targetLinks.includes(ownerCompanyId)
 }
 
 function normalizeAuditLogPayload(value) {

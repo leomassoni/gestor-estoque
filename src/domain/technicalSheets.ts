@@ -1,4 +1,5 @@
 import type {
+  CatalogSharingSaleFeeRecord,
   ControlUnit,
   PackageForm,
   ProductRecord,
@@ -7,6 +8,11 @@ import type {
   TechnicalSheetRecord,
 } from '../types/domain'
 import { formatControlUnitShort, parseDecimal } from '../utils/core'
+
+export type TechnicalSheetCostContext = {
+  consumerCompanyId?: number | null
+  sharingSaleFees?: CatalogSharingSaleFeeRecord[]
+}
 
 export function isLegacyImportedProduct(product: ProductRecord | null) {
   return product?.id.startsWith('IMP-') ?? false
@@ -164,11 +170,19 @@ export function calculateProductUnitCost(
   technicalSheets: TechnicalSheetRecord[] = [],
   products: ProductRecord[] = [],
   serviceItems: ServiceItemRecord[] = [],
+  costContext: TechnicalSheetCostContext = {},
 ) {
   if (typeof product.technicalSheetId === 'number') {
     const linkedTechnicalSheet = technicalSheets.find((sheet) => sheet.id === product.technicalSheetId) ?? null
     if (linkedTechnicalSheet) {
-      const totalCost = calculateTechnicalSheetCost(linkedTechnicalSheet, technicalSheets, products, new Set<number>(), serviceItems)
+      const totalCost = calculateTechnicalSheetCost(
+        linkedTechnicalSheet,
+        technicalSheets,
+        products,
+        new Set<number>(),
+        serviceItems,
+        costContext,
+      )
       const totalYield = parseDecimal(linkedTechnicalSheet.outputQuantity) ?? 0
       return totalYield > 0 ? totalCost / totalYield : totalCost
     }
@@ -260,11 +274,13 @@ export function getProductCostStatus(
   product: ProductRecord,
   technicalSheets: TechnicalSheetRecord[] = [],
   products: ProductRecord[] = [],
+  serviceItems: ServiceItemRecord[] = [],
+  costContext: TechnicalSheetCostContext = {},
 ) {
   if (typeof product.technicalSheetId === 'number') {
     const linkedTechnicalSheet = technicalSheets.find((sheet) => sheet.id === product.technicalSheetId) ?? null
     if (linkedTechnicalSheet) {
-      return calculateProductUnitCost(product, technicalSheets, products) > 0 ? 'OK' : 'Sem custo'
+      return calculateProductUnitCost(product, technicalSheets, products, serviceItems, costContext) > 0 ? 'OK' : 'Sem custo'
     }
   }
 
@@ -292,6 +308,7 @@ export function calculateTechnicalSheetCost(
   products: ProductRecord[] = [],
   visited = new Set<number>(),
   serviceItems: ServiceItemRecord[] = [],
+  costContext: TechnicalSheetCostContext = {},
 ): number {
   if (visited.has(sheet.id)) {
     return 0
@@ -308,7 +325,14 @@ export function calculateTechnicalSheetCost(
         technicalSheets.find((item) => item.productId === ingredient.productId) ?? null
 
       if (linkedTechnicalSheet) {
-      const linkedCost: number = calculateTechnicalSheetCost(linkedTechnicalSheet, technicalSheets, products, nextVisited, serviceItems)
+      const linkedCost: number = calculateTechnicalSheetCost(
+        linkedTechnicalSheet,
+        technicalSheets,
+        products,
+        nextVisited,
+        serviceItems,
+        costContext,
+      )
       const linkedYield = calculateTechnicalSheetEffectiveYield(linkedTechnicalSheet)
       const linkedUnitCost: number = linkedYield > 0 ? linkedCost / linkedYield : linkedCost
       return sum + linkedUnitCost * quantity
@@ -320,7 +344,7 @@ export function calculateTechnicalSheetCost(
     }, 0)
 
   if (sheet.kind !== 'VENDA') {
-    return ingredientsCost
+    return applySharedPreparationSaleFee(ingredientsCost, sheet, costContext)
   }
 
   const serviceItemsCost = sheet.serviceItems
@@ -333,6 +357,28 @@ export function calculateTechnicalSheetCost(
     }, 0)
 
   return ingredientsCost + serviceItemsCost
+}
+
+function applySharedPreparationSaleFee(cost: number, sheet: TechnicalSheetRecord, costContext: TechnicalSheetCostContext) {
+  const consumerCompanyId =
+    typeof costContext.consumerCompanyId === 'number' && costContext.consumerCompanyId > 0
+      ? costContext.consumerCompanyId
+      : null
+  if (sheet.kind !== 'PREPARO' || consumerCompanyId === null || cost <= 0) {
+    return cost
+  }
+
+  const ownerCompanyId = sheet.ownerCompanyId ?? sheet.companyId
+  if (ownerCompanyId === consumerCompanyId || !sheet.sharedCompanyIds.includes(consumerCompanyId)) {
+    return cost
+  }
+
+  const feeRecord =
+    costContext.sharingSaleFees?.find(
+      (record) => record.ownerCompanyId === ownerCompanyId && record.targetCompanyId === consumerCompanyId,
+    ) ?? null
+  const feePercentage = parseDecimal(feeRecord?.preparationSaleFeePercentage ?? '') ?? 0
+  return feePercentage > 0 ? cost * (1 + feePercentage / 100) : cost
 }
 
 export function calculateTechnicalSheetAlcoholPercentage(

@@ -23,7 +23,7 @@ export type AppSection =
 export type TechnicalSheetKind = 'PREPARO' | 'EXECUCAO' | 'VENDA'
 export type ServiceItemKind = 'UTENSILIO_ELETRONICO' | 'RECIPIENTE_SERVICO'
 export type ServiceItemSizeUnit = 'MILLILITER' | 'GRAM' | 'CENTIMETER'
-export type TechnicalSheetSettingsTab = TechnicalSheetKind
+export type TechnicalSheetSettingsTab = TechnicalSheetKind | 'COMPARTILHAMENTO'
 
 export type UserSectionAccess = Record<AppSection, boolean>
 export type RecipeExecutionBlockKey =
@@ -1512,6 +1512,12 @@ export type StockModuleSettingsRecord = {
   legacyInventorySummaryDeleteRoles?: CompanyUserRole[]
   legacyClosedInventoryReopenRoles?: CompanyUserRole[]
   legacyClosedInventoryDeleteRoles?: CompanyUserRole[]
+}
+
+export type CatalogSharingSaleFeeRecord = {
+  ownerCompanyId: number
+  targetCompanyId: number
+  preparationSaleFeePercentage: string
 }
 
 export type SalesImportTemplateRecord = {

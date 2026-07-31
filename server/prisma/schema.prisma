@@ -384,6 +384,17 @@ model AppStockModuleSettingsRecord {
   updatedAt                          DateTime @updatedAt
 }
 
+model AppCatalogSharingSaleFeeRecord {
+  ownerCompanyId                   Int
+  targetCompanyId                  Int
+  preparationSaleFeePercentage     String
+  createdAtRecord                  DateTime @default(now())
+  updatedAt                        DateTime @updatedAt
+
+  @@id([ownerCompanyId, targetCompanyId])
+  @@index([targetCompanyId])
+}
+
 model AppAuditLogRecord {
   id                Int      @id
   companyId         Int

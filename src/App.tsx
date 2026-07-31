@@ -79,6 +79,7 @@ import {
   resolveSectorDeletion,
   resolveTechnicalSheetPackageGrossWeight,
   syncTechnicalSheetIngredientReferences,
+  type TechnicalSheetCostContext,
 } from './domain/technicalSheets'
 import {
   accessProfilesStorageKey,
@@ -147,6 +148,7 @@ import type {
   AppUserRecord,
   Session,
   CompanyRecord,
+  CatalogSharingSaleFeeRecord,
   PackageForm,
   PackageReferenceCode,
   PackageReferenceCodeType,
@@ -2376,6 +2378,8 @@ export default function App() {
     () => loadInventoryStorageLocationsState(),
   )
   const [stockModuleSettings, setStockModuleSettings] = useState<StockModuleSettingsRecord[]>(() => loadStockModuleSettingsState())
+  const [catalogSharingSaleFees, setCatalogSharingSaleFees] = useState<CatalogSharingSaleFeeRecord[]>([])
+  const [catalogSharingSaleFeeDrafts, setCatalogSharingSaleFeeDrafts] = useState<Record<string, string>>({})
   const [auditLogs, setAuditLogs] = useState<AuditLogRecord[]>(() => loadAuditLogsState())
   const [auditPanelTab, setAuditPanelTab] = useState<AuditPanelTab>('AUDITORIA')
   const [auditLogSearch, setAuditLogSearch] = useState('')
@@ -3068,6 +3072,51 @@ export default function App() {
   function getTechnicalSheetOwnerCompanyId(sheet: TechnicalSheetRecord) {
     return sheet.ownerCompanyId ?? sheet.companyId
   }
+  function buildCatalogSharingSaleFeeKey(ownerCompanyId: number, targetCompanyId: number) {
+    return `${ownerCompanyId}:${targetCompanyId}`
+  }
+  const currentCompanyCostContext = useMemo<TechnicalSheetCostContext>(
+    () => ({
+      consumerCompanyId: currentCompanyId,
+      sharingSaleFees: catalogSharingSaleFees,
+    }),
+    [catalogSharingSaleFees, currentCompanyId],
+  )
+  const catalogSharingSaleFeeTargetCompanies = useMemo(() => {
+    if (currentCompanyId === null) {
+      return [] as CompanyRecord[]
+    }
+
+    const currentCompany = companies.find((company) => company.id === currentCompanyId) ?? null
+    const directLinkedCompanyIds =
+      currentCompany?.linkedCompanyIds.filter((linkedCompanyId) => linkedCompanyId !== currentCompanyId) ?? []
+    const reverseLinkedCompanyIds = companies
+      .filter((company) => company.id !== currentCompanyId && company.linkedCompanyIds.includes(currentCompanyId))
+      .map((company) => company.id)
+    const linkedCompanyIds = new Set([...directLinkedCompanyIds, ...reverseLinkedCompanyIds])
+
+    return companies
+      .filter((company) => linkedCompanyIds.has(company.id))
+      .sort((left, right) => left.tradeName.localeCompare(right.tradeName, 'pt-BR'))
+  }, [companies, currentCompanyId])
+  useEffect(() => {
+    if (currentCompanyId === null) {
+      setCatalogSharingSaleFeeDrafts({})
+      return
+    }
+
+    setCatalogSharingSaleFeeDrafts(
+      Object.fromEntries(
+        catalogSharingSaleFeeTargetCompanies.map((targetCompany) => {
+          const feeRecord =
+            catalogSharingSaleFees.find(
+              (record) => record.ownerCompanyId === currentCompanyId && record.targetCompanyId === targetCompany.id,
+            ) ?? null
+          return [`${currentCompanyId}:${targetCompany.id}`, feeRecord?.preparationSaleFeePercentage ?? '']
+        }),
+      ),
+    )
+  }, [catalogSharingSaleFeeTargetCompanies, catalogSharingSaleFees, currentCompanyId])
   function getTechnicalSheetExplicitSharedCompanyIds(sheet: TechnicalSheetRecord) {
     const ownerCompanyId = getTechnicalSheetOwnerCompanyId(sheet)
     return Array.from(
@@ -4741,23 +4790,38 @@ export default function App() {
   }
 
   async function refreshAppAdminRecordsFromApi() {
-    const [companiesResponse, usersResponse, accessProfilesResponse, stockModuleSettingsResponse] = await Promise.all([
+    const [
+      companiesResponse,
+      usersResponse,
+      accessProfilesResponse,
+      stockModuleSettingsResponse,
+      catalogSharingSaleFeesResponse,
+    ] = await Promise.all([
       fetch('/api/companies', { cache: 'no-store' }),
       fetch('/api/users'),
       fetch('/api/access-profiles'),
       fetch('/api/stock-module-settings'),
+      fetch('/api/catalog-sharing-sale-fees', { cache: 'no-store' }),
     ])
 
-    if (!companiesResponse.ok || !usersResponse.ok || !accessProfilesResponse.ok || !stockModuleSettingsResponse.ok) {
-      throw new Error('Falha ao carregar empresas, usuarios ou perfis do servidor.')
+    if (
+      !companiesResponse.ok ||
+      !usersResponse.ok ||
+      !accessProfilesResponse.ok ||
+      !stockModuleSettingsResponse.ok ||
+      !catalogSharingSaleFeesResponse.ok
+    ) {
+      throw new Error('Falha ao carregar empresas, usuarios, perfis ou configuracoes do servidor.')
     }
 
-    const [companiesData, usersData, accessProfilesData, stockModuleSettingsData] = await Promise.all([
-      companiesResponse.json(),
-      usersResponse.json(),
-      accessProfilesResponse.json(),
-      stockModuleSettingsResponse.json(),
-    ])
+    const [companiesData, usersData, accessProfilesData, stockModuleSettingsData, catalogSharingSaleFeesData] =
+      await Promise.all([
+        companiesResponse.json(),
+        usersResponse.json(),
+        accessProfilesResponse.json(),
+        stockModuleSettingsResponse.json(),
+        catalogSharingSaleFeesResponse.json(),
+      ])
 
     const nextCompanies = Array.isArray(companiesData?.companies)
       ? (companiesData.companies as unknown[]).map(normalizeCompanyRecord).filter((item): item is CompanyRecord => item !== null)
@@ -4775,6 +4839,11 @@ export default function App() {
           .map(normalizeStockModuleSettingsRecord)
           .filter((item): item is StockModuleSettingsRecord => item !== null)
       : []
+    const nextCatalogSharingSaleFees = Array.isArray(catalogSharingSaleFeesData?.catalogSharingSaleFees)
+      ? (catalogSharingSaleFeesData.catalogSharingSaleFees as unknown[])
+          .map(normalizeCatalogSharingSaleFeeRecord)
+          .filter((item): item is CatalogSharingSaleFeeRecord => item !== null)
+      : []
     const nextCompaniesById = buildEntitySignatureMap(nextCompanies, (record) => record.id)
     const currentCompaniesById = buildEntitySignatureMap(companies, (record) => record.id)
     const nextUsersById = buildEntitySignatureMap(nextUsers, (record) => record.id)
@@ -4783,6 +4852,14 @@ export default function App() {
     const currentAccessProfilesById = buildEntitySignatureMap(accessProfiles, (record) => record.id)
     const nextStockModuleSettingsById = buildEntitySignatureMap(nextStockModuleSettings, (record) => record.companyId)
     const currentStockModuleSettingsById = buildEntitySignatureMap(stockModuleSettings, (record) => record.companyId)
+    const nextCatalogSharingSaleFeesById = buildEntitySignatureMap(
+      nextCatalogSharingSaleFees,
+      (record) => `${record.ownerCompanyId}:${record.targetCompanyId}`,
+    )
+    const currentCatalogSharingSaleFeesById = buildEntitySignatureMap(
+      catalogSharingSaleFees,
+      (record) => `${record.ownerCompanyId}:${record.targetCompanyId}`,
+    )
 
     if (!areEntitySignatureMapsEqual(nextCompaniesById, currentCompaniesById)) {
       setCompanies(nextCompanies)
@@ -4795,6 +4872,9 @@ export default function App() {
     }
     if (!areEntitySignatureMapsEqual(nextStockModuleSettingsById, currentStockModuleSettingsById)) {
       setStockModuleSettings(nextStockModuleSettings)
+    }
+    if (!areEntitySignatureMapsEqual(nextCatalogSharingSaleFeesById, currentCatalogSharingSaleFeesById)) {
+      setCatalogSharingSaleFees(nextCatalogSharingSaleFees)
     }
   }
 
@@ -6831,7 +6911,7 @@ export default function App() {
     const baseYield = getTechnicalSheetBaseYield(selectedProductionSheet)
     const recipeCount = baseYield > 0 ? desiredYield / baseYield : 1
     return buildRecipePanelDataForSheet(selectedProductionSheet, desiredYield, recipeCount)
-  }, [productionDraftState, selectedProductionSheet])
+  }, [currentCompanyCostContext, productionDraftState, selectedProductionSheet])
   const productionPreparedData = useMemo(() => {
     if (!productionDraftState || !productionBaseRecipeData || !selectedProductionSheet) {
       return null
@@ -6853,7 +6933,9 @@ export default function App() {
           technicalSheets.find((entry) => entry.productId === ingredient.productId && entry.companyId === selectedProductionSheet.companyId) ?? null
         const linkedProduct =
           products.find((entry) => entry.id === ingredient.productId && entry.companyId === selectedProductionSheet.companyId) ?? null
-        const costPerUnit = linkedProduct ? calculateProductUnitCost(linkedProduct, technicalSheets, products, serviceItems) : 0
+        const costPerUnit = linkedProduct
+          ? calculateProductUnitCost(linkedProduct, technicalSheets, products, serviceItems, currentCompanyCostContext)
+          : 0
         const alcoholPercentage = linkedTechnicalSheet
           ? calculateTechnicalSheetAlcoholPercentage(linkedTechnicalSheet, technicalSheets, products)
           : parseDecimal(linkedProduct?.alcoholPercentage ?? '') ?? 0
@@ -6926,7 +7008,15 @@ export default function App() {
       finalSalePrice,
       finalCmvPercentage,
     }
-  }, [productionBaseRecipeData, productionDraftState, products, selectedProductionSheet, serviceItems, technicalSheets])
+  }, [
+    currentCompanyCostContext,
+    productionBaseRecipeData,
+    productionDraftState,
+    products,
+    selectedProductionSheet,
+    serviceItems,
+    technicalSheets,
+  ])
   const productionPreparationModeParts = useMemo(
     () =>
       productionPreparedData
@@ -9512,7 +9602,14 @@ export default function App() {
           productId: '',
           serviceItemId: '',
         })
-        const totalCost = calculateTechnicalSheetCost(sheet, technicalSheets, products, new Set<number>(), serviceItems)
+        const totalCost = calculateTechnicalSheetCost(
+          sheet,
+          technicalSheets,
+          products,
+          new Set<number>(),
+          serviceItems,
+          currentCompanyCostContext,
+        )
         const totalYield = calculateTechnicalSheetEffectiveYield(sheet)
         nextMap.set(aggregationKey, totalYield > 0 ? totalCost / totalYield : totalCost)
       })
@@ -9526,7 +9623,10 @@ export default function App() {
           productId: product.id,
           serviceItemId: '',
         })
-        nextMap.set(aggregationKey, calculateProductUnitCost(product, technicalSheets, products, serviceItems))
+        nextMap.set(
+          aggregationKey,
+          calculateProductUnitCost(product, technicalSheets, products, serviceItems, currentCompanyCostContext),
+        )
       })
 
     serviceItems
@@ -9542,7 +9642,16 @@ export default function App() {
       })
 
     return nextMap
-  }, [currentCompanyId, isProductVisibleForCompany, isTechnicalSheetVisibleForCompany, products, serviceItemUnitCostById, serviceItems, technicalSheets])
+  }, [
+    currentCompanyCostContext,
+    currentCompanyId,
+    isProductVisibleForCompany,
+    isTechnicalSheetVisibleForCompany,
+    products,
+    serviceItemUnitCostById,
+    serviceItems,
+    technicalSheets,
+  ])
   const inventorySnapshotByCenterId = useMemo(() => {
     return new Map(
       Array.from(inventoryCurrentBalances.snapshotsByCenter.entries()).filter(([centerId]) => reportStockCenterById.has(centerId)),
@@ -12650,10 +12759,15 @@ export default function App() {
     )
   }, [currentCompanyId, defaultTechnicalSheetFormSettings, technicalSheetSettingsRecords])
   const technicalSheetConfigurationFieldsForTab = useMemo(
-    () =>
-      technicalSheetConfigurationFieldDefinitions.filter((definition) =>
+    () => {
+      if (technicalSheetSettingsTab === 'COMPARTILHAMENTO') {
+        return []
+      }
+
+      return technicalSheetConfigurationFieldDefinitions.filter((definition) =>
         definition.kinds.includes(technicalSheetSettingsTab),
-      ),
+      )
+    },
     [technicalSheetSettingsTab],
   )
   const technicalSheetConfigurationBlocksForTab = useMemo(() => {
@@ -13110,7 +13224,9 @@ export default function App() {
         technicalSheets.find((item) => item.productId === ingredient.productId && isTechnicalSheetVisibleForCompany(item, currentCompanyId)) ?? null
       const linkedProduct =
         products.find((item) => item.id === ingredient.productId && isProductVisibleForCompany(item, currentCompanyId)) ?? null
-      const costPerUnit = linkedProduct ? calculateProductUnitCost(linkedProduct, technicalSheets, products, serviceItems) : 0
+      const costPerUnit = linkedProduct
+        ? calculateProductUnitCost(linkedProduct, technicalSheets, products, serviceItems, currentCompanyCostContext)
+        : 0
       const inputQuantity = parseDecimal(ingredient.quantity) ?? 0
       const manipulatedQuantity = isTechnicalSheetIngredientManipulatedQuantityVisible(technicalSheetForm.kind)
         ? parseDecimal(ingredient.manipulatedQuantity) ?? 0
@@ -13146,14 +13262,25 @@ export default function App() {
             : '--',
       } satisfies TechnicalSheetIngredientMetrics
     })
-  }, [currentCompanyId, isProductVisibleForCompany, isTechnicalSheetVisibleForCompany, products, serviceItems, technicalSheetIngredients, technicalSheets])
+  }, [
+    currentCompanyCostContext,
+    currentCompanyId,
+    isProductVisibleForCompany,
+    isTechnicalSheetVisibleForCompany,
+    products,
+    serviceItems,
+    technicalSheetIngredients,
+    technicalSheets,
+  ])
   const technicalSheetGarnishIngredientMetrics = useMemo(() => {
     return technicalSheetGarnishIngredients.map((ingredient) => {
       const linkedTechnicalSheet =
         technicalSheets.find((item) => item.productId === ingredient.productId && isTechnicalSheetVisibleForCompany(item, currentCompanyId)) ?? null
       const linkedProduct =
         products.find((item) => item.id === ingredient.productId && isProductVisibleForCompany(item, currentCompanyId)) ?? null
-      const costPerUnit = linkedProduct ? calculateProductUnitCost(linkedProduct, technicalSheets, products, serviceItems) : 0
+      const costPerUnit = linkedProduct
+        ? calculateProductUnitCost(linkedProduct, technicalSheets, products, serviceItems, currentCompanyCostContext)
+        : 0
       const inputQuantity = parseDecimal(ingredient.quantity) ?? 0
       const manipulatedQuantity = isTechnicalSheetIngredientManipulatedQuantityVisible(technicalSheetForm.kind)
         ? parseDecimal(ingredient.manipulatedQuantity) ?? 0
@@ -13189,7 +13316,16 @@ export default function App() {
             : '--',
       } satisfies TechnicalSheetIngredientMetrics
     })
-  }, [currentCompanyId, isProductVisibleForCompany, isTechnicalSheetVisibleForCompany, products, serviceItems, technicalSheetGarnishIngredients, technicalSheets])
+  }, [
+    currentCompanyCostContext,
+    currentCompanyId,
+    isProductVisibleForCompany,
+    isTechnicalSheetVisibleForCompany,
+    products,
+    serviceItems,
+    technicalSheetGarnishIngredients,
+    technicalSheets,
+  ])
   const technicalSheetMixtureUnitLabel = useMemo(() => {
     const units = [...technicalSheetIngredientMetrics, ...technicalSheetGarnishIngredientMetrics]
       .map((item) => item.productUnitLabel)
@@ -13346,17 +13482,20 @@ export default function App() {
             return product.sectors.some((sector) => selectedValues.includes(sector))
           }
 
-          return selectedValues.includes(getProductColumnValue(product, key, technicalSheets, products, serviceItems))
+          return selectedValues.includes(
+            getProductColumnValue(product, key, technicalSheets, products, serviceItems, currentCompanyCostContext),
+          )
         })
 
           return matchesSearch && matchesColumnFilters
         }),
         columnSort,
-        (product, key) => getProductSortValue(product, key, technicalSheets, products, serviceItems),
+        (product, key) => getProductSortValue(product, key, technicalSheets, products, serviceItems, currentCompanyCostContext),
       ),
     [
       columnFilters,
       columnSort,
+      currentCompanyCostContext,
       currentCompanyId,
       currentUserSectorScope,
       isProductVisibleForCompany,
@@ -13493,13 +13632,44 @@ export default function App() {
             if (key === 'sectors') {
               return sheet.sectors.some((sector) => selectedValues.includes(sector))
             }
-            return selectedValues.includes(getTechnicalSheetColumnValue(sheet, key, technicalSheets, products, stockCenters, companies, serviceItems))
+            return selectedValues.includes(
+              getTechnicalSheetColumnValue(
+                sheet,
+                key,
+                technicalSheets,
+                products,
+                stockCenters,
+                companies,
+                serviceItems,
+                currentCompanyCostContext,
+              ),
+            )
           }),
         ),
         technicalSheetColumnSort,
-        (sheet, key) => getTechnicalSheetSortValue(sheet, key, technicalSheets, products, stockCenters, companies, serviceItems),
+        (sheet, key) =>
+          getTechnicalSheetSortValue(
+            sheet,
+            key,
+            technicalSheets,
+            products,
+            stockCenters,
+            companies,
+            serviceItems,
+            currentCompanyCostContext,
+          ),
       ),
-    [companies, products, serviceItems, stockCenters, technicalSheetColumnFilters, technicalSheetColumnSort, technicalSheets, visibleTechnicalSheets],
+    [
+      companies,
+      currentCompanyCostContext,
+      products,
+      serviceItems,
+      stockCenters,
+      technicalSheetColumnFilters,
+      technicalSheetColumnSort,
+      technicalSheets,
+      visibleTechnicalSheets,
+    ],
   )
   const distinctTechnicalSheetColumnValues = useMemo(
     () =>
@@ -13518,14 +13688,25 @@ export default function App() {
                   new Set(
                     technicalSheets
                       .filter((sheet) => isTechnicalSheetVisibleForCompany(sheet, currentCompanyId))
-                      .map((sheet) => getTechnicalSheetColumnValue(sheet, key, technicalSheets, products, stockCenters, companies, serviceItems)),
+                      .map((sheet) =>
+                        getTechnicalSheetColumnValue(
+                          sheet,
+                          key,
+                          technicalSheets,
+                          products,
+                          stockCenters,
+                          companies,
+                          serviceItems,
+                          currentCompanyCostContext,
+                        ),
+                      ),
                   ),
                 )
 
           return [key, sortDistinctValues(values, isNumericTechnicalSheetColumn(key))]
         }),
       ) as Record<TechnicalSheetColumnKey, string[]>,
-    [companies, currentCompanyId, products, serviceItems, stockCenters, technicalSheets],
+    [companies, currentCompanyCostContext, currentCompanyId, products, serviceItems, stockCenters, technicalSheets],
   )
   useEffect(() => {
     setTechnicalSheetColumnFilters((current) => {
@@ -13710,7 +13891,9 @@ export default function App() {
             technicalSheets.find((entry) => entry.productId === ingredient.productId) ?? null
           const linkedProduct =
             products.find((entry) => entry.id === ingredient.productId) ?? null
-          const costPerUnit = linkedProduct ? calculateProductUnitCost(linkedProduct, technicalSheets, products, serviceItems) : 0
+          const costPerUnit = linkedProduct
+            ? calculateProductUnitCost(linkedProduct, technicalSheets, products, serviceItems, currentCompanyCostContext)
+            : 0
           const alcoholPercentage = linkedTechnicalSheet
             ? calculateTechnicalSheetAlcoholPercentage(linkedTechnicalSheet, technicalSheets, products)
             : parseDecimal(linkedProduct?.alcoholPercentage ?? '') ?? 0
@@ -13854,6 +14037,7 @@ export default function App() {
     const recipeCountInput = parseDecimal(recipePanelRecipeCount[recipePanelTab]) ?? safeDesiredYield / baseYield
     return buildRecipePanelDataForSheet(sheet, safeDesiredYield, recipeCountInput)
   }, [
+    currentCompanyCostContext,
     products,
     recipePanelDesiredYield,
     recipePanelRecipeCount,
@@ -14079,7 +14263,9 @@ export default function App() {
                           isProductVisibleForCompany(product, currentCompanyId) &&
                           !isCommercialTechnicalSheetProduct(product, technicalSheets),
                       )
-                      .map((product) => getProductColumnValue(product, key, technicalSheets, products, serviceItems)),
+                      .map((product) =>
+                        getProductColumnValue(product, key, technicalSheets, products, serviceItems, currentCompanyCostContext),
+                      ),
                   ),
                 )
 
@@ -14089,7 +14275,7 @@ export default function App() {
           ]
         }),
       ) as Record<ColumnKey, string[]>,
-    [currentCompanyId, products, serviceItems, technicalSheets],
+    [currentCompanyCostContext, currentCompanyId, products, serviceItems, technicalSheets],
   )
   const hiddenColumns = useMemo(
     () => columnOptions.filter(([key]) => !columnVisibility[key]),
@@ -14097,7 +14283,7 @@ export default function App() {
   )
   const exportableProductRows = useMemo(() => {
     return visibleProducts.flatMap((product) => {
-      const costPerUnit = calculateProductUnitCost(product, technicalSheets, products, serviceItems)
+      const costPerUnit = calculateProductUnitCost(product, technicalSheets, products, serviceItems, currentCompanyCostContext)
       const productRow = {
         tipo: 'PRODUTO',
         produto: product.name,
@@ -14150,7 +14336,7 @@ export default function App() {
 
       return [productRow, ...packageRows]
     })
-  }, [productExportState?.includePackages, products, technicalSheets, visibleProducts])
+  }, [currentCompanyCostContext, productExportState?.includePackages, products, serviceItems, technicalSheets, visibleProducts])
   const visiblePackages = useMemo(
     () => packages.filter((item) => showInactivePackages || item.isActive),
     [packages, showInactivePackages],
@@ -25425,6 +25611,79 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
     })
   }
 
+  function updateCatalogSharingSaleFeeDraft(targetCompanyId: number, value: string) {
+    if (currentCompanyId === null) {
+      return
+    }
+
+    const normalizedInput = value.replace(/[^\d,.]/g, '')
+    setCatalogSharingSaleFeeDrafts((current) => ({
+      ...current,
+      [buildCatalogSharingSaleFeeKey(currentCompanyId, targetCompanyId)]: normalizedInput,
+    }))
+  }
+
+  async function saveCatalogSharingSaleFees() {
+    if (currentCompanyId === null) {
+      setSaveFeedback({
+        status: 'error',
+        title: 'Falha ao salvar taxas',
+        message: 'Erro: selecione uma empresa antes de configurar compartilhamento.',
+      })
+      return
+    }
+
+    const invalidDraft = catalogSharingSaleFeeTargetCompanies.find((targetCompany) => {
+      const rawValue = catalogSharingSaleFeeDrafts[buildCatalogSharingSaleFeeKey(currentCompanyId, targetCompany.id)] ?? ''
+      const percentage = parseDecimal(rawValue)
+      return rawValue.trim() !== '' && (percentage === null || percentage < 0 || percentage > 1000)
+    })
+    if (invalidDraft) {
+      setSaveFeedback({
+        status: 'error',
+        title: 'Falha ao salvar taxas',
+        message: `Erro: revise a taxa informada para ${invalidDraft.tradeName}. Use um percentual entre 0 e 1000.`,
+      })
+      return
+    }
+
+    try {
+      await Promise.all(
+        catalogSharingSaleFeeTargetCompanies.map(async (targetCompany) => {
+          const response = await fetch(`/api/catalog-sharing-sale-fees/${currentCompanyId}/${targetCompany.id}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              preparationSaleFeePercentage:
+                catalogSharingSaleFeeDrafts[buildCatalogSharingSaleFeeKey(currentCompanyId, targetCompany.id)] ?? '',
+            }),
+          })
+          if (!response.ok) {
+            const payload = await response.json().catch(() => null)
+            throw new Error(
+              typeof payload?.error === 'string'
+                ? payload.error
+                : `Falha ao salvar taxa de compartilhamento para ${targetCompany.tradeName}.`,
+            )
+          }
+        }),
+      )
+      await refreshAppAdminRecordsFromApi()
+      setSaveFeedback({
+        status: 'success',
+        title: 'Taxas de compartilhamento salvas',
+        message: 'As taxas de venda dos pre-preparos compartilhados foram atualizadas no servidor.',
+      })
+    } catch (error) {
+      console.error(error)
+      setSaveFeedback({
+        status: 'error',
+        title: 'Falha ao salvar taxas',
+        message: error instanceof Error ? error.message : 'Erro ao salvar taxas de compartilhamento.',
+      })
+    }
+  }
+
   function updateSelectedStockImportSettingsCenter(
     updater: (current: StockCenterSalesImportSettings) => StockCenterSalesImportSettings,
   ) {
@@ -36105,12 +36364,30 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                             <td>{getProductColumnValue(product, 'controlUnit')}</td>
                           ) : null}
                           {columnVisibility.unitCost ? (
-                            <td>{getProductColumnValue(product, 'unitCost', technicalSheets, products, serviceItems)}</td>
+                            <td>
+                              {getProductColumnValue(
+                                product,
+                                'unitCost',
+                                technicalSheets,
+                                products,
+                                serviceItems,
+                                currentCompanyCostContext,
+                              )}
+                            </td>
                           ) : null}
                           {columnVisibility.purchaseCost ? (
                             <td>
                               <div className="package-cost-cell">
-                                <span>{getProductColumnValue(product, 'purchaseCost', technicalSheets, products, serviceItems)}</span>
+                                <span>
+                                  {getProductColumnValue(
+                                    product,
+                                    'purchaseCost',
+                                    technicalSheets,
+                                    products,
+                                    serviceItems,
+                                    currentCompanyCostContext,
+                                  )}
+                                </span>
                                 {activePackages.length > 1 ? (
                                   <button
                                     type="button"
@@ -36950,19 +37227,78 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
               Defina por tipo de ficha quais campos devem ser exibidos no formulario e quais deles passam a ser obrigatorios no salvamento.
             </p>
             <div className="panel-tabs" role="tablist" aria-label="Tipos de ficha tecnica">
-              {(['PREPARO', 'EXECUCAO', 'VENDA'] as const).map((kind) => (
+              {(['PREPARO', 'EXECUCAO', 'VENDA', 'COMPARTILHAMENTO'] as const).map((kind) => (
                 <button
                   key={kind}
                   type="button"
                   className={technicalSheetSettingsTab === kind ? 'panel-tab active' : 'panel-tab'}
                   onClick={() => setTechnicalSheetSettingsTab(kind)}
                 >
-                  {kind === 'PREPARO' ? 'Pre-preparo' : kind === 'EXECUCAO' ? 'Execucao' : 'Venda'}
+                  {kind === 'PREPARO'
+                    ? 'Pre-preparo'
+                    : kind === 'EXECUCAO'
+                      ? 'Execucao'
+                      : kind === 'VENDA'
+                        ? 'Venda'
+                        : 'Compartilhamento'}
                 </button>
               ))}
             </div>
           </section>
 
+          {technicalSheetSettingsTab === 'COMPARTILHAMENTO' ? (
+            <section className="panel">
+              <div className="section-heading">
+                <div>
+                  <p className="kicker">Compartilhamento</p>
+                  <h2>Taxa de venda entre empresas</h2>
+                </div>
+                <div className="toolbar-actions">
+                  <button className="primary-button" type="button" onClick={saveCatalogSharingSaleFees}>
+                    Salvar taxas
+                  </button>
+                </div>
+              </div>
+
+              {catalogSharingSaleFeeTargetCompanies.length > 0 && currentCompanyId !== null ? (
+                <div className="settings-block-list">
+                  <section className="settings-block">
+                    <div className="settings-field-list">
+                      {catalogSharingSaleFeeTargetCompanies.map((targetCompany) => {
+                        const draftKey = buildCatalogSharingSaleFeeKey(currentCompanyId, targetCompany.id)
+                        const draftValue = catalogSharingSaleFeeDrafts[draftKey] ?? ''
+                        return (
+                          <article key={targetCompany.id} className="settings-field-row">
+                            <div className="settings-field-copy">
+                              <strong>{targetCompany.tradeName}</strong>
+                              <p className="helper-text">
+                                Origem: {currentCompany?.tradeName ?? 'Empresa atual'}; destino: {targetCompany.tradeName}.
+                              </p>
+                            </div>
+                            <label className="settings-checkbox settings-percentage-field">
+                              <span>Taxa</span>
+                              <input
+                                type="text"
+                                inputMode="decimal"
+                                value={draftValue}
+                                onChange={(event) => updateCatalogSharingSaleFeeDraft(targetCompany.id, event.target.value)}
+                                placeholder="0"
+                              />
+                              <span>%</span>
+                            </label>
+                          </article>
+                        )
+                      })}
+                    </div>
+                  </section>
+                </div>
+              ) : (
+                <div className="empty-state empty-state-inline">
+                  <strong>Nenhuma empresa vinculada para configurar.</strong>
+                </div>
+              )}
+            </section>
+          ) : (
           <section className="panel">
             <div className="section-heading">
               <div>
@@ -37060,6 +37396,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
               ))}
             </div>
           </section>
+          )}
         </>
       ) : activeSection === 'FichasTecnicas' ? (
         technicalSheetScreenMode === 'list' ? (
@@ -37226,7 +37563,16 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
 
                             return (
                               <td key={`${sheet.id}-${key}`}>
-                                {getTechnicalSheetColumnValue(sheet, key, technicalSheets, products, stockCenters, companies, serviceItems) || '-'}
+                                {getTechnicalSheetColumnValue(
+                                  sheet,
+                                  key,
+                                  technicalSheets,
+                                  products,
+                                  stockCenters,
+                                  companies,
+                                  serviceItems,
+                                  currentCompanyCostContext,
+                                ) || '-'}
                               </td>
                             )
                           })}
@@ -49886,12 +50232,13 @@ function calculateTechnicalSheetFinalCmvPercentage(
   technicalSheets: TechnicalSheetRecord[] = [],
   products: ProductRecord[] = [],
   serviceItems: ServiceItemRecord[] = [],
+  costContext: TechnicalSheetCostContext = {},
 ) {
   if (!isCommercialTechnicalSheetKind(sheet.kind)) {
     return null
   }
 
-  const totalCost = calculateTechnicalSheetCost(sheet, technicalSheets, products, new Set<number>(), serviceItems)
+  const totalCost = calculateTechnicalSheetCost(sheet, technicalSheets, products, new Set<number>(), serviceItems, costContext)
   const desiredCmvPercentage = parseDecimal(sheet.desiredCmvPercentage) ?? 0
   const savedFinalSalePrice = parseDecimal(sheet.finalSalePrice) ?? 0
   const suggestedSalePrice =
@@ -49909,6 +50256,7 @@ function getTechnicalSheetColumnValue(
   stockCenters: StockCenterRecord[] = [],
   companies: CompanyRecord[] = [],
   serviceItems: ServiceItemRecord[] = [],
+  costContext: TechnicalSheetCostContext = {},
 ) {
   switch (key) {
     case 'product':
@@ -49925,15 +50273,15 @@ function getTechnicalSheetColumnValue(
         .filter(Boolean)
         .join(', ')
     case 'costPerYield': {
-      const totalCost = calculateTechnicalSheetCost(sheet, technicalSheets, products, new Set<number>(), serviceItems)
+      const totalCost = calculateTechnicalSheetCost(sheet, technicalSheets, products, new Set<number>(), serviceItems, costContext)
       const effectiveYield = calculateTechnicalSheetEffectiveYield(sheet)
       const costPerYield = effectiveYield > 0 ? totalCost / effectiveYield : totalCost
       return `R$ ${formatMoney(costPerYield)}`
     }
     case 'totalRecipeCost':
-      return `R$ ${formatMoney(calculateTechnicalSheetCost(sheet, technicalSheets, products, new Set<number>(), serviceItems))}`
+      return `R$ ${formatMoney(calculateTechnicalSheetCost(sheet, technicalSheets, products, new Set<number>(), serviceItems, costContext))}`
     case 'finalCmvPercentage': {
-      const finalCmvPercentage = calculateTechnicalSheetFinalCmvPercentage(sheet, technicalSheets, products, serviceItems)
+      const finalCmvPercentage = calculateTechnicalSheetFinalCmvPercentage(sheet, technicalSheets, products, serviceItems, costContext)
       return finalCmvPercentage === null ? '-' : `${formatDecimal(finalCmvPercentage)}%`
     }
     case 'finalSalePrice':
@@ -49966,16 +50314,17 @@ function getProductSortValue(
   technicalSheets: TechnicalSheetRecord[] = [],
   products: ProductRecord[] = [],
   serviceItems: ServiceItemRecord[] = [],
+  costContext: TechnicalSheetCostContext = {},
 ) {
   switch (key) {
     case 'unitCost':
-      return calculateProductUnitCost(product, technicalSheets, products, serviceItems)
+      return calculateProductUnitCost(product, technicalSheets, products, serviceItems, costContext)
     case 'purchaseCost':
       return getProductPurchaseCostSortValue(product)
     case 'packages':
       return product.packages.length
     default:
-      return getProductColumnValue(product, key, technicalSheets, products, serviceItems)
+      return getProductColumnValue(product, key, technicalSheets, products, serviceItems, costContext)
   }
 }
 
@@ -49987,17 +50336,18 @@ function getTechnicalSheetSortValue(
   stockCenters: StockCenterRecord[] = [],
   companies: CompanyRecord[] = [],
   serviceItems: ServiceItemRecord[] = [],
+  costContext: TechnicalSheetCostContext = {},
 ) {
   switch (key) {
     case 'costPerYield': {
-      const totalCost = calculateTechnicalSheetCost(sheet, technicalSheets, products, new Set<number>(), serviceItems)
+      const totalCost = calculateTechnicalSheetCost(sheet, technicalSheets, products, new Set<number>(), serviceItems, costContext)
       const effectiveYield = calculateTechnicalSheetEffectiveYield(sheet)
       return effectiveYield > 0 ? totalCost / effectiveYield : totalCost
     }
     case 'totalRecipeCost':
-      return calculateTechnicalSheetCost(sheet, technicalSheets, products, new Set<number>(), serviceItems)
+      return calculateTechnicalSheetCost(sheet, technicalSheets, products, new Set<number>(), serviceItems, costContext)
     case 'finalCmvPercentage':
-      return calculateTechnicalSheetFinalCmvPercentage(sheet, technicalSheets, products, serviceItems) ?? 0
+      return calculateTechnicalSheetFinalCmvPercentage(sheet, technicalSheets, products, serviceItems, costContext) ?? 0
     case 'finalSalePrice':
       return parseDecimal(sheet.finalSalePrice) ?? 0
     case 'yield':
@@ -50005,7 +50355,7 @@ function getTechnicalSheetSortValue(
     case 'ingredients':
       return sheet.ingredients.filter((ingredient) => ingredient.isActive).length
     default:
-      return getTechnicalSheetColumnValue(sheet, key, technicalSheets, products, stockCenters, companies, serviceItems)
+      return getTechnicalSheetColumnValue(sheet, key, technicalSheets, products, stockCenters, companies, serviceItems, costContext)
   }
 }
 
@@ -51870,6 +52220,7 @@ function getProductColumnValue(
   technicalSheets: TechnicalSheetRecord[] = [],
   products: ProductRecord[] = [],
   serviceItems: ServiceItemRecord[] = [],
+  costContext: TechnicalSheetCostContext = {},
 ) {
   switch (key) {
     case 'product':
@@ -51890,11 +52241,11 @@ function getProductColumnValue(
       if (product.controlUnit === 'UNIT') return 'Unidade'
       return 'Combo'
     case 'unitCost':
-      return `R$ ${formatMoney(calculateProductUnitCost(product, technicalSheets, products, serviceItems))} / ${formatControlUnitShort(product.controlUnit)}`
+      return `R$ ${formatMoney(calculateProductUnitCost(product, technicalSheets, products, serviceItems, costContext))} / ${formatControlUnitShort(product.controlUnit)}`
     case 'purchaseCost':
       return getProductPurchaseCostSummary(product)
     case 'costStatus':
-      return getProductCostStatus(product, technicalSheets, products)
+      return getProductCostStatus(product, technicalSheets, products, serviceItems, costContext)
     case 'executionYield':
       return product.excludeFromExecutionYield ? 'Nao compoe volume' : 'Compoe volume'
     case 'packages':
@@ -54252,6 +54603,33 @@ function normalizeStockModuleSettingsRecord(value: unknown): StockModuleSettings
       (record as { closedInventoryDeleteRoles?: unknown }).closedInventoryDeleteRoles === undefined
         ? ['Administrativo', 'Gestor']
         : normalizeRoles((record as { closedInventoryDeleteRoles?: unknown }).closedInventoryDeleteRoles),
+  }
+}
+
+function normalizeCatalogSharingSaleFeeRecord(value: unknown): CatalogSharingSaleFeeRecord | null {
+  if (!value || typeof value !== 'object') {
+    return null
+  }
+
+  const record = value as Partial<CatalogSharingSaleFeeRecord>
+  if (
+    typeof record.ownerCompanyId !== 'number' ||
+    typeof record.targetCompanyId !== 'number' ||
+    record.ownerCompanyId === record.targetCompanyId ||
+    typeof record.preparationSaleFeePercentage !== 'string'
+  ) {
+    return null
+  }
+
+  const percentage = parseDecimal(record.preparationSaleFeePercentage) ?? 0
+  if (percentage < 0 || percentage > 1000) {
+    return null
+  }
+
+  return {
+    ownerCompanyId: record.ownerCompanyId,
+    targetCompanyId: record.targetCompanyId,
+    preparationSaleFeePercentage: String(percentage),
   }
 }
 

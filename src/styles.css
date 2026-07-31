@@ -593,6 +593,11 @@ select {
   color: rgba(20, 33, 61, 0.82);
 }
 
+.settings-percentage-field input {
+  width: 84px;
+  text-align: right;
+}
+
 .user-list-row {
   gap: 14px;
 }
