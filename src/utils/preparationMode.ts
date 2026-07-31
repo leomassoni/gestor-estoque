@@ -218,13 +218,7 @@ export function buildPreparationModeMetricParts(value: string, ingredients: Reci
 }
 
 export function formatPreparationModeIngredientQuantity(ingredient: RecipePanelIngredientMetrics) {
-  const inputLabel = formatRecipeIngredientInputQuantity(ingredient)
-  const manipulatedLabel = formatRecipeIngredientManipulatedQuantity(ingredient)
-  if (!manipulatedLabel) {
-    return `Entrada ${inputLabel}`
-  }
-
-  return `Manipulado ${manipulatedLabel} (entrada ${inputLabel})`
+  return formatRecipeIngredientOperationalQuantity(ingredient)
 }
 
 export function getRecipeIngredientOperationalQuantity(ingredient: RecipePanelIngredientMetrics) {
@@ -234,10 +228,6 @@ export function getRecipeIngredientOperationalQuantity(ingredient: RecipePanelIn
 }
 
 export function formatRecipeIngredientInputQuantity(ingredient: RecipePanelIngredientMetrics) {
-  if (ingredient.scaledOperationalQuantity > 0 && ingredient.operationalUnitLabel.trim() !== '') {
-    return `${formatDecimal(ingredient.scaledOperationalQuantity)} ${ingredient.operationalUnitLabel} (${formatDecimal(ingredient.scaledInputQuantity)} ${ingredient.unitLabel})`
-  }
-
   return `${formatDecimal(ingredient.scaledInputQuantity)} ${ingredient.unitLabel}`
 }
 
@@ -256,10 +246,9 @@ export function formatRecipeIngredientLossQuantity(ingredient: RecipePanelIngred
 }
 
 export function formatRecipeIngredientOperationalQuantity(ingredient: RecipePanelIngredientMetrics) {
-  const manipulatedLabel = formatRecipeIngredientManipulatedQuantity(ingredient)
-  if (!manipulatedLabel) {
-    return formatRecipeIngredientInputQuantity(ingredient)
+  if (ingredient.scaledOperationalQuantity > 0 && ingredient.operationalUnitLabel.trim() !== '') {
+    return `${formatDecimal(ingredient.scaledOperationalQuantity)} ${ingredient.operationalUnitLabel}`
   }
 
-  return `${manipulatedLabel} manip. (entrada ${formatRecipeIngredientInputQuantity(ingredient)})`
+  return formatRecipeIngredientManipulatedQuantity(ingredient) || formatRecipeIngredientInputQuantity(ingredient)
 }

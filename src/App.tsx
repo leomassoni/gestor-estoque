@@ -14105,7 +14105,7 @@ export default function App() {
       case 'ingredient':
         return <strong>{ingredient.label}</strong>
       case 'input':
-        return formatRecipeIngredientInputQuantity(ingredient)
+        return formatRecipeIngredientOperationalQuantity(ingredient)
       case 'manipulated':
         return formatRecipeIngredientManipulatedQuantity(ingredient) || '-'
       case 'yield':
@@ -14123,7 +14123,7 @@ export default function App() {
       case 'ingredient':
         return ingredient.label
       case 'input':
-        return formatRecipeIngredientInputQuantity(ingredient)
+        return formatRecipeIngredientOperationalQuantity(ingredient)
       case 'manipulated':
         return formatRecipeIngredientManipulatedQuantity(ingredient) || '-'
       case 'yield':
@@ -32375,7 +32375,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                         </>
                       ) : (
                         <>
-                          <td>{formatRecipeIngredientInputQuantity(ingredient)}</td>
+                          <td>{formatRecipeIngredientOperationalQuantity(ingredient)}</td>
                           <td>{formatRecipeIngredientManipulatedQuantity(ingredient) || '-'}</td>
                           <td>{formatRecipeIngredientYieldQuantity(ingredient)}</td>
                           <td>{formatDecimal(ingredient.alcoholPercentage)}%</td>
@@ -32435,7 +32435,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                         </>
                       ) : (
                         <>
-                          <td>{formatRecipeIngredientInputQuantity(ingredient)}</td>
+                          <td>{formatRecipeIngredientOperationalQuantity(ingredient)}</td>
                           <td>{formatRecipeIngredientManipulatedQuantity(ingredient) || '-'}</td>
                           <td>{formatRecipeIngredientYieldQuantity(ingredient)}</td>
                           <td>{formatDecimal(ingredient.alcoholPercentage)}%</td>
@@ -32807,7 +32807,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                 ]
               : [
                   ingredient.label,
-                  formatRecipeIngredientInputQuantity(ingredient),
+                  formatRecipeIngredientOperationalQuantity(ingredient),
                   formatRecipeIngredientManipulatedQuantity(ingredient) || '-',
                   formatRecipeIngredientYieldQuantity(ingredient),
                   `${formatDecimal(ingredient.alcoholPercentage)}%`,
@@ -32835,7 +32835,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                   ]
                 : [
                     ingredient.label,
-                    formatRecipeIngredientInputQuantity(ingredient),
+                    formatRecipeIngredientOperationalQuantity(ingredient),
                     formatRecipeIngredientManipulatedQuantity(ingredient) || '-',
                     formatRecipeIngredientYieldQuantity(ingredient),
                     `${formatDecimal(ingredient.alcoholPercentage)}%`,
