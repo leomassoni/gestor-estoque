@@ -1534,7 +1534,9 @@ app.get('/api/products', async (request, response) => {
           },
     orderBy: [{ name: 'asc' }, { id: 'asc' }],
   })
-  response.json({ products })
+  const visibleProducts =
+    companyId === null ? products : await filterProductRecordsVisibleForCompany(products, companyId, companyScopeIds)
+  response.json({ products: visibleProducts })
 })
 
 app.post('/api/products', async (request, response) => {
@@ -2257,6 +2259,46 @@ async function allocateTechnicalSheetProductId(kind, client = prisma) {
   throw error
 }
 
+async function filterProductRecordsVisibleForCompany(products, companyId, companyScopeIds, client = prisma) {
+  const technicalSheetIds = Array.from(
+    new Set(
+      products
+        .map((product) => product.technicalSheetId)
+        .filter((technicalSheetId) => typeof technicalSheetId === 'number'),
+    ),
+  )
+
+  if (technicalSheetIds.length === 0) {
+    return products
+  }
+
+  const technicalSheets = await client.appTechnicalSheetRecord.findMany({
+    where: { id: { in: technicalSheetIds } },
+    select: { id: true, companyId: true, ownerCompanyId: true, sharedCompanyIds: true },
+  })
+  const technicalSheetById = new Map(technicalSheets.map((sheet) => [sheet.id, sheet]))
+
+  return products.filter((product) => {
+    if (typeof product.technicalSheetId !== 'number') {
+      return true
+    }
+
+    const technicalSheet = technicalSheetById.get(product.technicalSheetId)
+    if (!technicalSheet) {
+      return false
+    }
+
+    const ownerCompanyId =
+      typeof technicalSheet.ownerCompanyId === 'number' ? technicalSheet.ownerCompanyId : technicalSheet.companyId
+    const sharedCompanyIds = Array.isArray(technicalSheet.sharedCompanyIds) ? technicalSheet.sharedCompanyIds : []
+
+    return (
+      ownerCompanyId === companyId ||
+      (sharedCompanyIds.includes(companyId) && companyScopeIds.includes(ownerCompanyId))
+    )
+  })
+}
+
 async function ensureUniqueProductName(product, client = prisma) {
   const companyScopeIds = await getCompanyCatalogScopeIds(product.ownerCompanyId ?? product.companyId)
   const existing = await client.appProductRecord.findMany({
@@ -2266,10 +2308,16 @@ async function ensureUniqueProductName(product, client = prisma) {
         { companyId: { in: companyScopeIds } },
       ],
     },
-    select: { id: true, name: true, companyProductId: true },
+    select: { id: true, name: true, companyProductId: true, technicalSheetId: true },
   })
+  const visibleExisting = await filterProductRecordsVisibleForCompany(
+    existing,
+    product.ownerCompanyId ?? product.companyId,
+    companyScopeIds,
+    client,
+  )
 
-  const duplicateName = existing.find(
+  const duplicateName = visibleExisting.find(
     (record) => record.id !== product.id && normalizeRegistrationNameKey(record.name) === normalizeRegistrationNameKey(product.name),
   )
 
@@ -2283,7 +2331,7 @@ async function ensureUniqueProductName(product, client = prisma) {
   const duplicateCompanyProductId =
     normalizedCompanyProductId === ''
       ? null
-      : existing.find(
+      : visibleExisting.find(
           (record) =>
             record.id !== product.id &&
             normalizeRegistrationText(record.companyProductId) === normalizedCompanyProductId,
