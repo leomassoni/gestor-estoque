@@ -267,6 +267,7 @@ export type TechnicalSheetRecord = {
   kind: TechnicalSheetKind
   productId: string
   companyProductId: string
+  companyProductIdsByCompanyId: Record<string, string>
   name: string
   family: string
   subfamily: string

@@ -40,6 +40,7 @@ const technicalSheetListSelect = {
   kind: true,
   productId: true,
   companyProductId: true,
+  companyProductIdsByCompanyId: true,
   name: true,
   family: true,
   subfamily: true,
@@ -2233,6 +2234,46 @@ function getTechnicalSheetProductIdPrefix(kind) {
   return 'PRE'
 }
 
+function normalizeTechnicalSheetCompanyProductIdsByCompanyId(value, ownerCompanyId, legacyCompanyProductId = '') {
+  const normalized = {}
+  if (value && typeof value === 'object' && !Array.isArray(value)) {
+    Object.entries(value).forEach(([companyId, companyProductId]) => {
+      const parsedCompanyId = parseIntegerParam(companyId)
+      const normalizedCompanyProductId =
+        typeof companyProductId === 'string' ? normalizeRegistrationText(companyProductId) : ''
+      if (parsedCompanyId !== null && parsedCompanyId > 0 && normalizedCompanyProductId !== '') {
+        normalized[String(parsedCompanyId)] = normalizedCompanyProductId
+      }
+    })
+  }
+
+  const normalizedLegacyCompanyProductId = normalizeRegistrationText(legacyCompanyProductId)
+  if (!normalized[String(ownerCompanyId)] && normalizedLegacyCompanyProductId !== '') {
+    normalized[String(ownerCompanyId)] = normalizedLegacyCompanyProductId
+  }
+
+  return normalized
+}
+
+function getTechnicalSheetCompanyProductId(sheet, companyId) {
+  if (companyId === null || companyId === undefined) {
+    return ''
+  }
+  const ownerCompanyId = typeof sheet.ownerCompanyId === 'number' ? sheet.ownerCompanyId : sheet.companyId
+  const companyProductIdsByCompanyId = normalizeTechnicalSheetCompanyProductIdsByCompanyId(
+    sheet.companyProductIdsByCompanyId,
+    ownerCompanyId,
+    sheet.companyProductId,
+  )
+  return companyProductIdsByCompanyId[String(companyId)] ?? ''
+}
+
+function isTechnicalSheetRecordVisibleForCompany(sheet, companyId, companyScopeIds) {
+  const ownerCompanyId = typeof sheet.ownerCompanyId === 'number' ? sheet.ownerCompanyId : sheet.companyId
+  const sharedCompanyIds = Array.isArray(sheet.sharedCompanyIds) ? sheet.sharedCompanyIds : []
+  return ownerCompanyId === companyId || (sharedCompanyIds.includes(companyId) && companyScopeIds.includes(ownerCompanyId))
+}
+
 async function allocateTechnicalSheetProductId(kind, client = prisma) {
   const prefix = getTechnicalSheetProductIdPrefix(kind)
 
@@ -2274,28 +2315,37 @@ async function filterProductRecordsVisibleForCompany(products, companyId, compan
 
   const technicalSheets = await client.appTechnicalSheetRecord.findMany({
     where: { id: { in: technicalSheetIds } },
-    select: { id: true, companyId: true, ownerCompanyId: true, sharedCompanyIds: true },
+    select: {
+      id: true,
+      companyId: true,
+      ownerCompanyId: true,
+      sharedCompanyIds: true,
+      companyProductId: true,
+      companyProductIdsByCompanyId: true,
+    },
   })
   const technicalSheetById = new Map(technicalSheets.map((sheet) => [sheet.id, sheet]))
 
-  return products.filter((product) => {
+  return products.flatMap((product) => {
     if (typeof product.technicalSheetId !== 'number') {
-      return true
+      return [product]
     }
 
     const technicalSheet = technicalSheetById.get(product.technicalSheetId)
     if (!technicalSheet) {
-      return false
+      return []
     }
 
-    const ownerCompanyId =
-      typeof technicalSheet.ownerCompanyId === 'number' ? technicalSheet.ownerCompanyId : technicalSheet.companyId
-    const sharedCompanyIds = Array.isArray(technicalSheet.sharedCompanyIds) ? technicalSheet.sharedCompanyIds : []
+    if (!isTechnicalSheetRecordVisibleForCompany(technicalSheet, companyId, companyScopeIds)) {
+      return []
+    }
 
-    return (
-      ownerCompanyId === companyId ||
-      (sharedCompanyIds.includes(companyId) && companyScopeIds.includes(ownerCompanyId))
-    )
+    return [
+      {
+        ...product,
+        companyProductId: getTechnicalSheetCompanyProductId(technicalSheet, companyId),
+      },
+    ]
   })
 }
 
@@ -2412,7 +2462,7 @@ async function ensureUniqueServiceItemName(serviceItem, client = prisma) {
 async function ensureUniqueTechnicalSheetName(technicalSheet, client = prisma) {
   const existing = await client.appTechnicalSheetRecord.findMany({
     where: { companyId: technicalSheet.companyId },
-    select: { id: true, name: true, companyProductId: true },
+    select: { id: true, name: true },
   })
 
   const duplicateName = existing.find(
@@ -2427,20 +2477,51 @@ async function ensureUniqueTechnicalSheetName(technicalSheet, client = prisma) {
     throw error
   }
 
-  const normalizedCompanyProductId = normalizeRegistrationText(technicalSheet.companyProductId)
-  const duplicateCompanyProductId =
-    normalizedCompanyProductId === ''
-      ? null
-      : existing.find(
-          (record) =>
-            record.id !== technicalSheet.id &&
-            normalizeRegistrationText(record.companyProductId) === normalizedCompanyProductId,
-        )
+  const companyProductIdEntries = Object.entries(
+    normalizeTechnicalSheetCompanyProductIdsByCompanyId(
+      technicalSheet.companyProductIdsByCompanyId,
+      technicalSheet.ownerCompanyId ?? technicalSheet.companyId,
+      technicalSheet.companyProductId,
+    ),
+  )
+  for (const [rawCompanyId, companyProductId] of companyProductIdEntries) {
+    const companyId = parseIntegerParam(rawCompanyId)
+    if (companyId === null || companyProductId === '') {
+      continue
+    }
+    const companyScopeIds = await getCompanyCatalogScopeIds(companyId, client)
+    const visibleSheets = await client.appTechnicalSheetRecord.findMany({
+      where: {
+        OR: [
+          { ownerCompanyId: companyId },
+          { companyId },
+          { sharedCompanyIds: { has: companyId } },
+        ],
+      },
+      select: {
+        id: true,
+        companyId: true,
+        ownerCompanyId: true,
+        sharedCompanyIds: true,
+        companyProductId: true,
+        companyProductIdsByCompanyId: true,
+        name: true,
+      },
+    })
+    const duplicateCompanyProductId = visibleSheets.find(
+      (record) =>
+        record.id !== technicalSheet.id &&
+        isTechnicalSheetRecordVisibleForCompany(record, companyId, companyScopeIds) &&
+        getTechnicalSheetCompanyProductId(record, companyId) === companyProductId,
+    )
 
-  if (duplicateCompanyProductId) {
-    const error = new Error(`Ja existe uma ficha tecnica cadastrada com o ID empresa ${normalizedCompanyProductId}.`)
-    error.statusCode = 409
-    throw error
+    if (duplicateCompanyProductId) {
+      const error = new Error(
+        `Ja existe uma ficha tecnica cadastrada com o ID empresa ${companyProductId} para esta empresa: ${duplicateCompanyProductId.name}.`,
+      )
+      error.statusCode = 409
+      throw error
+    }
   }
 }
 
@@ -2889,8 +2970,8 @@ function areCompanyRecordsLinked(companyById, ownerCompanyId, targetCompanyId) {
   return ownerLinks.includes(targetCompanyId) || targetLinks.includes(ownerCompanyId)
 }
 
-async function getCompanyCatalogScopeIds(companyId) {
-  const companies = await prisma.appCompanyRecord.findMany({
+async function getCompanyCatalogScopeIds(companyId, client = prisma) {
+  const companies = await client.appCompanyRecord.findMany({
     select: { id: true, linkedCompanyIds: true },
   })
   const visitedCompanyIds = new Set()
@@ -4214,6 +4295,11 @@ function normalizeTechnicalSheetPayload(value) {
         Salgado: sheet.flavorSalty,
         Umami: sheet.flavorUmami,
       })
+  const companyProductIdsByCompanyId = normalizeTechnicalSheetCompanyProductIdsByCompanyId(
+    sheet.companyProductIdsByCompanyId,
+    ownerCompanyId,
+    sheet.companyProductId,
+  )
 
   return {
     id: sheet.id,
@@ -4222,7 +4308,8 @@ function normalizeTechnicalSheetPayload(value) {
     sharedCompanyIds,
     kind: sheet.kind,
     productId: sheet.productId,
-    companyProductId: sheet.companyProductId,
+    companyProductId: companyProductIdsByCompanyId[String(ownerCompanyId)] ?? '',
+    companyProductIdsByCompanyId,
     name: sheet.name,
     family: sheet.family,
     subfamily: sheet.subfamily,
