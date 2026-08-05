@@ -150,7 +150,7 @@ Registrar em que pe o sistema esta hoje, por area, para consulta rapida antes de
 - `Entrada de producoes`, `Requisicoes`, `Suprimentos` e `Recebimentos` ja passaram por ajustes para respeitar essa separacao.
 - A prioridade da `Entrada de producoes` e calculada por dependencias de producao. A camada `0` representa itens que precisam ser feitos primeiro por nao dependerem de outro preparo da mesma fila. Quando a fila contem pedidos manuais/planejamento por ficha, esses itens tambem entram no grafo para evitar que dependencias fiquem mascaradas como prioridade `0`.
 - A tela de `Entrada de producoes` carrega requisicoes junto com producoes, pois requisicoes pendentes reduzem a necessidade a produzir no centro produtor.
-- A tabela de `Entrada de producoes` e virtualizada; por isso a tela exibe resumo de total e distribuicao por prioridade acima da lista.
+- A tabela de `Entrada de producoes` nao deve usar virtualizacao invisivel. Ela e uma fila operacional e deve usar paginacao explicita de 20 producoes por pagina, com setas e numeros visiveis para navegar pela lista. A tela tambem exibe resumo de total e distribuicao por prioridade acima da lista.
 - `Desperdicio` possui entidades proprias:
   - `wasteSessions`
   - `wasteRecords`

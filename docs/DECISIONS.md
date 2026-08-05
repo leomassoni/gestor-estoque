@@ -390,5 +390,14 @@ Registrar o que foi decidido, o que foi adiado e o que foi descartado, com foco 
 - Problema: build e simulacao de dados nao bastam para provar que um fluxo operacional foi corrigido para o usuario.
 - Regra extraida:
   - validar pelo menos um caso real no navegador quando a mudanca afetar tela operacional;
-  - para `Entrada de producoes`, validar centro produtor, resumo da fila, busca por item dependente e dados carregados de producoes/requisicoes;
+  - para `Entrada de producoes`, validar centro produtor, resumo da fila, paginacao, item dependente acessivel na pagina correta ou por busca e dados carregados de producoes/requisicoes;
   - registrar no `WORKLOG` o caso validado e o resultado.
+
+### Entrada de producoes precisa navegar a fila de forma explicita
+
+- Problema: virtualizacao pode fazer a ficha existir na fila filtrada, mas nao estar montada no DOM ate rolagem ou busca, parecendo ausente para o usuario.
+- Regra extraida:
+  - `Entrada de producoes` e fila operacional por prioridade, nao relatorio pesado;
+  - quando a fila for grande, usar paginacao explicita de 20 producoes por pagina, com setas e numeros visiveis;
+  - filtros, busca e ordenacao devem atuar antes da paginacao;
+  - otimizacoes de performance nao podem esconder etapas de producao sem indicar ao usuario como acessar o restante da fila.

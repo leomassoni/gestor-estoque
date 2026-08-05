@@ -31,9 +31,6 @@ import {
 import {
   adminPollingSections,
   inventoryPollingSections,
-  productionHistoryOverscanRows,
-  productionHistoryRowHeightPx,
-  productionHistoryViewportHeightPx,
   productionPollingSections,
   receiveHistoryOverscanRows,
   receiveHistoryRowHeightPx,
@@ -888,6 +885,7 @@ const defaultProductionColumnVisibility: Record<ProductionColumnKey, boolean> = 
   status: true,
 }
 const defaultProductionColumnFilters: Partial<Record<ProductionColumnKey, string[]>> = {}
+const productionPageSize = 20
 const stockReportColumnOptions: Array<[StockReportColumnKey, string]> = [
   ['main', 'Principal'],
   ['internalId', 'ID interno'],
@@ -2606,7 +2604,7 @@ export default function App() {
   const [manualSupplyDraftLines, setManualSupplyDraftLines] = useState<ManualSupplyDraftLine[]>([])
   const [productionCenterId, setProductionCenterId] = useState('')
   const [productionSearch, setProductionSearch] = useState('')
-  const [productionScrollTop, setProductionScrollTop] = useState(0)
+  const [productionPage, setProductionPage] = useState(1)
   const [productionDraftState, setProductionDraftState] = useState<ProductionDraftState | null>(null)
   const [productionInProgressDrafts, setProductionInProgressDrafts] = useState<ProductionDraftState[]>(
     () => loadProductionInProgressDraftsState(),
@@ -4681,29 +4679,82 @@ export default function App() {
     () => productionColumnOptions.filter(([key]) => !productionColumnVisibility[key]),
     [productionColumnVisibility],
   )
-  const visibleProductionRange = useMemo(() => {
-    const totalRows = visibleProductionRows.length
-    if (totalRows === 0) {
-      return { startIndex: 0, endIndex: 0, topSpacerHeight: 0, bottomSpacerHeight: 0 }
+  const productionPageCount = Math.max(1, Math.ceil(visibleProductionRows.length / productionPageSize))
+  const currentProductionPage = Math.min(productionPage, productionPageCount)
+  const paginatedProductionRows = useMemo(() => {
+    const startIndex = (currentProductionPage - 1) * productionPageSize
+    return visibleProductionRows.slice(startIndex, startIndex + productionPageSize)
+  }, [currentProductionPage, visibleProductionRows])
+  const productionPaginationStart = visibleProductionRows.length === 0 ? 0 : (currentProductionPage - 1) * productionPageSize + 1
+  const productionPaginationEnd = Math.min(visibleProductionRows.length, currentProductionPage * productionPageSize)
+  const productionPaginationPages = useMemo(() => {
+    if (productionPageCount <= 7) {
+      return Array.from({ length: productionPageCount }, (_, index) => index + 1)
     }
 
-    const visibleRowCount = Math.ceil(productionHistoryViewportHeightPx / productionHistoryRowHeightPx)
-    const startIndex = Math.max(
-      0,
-      Math.floor(productionScrollTop / productionHistoryRowHeightPx) - productionHistoryOverscanRows,
+    const pageSet = new Set(
+      [1, currentProductionPage - 1, currentProductionPage, currentProductionPage + 1, productionPageCount].filter(
+        (page) => page >= 1 && page <= productionPageCount,
+      ),
     )
-    const endIndex = Math.min(totalRows, startIndex + visibleRowCount + productionHistoryOverscanRows * 2)
-    return {
-      startIndex,
-      endIndex,
-      topSpacerHeight: startIndex * productionHistoryRowHeightPx,
-      bottomSpacerHeight: Math.max(0, (totalRows - endIndex) * productionHistoryRowHeightPx),
-    }
-  }, [productionScrollTop, visibleProductionRows.length])
-  const virtualizedProductionRows = useMemo(
-    () => visibleProductionRows.slice(visibleProductionRange.startIndex, visibleProductionRange.endIndex),
-    [visibleProductionRange.endIndex, visibleProductionRange.startIndex, visibleProductionRows],
-  )
+    const pages = Array.from(pageSet).sort((left, right) => left - right)
+    return pages.flatMap((page, index) => {
+      const previousPage = pages[index - 1]
+      return previousPage !== undefined && page - previousPage > 1 ? ['gap' as const, page] : [page]
+    })
+  }, [currentProductionPage, productionPageCount])
+  useEffect(() => {
+    setProductionPage(1)
+  }, [productionCenterId, productionColumnFilters, productionColumnSort, productionSearch])
+  useEffect(() => {
+    setProductionPage((current) => Math.min(current, productionPageCount))
+  }, [productionPageCount])
+  const productionPaginationControls =
+    visibleProductionRows.length > productionPageSize ? (
+      <nav className="pagination-row" aria-label="Paginas da entrada de producoes">
+        <span className="pagination-range">
+          {formatDecimal(productionPaginationStart)}-{formatDecimal(productionPaginationEnd)} de{' '}
+          {formatDecimal(visibleProductionRows.length)}
+        </span>
+        <div className="pagination-actions">
+          <button
+            type="button"
+            className="ghost-button pagination-button"
+            onClick={() => setProductionPage((current) => Math.max(1, current - 1))}
+            disabled={currentProductionPage <= 1}
+            aria-label="Pagina anterior"
+          >
+            &lt;
+          </button>
+          {productionPaginationPages.map((page, index) =>
+            page === 'gap' ? (
+              <span key={`production-page-gap-${index}`} className="pagination-gap" aria-hidden="true">
+                ...
+              </span>
+            ) : (
+              <button
+                key={page}
+                type="button"
+                className={page === currentProductionPage ? 'primary-button pagination-button' : 'ghost-button pagination-button'}
+                onClick={() => setProductionPage(page)}
+                aria-current={page === currentProductionPage ? 'page' : undefined}
+              >
+                {formatDecimal(page)}
+              </button>
+            ),
+          )}
+          <button
+            type="button"
+            className="ghost-button pagination-button"
+            onClick={() => setProductionPage((current) => Math.min(productionPageCount, current + 1))}
+            disabled={currentProductionPage >= productionPageCount}
+            aria-label="Proxima pagina"
+          >
+            &gt;
+          </button>
+        </div>
+      </nav>
+    ) : null
   const reportEligibleStockCenters = useMemo(
     () =>
       stockCenters
@@ -40733,7 +40784,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                 ) : null}
 
                 {visibleInventorySummaryCounts.length > 0 ? (
-                  <div className="table-wrap" onScroll={(event) => setProductionScrollTop(event.currentTarget.scrollTop)}>
+                  <div className="table-wrap">
                     <table className="product-table">
                       <thead>
                         <tr>
@@ -43326,6 +43377,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                         </span>
                       ) : null}
                     </div>
+                    {productionPaginationControls}
                     <div className="table-wrap">
                     <table className="product-table">
                       <thead>
@@ -43341,12 +43393,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                         </tr>
                       </thead>
                       <tbody>
-                        {visibleProductionRange.topSpacerHeight > 0 ? (
-                          <tr aria-hidden="true">
-                            <td colSpan={8} style={{ height: `${visibleProductionRange.topSpacerHeight}px`, padding: 0, border: 0 }} />
-                          </tr>
-                        ) : null}
-                        {virtualizedProductionRows.map((row) => (
+                        {paginatedProductionRows.map((row) => (
                           <tr key={`${row.centerId}-${row.sheetId}`}>
                             {productionColumnVisibility.sheet ? <td className="sticky-product-cell">
                               <strong>{row.sheetName}</strong>
@@ -43380,14 +43427,10 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                             </td>
                           </tr>
                         ))}
-                        {visibleProductionRange.bottomSpacerHeight > 0 ? (
-                          <tr aria-hidden="true">
-                            <td colSpan={8} style={{ height: `${visibleProductionRange.bottomSpacerHeight}px`, padding: 0, border: 0 }} />
-                          </tr>
-                        ) : null}
                       </tbody>
                     </table>
                     </div>
+                    {productionPaginationControls}
                   </>
                 ) : (
                   <div className="empty-state">

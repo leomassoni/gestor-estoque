@@ -20,10 +20,6 @@ export const receiveHistoryRowHeightPx = 57
 export const receiveHistoryViewportHeightPx = 456
 export const receiveHistoryOverscanRows = 8
 
-export const productionHistoryRowHeightPx = 57
-export const productionHistoryViewportHeightPx = 456
-export const productionHistoryOverscanRows = 8
-
 export const stockReportRowHeightPx = 57
 export const stockReportViewportHeightPx = 560
 export const stockReportOverscanRows = 10

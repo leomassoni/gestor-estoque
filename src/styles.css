@@ -1469,6 +1469,41 @@ h3 {
   font-size: 0.88rem;
 }
 
+.pagination-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px 14px;
+  margin: 10px 0;
+}
+
+.pagination-range {
+  color: var(--muted);
+  font-size: 0.88rem;
+}
+
+.pagination-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.pagination-button {
+  min-width: 40px;
+  min-height: 36px;
+  padding: 8px 10px;
+}
+
+.pagination-gap {
+  display: inline-flex;
+  min-width: 24px;
+  justify-content: center;
+  color: var(--muted);
+}
+
 .form-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -3831,6 +3866,24 @@ h3 {
 
   .content {
     padding: 12px;
+  }
+
+  .pagination-row {
+    align-items: stretch;
+  }
+
+  .pagination-range,
+  .pagination-actions {
+    width: 100%;
+  }
+
+  .pagination-actions {
+    justify-content: center;
+  }
+
+  .pagination-button {
+    min-width: 38px;
+    padding: 8px;
   }
 
   .hero-panel {

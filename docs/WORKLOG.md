@@ -55,6 +55,11 @@ Registrar um historico resumido do que foi feito, do que falhou e do que ficou p
   - a tabela recebeu resumo de quantidade total e distribuicao por prioridade para evitar que a virtualizacao esconda visualmente as etapas seguintes;
   - validacao local com dados publicados confirmou, em `COMPLEXO VILA ANALIA > LABORATORIO`, 53 producoes na fila e distribuicao `0: 30; 1: 14; 2: 8; 3: 1`;
   - buscando `ASIA`, a tela mostra `ASIA CLARIFICACAO` com prioridade `1` e `PRE-BATCHED ASIA` com prioridade `2`.
+- Apos revisao da exigencia operacional, a `Entrada de producoes` deixou de virtualizar linhas e passou a usar paginacao explicita de 20 producoes por pagina, com navegacao por setas e numeros acima e abaixo da tabela. A ordenacao por prioridade, filtros, resumo e acoes existentes foram mantidos.
+- Validacao desktop/mobile em navegador real com dados publicados:
+  - `COMPLEXO VILA ANALIA > LABORATORIO` exibe 53 producoes, distribuicao `0: 30; 1: 14; 2: 8; 3: 1`, pagina 1 com 20 linhas, pagina 2 com 20 linhas e pagina 3 com 13 linhas;
+  - no mobile, a navegacao de paginas fica responsiva, sem overflow horizontal da pagina;
+  - buscando `ASIA`, a tela mostra `ASIA CLARIFICACAO` e `PRE-BATCHED ASIA`, com prioridades `1` e `2`.
 
 ### Pendencias / cuidados
 
