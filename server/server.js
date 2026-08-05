@@ -1,5 +1,6 @@
 const fs = require('node:fs')
 const path = require('node:path')
+const crypto = require('node:crypto')
 const express = require('express')
 const cors = require('cors')
 const { PrismaClient } = require('@prisma/client')
@@ -83,6 +84,7 @@ const technicalSheetListSelect = {
 }
 const maxInt32Id = 2147483647
 const technicalSheetIdAllocationLockKey = 74261001
+const catalogIdAlphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'
 let hasSeededAppAdminRecords = false
 let hasSeededAppStockCenterRecords = false
 let hasSeededAppCatalogRecords = false
@@ -2213,6 +2215,48 @@ function hasTechnicalSheetProductIdPrefix(productId) {
   return /^(PRE|EXE|VEN|TSP|TSE)-/.test(productId)
 }
 
+function buildOpaqueCatalogId(prefix) {
+  const timePart = Date.now().toString(36).toUpperCase()
+  const randomPart = Array.from(crypto.randomBytes(6), (byte) => catalogIdAlphabet[byte % catalogIdAlphabet.length]).join('')
+  return `${prefix}-${timePart}-${randomPart}`
+}
+
+function getTechnicalSheetProductIdPrefix(kind) {
+  if (kind === 'VENDA') {
+    return 'VEN'
+  }
+  if (kind === 'EXECUCAO') {
+    return 'EXE'
+  }
+  return 'PRE'
+}
+
+async function allocateTechnicalSheetProductId(kind, client = prisma) {
+  const prefix = getTechnicalSheetProductIdPrefix(kind)
+
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    const productId = buildOpaqueCatalogId(prefix)
+    const [existingProduct, existingTechnicalSheet] = await Promise.all([
+      client.appProductRecord.findUnique({
+        where: { id: productId },
+        select: { id: true },
+      }),
+      client.appTechnicalSheetRecord.findFirst({
+        where: { productId },
+        select: { id: true },
+      }),
+    ])
+
+    if (!existingProduct && !existingTechnicalSheet) {
+      return productId
+    }
+  }
+
+  const error = new Error('Nao foi possivel gerar um ID interno unico para o produto vinculado da ficha tecnica.')
+  error.statusCode = 409
+  throw error
+}
+
 async function ensureUniqueProductName(product, client = prisma) {
   const companyScopeIds = await getCompanyCatalogScopeIds(product.ownerCompanyId ?? product.companyId)
   const existing = await client.appProductRecord.findMany({
@@ -2365,7 +2409,7 @@ async function ensureProductTechnicalSheetLinkCanBeSaved(product) {
 
   const technicalSheet = await prisma.appTechnicalSheetRecord.findUnique({
     where: { id: product.technicalSheetId },
-    select: { id: true, companyId: true, ownerCompanyId: true, name: true },
+    select: { id: true, companyId: true, ownerCompanyId: true, productId: true, name: true },
   })
 
   if (!technicalSheet) {
@@ -2380,6 +2424,14 @@ async function ensureProductTechnicalSheetLinkCanBeSaved(product) {
   ) {
     const error = new Error(
       `A ficha tecnica vinculada ao produto pertence a outra empresa: ${technicalSheet.name}.`,
+    )
+    error.statusCode = 409
+    throw error
+  }
+
+  if (technicalSheet.productId !== product.id) {
+    const error = new Error(
+      `ID interno do produto vinculado deve ser gerado pela ficha tecnica ${technicalSheet.name}.`,
     )
     error.statusCode = 409
     throw error
@@ -2427,8 +2479,10 @@ async function createTechnicalSheetRecordWithAllocatedId(technicalSheet) {
           throw error
         }
 
+        const productId = await allocateTechnicalSheetProductId(technicalSheet.kind, transaction)
+
         return transaction.appTechnicalSheetRecord.create({
-          data: { ...technicalSheet, id: nextId },
+          data: { ...technicalSheet, id: nextId, productId },
         })
       })
     } catch (error) {

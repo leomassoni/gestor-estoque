@@ -28903,7 +28903,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
     }
 
     let technicalSheetId = editingTechnicalSheetId ?? (await fetchNextTechnicalSheetIdFromApi())
-    const generatedProductId = previousTechnicalSheet?.productId ?? buildTechnicalSheetProductId(normalizedName, technicalSheetForm.kind)
+    let generatedProductId = previousTechnicalSheet?.productId ?? buildTechnicalSheetProductId(normalizedName, technicalSheetForm.kind)
     const technicalSheetOwnerCompanyId =
       previousTechnicalSheet?.ownerCompanyId ?? previousTechnicalSheet?.companyId ?? currentCompanyId ?? 0
     const previousSharedCompanyIds = previousTechnicalSheet ? getTechnicalSheetExplicitSharedCompanyIds(previousTechnicalSheet) : []
@@ -29159,7 +29159,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
           previousTechnicalSheet?.companyId ??
           currentCompanyId ??
           0,
-        id: generatedProductId,
+        id: sheetToSave.productId,
         companyProductId: normalizedCompanyProductId,
         name: normalizedName,
         controlUnit: technicalSheetForm.outputUnit,
@@ -29209,11 +29209,13 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
         editingTechnicalSheetId === null
           ? await createTechnicalSheetRecordOnApiWithRetry(technicalSheetToSave)
           : await upsertTechnicalSheetRecordOnApi(technicalSheetToSave)
-      if (savedTechnicalSheet.id !== technicalSheetId) {
+      if (savedTechnicalSheet.id !== technicalSheetId || savedTechnicalSheet.productId !== technicalSheetToSave.productId) {
         technicalSheetId = savedTechnicalSheet.id
+        generatedProductId = savedTechnicalSheet.productId
         technicalSheetToSave = {
           ...technicalSheetToSave,
           id: savedTechnicalSheet.id,
+          productId: savedTechnicalSheet.productId,
         }
         ;({
           nextTechnicalSheets,
