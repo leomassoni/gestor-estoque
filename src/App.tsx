@@ -14471,6 +14471,12 @@ export default function App() {
               companyId: currentCompanyId ?? 0,
               ownerCompanyId: currentCompanyId ?? 0,
               productId: draftTechnicalSheetProductId,
+              companyProductIdsByCompanyId: buildTechnicalSheetCompanyProductIdsByCompanyId(
+                null,
+                currentCompanyId ?? 0,
+                currentCompanyId,
+                technicalSheetForm.companyProductId,
+              ),
               ingredients: technicalSheetRegisteredIngredients,
               garnishIngredients: technicalSheetRegisteredGarnishIngredients,
               serviceItems: technicalSheetRegisteredServiceItems,
