@@ -1,6 +1,6 @@
 # Decisoes do Projeto
 
- Ultima atualizacao: 2026-07-13
+ Ultima atualizacao: 2026-08-05
 
 ## Objetivo deste arquivo
 
@@ -27,7 +27,61 @@ Registrar o que foi decidido, o que foi adiado e o que foi descartado, com foco 
   - muito menor complexidade que `grupo + product master + company link`
   - encaixa melhor no sistema atual
   - preserva segregacao operacional por empresa
-- Status: definido para implementacao futura.
+- Status: implementado em produtos, fichas tecnicas e utensilios/recipientes; novas mudancas devem preservar esse escopo.
+
+### IDs internos de cadastro pertencem ao servidor/webapp
+
+- Decisao: scripts, agentes e importacoes nao devem escolher `id` interno de `Produto`, `Ficha tecnica` ou cadastro vinculado.
+- Regra:
+  - criar ficha/produto sempre via API/fluxo do webapp;
+  - deixar o servidor gerar o ID interno;
+  - validar apos cadastro se o ID foi persistido e se nao houve colisao;
+  - nunca preencher ID interno vazio com valor inventado em script.
+- Motivo:
+  - IDs internos viram filtros e chaves de relacionamento;
+  - colisao de ID pode fazer ficha puxar produto/ficha de empresa errada;
+  - esse tipo de erro ja causou perda/confusao de cadastros.
+- Status: regra ativa.
+
+### `ID empresa` de ficha tecnica e contextual por empresa
+
+- Decisao: `ID empresa` representa o codigo real do PDV/sistema externo de uma empresa especifica.
+- Regra:
+  - e opcional;
+  - deve ser preenchido pelo usuario;
+  - nao deve ser gerado automaticamente;
+  - nao deve ser propagado para empresas vinculadas;
+  - uma ficha compartilhada pode ter `ID empresa` em uma empresa e ficar sem `ID empresa` em outra.
+- Motivo:
+  - empresas vinculadas podem ter codigos reais diferentes para a mesma ficha;
+  - o matching de vendas, estoque minimo, requisicoes e entradas de producao depende do codigo correto da empresa que importou o relatorio.
+- Status: implementado com mapa contextual por empresa.
+
+### Prioridade da Entrada de producoes deve seguir dependencias da propria fila
+
+- Decisao: a ordenacao padrao da `Entrada de producoes` deve priorizar o que precisa ser feito antes porque outra producao depende disso.
+- Regra:
+  - prioridade `0` representa a primeira camada operacional, ou seja, item sem dependencia de outro preparo da mesma fila;
+  - itens que dependem de outros preparos recebem prioridade maior;
+  - a fila deve montar o grafo com fichas produzidas pelo centro e tambem com fichas presentes por pedido manual, rascunho ou planejamento por ficha;
+  - ordem alfabetica e apenas desempate dentro da mesma prioridade.
+- Motivo:
+  - fichas de planejamento podem entrar na fila mesmo quando ainda nao constam em `producedTechnicalSheetIds` do centro;
+  - se essas fichas ficam fora do grafo, dependencias reais aparecem como prioridade `0` e a fila parece alfabetica.
+- Status: implementado em 2026-08-05.
+
+### Quantidade exibida em receituarios e modo de preparo e operacional
+
+- Decisao: a leitura do receituario deve ser orientada ao operador, nao ao controle de custo bruto.
+- Regra:
+  - exibir `quantidade operacional` quando existir;
+  - se nao existir, exibir `manipulado`;
+  - se nenhum dos dois existir, exibir `entrada`;
+  - aplicar a mesma prioridade antes da palavra que faz matching no modo de preparo;
+  - considerar insumos e guarnicoes.
+- Motivo:
+  - o operador precisa ver a quantidade efetivamente manipulada/servida, enquanto o sistema preserva a entrada para custo, estoque e rendimento.
+- Status: implementado.
 
 ### Usuario multiempresa deve evoluir para vinculo por empresa
 
@@ -314,3 +368,19 @@ Registrar o que foi decidido, o que foi adiado e o que foi descartado, com foco 
 
 - Problema: havia percepcao de que talvez os outros tipos de ficha tambem tivessem aninhamento equivalente.
 - Regra extraida: antes de afirmar cobertura estrutural, confirmar no codigo se o fluxo realmente existe.
+
+### Cadastrar dados por script sem respeitar IDs e escopo da API
+
+- Problema: cadastros criados ou alterados sem seguir o fluxo do webapp podem colidir IDs internos ou vazar composicao entre empresas sem vinculo.
+- Regra extraida:
+  - ler estes arquivos guia e o historico de commits antes de alterar fluxo de cadastro/estoque;
+  - criar cadastros via API do webapp, deixando IDs internos serem gerados pelo servidor;
+  - validar escopo por empresa vinculada apos qualquer cadastro em massa;
+  - atualizar `WORKLOG`, `STATUS` e `DECISIONS` quando uma mudanca alterar comportamento real do sistema.
+
+### Prioridade de producao nao pode ser inferida so por nome
+
+- Problema: a fila de `Entrada de producoes` pode parecer alfabetica quando as fichas da propria fila nao entram no grafo de dependencias.
+- Regra extraida:
+  - diagnosticar a fila pelo fluxo completo: centro selecionado, fichas produzidas, pedidos manuais, rascunhos, composicao e dependencias;
+  - nao resolver invertendo ordenacao ou renomeando prioridade sem provar a causa nos dados.

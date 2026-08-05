@@ -1,6 +1,6 @@
 # Status do Sistema
 
- Ultima atualizacao: 2026-07-19
+ Ultima atualizacao: 2026-08-05
 
 ## Objetivo deste arquivo
 
@@ -15,6 +15,7 @@ Registrar em que pe o sistema esta hoje, por area, para consulta rapida antes de
 - O sistema esta em modo hibrido:
   - parte dos modulos ja grava e le por entidade no backend/Prisma;
   - parte ainda depende do snapshot global salvo em `/api/state`.
+- A API publicada deve ser tratada como fonte preferencial para verificacoes operacionais de CPXVA/Macaxeira; o banco local pode estar com migracoes pendentes ou historico inconsistente.
 
 ## Migracao por entidade
 
@@ -61,6 +62,9 @@ Registrar em que pe o sistema esta hoje, por area, para consulta rapida antes de
   - `EXECUCAO`: dourado-palha
   - `VENDA`: salvia clara
 - A lista de fichas cadastradas ja possui colunas extras como `Tipo`, `Custo por rendimento`, `Valor final` e `Empresas vinculadas`, alem de ordenacao livre de colunas.
+- A API de lista de fichas com `companyId` retorna tambem fichas compartilhadas visiveis para a empresa consultada.
+- O ID interno de ficha tecnica deve ser gerado pelo servidor/webapp; scripts e importacoes nao devem escolher IDs.
+- `ID empresa` de ficha tecnica e contextual por empresa, opcional e preenchido manualmente pelo usuario. Ele nao deve ser propagado automaticamente para empresas vinculadas.
 
 ### PREPARO
 
@@ -87,6 +91,14 @@ Registrar em que pe o sistema esta hoje, por area, para consulta rapida antes de
 - O formulario principal de `VENDA` existe e esta funcional.
 - Nao existe hoje modal aninhado de ficha tecnica para `VENDA`.
 - As configuracoes de exibicao e obrigatoriedade atuam no formulario principal.
+- Fichas de `VENDA` podem ser compartilhadas entre empresas vinculadas quando fizer sentido operacional, mas cada empresa deve ter seu proprio `ID empresa` se houver codigo real de PDV para aquela empresa.
+
+## Catalogo compartilhado
+
+- Produtos, fichas tecnicas e utensilios/recipientes possuem regra de visibilidade por empresa de origem, empresas compartilhadas e empresas vinculadas.
+- Produtos usados na composicao de ficha tecnica devem ficar restritos ao escopo da empresa da ficha e de suas empresas vinculadas, evitando que fichas puxem produtos de empresas sem vinculo.
+- Fichas de `PREPARO` compartilhadas continuam podendo ter centros produtores por empresa; compartilhar cadastro nao significa compartilhar movimentacao operacional.
+- Para o lote Macaxeira de doses de cachacas, existem 21 fichas finais `DS ... 50ML` criadas na empresa 5 e compartilhadas com empresas 8 e 9. A planilha de controle e `/home/leomassoni/Documentos/Igarapé/Projetos/CPXVA/doses_cachacas_macaxeira_2026_extraido.xlsx`.
 
 ## Painel de configuracoes de fichas tecnicas
 
@@ -125,7 +137,8 @@ Registrar em que pe o sistema esta hoje, por area, para consulta rapida antes de
 ## Painel de receitas / receituarios
 
 - O painel atualiza valores em tempo real conforme quantidade de receitas e rendimento desejado.
-- Nos textos de execucao, os insumos identificados no modo de preparo exibem ao lado o valor de entrada recalculado.
+- Nos textos de execucao, os insumos identificados no modo de preparo exibem ao lado a quantidade operacional recalculada quando existir; se nao existir, exibem `manipulado`; se tambem nao existir, exibem `entrada`.
+- O matching do modo de preparo considera insumos e guarnicoes cadastrados na ficha.
 - As tabelas de composicao de insumos dos receituarios nao exibem mais dados de custo; mostram apenas entrada, rendimento e % de alcool.
 - Os blocos `Dados tecnicos` foram simplificados conforme decisoes recentes.
 - As dependencias pesadas de exportacao e editor foram colocadas em carregamento sob demanda.
@@ -135,6 +148,7 @@ Registrar em que pe o sistema esta hoje, por area, para consulta rapida antes de
 - O fluxo de `Importar vendas` usa historico persistido de `sales-consumptions` como fonte principal para minimos quando as linhas importadas nao preservam `MATCHED`.
 - O minimo do centro consumidor, o consolidado operacional do produtor e o minimo de uso devem permanecer conceitos separados.
 - `Entrada de producoes`, `Requisicoes`, `Suprimentos` e `Recebimentos` ja passaram por ajustes para respeitar essa separacao.
+- A prioridade da `Entrada de producoes` e calculada por dependencias de producao. A camada `0` representa itens que precisam ser feitos primeiro por nao dependerem de outro preparo da mesma fila. Quando a fila contem pedidos manuais/planejamento por ficha, esses itens tambem entram no grafo para evitar que dependencias fiquem mascaradas como prioridade `0`.
 - `Desperdicio` possui entidades proprias:
   - `wasteSessions`
   - `wasteRecords`
@@ -171,6 +185,7 @@ Registrar em que pe o sistema esta hoje, por area, para consulta rapida antes de
   - [`src/utils/preparationMode.ts`](/home/leomassoni/Documentos/Igarapé/Projetos/TCC-SP/gestor-estoque/src/utils/preparationMode.ts)
 - O projeto ainda depende fortemente de estado local e renderizacao centralizada.
 - O snapshot global ainda duplica parte dos dados que ja existem em tabelas por entidade.
+- Persistencia em navegador/localStorage ainda existe para estados auxiliares e compatibilidade; cadastros e fluxos operacionais criticos devem priorizar API/banco e expor falhas de salvamento.
 - Imagens em `base64` ainda tendem a pressionar storage se continuarem dentro do banco/snapshot.
 - O bundle web esta grande; o build gera aviso de chunk acima de 500 kB.
 - O build local separa `react`, `react-dom` e `scheduler` em `react-vendor` via `manualChunks`.

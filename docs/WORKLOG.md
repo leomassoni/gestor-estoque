@@ -1,10 +1,61 @@
 # Worklog
 
- Ultima atualizacao: 2026-07-13
+ Ultima atualizacao: 2026-08-05
 
 ## Objetivo deste arquivo
 
 Registrar um historico resumido do que foi feito, do que falhou e do que ficou pendente.
+
+## 2026-08-05
+
+### Confirmado / implementado desde a ultima atualizacao
+
+- Cadastro e compartilhamento por empresas vinculadas foram reforcados no codigo publicado:
+  - produtos e fichas passaram a respeitar melhor o escopo da empresa ativa e das empresas vinculadas;
+  - utensilios/recipientes tambem passaram a ser compartilhados entre empresas vinculadas;
+  - a lista de fichas passou a retornar fichas criadas na empresa e fichas compartilhadas visiveis para a empresa consultada.
+- IDs internos de fichas tecnicas passaram a ser gerados no servidor, com trava de criacao, para reduzir risco de colisao entre usuarios e evitar scripts/importacoes escolhendo IDs manualmente.
+- O campo `ID empresa` de ficha tecnica passou a ser contextual por empresa:
+  - e preenchido manualmente pelo usuario;
+  - e opcional;
+  - nao deve ser propagado automaticamente para empresas vinculadas;
+  - o mapa contextual e usado em previas e retornos da API.
+- O cadastro de ficha tecnica foi protegido contra transformacao indevida em produto orfao:
+  - produtos orfaos de fichas tecnicas foram bloqueados;
+  - cadastros vinculados de ficha passaram a ter geracao segura de produto/ficha pelo servidor.
+- Receituarios e modo de preparo foram ajustados para exibicao operacional:
+  - `quantidade operacional` tem prioridade de exibicao;
+  - se ela nao existir, usa `manipulado`;
+  - se nenhum dos dois existir, usa `entrada`;
+  - guarnicoes entram no matching do receituario.
+- Foi adicionada taxa de venda para pre-preparos compartilhados em configuracao de compartilhamento.
+- Foram aplicadas correcoes de cache/local state relacionadas ao acesso a fichas em navegadores diferentes.
+- Foi feita a consolidacao das fichas de venda de doses de cachacas Macaxeira:
+  - 21 fichas finais `DS ... 50ML` ficaram criadas na empresa 5 e compartilhadas com empresas 8 e 9;
+  - 42 duplicatas de fichas/produtos criadas por empresa foram removidas;
+  - a planilha `/home/leomassoni/Documentos/Igarapé/Projetos/CPXVA/doses_cachacas_macaxeira_2026_extraido.xlsx` foi atualizada com os IDs finais e resultado da consolidacao;
+  - as 3 linhas de `CARACUIPE OURO CARVALHO FRANCES` permanecem como `NAO CADASTRAR`.
+
+### Corrigido nesta rodada
+
+- Corrigida a prioridade da `Entrada de producoes` quando a fila contem fichas vindas de pedido manual ou planejamento por ficha que nao estavam em `producedTechnicalSheetIds` do centro.
+- Causa encontrada:
+  - a fila exibia essas fichas porque havia pedido manual/rascunho;
+  - mas o grafo de prioridade era montado apenas com as fichas cadastradas como produzidas pelo centro;
+  - com isso, dependencias reais da fila podiam aparecer com prioridade `0` e a ordenacao caia para ordem alfabetica dentro do grupo.
+- Ajuste aplicado:
+  - `buildPreparationDemandContext` agora aceita IDs adicionais da propria fila;
+  - `Entrada de producoes` passa os IDs de pedidos manuais e rascunhos do centro selecionado para o grafo de demanda;
+  - a regra de prioridade por dependencias foi preservada.
+- Validacao executada:
+  - `npm run build`;
+  - comparacao de dados da API publicada mostrou que, no Laboratorio da empresa 13, 14 fichas que antes ficavam mascaradas como prioridade `0` passam a receber prioridade `1` ou `2` quando a propria fila entra no grafo.
+
+### Pendencias / cuidados
+
+- O banco local estava com historico de migracoes inconsistente e nao foi resetado. A validacao operacional foi feita por leitura na API publicada.
+- Sempre que scripts fizerem cadastros, eles nao devem escolher `id` interno de produto/ficha. O ID interno deve vir da API/webapp.
+- `ID empresa` deve continuar sendo dado operacional/manual do cliente, por empresa, e nao um valor gerado ou propagado por script.
 
 ## 2026-05-13
 

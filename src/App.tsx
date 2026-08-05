@@ -3526,12 +3526,30 @@ export default function App() {
       })
     return pendingDemandBySheetId
   }
-  function buildPreparationDemandContext(center: StockCenterRecord, companyId: number | null) {
+  function buildPreparationDemandContext(
+    center: StockCenterRecord,
+    companyId: number | null,
+    options: { additionalSheetIds?: Iterable<number> } = {},
+  ) {
     if (companyId === null) {
       return null
     }
 
-    const producedSheets = getProducedPreparationSheetsForCenter(center, companyId)
+    const baseProducedSheets = getProducedPreparationSheetsForCenter(center, companyId)
+    const additionalSheetIds = new Set(options.additionalSheetIds ?? [])
+    const baseProducedSheetIds = new Set(baseProducedSheets.map((sheet) => sheet.id))
+    const additionalQueueSheets =
+      additionalSheetIds.size === 0
+        ? []
+        : technicalSheets.filter(
+            (sheet) =>
+              additionalSheetIds.has(sheet.id) &&
+              !baseProducedSheetIds.has(sheet.id) &&
+              isTechnicalSheetVisibleForCompany(sheet, companyId) &&
+              sheet.isActive &&
+              sheet.kind === 'PREPARO',
+          )
+    const producedSheets = [...baseProducedSheets, ...additionalQueueSheets]
     const sheetById = new Map(producedSheets.map((sheet) => [sheet.id, sheet] as const))
     const currentQuantityBySheetId = new Map<number, number>()
     producedSheets.forEach((sheet) => {
@@ -4442,7 +4460,6 @@ export default function App() {
       return [] as ProductionRequestRow[]
     }
 
-    const demandContext = buildPreparationDemandContext(selectedProductionCenter, selectedProductionCenter.companyId)
     const manualRequestSheetIds = new Set(
       manualProductionRequests
         .filter((request) => request.companyId === currentCompanyId && request.centerId === selectedProductionCenter.id)
@@ -4453,6 +4470,9 @@ export default function App() {
         .filter((draft) => draft.centerId === selectedProductionCenter.id)
         .map((draft) => draft.sheetId),
     )
+    const demandContext = buildPreparationDemandContext(selectedProductionCenter, selectedProductionCenter.companyId, {
+      additionalSheetIds: new Set([...manualRequestSheetIds, ...draftSheetIds]),
+    })
     const producedSheets = technicalSheets
       .filter(
         (sheet) =>
