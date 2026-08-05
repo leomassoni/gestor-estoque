@@ -4654,6 +4654,16 @@ export default function App() {
       ),
     [productionColumnFilters, productionColumnSort, productionRequestRows],
   )
+  const visibleProductionPrioritySummary = useMemo(
+    () =>
+      Array.from(
+        visibleProductionRows.reduce((summary, row) => {
+          summary.set(row.priority, (summary.get(row.priority) ?? 0) + 1)
+          return summary
+        }, new Map<number, number>()),
+      ).sort((left, right) => left[0] - right[0]),
+    [visibleProductionRows],
+  )
   const distinctProductionColumnValues = useMemo(
     () =>
       Object.fromEntries(
@@ -43300,7 +43310,23 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                 ) : null}
 
                 {productionRequestRows.length > 0 ? (
-                  <div className="table-wrap">
+                  <>
+                    <div className="list-summary-row" aria-live="polite">
+                      <span>
+                        {visibleProductionRows.length === productionRequestRows.length
+                          ? `${formatDecimal(visibleProductionRows.length)} producao(oes) na fila`
+                          : `${formatDecimal(visibleProductionRows.length)} de ${formatDecimal(productionRequestRows.length)} producao(oes) exibida(s)`}
+                      </span>
+                      {visibleProductionPrioritySummary.length > 0 ? (
+                        <span>
+                          Prioridades:{' '}
+                          {visibleProductionPrioritySummary
+                            .map(([priority, count]) => `${priority}: ${formatDecimal(count)}`)
+                            .join('; ')}
+                        </span>
+                      ) : null}
+                    </div>
+                    <div className="table-wrap">
                     <table className="product-table">
                       <thead>
                         <tr>
@@ -43361,7 +43387,8 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                         ) : null}
                       </tbody>
                     </table>
-                  </div>
+                    </div>
+                  </>
                 ) : (
                   <div className="empty-state">
                     <strong>Nenhuma producao pendente.</strong>

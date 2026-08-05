@@ -384,3 +384,11 @@ Registrar o que foi decidido, o que foi adiado e o que foi descartado, com foco 
 - Regra extraida:
   - diagnosticar a fila pelo fluxo completo: centro selecionado, fichas produzidas, pedidos manuais, rascunhos, composicao e dependencias;
   - nao resolver invertendo ordenacao ou renomeando prioridade sem provar a causa nos dados.
+
+### Correcao operacional precisa ser validada na tela do fluxo
+
+- Problema: build e simulacao de dados nao bastam para provar que um fluxo operacional foi corrigido para o usuario.
+- Regra extraida:
+  - validar pelo menos um caso real no navegador quando a mudanca afetar tela operacional;
+  - para `Entrada de producoes`, validar centro produtor, resumo da fila, busca por item dependente e dados carregados de producoes/requisicoes;
+  - registrar no `WORKLOG` o caso validado e o resultado.

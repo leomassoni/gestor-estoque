@@ -50,6 +50,11 @@ Registrar um historico resumido do que foi feito, do que falhou e do que ficou p
 - Validacao executada:
   - `npm run build`;
   - comparacao de dados da API publicada mostrou que, no Laboratorio da empresa 13, 14 fichas que antes ficavam mascaradas como prioridade `0` passam a receber prioridade `1` ou `2` quando a propria fila entra no grafo.
+- Apos validacao em navegador real, foi feito ajuste adicional:
+  - `Entrada de producoes` tambem passou a carregar requisicoes, pois o calculo desconta demandas ja enviadas ao produtor;
+  - a tabela recebeu resumo de quantidade total e distribuicao por prioridade para evitar que a virtualizacao esconda visualmente as etapas seguintes;
+  - validacao local com dados publicados confirmou, em `COMPLEXO VILA ANALIA > LABORATORIO`, 53 producoes na fila e distribuicao `0: 30; 1: 14; 2: 8; 3: 1`;
+  - buscando `ASIA`, a tela mostra `ASIA CLARIFICACAO` com prioridade `1` e `PRE-BATCHED ASIA` com prioridade `2`.
 
 ### Pendencias / cuidados
 
