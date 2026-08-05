@@ -1519,8 +1519,17 @@ app.delete('/api/pending-inventory-movements/:id', async (request, response) => 
 app.get('/api/products', async (request, response) => {
   await ensureAppCatalogRecordsSeeded()
   const companyId = parseIntegerParam(request.query.companyId)
+  const companyScopeIds = companyId === null ? [] : await getCompanyCatalogScopeIds(companyId)
   const products = await prisma.appProductRecord.findMany({
-    where: companyId === null ? undefined : { companyId },
+    where:
+      companyId === null
+        ? undefined
+        : {
+            OR: [
+              { ownerCompanyId: { in: companyScopeIds } },
+              { companyId: { in: companyScopeIds } },
+            ],
+          },
     orderBy: [{ name: 'asc' }, { id: 'asc' }],
   })
   response.json({ products })
@@ -2205,8 +2214,14 @@ function hasTechnicalSheetProductIdPrefix(productId) {
 }
 
 async function ensureUniqueProductName(product, client = prisma) {
+  const companyScopeIds = await getCompanyCatalogScopeIds(product.ownerCompanyId ?? product.companyId)
   const existing = await client.appProductRecord.findMany({
-    where: { companyId: product.companyId },
+    where: {
+      OR: [
+        { ownerCompanyId: { in: companyScopeIds } },
+        { companyId: { in: companyScopeIds } },
+      ],
+    },
     select: { id: true, name: true, companyProductId: true },
   })
 
@@ -2776,15 +2791,38 @@ async function getCompanyCatalogScopeIds(companyId) {
   const companies = await prisma.appCompanyRecord.findMany({
     select: { id: true, linkedCompanyIds: true },
   })
-  const currentCompany = companies.find((company) => company.id === companyId) ?? null
-  const directLinkedCompanyIds = Array.isArray(currentCompany?.linkedCompanyIds)
-    ? currentCompany.linkedCompanyIds.filter((linkedCompanyId) => linkedCompanyId !== companyId)
-    : []
-  const reverseLinkedCompanyIds = companies
-    .filter((company) => company.id !== companyId && Array.isArray(company.linkedCompanyIds) && company.linkedCompanyIds.includes(companyId))
-    .map((company) => company.id)
+  const visitedCompanyIds = new Set()
+  const pendingCompanyIds = [companyId]
 
-  return Array.from(new Set([companyId, ...directLinkedCompanyIds, ...reverseLinkedCompanyIds])).sort((left, right) => left - right)
+  while (pendingCompanyIds.length > 0) {
+    const currentCompanyId = pendingCompanyIds.shift()
+    if (currentCompanyId === undefined || visitedCompanyIds.has(currentCompanyId)) {
+      continue
+    }
+
+    visitedCompanyIds.add(currentCompanyId)
+    const currentCompany = companies.find((company) => company.id === currentCompanyId) ?? null
+    const directLinkedCompanyIds = Array.isArray(currentCompany?.linkedCompanyIds)
+      ? currentCompany.linkedCompanyIds.filter((linkedCompanyId) => linkedCompanyId !== currentCompanyId)
+      : []
+    const reverseLinkedCompanyIds = companies
+      .filter(
+        (company) =>
+          company.id !== currentCompanyId &&
+          Array.isArray(company.linkedCompanyIds) &&
+          company.linkedCompanyIds.includes(currentCompanyId),
+      )
+      .map((company) => company.id)
+
+    const neighborCompanyIds = [...directLinkedCompanyIds, ...reverseLinkedCompanyIds]
+    neighborCompanyIds.forEach((linkedCompanyId) => {
+      if (!visitedCompanyIds.has(linkedCompanyId)) {
+        pendingCompanyIds.push(linkedCompanyId)
+      }
+    })
+  }
+
+  return Array.from(visitedCompanyIds).sort((left, right) => left - right)
 }
 
 function normalizeAuditLogPayload(value) {

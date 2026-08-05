@@ -3060,15 +3060,29 @@ export default function App() {
       return [] as number[]
     }
 
-    const directLinkedCompanyIds =
-      companies.find((item) => item.id === companyId)?.linkedCompanyIds.filter((linkedCompanyId) => linkedCompanyId !== companyId) ?? []
-    const reverseLinkedCompanyIds = companies
-      .filter((item) => item.id !== companyId && item.linkedCompanyIds.includes(companyId))
-      .map((item) => item.id)
+    const visitedCompanyIds = new Set<number>()
+    const pendingCompanyIds = [companyId]
+    while (pendingCompanyIds.length > 0) {
+      const currentCompanyId = pendingCompanyIds.shift() ?? null
+      if (currentCompanyId === null || visitedCompanyIds.has(currentCompanyId)) {
+        continue
+      }
 
-    return Array.from(new Set([companyId, ...directLinkedCompanyIds, ...reverseLinkedCompanyIds])).sort(
-      (left, right) => left - right,
-    )
+      visitedCompanyIds.add(currentCompanyId)
+      const currentCompany = companies.find((item) => item.id === currentCompanyId) ?? null
+      const linkedCompanyIds = currentCompany?.linkedCompanyIds.filter((linkedCompanyId) => linkedCompanyId !== currentCompanyId) ?? []
+      const reverseLinkedCompanyIds = companies
+        .filter((item) => item.id !== currentCompanyId && item.linkedCompanyIds.includes(currentCompanyId))
+        .map((item) => item.id)
+      const neighborCompanyIds = [...linkedCompanyIds, ...reverseLinkedCompanyIds]
+      neighborCompanyIds.forEach((linkedCompanyId) => {
+        if (!visitedCompanyIds.has(linkedCompanyId)) {
+          pendingCompanyIds.push(linkedCompanyId)
+        }
+      })
+    }
+
+    return Array.from(visitedCompanyIds).sort((left, right) => left - right)
   }
   function getProductOwnerCompanyId(product: ProductRecord) {
     return product.ownerCompanyId ?? product.companyId
