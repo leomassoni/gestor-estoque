@@ -1664,14 +1664,29 @@ app.delete('/api/service-items/:id', async (request, response) => {
 app.get('/api/technical-sheets', async (request, response) => {
   await ensureAppCatalogRecordsSeeded()
   const companyId = parseIntegerParam(request.query.companyId)
+  const companyScopeIds = companyId === null ? [] : await getCompanyCatalogScopeIds(companyId)
   const technicalSheets = await prisma.appTechnicalSheetRecord.findMany({
-    where: companyId === null ? undefined : { companyId },
+    where:
+      companyId === null
+        ? undefined
+        : {
+            OR: [
+              { ownerCompanyId: companyId },
+              { companyId },
+              { sharedCompanyIds: { has: companyId } },
+            ],
+          },
     select: technicalSheetListSelect,
     orderBy: [{ name: 'asc' }, { id: 'asc' }],
   })
+  const visibleTechnicalSheets =
+    companyId === null
+      ? technicalSheets
+      : technicalSheets.filter((sheet) => isTechnicalSheetRecordVisibleForCompany(sheet, companyId, companyScopeIds))
   response.json({
-    technicalSheets: technicalSheets.map((sheet) => ({
+    technicalSheets: visibleTechnicalSheets.map((sheet) => ({
       ...sheet,
+      companyProductId: getTechnicalSheetCompanyProductId(sheet, companyId),
       imageDataUrl: '',
     })),
   })
