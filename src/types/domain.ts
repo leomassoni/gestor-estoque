@@ -198,6 +198,7 @@ export type TechnicalSheetYieldDifferenceDestination = '' | 'WASTE' | 'BYPRODUCT
 
 export type ServiceItemRecord = {
   companyId: number
+  ownerCompanyId: number
   id: string
   kind: ServiceItemKind
   companyProductId: string

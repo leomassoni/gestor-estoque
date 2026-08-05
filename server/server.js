@@ -356,7 +356,7 @@ app.delete('/api/companies/:id', async (request, response) => {
     await transaction.appInventoryRecord.deleteMany({ where: { companyId } })
     await transaction.appInventoryStorageLocationRecord.deleteMany({ where: { companyId } })
     await transaction.appProductRecord.deleteMany({ where: { companyId } })
-    await transaction.appServiceItemRecord.deleteMany({ where: { companyId } })
+    await transaction.appServiceItemRecord.deleteMany({ where: { OR: [{ companyId }, { ownerCompanyId: companyId }] } })
     await transaction.appTechnicalSheetRecord.deleteMany({ where: { companyId } })
     await transaction.appCompanyRecord.deleteMany({ where: { id: companyId } })
   })
@@ -1581,8 +1581,17 @@ app.delete('/api/products/:id', async (request, response) => {
 app.get('/api/service-items', async (request, response) => {
   await ensureAppCatalogRecordsSeeded()
   const companyId = parseIntegerParam(request.query.companyId)
+  const companyScopeIds = companyId === null ? [] : await getCompanyCatalogScopeIds(companyId)
   const serviceItems = await prisma.appServiceItemRecord.findMany({
-    where: companyId === null ? undefined : { companyId },
+    where:
+      companyId === null
+        ? undefined
+        : {
+            OR: [
+              { ownerCompanyId: { in: companyScopeIds } },
+              { companyId: { in: companyScopeIds } },
+            ],
+          },
     orderBy: [{ name: 'asc' }, { id: 'asc' }],
   })
   response.json({ serviceItems })
@@ -2255,8 +2264,14 @@ async function ensureServiceItemIdCanBeCreated(serviceItem) {
 }
 
 async function ensureUniqueServiceItemName(serviceItem, client = prisma) {
+  const companyScopeIds = await getCompanyCatalogScopeIds(serviceItem.ownerCompanyId ?? serviceItem.companyId)
   const existing = await client.appServiceItemRecord.findMany({
-    where: { companyId: serviceItem.companyId },
+    where: {
+      OR: [
+        { ownerCompanyId: { in: companyScopeIds } },
+        { companyId: { in: companyScopeIds } },
+      ],
+    },
     select: { id: true, name: true, companyProductId: true },
   })
 
@@ -2755,6 +2770,21 @@ function areCompanyRecordsLinked(companyById, ownerCompanyId, targetCompanyId) {
   const ownerLinks = Array.isArray(ownerCompany.linkedCompanyIds) ? ownerCompany.linkedCompanyIds : []
   const targetLinks = Array.isArray(targetCompany.linkedCompanyIds) ? targetCompany.linkedCompanyIds : []
   return ownerLinks.includes(targetCompanyId) || targetLinks.includes(ownerCompanyId)
+}
+
+async function getCompanyCatalogScopeIds(companyId) {
+  const companies = await prisma.appCompanyRecord.findMany({
+    select: { id: true, linkedCompanyIds: true },
+  })
+  const currentCompany = companies.find((company) => company.id === companyId) ?? null
+  const directLinkedCompanyIds = Array.isArray(currentCompany?.linkedCompanyIds)
+    ? currentCompany.linkedCompanyIds.filter((linkedCompanyId) => linkedCompanyId !== companyId)
+    : []
+  const reverseLinkedCompanyIds = companies
+    .filter((company) => company.id !== companyId && Array.isArray(company.linkedCompanyIds) && company.linkedCompanyIds.includes(companyId))
+    .map((company) => company.id)
+
+  return Array.from(new Set([companyId, ...directLinkedCompanyIds, ...reverseLinkedCompanyIds])).sort((left, right) => left - right)
 }
 
 function normalizeAuditLogPayload(value) {
@@ -3812,9 +3842,16 @@ function normalizeServiceItemPayload(value) {
   }
 
   const serviceItem = value
+  const ownerCompanyId =
+    typeof serviceItem.ownerCompanyId === 'number'
+      ? serviceItem.ownerCompanyId
+      : typeof serviceItem.companyId === 'number'
+        ? serviceItem.companyId
+        : null
   if (
     typeof serviceItem.id !== 'string' ||
     typeof serviceItem.companyId !== 'number' ||
+    ownerCompanyId === null ||
     typeof serviceItem.kind !== 'string' ||
     typeof serviceItem.companyProductId !== 'string' ||
     typeof serviceItem.manufacturerCode !== 'string' ||
@@ -3840,6 +3877,7 @@ function normalizeServiceItemPayload(value) {
   return {
     id: serviceItem.id,
     companyId: serviceItem.companyId,
+    ownerCompanyId,
     kind: serviceItem.kind,
     companyProductId: serviceItem.companyProductId,
     manufacturerCode: serviceItem.manufacturerCode,

@@ -867,6 +867,7 @@ model AppProductRecord {
 model AppServiceItemRecord {
   id               String   @id
   companyId        Int
+  ownerCompanyId   Int
   kind             String
   companyProductId String
   manufacturerCode String
@@ -885,6 +886,7 @@ model AppServiceItemRecord {
   updatedAt        DateTime @updatedAt
 
   @@index([companyId])
+  @@index([ownerCompanyId])
 }
 
 model AppTechnicalSheetRecord {

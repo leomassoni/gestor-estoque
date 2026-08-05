@@ -3073,6 +3073,9 @@ export default function App() {
   function getProductOwnerCompanyId(product: ProductRecord) {
     return product.ownerCompanyId ?? product.companyId
   }
+  function getServiceItemOwnerCompanyId(item: ServiceItemRecord) {
+    return item.ownerCompanyId ?? item.companyId
+  }
   function getTechnicalSheetOwnerCompanyId(sheet: TechnicalSheetRecord) {
     return sheet.ownerCompanyId ?? sheet.companyId
   }
@@ -3792,6 +3795,9 @@ export default function App() {
   }
   function isProductManagedByCompany(product: ProductRecord, companyId: number | null) {
     return companyId !== null && getProductOwnerCompanyId(product) === companyId
+  }
+  function isServiceItemVisibleForCompany(item: ServiceItemRecord, companyId: number | null) {
+    return companyId !== null && getCompanyLinkScopeIds(getServiceItemOwnerCompanyId(item)).includes(companyId)
   }
   function isTechnicalSheetVisibleForCompany(sheet: TechnicalSheetRecord, companyId: number | null) {
     return (
@@ -6820,7 +6826,7 @@ export default function App() {
       })
 
     serviceItems
-      .filter((item) => item.companyId === currentCompanyId && item.isActive)
+      .filter((item) => isServiceItemVisibleForCompany(item, currentCompanyId) && item.isActive)
       .forEach((item) => {
         metadata.set(buildInventoryAggregationKey({ kind: 'ITEM', technicalSheetId: null, productId: '', serviceItemId: item.id }), {
           main: item.name,
@@ -6834,7 +6840,7 @@ export default function App() {
       })
 
     return metadata
-  }, [currentCompanyId, products, serviceItems, technicalSheets])
+  }, [currentCompanyId, isServiceItemVisibleForCompany, products, serviceItems, technicalSheets])
   const manualProductionCenter = useMemo(
     () => productionEligibleCenters.find((center) => String(center.id) === manualProductionCenterId) ?? null,
     [manualProductionCenterId, productionEligibleCenters],
@@ -8040,9 +8046,9 @@ export default function App() {
   const inventoryCountableServiceItems = useMemo(
     () =>
       serviceItems
-        .filter((item) => item.companyId === currentCompanyId && item.isActive)
+        .filter((item) => isServiceItemVisibleForCompany(item, currentCompanyId) && item.isActive)
         .sort((a, b) => a.name.localeCompare(b.name, 'pt-BR')),
-    [currentCompanyId, serviceItems],
+    [currentCompanyId, isServiceItemVisibleForCompany, serviceItems],
   )
   const inventoryCountableItems = useMemo(
     () =>
@@ -8360,8 +8366,8 @@ export default function App() {
     wasteForm.technicalSheetId,
   ])
   const serviceItemsById = useMemo(
-    () => new Map(serviceItems.filter((item) => item.companyId === currentCompanyId).map((item) => [item.id, item])),
-    [currentCompanyId, serviceItems],
+    () => new Map(serviceItems.filter((item) => isServiceItemVisibleForCompany(item, currentCompanyId)).map((item) => [item.id, item])),
+    [currentCompanyId, isServiceItemVisibleForCompany, serviceItems],
   )
   const inventoryRecipientOptions = useMemo(() => {
     if (selectedInventorySheet) {
@@ -9589,13 +9595,13 @@ export default function App() {
     const nextMap = new Map<string, number>()
 
     serviceItems
-      .filter((item) => item.companyId === currentCompanyId && item.isActive)
+      .filter((item) => isServiceItemVisibleForCompany(item, currentCompanyId) && item.isActive)
       .forEach((item) => {
         nextMap.set(item.id, calculateServiceItemUnitCost(item))
       })
 
     return nextMap
-  }, [currentCompanyId, serviceItems])
+  }, [currentCompanyId, isServiceItemVisibleForCompany, serviceItems])
   const stockUnitCostByAggregationKey = useMemo(() => {
     const nextMap = new Map<string, number>()
 
@@ -9642,7 +9648,7 @@ export default function App() {
       })
 
     serviceItems
-      .filter((item) => item.companyId === currentCompanyId && item.isActive)
+      .filter((item) => isServiceItemVisibleForCompany(item, currentCompanyId) && item.isActive)
       .forEach((item) => {
         const aggregationKey = buildInventoryAggregationKey({
           kind: 'ITEM',
@@ -9658,6 +9664,7 @@ export default function App() {
     currentCompanyCostContext,
     currentCompanyId,
     isProductVisibleForCompany,
+    isServiceItemVisibleForCompany,
     isTechnicalSheetVisibleForCompany,
     products,
     serviceItemUnitCostById,
@@ -12999,13 +13006,13 @@ export default function App() {
           serviceItems
             .filter(
               (item) =>
-                item.companyId === currentCompanyId &&
+                isServiceItemVisibleForCompany(item, currentCompanyId) &&
                 (!shouldFilterByUserSectors || hasSectorOverlap(item.sectors, currentUserSectorScope)),
             )
             .map((item) => item.name),
         ),
       ).sort(),
-    [currentCompanyId, currentUserSectorScope, serviceItems, shouldFilterByUserSectors],
+    [currentCompanyId, currentUserSectorScope, isServiceItemVisibleForCompany, serviceItems, shouldFilterByUserSectors],
   )
   const dynamicFamilySuggestions = useMemo(
     () =>
@@ -13024,9 +13031,9 @@ export default function App() {
     () =>
       normalizeSuggestionSet([
         ...serviceItemFamilySuggestions,
-        ...serviceItems.filter((item) => item.companyId === currentCompanyId).map((item) => item.family),
+        ...serviceItems.filter((item) => isServiceItemVisibleForCompany(item, currentCompanyId)).map((item) => item.family),
       ]),
-    [currentCompanyId, serviceItems],
+    [currentCompanyId, isServiceItemVisibleForCompany, serviceItems],
   )
   const dynamicSubfamilySuggestions = useMemo(
     () =>
@@ -13045,9 +13052,9 @@ export default function App() {
     () =>
       normalizeSuggestionSet([
         ...serviceItemSubfamilySuggestions,
-        ...serviceItems.filter((item) => item.companyId === currentCompanyId).map((item) => item.subfamily),
+        ...serviceItems.filter((item) => isServiceItemVisibleForCompany(item, currentCompanyId)).map((item) => item.subfamily),
       ]),
-    [currentCompanyId, serviceItems],
+    [currentCompanyId, isServiceItemVisibleForCompany, serviceItems],
   )
   const dynamicSectorSuggestions = useMemo(
     () =>
@@ -13060,7 +13067,7 @@ export default function App() {
             )
             .flatMap((product) => product.sectors),
           ...serviceItems
-            .filter((item) => item.companyId === currentCompanyId)
+            .filter((item) => isServiceItemVisibleForCompany(item, currentCompanyId))
             .flatMap((item) => item.sectors),
           ...users
             .filter((user) => userBelongsToCompany(user, currentCompanyId))
@@ -13075,6 +13082,7 @@ export default function App() {
       buildEffectiveAppUserForCompany,
       currentCompanyId,
       isProductVisibleForCompany,
+      isServiceItemVisibleForCompany,
       products,
       serviceItems,
       shouldFilterByUserSectors,
@@ -13097,7 +13105,7 @@ export default function App() {
     Array.from(
       new Set([
         ...products.filter((product) => isProductVisibleForCompany(product, selectedCompanyId)).flatMap((product) => product.sectors),
-        ...serviceItems.filter((item) => item.companyId === selectedCompanyId).flatMap((item) => item.sectors),
+        ...serviceItems.filter((item) => isServiceItemVisibleForCompany(item, selectedCompanyId)).flatMap((item) => item.sectors),
         ...users
           .filter((item) => userBelongsToCompany(item, selectedCompanyId))
           .flatMap((item) => {
@@ -13161,13 +13169,13 @@ export default function App() {
       serviceItems
         .filter(
           (item) =>
-            item.companyId === currentCompanyId &&
+            isServiceItemVisibleForCompany(item, currentCompanyId) &&
             item.isActive &&
             item.kind === 'RECIPIENTE_SERVICO' &&
             hasSectorOverlap(item.sectors, technicalSheetForm.sectors),
         )
         .sort((a, b) => a.name.localeCompare(b.name, 'pt-BR')),
-    [currentCompanyId, serviceItems, technicalSheetForm.sectors],
+    [currentCompanyId, isServiceItemVisibleForCompany, serviceItems, technicalSheetForm.sectors],
   )
   const technicalSheetSectorSuggestions = useMemo(
     () =>
@@ -13369,8 +13377,7 @@ export default function App() {
         ? technicalSheetServiceItems
             .filter((item) => item.isActive && item.itemId.trim() !== '' && item.quantity.trim() !== '')
             .reduce((sum, item) => {
-              const linkedServiceItem =
-                serviceItems.find((serviceItem) => serviceItem.id === item.itemId && serviceItem.companyId === currentCompanyId) ?? null
+              const linkedServiceItem = serviceItems.find((serviceItem) => serviceItem.id === item.itemId) ?? null
               const quantity = parseDecimal(item.quantity) ?? 0
               return sum + (linkedServiceItem ? calculateServiceItemUnitCost(linkedServiceItem) * quantity : 0)
             }, 0)
@@ -13533,7 +13540,7 @@ export default function App() {
     () =>
       sortRecordsByColumn(
         serviceItems.filter((item) => {
-          if (item.companyId !== currentCompanyId) {
+          if (!isServiceItemVisibleForCompany(item, currentCompanyId)) {
             return false
           }
         if (shouldFilterByUserSectors && !hasSectorOverlap(item.sectors, currentUserSectorScope)) {
@@ -13568,6 +13575,7 @@ export default function App() {
     [
       currentCompanyId,
       currentUserSectorScope,
+      isServiceItemVisibleForCompany,
       itemColumnFilters,
       itemColumnSort,
       serviceItemSearch,
@@ -13584,14 +13592,14 @@ export default function App() {
               ? Array.from(
                   new Set(
                     serviceItems
-                      .filter((item) => item.companyId === currentCompanyId)
+                      .filter((item) => isServiceItemVisibleForCompany(item, currentCompanyId))
                       .flatMap((item) => item.sectors),
                   ),
                 )
               : Array.from(
                   new Set(
                     serviceItems
-                      .filter((item) => item.companyId === currentCompanyId)
+                      .filter((item) => isServiceItemVisibleForCompany(item, currentCompanyId))
                       .map((item) => getServiceItemColumnValue(item, key)),
                   ),
                 )
@@ -13599,7 +13607,7 @@ export default function App() {
           return [key, sortDistinctValues(values, isNumericItemColumn(key))]
         }),
       ) as Record<ItemColumnKey, string[]>,
-    [currentCompanyId, serviceItems],
+    [currentCompanyId, isServiceItemVisibleForCompany, serviceItems],
   )
   const hiddenServiceItemColumns = useMemo(
     () => itemColumnOptions.filter(([key]) => !itemColumnVisibility[key]),
@@ -13966,8 +13974,7 @@ export default function App() {
     const serviceItemMetrics: RecipePanelServiceItemMetrics[] = sheet.serviceItems
       .filter((serviceItem) => serviceItem.isActive && serviceItem.itemId.trim() !== '')
       .map((serviceItem) => {
-        const linkedItem =
-          serviceItems.find((item) => item.id === serviceItem.itemId && item.companyId === sheet.companyId) ?? null
+        const linkedItem = serviceItems.find((item) => item.id === serviceItem.itemId) ?? null
         const quantity = parseDecimal(serviceItem.quantity) ?? 0
 
         return {
@@ -16500,10 +16507,14 @@ export default function App() {
       return
     }
 
+    const previousServiceItem = editingServiceItemId
+      ? serviceItems.find((item) => item.id === editingServiceItemId) ?? null
+      : null
+    const serviceItemOwnerCompanyId = previousServiceItem?.ownerCompanyId ?? previousServiceItem?.companyId ?? currentCompanyId ?? 0
     const normalizedNameKey = buildNormalizedRegistrationNameKey(normalizedName)
     const duplicateServiceItem = serviceItems.find(
       (item) =>
-        item.companyId === (currentCompanyId ?? 0) &&
+        isServiceItemVisibleForCompany(item, currentCompanyId) &&
         item.id !== editingServiceItemId &&
         buildNormalizedRegistrationNameKey(item.name) === normalizedNameKey,
     )
@@ -16517,8 +16528,9 @@ export default function App() {
     }
 
     const itemToSave: ServiceItemRecord = {
-      companyId: currentCompanyId ?? 0,
-      id: generatedServiceItemId,
+      companyId: previousServiceItem?.companyId ?? currentCompanyId ?? 0,
+      ownerCompanyId: serviceItemOwnerCompanyId,
+      id: previousServiceItem?.id ?? generatedServiceItemId,
       kind: serviceItemForm.kind,
       companyProductId: normalizeRegistrationText(serviceItemForm.companyProductId.trim()),
       manufacturerCode: normalizeRegistrationText(serviceItemForm.manufacturerCode.trim()),
@@ -17260,7 +17272,7 @@ export default function App() {
 
     const matchingServiceItems = serviceItems.filter(
       (item) =>
-        (currentCompanyId === null || item.companyId === currentCompanyId) &&
+        isServiceItemVisibleForCompany(item, currentCompanyId) &&
         item.sectors.includes(normalizedSector),
     )
     const impactedServiceItems = matchingServiceItems
@@ -17340,13 +17352,13 @@ export default function App() {
       kind === 'serviceItemFamily'
         ? serviceItems.filter(
             (item) =>
-              (currentCompanyId === null || item.companyId === currentCompanyId) &&
+              isServiceItemVisibleForCompany(item, currentCompanyId) &&
               item.family === value,
           )
         : kind === 'serviceItemSubfamily'
         ? serviceItems.filter(
             (item) =>
-              (currentCompanyId === null || item.companyId === currentCompanyId) &&
+              isServiceItemVisibleForCompany(item, currentCompanyId) &&
               item.subfamily === value,
           )
         : []
@@ -55325,6 +55337,12 @@ function normalizeServiceItemRecord(value: unknown): ServiceItemRecord | null {
 
   return {
     companyId: typeof item.companyId === 'number' ? item.companyId : 1,
+    ownerCompanyId:
+      typeof item.ownerCompanyId === 'number'
+        ? item.ownerCompanyId
+        : typeof item.companyId === 'number'
+          ? item.companyId
+          : 1,
     id: normalizeRegistrationText(item.id),
     kind: item.kind,
     companyProductId: normalizeRegistrationText(item.companyProductId),

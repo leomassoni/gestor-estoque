@@ -369,8 +369,7 @@ export function calculateTechnicalSheetCost(
   const serviceItemsCost = sheet.serviceItems
     .filter((item) => item.isActive && item.itemId.trim() !== '')
     .reduce((sum, item) => {
-      const linkedServiceItem =
-        serviceItems.find((serviceItem) => serviceItem.id === item.itemId && serviceItem.companyId === sheet.companyId) ?? null
+      const linkedServiceItem = serviceItems.find((serviceItem) => serviceItem.id === item.itemId) ?? null
       const quantity = parseDecimal(item.quantity) ?? 0
       return sum + (linkedServiceItem ? calculateServiceItemUnitCost(linkedServiceItem) * quantity : 0)
     }, 0)
