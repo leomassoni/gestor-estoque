@@ -1,6 +1,6 @@
 # Status do Sistema
 
- Ultima atualizacao: 2026-08-05
+ Ultima atualizacao: 2026-08-06
 
 ## Objetivo deste arquivo
 
@@ -98,6 +98,7 @@ Registrar em que pe o sistema esta hoje, por area, para consulta rapida antes de
 - Produtos, fichas tecnicas e utensilios/recipientes possuem regra de visibilidade por empresa de origem, empresas compartilhadas e empresas vinculadas.
 - Produtos usados na composicao de ficha tecnica devem ficar restritos ao escopo da empresa da ficha e de suas empresas vinculadas, evitando que fichas puxem produtos de empresas sem vinculo.
 - Fichas de `PREPARO` compartilhadas continuam podendo ter centros produtores por empresa; compartilhar cadastro nao significa compartilhar movimentacao operacional.
+- Taxas de compartilhamento de `PREPARO` sao aplicadas uma unica vez na fronteira de venda do item compartilhado para a empresa destino. Dependencias internas desse pre-preparo sao calculadas pelo custo base, sem taxa recursiva.
 - Para o lote Macaxeira de doses de cachacas, existem 21 fichas finais `DS ... 50ML` criadas na empresa 5 e compartilhadas com empresas 8 e 9. A planilha de controle e `/home/leomassoni/Documentos/Igarapé/Projetos/CPXVA/doses_cachacas_macaxeira_2026_extraido.xlsx`.
 
 ## Painel de configuracoes de fichas tecnicas

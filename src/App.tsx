@@ -51,6 +51,7 @@ import {
   supplyHistoryViewportHeightPx,
 } from './config/performance'
 import {
+  applySharedPreparationSaleFee,
   calculateNormalizedPackageQuantity,
   calculateExecutionTechnicalSheetFinalYield,
   calculatePackagingWeight,
@@ -73,6 +74,7 @@ import {
   isCommercialTechnicalSheetProduct,
   isExecutionTechnicalSheetKind,
   isLegacyImportedProduct,
+  isSharedPreparationSaleBoundary,
   isTechnicalSheetCatalogProduct,
   resolvePackageGrossWeight,
   resolveSectorDeletion,
@@ -7027,6 +7029,9 @@ export default function App() {
     const finalYield = parseDecimal(productionDraftState.finalYield) ?? productionBaseRecipeData.desiredYield
     const baseYield = getTechnicalSheetBaseYield(selectedProductionSheet)
     const multiplier = baseYield > 0 ? desiredYield / baseYield : 1
+    const ingredientCostContext = isSharedPreparationSaleBoundary(selectedProductionSheet, currentCompanyCostContext)
+      ? { ...currentCompanyCostContext, suppressSharedPreparationSaleFee: true }
+      : currentCompanyCostContext
     const adjustedIngredientMetrics = selectedProductionSheet.ingredients
       .filter((ingredient) => ingredient.isActive && ingredient.productId.trim() !== '')
       .map((ingredient) => {
@@ -7043,7 +7048,7 @@ export default function App() {
         const linkedProduct =
           products.find((entry) => entry.id === ingredient.productId && entry.companyId === selectedProductionSheet.companyId) ?? null
         const costPerUnit = linkedProduct
-          ? calculateProductUnitCost(linkedProduct, technicalSheets, products, serviceItems, currentCompanyCostContext)
+          ? calculateProductUnitCost(linkedProduct, technicalSheets, products, serviceItems, ingredientCostContext)
           : 0
         const alcoholPercentage = linkedTechnicalSheet
           ? calculateTechnicalSheetAlcoholPercentage(linkedTechnicalSheet, technicalSheets, products)
@@ -7093,7 +7098,8 @@ export default function App() {
         } satisfies RecipePanelIngredientMetrics
       })
 
-    const totalRecipeCost = adjustedIngredientMetrics.reduce((sum, ingredient) => sum + ingredient.scaledCost, 0)
+    const baseRecipeCost = adjustedIngredientMetrics.reduce((sum, ingredient) => sum + ingredient.scaledCost, 0)
+    const totalRecipeCost = applySharedPreparationSaleFee(baseRecipeCost, selectedProductionSheet, currentCompanyCostContext)
     const totalPureAlcoholVolume = adjustedIngredientMetrics.reduce(
       (sum, ingredient) =>
         sum +
@@ -13023,6 +13029,29 @@ export default function App() {
   )
   const generatedTechnicalSheetProductId =
     editingTechnicalSheetRecord?.productId ?? draftTechnicalSheetProductId
+  const technicalSheetFormCostBoundary = useMemo(
+    () => ({
+      kind: technicalSheetForm.kind,
+      companyId: editingTechnicalSheetRecord?.companyId ?? currentCompanyId ?? 0,
+      ownerCompanyId:
+        editingTechnicalSheetRecord?.ownerCompanyId ?? editingTechnicalSheetRecord?.companyId ?? currentCompanyId ?? 0,
+      sharedCompanyIds: technicalSheetForm.sharedCompanyIds,
+    }),
+    [
+      currentCompanyId,
+      editingTechnicalSheetRecord?.companyId,
+      editingTechnicalSheetRecord?.ownerCompanyId,
+      technicalSheetForm.kind,
+      technicalSheetForm.sharedCompanyIds,
+    ],
+  )
+  const technicalSheetFormIngredientCostContext = useMemo<TechnicalSheetCostContext>(
+    () =>
+      isSharedPreparationSaleBoundary(technicalSheetFormCostBoundary, currentCompanyCostContext)
+        ? { ...currentCompanyCostContext, suppressSharedPreparationSaleFee: true }
+        : currentCompanyCostContext,
+    [currentCompanyCostContext, technicalSheetFormCostBoundary],
+  )
   const excludedTechnicalSheetProductIds = useMemo(() => {
     return new Set(
       [editingTechnicalSheetRecord?.productId ?? '', generatedTechnicalSheetProductId]
@@ -13343,7 +13372,7 @@ export default function App() {
       const linkedProduct =
         products.find((item) => item.id === ingredient.productId && isProductVisibleForCompany(item, currentCompanyId)) ?? null
       const costPerUnit = linkedProduct
-        ? calculateProductUnitCost(linkedProduct, technicalSheets, products, serviceItems, currentCompanyCostContext)
+        ? calculateProductUnitCost(linkedProduct, technicalSheets, products, serviceItems, technicalSheetFormIngredientCostContext)
         : 0
       const inputQuantity = calculateTechnicalSheetIngredientBaseQuantity(ingredient)
       const operationalConversion = getTechnicalSheetIngredientOperationalConversion(ingredient)
@@ -13392,6 +13421,7 @@ export default function App() {
     isTechnicalSheetVisibleForCompany,
     products,
     serviceItems,
+    technicalSheetFormIngredientCostContext,
     technicalSheetIngredients,
     technicalSheets,
   ])
@@ -13402,7 +13432,7 @@ export default function App() {
       const linkedProduct =
         products.find((item) => item.id === ingredient.productId && isProductVisibleForCompany(item, currentCompanyId)) ?? null
       const costPerUnit = linkedProduct
-        ? calculateProductUnitCost(linkedProduct, technicalSheets, products, serviceItems, currentCompanyCostContext)
+        ? calculateProductUnitCost(linkedProduct, technicalSheets, products, serviceItems, technicalSheetFormIngredientCostContext)
         : 0
       const inputQuantity = calculateTechnicalSheetIngredientBaseQuantity(ingredient)
       const operationalConversion = getTechnicalSheetIngredientOperationalConversion(ingredient)
@@ -13451,6 +13481,7 @@ export default function App() {
     isTechnicalSheetVisibleForCompany,
     products,
     serviceItems,
+    technicalSheetFormIngredientCostContext,
     technicalSheetGarnishIngredients,
     technicalSheets,
   ])
@@ -13479,7 +13510,12 @@ export default function App() {
               return sum + (linkedServiceItem ? calculateServiceItemUnitCost(linkedServiceItem) * quantity : 0)
             }, 0)
         : 0
-    const totalRecipeCost = totalIngredientCost + totalServiceItemCost
+    const baseRecipeCost = totalIngredientCost + totalServiceItemCost
+    const totalRecipeCost = applySharedPreparationSaleFee(
+      baseRecipeCost,
+      technicalSheetFormCostBoundary,
+      currentCompanyCostContext,
+    )
     const totalInputQuantity = yieldMetrics.reduce((sum, item) => sum + item.inputQuantity, 0)
     const totalMixtureVolume = yieldMetrics.reduce(
       (sum, item) => sum + (item.contributesToExecutionYield ? item.yieldQuantity : 0),
@@ -13577,7 +13613,8 @@ export default function App() {
     technicalSheetIngredientMetrics,
     technicalSheetServiceItems,
     serviceItems,
-    currentCompanyId,
+    technicalSheetFormCostBoundary,
+    currentCompanyCostContext,
   ])
   const visibleProducts = useMemo(
     () =>
@@ -14005,6 +14042,9 @@ export default function App() {
     const safeDesiredYield = desiredYieldInput > 0 ? desiredYieldInput : baseYield
     const recipeCount = recipeCountInput > 0 ? recipeCountInput : 1
     const multiplier = safeDesiredYield / baseYield
+    const ingredientCostContext = isSharedPreparationSaleBoundary(sheet, currentCompanyCostContext)
+      ? { ...currentCompanyCostContext, suppressSharedPreparationSaleFee: true }
+      : currentCompanyCostContext
 
     const mapIngredientMetrics = (ingredients: TechnicalSheetIngredient[]): RecipePanelIngredientMetrics[] =>
       ingredients
@@ -14022,7 +14062,7 @@ export default function App() {
           const linkedProduct =
             products.find((entry) => entry.id === ingredient.productId) ?? null
           const costPerUnit = linkedProduct
-            ? calculateProductUnitCost(linkedProduct, technicalSheets, products, serviceItems, currentCompanyCostContext)
+            ? calculateProductUnitCost(linkedProduct, technicalSheets, products, serviceItems, ingredientCostContext)
             : 0
           const alcoholPercentage = linkedTechnicalSheet
             ? calculateTechnicalSheetAlcoholPercentage(linkedTechnicalSheet, technicalSheets, products)
@@ -14088,7 +14128,8 @@ export default function App() {
         }
       })
 
-    const totalRecipeCost = allIngredientMetrics.reduce((sum, item) => sum + item.scaledCost, 0)
+    const baseRecipeCost = allIngredientMetrics.reduce((sum, item) => sum + item.scaledCost, 0)
+    const totalRecipeCost = applySharedPreparationSaleFee(baseRecipeCost, sheet, currentCompanyCostContext)
     const totalMixtureVolume = yieldMetrics.reduce(
       (sum, item) => sum + (item.contributesToExecutionYield ? item.scaledYieldQuantity : 0),
       0,

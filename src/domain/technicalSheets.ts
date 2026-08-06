@@ -13,7 +13,10 @@ import { formatControlUnitShort, parseDecimal } from '../utils/core'
 export type TechnicalSheetCostContext = {
   consumerCompanyId?: number | null
   sharingSaleFees?: CatalogSharingSaleFeeRecord[]
+  suppressSharedPreparationSaleFee?: boolean
 }
+
+type SharedPreparationSaleFeeSheet = Pick<TechnicalSheetRecord, 'kind' | 'companyId' | 'ownerCompanyId' | 'sharedCompanyIds'>
 
 export function getTechnicalSheetIngredientOperationalConversion(ingredient: TechnicalSheetIngredient) {
   const operationalQuantity = parseDecimal(ingredient.operationalQuantity) ?? 0
@@ -344,17 +347,20 @@ export function calculateTechnicalSheetCost(
         technicalSheets.find((item) => item.productId === ingredient.productId) ?? null
 
       if (linkedTechnicalSheet) {
-      const linkedCost: number = calculateTechnicalSheetCost(
-        linkedTechnicalSheet,
-        technicalSheets,
-        products,
-        nextVisited,
-        serviceItems,
-        costContext,
-      )
-      const linkedYield = calculateTechnicalSheetEffectiveYield(linkedTechnicalSheet)
-      const linkedUnitCost: number = linkedYield > 0 ? linkedCost / linkedYield : linkedCost
-      return sum + linkedUnitCost * quantity
+        const childCostContext = isSharedPreparationSaleBoundary(sheet, costContext)
+          ? { ...costContext, suppressSharedPreparationSaleFee: true }
+          : costContext
+        const linkedCost: number = calculateTechnicalSheetCost(
+          linkedTechnicalSheet,
+          technicalSheets,
+          products,
+          nextVisited,
+          serviceItems,
+          childCostContext,
+        )
+        const linkedYield = calculateTechnicalSheetEffectiveYield(linkedTechnicalSheet)
+        const linkedUnitCost: number = linkedYield > 0 ? linkedCost / linkedYield : linkedCost
+        return sum + linkedUnitCost * quantity
       }
 
       const linkedProduct = products.find((item) => item.id === ingredient.productId) ?? null
@@ -377,20 +383,52 @@ export function calculateTechnicalSheetCost(
   return ingredientsCost + serviceItemsCost
 }
 
-function applySharedPreparationSaleFee(cost: number, sheet: TechnicalSheetRecord, costContext: TechnicalSheetCostContext) {
+export function isSharedPreparationSaleBoundary(
+  sheet: SharedPreparationSaleFeeSheet,
+  costContext: TechnicalSheetCostContext,
+) {
   const consumerCompanyId =
     typeof costContext.consumerCompanyId === 'number' && costContext.consumerCompanyId > 0
       ? costContext.consumerCompanyId
       : null
-  if (sheet.kind !== 'PREPARO' || consumerCompanyId === null || cost <= 0) {
-    return cost
+
+  if (costContext.suppressSharedPreparationSaleFee || sheet.kind !== 'PREPARO' || consumerCompanyId === null) {
+    return false
   }
 
   const ownerCompanyId = sheet.ownerCompanyId ?? sheet.companyId
-  if (ownerCompanyId === consumerCompanyId || !sheet.sharedCompanyIds.includes(consumerCompanyId)) {
+  return ownerCompanyId !== consumerCompanyId && sheet.sharedCompanyIds.includes(consumerCompanyId)
+}
+
+export function shouldApplySharedPreparationSaleFee(
+  sheet: SharedPreparationSaleFeeSheet,
+  costContext: TechnicalSheetCostContext,
+) {
+  if (!isSharedPreparationSaleBoundary(sheet, costContext)) {
+    return false
+  }
+
+  const consumerCompanyId = costContext.consumerCompanyId as number
+  const ownerCompanyId = sheet.ownerCompanyId ?? sheet.companyId
+  const feeRecord =
+    costContext.sharingSaleFees?.find(
+      (record) => record.ownerCompanyId === ownerCompanyId && record.targetCompanyId === consumerCompanyId,
+    ) ?? null
+  const feePercentage = parseDecimal(feeRecord?.preparationSaleFeePercentage ?? '') ?? 0
+  return feePercentage > 0
+}
+
+export function applySharedPreparationSaleFee(
+  cost: number,
+  sheet: SharedPreparationSaleFeeSheet,
+  costContext: TechnicalSheetCostContext,
+) {
+  if (cost <= 0 || !shouldApplySharedPreparationSaleFee(sheet, costContext)) {
     return cost
   }
 
+  const consumerCompanyId = costContext.consumerCompanyId as number
+  const ownerCompanyId = sheet.ownerCompanyId ?? sheet.companyId
   const feeRecord =
     costContext.sharingSaleFees?.find(
       (record) => record.ownerCompanyId === ownerCompanyId && record.targetCompanyId === consumerCompanyId,

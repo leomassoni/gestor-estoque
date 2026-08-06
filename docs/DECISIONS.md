@@ -1,6 +1,6 @@
 # Decisoes do Projeto
 
- Ultima atualizacao: 2026-08-05
+ Ultima atualizacao: 2026-08-06
 
 ## Objetivo deste arquivo
 
@@ -28,6 +28,18 @@ Registrar o que foi decidido, o que foi adiado e o que foi descartado, com foco 
   - encaixa melhor no sistema atual
   - preserva segregacao operacional por empresa
 - Status: implementado em produtos, fichas tecnicas e utensilios/recipientes; novas mudancas devem preservar esse escopo.
+
+### Taxa de compartilhamento de PREPARO e aplicada so na fronteira de venda
+
+- Decisao: a taxa configurada em `Cadastros > Configuracoes > Compartilhamento` representa uma venda direta do pre-preparo da empresa de origem para a empresa destino.
+- Regra:
+  - a taxa deve ser aplicada uma unica vez sobre o custo final do `PREPARO` compartilhado consumido pela empresa destino;
+  - pre-preparos internos que compoem esse item nao recebem nova taxa dentro desse calculo;
+  - se um pre-preparo interno tambem for visualizado/usado como item compartilhado direto pela empresa destino, ele pode receber sua propria taxa nesse contexto direto.
+- Motivo:
+  - a composicao interna e custo de producao da empresa origem;
+  - a taxa representa o acrescimo comercial do item transferido entre casas, nao margem recursiva sobre cada etapa produtiva.
+- Caso validado: `BATIDA PEQUI PRE-BATCHED`, origem `COMPLEXO VILA ANALIA`, destino `BOTECO MACAXEIRA`, taxa `30%`.
 
 ### IDs internos de cadastro pertencem ao servidor/webapp
 

@@ -1,6 +1,6 @@
 # Worklog
 
- Ultima atualizacao: 2026-08-05
+ Ultima atualizacao: 2026-08-06
 
 ## Objetivo deste arquivo
 
@@ -29,6 +29,10 @@ Registrar um historico resumido do que foi feito, do que falhou e do que ficou p
   - se nenhum dos dois existir, usa `entrada`;
   - guarnicoes entram no matching do receituario.
 - Foi adicionada taxa de venda para pre-preparos compartilhados em configuracao de compartilhamento.
+- Corrigida a regra da taxa de venda de pre-preparos compartilhados:
+  - a taxa passou a ser aplicada somente no `PREPARO` que e item direto de compartilhamento para a empresa destino;
+  - dependencias internas desse pre-preparo passaram a calcular custo base, sem taxa recursiva;
+  - validacao com dados publicados: `BATIDA PEQUI PRE-BATCHED` em `COMPLEXO VILA ANALIA` custa `R$ 12,73`; no `BOTECO MACAXEIRA`, com taxa de `30%`, custa `R$ 16,54`.
 - Foram aplicadas correcoes de cache/local state relacionadas ao acesso a fichas em navegadores diferentes.
 - Foi feita a consolidacao das fichas de venda de doses de cachacas Macaxeira:
   - 21 fichas finais `DS ... 50ML` ficaram criadas na empresa 5 e compartilhadas com empresas 8 e 9;
