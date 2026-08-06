@@ -6,6 +6,28 @@
 
 Registrar um historico resumido do que foi feito, do que falhou e do que ficou pendente.
 
+## 2026-08-06
+
+### Exibicao de acrescimo em PREPARO compartilhado
+
+- Implementada exibicao do `Acrescimo de compartilhamento` quando a taxa de venda entre empresas altera o custo de um `PREPARO` compartilhado.
+- A informacao mostra:
+  - percentual configurado;
+  - valor acrescido em reais;
+  - empresa de origem e empresa de destino.
+- Pontos atualizados:
+  - resumo tecnico do cadastro de ficha de `PREPARO`;
+  - `Dados tecnicos` do receituario de pre-preparo;
+  - exportacao XLSX de receituarios de pre-preparo;
+  - `Dados tecnicos` da entrada de producao.
+- A informacao do receituario entrou no controle de visibilidade dos perfis de acesso como `Acrescimo de compartilhamento`.
+- Validacao executada:
+  - `./node_modules/.bin/vite build`;
+  - `./node_modules/.bin/eslint src/domain/technicalSheets.ts src/types/domain.ts`;
+  - `git diff --check`;
+  - leitura da API publicada confirmou `BATIDA PEQUI PRE-BATCHED`: origem `COMPLEXO VILA ANALIA`, destino `BOTECO MACAXEIRA`, taxa `30%`, custo base `R$ 12,73`, acrescimo `R$ 3,82`, custo final `R$ 16,54`.
+- Observacao: `tsc` completo e `eslint src/App.tsx` ficaram lentos/travados nesta execucao e foram interrompidos; o build Vite completou com sucesso.
+
 ## 2026-08-05
 
 ### Confirmado / implementado desde a ultima atualizacao

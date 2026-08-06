@@ -2082,6 +2082,13 @@ h3 {
   word-break: break-word;
 }
 
+.receituario-metric-card small {
+  color: rgba(20, 33, 61, 0.62);
+  font-size: 0.75rem;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
 .receituario-colors {
   display: flex;
   align-items: center;
@@ -3054,6 +3061,13 @@ h3 {
   color: rgba(20, 33, 61, 0.72);
   text-transform: uppercase;
   letter-spacing: 0.08em;
+}
+
+.package-summary small {
+  color: rgba(20, 33, 61, 0.62);
+  font-size: 0.72rem;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
 }
 
 .icon-button {

@@ -4,6 +4,7 @@ import type {
   PackageForm,
   ProductRecord,
   ServiceItemRecord,
+  SharedPreparationSaleFeeInfo,
   TechnicalSheetIngredient,
   TechnicalSheetKind,
   TechnicalSheetRecord,
@@ -404,8 +405,16 @@ export function shouldApplySharedPreparationSaleFee(
   sheet: SharedPreparationSaleFeeSheet,
   costContext: TechnicalSheetCostContext,
 ) {
-  if (!isSharedPreparationSaleBoundary(sheet, costContext)) {
-    return false
+  return calculateSharedPreparationSaleFeeInfo(1, sheet, costContext) !== null
+}
+
+export function calculateSharedPreparationSaleFeeInfo(
+  cost: number,
+  sheet: SharedPreparationSaleFeeSheet,
+  costContext: TechnicalSheetCostContext,
+): SharedPreparationSaleFeeInfo | null {
+  if (cost <= 0 || !isSharedPreparationSaleBoundary(sheet, costContext)) {
+    return null
   }
 
   const consumerCompanyId = costContext.consumerCompanyId as number
@@ -415,7 +424,19 @@ export function shouldApplySharedPreparationSaleFee(
       (record) => record.ownerCompanyId === ownerCompanyId && record.targetCompanyId === consumerCompanyId,
     ) ?? null
   const feePercentage = parseDecimal(feeRecord?.preparationSaleFeePercentage ?? '') ?? 0
-  return feePercentage > 0
+  if (feePercentage <= 0) {
+    return null
+  }
+
+  const adjustedCost = cost * (1 + feePercentage / 100)
+  return {
+    ownerCompanyId,
+    targetCompanyId: consumerCompanyId,
+    percentage: feePercentage,
+    baseCost: cost,
+    addedCost: adjustedCost - cost,
+    adjustedCost,
+  }
 }
 
 export function applySharedPreparationSaleFee(
@@ -423,18 +444,7 @@ export function applySharedPreparationSaleFee(
   sheet: SharedPreparationSaleFeeSheet,
   costContext: TechnicalSheetCostContext,
 ) {
-  if (cost <= 0 || !shouldApplySharedPreparationSaleFee(sheet, costContext)) {
-    return cost
-  }
-
-  const consumerCompanyId = costContext.consumerCompanyId as number
-  const ownerCompanyId = sheet.ownerCompanyId ?? sheet.companyId
-  const feeRecord =
-    costContext.sharingSaleFees?.find(
-      (record) => record.ownerCompanyId === ownerCompanyId && record.targetCompanyId === consumerCompanyId,
-    ) ?? null
-  const feePercentage = parseDecimal(feeRecord?.preparationSaleFeePercentage ?? '') ?? 0
-  return feePercentage > 0 ? cost * (1 + feePercentage / 100) : cost
+  return calculateSharedPreparationSaleFeeInfo(cost, sheet, costContext)?.adjustedCost ?? cost
 }
 
 export function calculateTechnicalSheetAlcoholPercentage(

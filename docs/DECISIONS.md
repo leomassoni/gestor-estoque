@@ -413,3 +413,12 @@ Registrar o que foi decidido, o que foi adiado e o que foi descartado, com foco 
   - quando a fila for grande, usar paginacao explicita de 20 producoes por pagina, com setas e numeros visiveis;
   - filtros, busca e ordenacao devem atuar antes da paginacao;
   - otimizacoes de performance nao podem esconder etapas de producao sem indicar ao usuario como acessar o restante da fila.
+
+### Taxa de venda entre empresas precisa ficar visivel quando alterar o custo
+
+- Decisao: quando um `PREPARO` compartilhado receber acrescimo pela regra de compartilhamento entre empresas, o sistema deve exibir o percentual, o valor acrescido e a origem/destino do acrescimo na ficha tecnica, no receituario de pre-preparo e na entrada de producao.
+- Regra de custo mantida:
+  - aplicar a taxa apenas no `PREPARO` compartilhado visto pela empresa consumidora;
+  - nao aplicar taxa recursiva nos pre-preparos internos que compoem esse item;
+  - nao gravar valores calculados no cadastro, apenas calcular e exibir a partir da configuracao vigente.
+- Regra de visibilidade: em receituarios de pre-preparo, o campo `Acrescimo de compartilhamento` deve respeitar os perfis de acesso junto aos demais campos do cabecalho tecnico.

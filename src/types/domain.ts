@@ -47,6 +47,7 @@ export type RecipePreparoHeroFieldKey =
   | 'baseYield'
   | 'recipeCount'
   | 'desiredYield'
+  | 'sharingSaleFee'
 export type RecipeExecutionHeroFieldKey =
   | 'family'
   | 'subfamily'
@@ -1275,6 +1276,7 @@ export type TechnicalSheetIngredientMetrics = {
 
 export type TechnicalSheetTotals = {
   totalRecipeCost: number
+  sharingSaleFeeInfo: SharedPreparationSaleFeeInfo | null
   totalInputQuantity: number
   suggestedYield: number
   totalYield: number
@@ -1287,6 +1289,15 @@ export type TechnicalSheetTotals = {
   desiredCmvPercentage: number
   finalSalePrice: number
   finalCmvPercentage: number
+}
+
+export type SharedPreparationSaleFeeInfo = {
+  ownerCompanyId: number
+  targetCompanyId: number
+  percentage: number
+  baseCost: number
+  addedCost: number
+  adjustedCost: number
 }
 
 export type RecipePanelTab = 'PREPARO' | 'EXECUCAO'
@@ -1336,6 +1347,7 @@ export type RecipePanelComputedData = {
   garnishMetrics: RecipePanelIngredientMetrics[]
   serviceItemMetrics: RecipePanelServiceItemMetrics[]
   totalRecipeCost: number
+  sharingSaleFeeInfo: SharedPreparationSaleFeeInfo | null
   finalAlcoholPercentage: number
   portionSize: number
   portionsYield: number

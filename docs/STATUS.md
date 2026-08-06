@@ -65,6 +65,7 @@ Registrar em que pe o sistema esta hoje, por area, para consulta rapida antes de
 - A API de lista de fichas com `companyId` retorna tambem fichas compartilhadas visiveis para a empresa consultada.
 - O ID interno de ficha tecnica deve ser gerado pelo servidor/webapp; scripts e importacoes nao devem escolher IDs.
 - `ID empresa` de ficha tecnica e contextual por empresa, opcional e preenchido manualmente pelo usuario. Ele nao deve ser propagado automaticamente para empresas vinculadas.
+- Quando um `PREPARO` compartilhado recebe taxa de venda entre empresas, o cadastro e os receituarios exibem o percentual, o valor acrescido e a origem/destino do acrescimo. A informacao e calculada no momento de exibicao, sem gravar custo derivado na ficha.
 
 ### PREPARO
 
@@ -78,6 +79,7 @@ Registrar em que pe o sistema esta hoje, por area, para consulta rapida antes de
   - resumo tecnico
   - preparo e validade
 - Isso reduz risco de divergencia futura entre formulario normal e pop-up.
+- Em receituarios de `PREPARO`, o campo `Acrescimo de compartilhamento` respeita o controle de visibilidade dos perfis de acesso.
 
 ### EXECUCAO
 

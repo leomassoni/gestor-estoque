@@ -52,6 +52,7 @@ import {
 } from './config/performance'
 import {
   applySharedPreparationSaleFee,
+  calculateSharedPreparationSaleFeeInfo,
   calculateNormalizedPackageQuantity,
   calculateExecutionTechnicalSheetFinalYield,
   calculatePackagingWeight,
@@ -248,6 +249,7 @@ import type {
   TechnicalSheetDraftState,
   TechnicalSheetIngredientMetrics,
   TechnicalSheetTotals,
+  SharedPreparationSaleFeeInfo,
   RecipePanelTab,
   RecipePanelIngredientMetrics,
   RecipePanelServiceItemMetrics,
@@ -589,6 +591,7 @@ const recipePreparoHeroFieldDefinitions: Array<{ key: RecipePreparoHeroFieldKey;
   { key: 'baseYield', label: 'Rendimento base' },
   { key: 'recipeCount', label: 'Quantidade de receitas' },
   { key: 'desiredYield', label: 'Volume final desejado' },
+  { key: 'sharingSaleFee', label: 'Acrescimo de compartilhamento' },
 ]
 const recipeExecutionHeroFieldDefinitions: Array<{ key: RecipeExecutionHeroFieldKey; label: string }> = [
   { key: 'family', label: 'Familia' },
@@ -3841,6 +3844,25 @@ export default function App() {
   }
   function getCompanyTradeName(companyId: number) {
     return companies.find((item) => item.id === companyId)?.tradeName ?? `EMPRESA ${companyId}`
+  }
+  function getSharedPreparationSaleFeeDescription(info: SharedPreparationSaleFeeInfo) {
+    return `Origem: ${getCompanyTradeName(info.ownerCompanyId)}; destino: ${getCompanyTradeName(info.targetCompanyId)}`
+  }
+  function renderSharedPreparationSaleFeeCard(
+    info: SharedPreparationSaleFeeInfo | null | undefined,
+    className = 'receituario-metric-card',
+  ) {
+    if (!info) {
+      return null
+    }
+
+    return (
+      <article className={className}>
+        <span>Acrescimo de compartilhamento</span>
+        <strong>{formatDecimal(info.percentage)}% | +R$ {formatMoney(info.addedCost)}</strong>
+        <small>{getSharedPreparationSaleFeeDescription(info)}</small>
+      </article>
+    )
   }
   function buildRequisitionLineSemanticKey(line: Pick<RequisitionLineRecord, 'kind' | 'technicalSheetId' | 'productId' | 'serviceItemId' | 'packageId' | 'destinationType' | 'destinationCenterId' | 'supplierCenterId'>) {
     return [
@@ -7099,6 +7121,11 @@ export default function App() {
       })
 
     const baseRecipeCost = adjustedIngredientMetrics.reduce((sum, ingredient) => sum + ingredient.scaledCost, 0)
+    const sharingSaleFeeInfo = calculateSharedPreparationSaleFeeInfo(
+      baseRecipeCost,
+      selectedProductionSheet,
+      currentCompanyCostContext,
+    )
     const totalRecipeCost = applySharedPreparationSaleFee(baseRecipeCost, selectedProductionSheet, currentCompanyCostContext)
     const totalPureAlcoholVolume = adjustedIngredientMetrics.reduce(
       (sum, ingredient) =>
@@ -7121,6 +7148,7 @@ export default function App() {
       ingredientMetrics: adjustedIngredientMetrics,
       desiredYield: finalYield,
       totalRecipeCost,
+      sharingSaleFeeInfo,
       finalAlcoholPercentage,
       portionsYield,
       costPerPortion,
@@ -13511,6 +13539,11 @@ export default function App() {
             }, 0)
         : 0
     const baseRecipeCost = totalIngredientCost + totalServiceItemCost
+    const sharingSaleFeeInfo = calculateSharedPreparationSaleFeeInfo(
+      baseRecipeCost,
+      technicalSheetFormCostBoundary,
+      currentCompanyCostContext,
+    )
     const totalRecipeCost = applySharedPreparationSaleFee(
       baseRecipeCost,
       technicalSheetFormCostBoundary,
@@ -13587,6 +13620,7 @@ export default function App() {
 
     return {
       totalRecipeCost,
+      sharingSaleFeeInfo,
       totalInputQuantity,
       suggestedYield,
       totalYield,
@@ -14129,6 +14163,7 @@ export default function App() {
       })
 
     const baseRecipeCost = allIngredientMetrics.reduce((sum, item) => sum + item.scaledCost, 0)
+    const sharingSaleFeeInfo = calculateSharedPreparationSaleFeeInfo(baseRecipeCost, sheet, currentCompanyCostContext)
     const totalRecipeCost = applySharedPreparationSaleFee(baseRecipeCost, sheet, currentCompanyCostContext)
     const totalMixtureVolume = yieldMetrics.reduce(
       (sum, item) => sum + (item.contributesToExecutionYield ? item.scaledYieldQuantity : 0),
@@ -14177,6 +14212,7 @@ export default function App() {
       garnishMetrics,
       serviceItemMetrics,
       totalRecipeCost,
+      sharingSaleFeeInfo,
       finalAlcoholPercentage,
       portionSize,
       portionsYield,
@@ -33624,6 +33660,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                   <span>Meta de Brix</span>
                   <strong>{data.sheet.targetBrix || '-'}</strong>
                 </article>
+                {visibleRecipePreparoHeroFields.sharingSaleFee ? renderSharedPreparationSaleFeeCard(data.sharingSaleFeeInfo) : null}
               </div>
             </section>
           </>
@@ -34007,6 +34044,13 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
           rows.push(['% alcool final', `${formatDecimal(data.finalAlcoholPercentage)}%`])
           rows.push(['Meta de PH', data.sheet.targetPh || '-'])
           rows.push(['Meta de Brix', data.sheet.targetBrix || '-'])
+          if (visibleRecipePreparoHeroFields.sharingSaleFee && data.sharingSaleFeeInfo) {
+            rows.push([
+              'Acrescimo de compartilhamento',
+              `${formatDecimal(data.sharingSaleFeeInfo.percentage)}% | +R$ ${formatMoney(data.sharingSaleFeeInfo.addedCost)}`,
+            ])
+            rows.push(['Origem do acrescimo', getSharedPreparationSaleFeeDescription(data.sharingSaleFeeInfo)])
+          }
         } else {
           const generatedDescription = buildTechnicalSheetGeneratedDescription(data.sheet, technicalSheets)
           if (exportExecutionBlocks.flavorProfile) {
@@ -36047,6 +36091,15 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
           <span>Custo total da receita</span>
           <strong>R$ {formatMoney(technicalSheetTotals.totalRecipeCost)}</strong>
         </div>
+        {technicalSheetTotals.sharingSaleFeeInfo ? (
+          <div>
+            <span>Acrescimo de compartilhamento</span>
+            <strong>
+              {formatDecimal(technicalSheetTotals.sharingSaleFeeInfo.percentage)}% | +R$ {formatMoney(technicalSheetTotals.sharingSaleFeeInfo.addedCost)}
+            </strong>
+            <small>{getSharedPreparationSaleFeeDescription(technicalSheetTotals.sharingSaleFeeInfo)}</small>
+          </div>
+        ) : null}
         <div>
           <span>% alcool final</span>
           <strong>{formatDecimal(technicalSheetTotals.finalAlcoholPercentage)}%</strong>
@@ -39885,6 +39938,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                           <span>Meta de Brix</span>
                           <strong>{recipePanelData.sheet.targetBrix || '-'}</strong>
                         </article>
+                        {visibleRecipePreparoHeroFields.sharingSaleFee ? renderSharedPreparationSaleFeeCard(recipePanelData.sharingSaleFeeInfo) : null}
                       </div>
                     </section>
                   ) : null}
@@ -46635,6 +46689,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                   <span>Custo por porcao</span>
                   <strong>R$ {formatMoney(productionPreparedData.costPerPortion)}</strong>
                 </article>
+                {renderSharedPreparationSaleFeeCard(productionPreparedData.sharingSaleFeeInfo)}
               </div>
             </section>
 
