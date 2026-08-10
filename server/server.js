@@ -1548,10 +1548,14 @@ app.post('/api/products', async (request, response) => {
   }
 
   try {
-    await ensureProductIdCanBeCreated(product)
-    await ensureProductTechnicalSheetLinkCanBeSaved(product)
-    await ensureUniqueProductName(product)
-    const saved = await prisma.appProductRecord.create({ data: product })
+    const productToCreate =
+      typeof product.technicalSheetId !== 'number' && product.id === ''
+        ? { ...product, id: await allocateProductId() }
+        : product
+    await ensureProductIdCanBeCreated(productToCreate)
+    await ensureProductTechnicalSheetLinkCanBeSaved(productToCreate)
+    await ensureUniqueProductName(productToCreate)
+    const saved = await prisma.appProductRecord.create({ data: productToCreate })
     response.json({ product: saved })
   } catch (error) {
     response.status(error.statusCode ?? 500).json({ error: error.message ?? 'Erro ao salvar produto.' })
@@ -2311,6 +2315,24 @@ async function allocateTechnicalSheetProductId(kind, client = prisma) {
   }
 
   const error = new Error('Nao foi possivel gerar um ID interno unico para o produto vinculado da ficha tecnica.')
+  error.statusCode = 409
+  throw error
+}
+
+async function allocateProductId(client = prisma) {
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    const productId = buildOpaqueCatalogId('PRD')
+    const existingProduct = await client.appProductRecord.findUnique({
+      where: { id: productId },
+      select: { id: true },
+    })
+
+    if (!existingProduct) {
+      return productId
+    }
+  }
+
+  const error = new Error('Nao foi possivel gerar um ID interno unico para o produto.')
   error.statusCode = 409
   throw error
 }
@@ -4053,7 +4075,7 @@ function normalizeProductPayload(value) {
     .filter((item) => item !== null)
 
   return {
-    id: product.id,
+    id: product.id.trim(),
     companyId: product.companyId,
     ownerCompanyId,
     companyProductId: product.companyProductId,

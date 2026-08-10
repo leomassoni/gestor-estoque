@@ -404,6 +404,14 @@ Registrar o que foi decidido, o que foi adiado e o que foi descartado, com foco 
   - validar escopo por empresa vinculada apos qualquer cadastro em massa;
   - atualizar `WORKLOG`, `STATUS` e `DECISIONS` quando uma mudanca alterar comportamento real do sistema.
 
+### Produto avulso criado por carga deve receber ID no servidor
+
+- Decisao: `POST /api/products` pode receber `id` vazio para produto avulso e deve alocar um ID opaco `PRD-...` no backend.
+- Regra operacional:
+  - importadores e scripts nao devem gerar IDs semanticos, sequenciais ou estaveis para produtos avulsos;
+  - produtos vinculados a fichas tecnicas continuam usando obrigatoriamente o `productId` alocado pela ficha tecnica;
+  - atualizacoes continuam usando `PUT /api/products/:id` com o ID ja existente.
+
 ### Prioridade de producao nao pode ser inferida so por nome
 
 - Problema: a fila de `Entrada de producoes` pode parecer alfabetica quando as fichas da propria fila nao entram no grafo de dependencias.

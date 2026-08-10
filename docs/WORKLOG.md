@@ -8,6 +8,12 @@ Registrar um historico resumido do que foi feito, do que falhou e do que ficou p
 
 ## 2026-08-10
 
+### ID de produto avulso no servidor
+
+- Ajustado `POST /api/products` para aceitar `id` vazio em produto avulso e alocar `PRD-...` no backend.
+- Mantida a regra de ficha tecnica: produto vinculado a ficha continua usando o `productId` gerado pela ficha tecnica no servidor.
+- Validacao executada: `npm run build:server` e `git diff --check`.
+
 ### Subproduto em producao de PREPARO
 
 - Implementado fluxo minimo para subproduto de pre-preparo:

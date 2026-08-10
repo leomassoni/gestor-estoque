@@ -287,3 +287,9 @@ Registrar em que pe o sistema esta hoje, por area, para consulta rapida antes de
     - cancelar multiplos lotes analiticos/pendentes
     - exportar inconsistencias de multiplos lotes
 - Manter este arquivo atualizado sempre que uma decisao mudar o estado real do sistema.
+
+## Cadastro via API
+
+- `POST /api/technical-sheets` aloca `id` numerico e `productId` interno da ficha no servidor.
+- `POST /api/products` aceita produto avulso com `id` vazio e aloca `PRD-...` no servidor.
+- Cargas de catalogo nao devem inventar IDs internos; devem consumir o registro retornado pela API.
