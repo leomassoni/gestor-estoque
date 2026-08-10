@@ -450,7 +450,7 @@ Registrar o que foi decidido, o que foi adiado e o que foi descartado, com foco 
   - a demanda inferida de `SUPRIMENTOS` pendentes subtrai o estoque atual do centro distribuidor uma unica vez;
   - linhas `COMPRAS` diretas aparecem somente depois que a requisicao foi aprovada, enviada e esta pronta para recebimento;
   - requisicao apenas `APPROVED`, ainda nao enviada, nao deve alimentar o consolidado de compras;
-  - requisicao vinculada a planejamento por ficha nao deve alimentar `Compras` quando o `planningRootRequestId` nao tiver mais origem ativa na fila de producao ou em producao em andamento;
+  - requisicao aprovada e enviada para suprimentos deve alimentar `Compras` independentemente do carregamento local da fila de producao; o cancelamento do planejamento e que deve cancelar as requisicoes derivadas;
   - cancelar uma requisicao em `Suprimentos` deve marcar `CANCELLED`; nao deve devolve-la para `PENDING_APPROVAL`;
   - requisicao `CANCELLED` e terminal para sincronizacao: cliente antigo/cache local nao pode reativar o registro como pendente, aprovado, em suprimentos ou pronto para receber;
   - inventario operacional usado para calcular falta de compras deve vir do banco; `localStorage` nao pode restaurar contagens/sessoes/movimentos quando o servidor nao possui esses registros;

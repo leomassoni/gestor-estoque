@@ -153,7 +153,8 @@ Registrar em que pe o sistema esta hoje, por area, para consulta rapida antes de
 - `Entrada de producoes`, `Requisicoes`, `Suprimentos` e `Recebimentos` ja passaram por ajustes para respeitar essa separacao.
 - O painel `Compras` existe como visao consolidada das faltas de centros distribuidores: ele agrupa produtos que precisam ser comprados para abastecer o distribuidor antes que ele atenda requisicoes internas de suprimentos.
 - Compras nao deve nascer diretamente da necessidade final de um centro produtor/consumidor quando houver centro distribuidor responsavel. A cadeia correta e: centro solicitante -> suprimento do distribuidor -> falta do distribuidor -> compras para abastecer o distribuidor -> suprimento ao solicitante.
-- `Compras` deve considerar apenas requisicoes aprovadas e enviadas. Compra direta so entra no consolidado quando esta `READY_TO_RECEIVE`; requisicao apenas `APPROVED` ainda nao enviada nao entra.
+- `Compras` deve considerar requisicoes aprovadas e enviadas como obrigacao operacional propria. Compra direta so entra no consolidado quando esta `READY_TO_RECEIVE`; requisicao apenas `APPROVED`, ainda nao enviada, nao entra.
+- Requisicoes de `Compras` nao devem depender da fila de `Entrada de producoes` continuar carregada no frontend. Se um planejamento for cancelado, o cancelamento deve marcar as requisicoes derivadas como `CANCELLED`; enquanto a requisicao estiver `SENT_TO_SUPPLIES`/`READY_TO_RECEIVE`, ela deve aparecer no fluxo correspondente.
 - Em `Suprimentos`, cancelar requisicao `SENT_TO_SUPPLIES` deve gravar `CANCELLED` no servidor. O fluxo nao deve reabrir a requisicao como pendente.
 - Uma requisicao ja `CANCELLED` nao pode ser reativada por sincronizacao de cliente antigo/cache local; a API deve bloquear essa sobrescrita.
 - Inventario operacional usado por `Compras` deve vir do banco. O navegador nao deve restaurar contagens/sessoes/movimentos locais quando o servidor estiver vazio.

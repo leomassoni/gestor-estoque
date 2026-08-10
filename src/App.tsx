@@ -7426,16 +7426,6 @@ export default function App() {
 
     const productById = new Map(products.filter((product) => isProductManagedByCompany(product, currentCompanyId)).map((product) => [product.id, product]))
     const stockCenterById = new Map(stockCenters.filter((center) => center.companyId === currentCompanyId).map((center) => [center.id, center]))
-    const activePlanningRootRequestIds = new Set(
-      manualProductionRequests
-        .filter((request) => request.companyId === currentCompanyId)
-        .map((request) => request.rootRequestId),
-    )
-    productionInProgressDrafts
-      .filter((draft) => draft.companyId === currentCompanyId)
-      .forEach((draft) => {
-        ;(draft.manualRequestIds ?? []).forEach((requestId) => activePlanningRootRequestIds.add(requestId))
-      })
     const groups = new Map<
       string,
       {
@@ -7463,9 +7453,6 @@ export default function App() {
       }
       return quantity
     }
-
-    const hasActivePlanningSource = (record: RequisitionRecord) =>
-      typeof record.planningRootRequestId !== 'number' || activePlanningRootRequestIds.has(record.planningRootRequestId)
 
     const upsertGroup = (params: {
       center: StockCenterRecord
@@ -7517,8 +7504,7 @@ export default function App() {
           record.companyId === currentCompanyId &&
           record.status === 'SENT_TO_SUPPLIES' &&
           record.supplyCenterId !== null &&
-          isRequisitionApprovedAndSent(record) &&
-          hasActivePlanningSource(record),
+          isRequisitionApprovedAndSent(record),
       )
       .forEach((record) => {
         const supplierCenter = stockCenterById.get(record.supplyCenterId as number) ?? null
@@ -7543,8 +7529,7 @@ export default function App() {
         (record) =>
           record.companyId === currentCompanyId &&
           isDirectPurchaseReadyToReceiveRequisition(record) &&
-          isRequisitionApprovedAndSent(record) &&
-          hasActivePlanningSource(record),
+          isRequisitionApprovedAndSent(record),
       )
       .forEach((record) => {
         const requestingCenter = stockCenterById.get(record.stockCenterId) ?? null
@@ -7596,7 +7581,7 @@ export default function App() {
           left.subfamily.localeCompare(right.subfamily, 'pt-BR') ||
           left.productName.localeCompare(right.productName, 'pt-BR'),
       )
-  }, [currentCompanyId, latestInventoryQuantityByCenterAndAggregation, manualProductionRequests, productionInProgressDrafts, products, requisitions, stockCenters])
+  }, [currentCompanyId, latestInventoryQuantityByCenterAndAggregation, products, requisitions, stockCenters])
   const visiblePurchaseDemandRows = useMemo(() => {
     const search = normalizeFreeText(purchaseSearch)
     if (!search) {
