@@ -2074,6 +2074,25 @@ function getTechnicalSheetYieldDifferenceQuantity(referenceQuantity: number, tot
   return referenceQuantity > totalYield ? referenceQuantity - totalYield : 0
 }
 
+function getTechnicalSheetByproductBaseYield(sheet: TechnicalSheetRecord, byproductSheet: TechnicalSheetRecord | null = null) {
+  if (sheet.kind !== 'PREPARO' || sheet.yieldDifferenceDestination !== 'BYPRODUCT') {
+    return 0
+  }
+
+  const totalInputQuantity = [...sheet.ingredients, ...sheet.garnishIngredients].reduce((sum, ingredient) => {
+    if (!ingredient.isActive) {
+      return sum
+    }
+    return sum + calculateTechnicalSheetIngredientBaseQuantity(ingredient)
+  }, 0)
+  const declaredDifference = getTechnicalSheetYieldDifferenceQuantity(totalInputQuantity, getTechnicalSheetBaseYield(sheet))
+  if (declaredDifference > 0) {
+    return declaredDifference
+  }
+
+  return byproductSheet ? getTechnicalSheetBaseYield(byproductSheet) : 0
+}
+
 function calculateTechnicalSheetSuggestedYieldFromDraft(
   kind: TechnicalSheetKind,
   ingredients: TechnicalSheetIngredient[],
@@ -3364,6 +3383,40 @@ export default function App() {
 
     return candidates[0]
   }
+  function resolveByproductSourceSheetForCenter(
+    byproductSheetId: number,
+    center: StockCenterRecord,
+    scopeSheetById?: Map<number, TechnicalSheetRecord>,
+  ): TechnicalSheetRecord | null {
+    const candidates = technicalSheets
+      .filter(
+        (sheet) =>
+          sheet.kind === 'PREPARO' &&
+          sheet.isActive &&
+          sheet.yieldDifferenceDestination === 'BYPRODUCT' &&
+          sheet.yieldDifferenceByproductTechnicalSheetId === byproductSheetId &&
+          isTechnicalSheetVisibleForCompany(sheet, center.companyId) &&
+          doesCenterProduceTechnicalSheet(center, sheet) &&
+          (!scopeSheetById || scopeSheetById.has(sheet.id)),
+      )
+      .sort((left, right) => {
+        const leftDirect = doesCenterDirectlyProduceTechnicalSheet(center, left) ? 0 : 1
+        const rightDirect = doesCenterDirectlyProduceTechnicalSheet(center, right) ? 0 : 1
+        if (leftDirect !== rightDirect) {
+          return leftDirect - rightDirect
+        }
+
+        const leftSameOwner = getTechnicalSheetOwnerCompanyId(left) === center.companyId ? 0 : 1
+        const rightSameOwner = getTechnicalSheetOwnerCompanyId(right) === center.companyId ? 0 : 1
+        if (leftSameOwner !== rightSameOwner) {
+          return leftSameOwner - rightSameOwner
+        }
+
+        return left.id - right.id
+      })
+
+    return candidates[0] ?? null
+  }
   function resolvePreparationSheetForCenterMinimumByProductId(
     productId: string,
     center: StockCenterRecord,
@@ -3611,6 +3664,7 @@ export default function App() {
     })
 
     const effectiveMinimumMemo = new Map<number, number>()
+    const byproductSourceDemandMemo = new Map<number, number>()
     const priorityMemo = new Map<number, number>()
     const resolveInternalDependencySheet = (productId: string) => {
       const dependencySheet = resolvePreparationSheetForCenterByProductId(productId, center)
@@ -3618,6 +3672,77 @@ export default function App() {
         return null
       }
       return dependencySheet
+    }
+
+    const computeByproductSourceDemand = (sheetId: number, visiting = new Set<number>()): number => {
+      if (byproductSourceDemandMemo.has(sheetId)) {
+        return byproductSourceDemandMemo.get(sheetId) ?? 0
+      }
+
+      if (visiting.has(sheetId)) {
+        return 0
+      }
+
+      const targetSheet = sheetById.get(sheetId) ?? null
+      if (!targetSheet) {
+        return 0
+      }
+
+      const byproductTechnicalSheetId =
+        targetSheet.yieldDifferenceDestination === 'BYPRODUCT' &&
+        typeof targetSheet.yieldDifferenceByproductTechnicalSheetId === 'number'
+          ? targetSheet.yieldDifferenceByproductTechnicalSheetId
+          : null
+      const byproductSheet =
+        byproductTechnicalSheetId === null
+          ? null
+          : sheetById.get(byproductTechnicalSheetId) ??
+            technicalSheets.find(
+              (sheet) =>
+                sheet.id === byproductTechnicalSheetId &&
+                sheet.kind === 'PREPARO' &&
+                sheet.isActive &&
+                isTechnicalSheetVisibleForCompany(sheet, center.companyId),
+            ) ??
+            null
+
+      if (!byproductSheet) {
+        byproductSourceDemandMemo.set(sheetId, 0)
+        return 0
+      }
+
+      const nextVisiting = new Set(visiting)
+      nextVisiting.add(sheetId)
+      const byproductDemand = producedSheets.reduce((sum, candidateSheet) => {
+        if (candidateSheet.id === sheetId) {
+          return sum
+        }
+
+        const ingredient = candidateSheet.ingredients.find((item) => item.isActive && item.productId === byproductSheet.productId)
+        if (!ingredient) {
+          return sum
+        }
+
+        const candidateRequiredOutput = computeEffectiveMinimum(candidateSheet.id, nextVisiting)
+        const candidateBaseYield = getTechnicalSheetBaseYield(candidateSheet)
+        const targetByproductBaseYield = getTechnicalSheetByproductBaseYield(targetSheet, byproductSheet)
+        const targetBaseYield = getTechnicalSheetBaseYield(targetSheet)
+        if (
+          candidateRequiredOutput <= 0 ||
+          candidateBaseYield <= 0 ||
+          targetByproductBaseYield <= 0 ||
+          targetBaseYield <= 0
+        ) {
+          return sum
+        }
+
+        const requiredByproductQuantity =
+          candidateRequiredOutput * (calculateTechnicalSheetIngredientBaseQuantity(ingredient) / candidateBaseYield)
+        return sum + requiredByproductQuantity * (targetBaseYield / targetByproductBaseYield)
+      }, 0)
+
+      byproductSourceDemandMemo.set(sheetId, byproductDemand)
+      return byproductDemand
     }
 
     const computeEffectiveMinimum = (sheetId: number, visiting = new Set<number>()): number => {
@@ -3658,8 +3783,9 @@ export default function App() {
 
         return sum + candidateRequiredOutput * (calculateTechnicalSheetIngredientBaseQuantity(ingredient) / candidateBaseYield)
       }, 0)
+      const byproductContribution = computeByproductSourceDemand(sheetId, nextVisiting)
 
-      const total = ownUseMinimum + ownRealMinimum + externalUseMinimum + productionContribution
+      const total = ownUseMinimum + ownRealMinimum + externalUseMinimum + productionContribution + byproductContribution
       effectiveMinimumMemo.set(sheetId, total)
       return total
     }
@@ -3682,7 +3808,13 @@ export default function App() {
       nextVisiting.add(sheetId)
       const dependencyDepth = sheet.ingredients
         .filter((ingredient) => ingredient.isActive)
-        .map((ingredient) => resolveInternalDependencySheet(ingredient.productId))
+        .map((ingredient) => {
+          const dependencySheet = resolveInternalDependencySheet(ingredient.productId)
+          if (!dependencySheet) {
+            return null
+          }
+          return resolveByproductSourceSheetForCenter(dependencySheet.id, center, sheetById) ?? dependencySheet
+        })
         .filter((dependencySheet): dependencySheet is TechnicalSheetRecord => Boolean(dependencySheet))
         .reduce((maxDepth, dependencySheet) => Math.max(maxDepth, 1 + computePriority(dependencySheet.id, nextVisiting)), 0)
 
@@ -3699,6 +3831,7 @@ export default function App() {
       externalUseMinimumBySheetId,
       pendingSupplyDemandBySheetId,
       computeEffectiveMinimum,
+      computeByproductSourceDemand,
       computePriority,
     }
   }
@@ -4163,7 +4296,7 @@ export default function App() {
         return plans
       }, new Map<number, { rootRequestId: number; label: string; centerName: string; requestIds: number[] }>()),
     )
-      .map((plan) => ({
+      .map(([, plan]) => ({
         rootRequestId: plan.rootRequestId,
         label: `${plan.label} • ${plan.centerName} (${formatDecimal(plan.requestIds.length)} producao(oes) pendente(s))`,
         requestIds: plan.requestIds,
@@ -4600,7 +4733,10 @@ export default function App() {
           0
         const useMinimumQuantity = demandContext?.useMinimumBySheetId.get(sheet.id) ?? 0
         const realMinimumQuantity = demandContext?.computeEffectiveMinimum(sheet.id) ?? 0
-        const automaticSuggestedQuantity = Math.max(realMinimumQuantity - currentQuantity, 0)
+        const byproductSourceDemandQuantity = demandContext?.computeByproductSourceDemand(sheet.id) ?? 0
+        const regularMinimumQuantity = Math.max(realMinimumQuantity - byproductSourceDemandQuantity, 0)
+        const automaticSuggestedQuantity =
+          Math.max(regularMinimumQuantity - currentQuantity, 0) + byproductSourceDemandQuantity
         const manualRequestedQuantity = manualRequestedQuantityBySheetId.get(sheet.id) ?? 0
         const manualRequestIds = manualRequestIdsBySheetId.get(sheet.id) ?? []
         const cancellableManualRequestIds = cancellableManualRequestIdsBySheetId.get(sheet.id) ?? []
@@ -4710,6 +4846,36 @@ export default function App() {
         : null,
     [currentCompanyId, isTechnicalSheetVisibleForCompany, productionDraftState, technicalSheets],
   )
+  const selectedProductionByproductSheet = useMemo(() => {
+    if (
+      !selectedProductionSheet ||
+      selectedProductionSheet.kind !== 'PREPARO' ||
+      selectedProductionSheet.yieldDifferenceDestination !== 'BYPRODUCT' ||
+      typeof selectedProductionSheet.yieldDifferenceByproductTechnicalSheetId !== 'number'
+    ) {
+      return null
+    }
+
+    return (
+      technicalSheets.find(
+        (sheet) =>
+          sheet.id === selectedProductionSheet.yieldDifferenceByproductTechnicalSheetId &&
+          sheet.kind === 'PREPARO' &&
+          sheet.isActive &&
+          isTechnicalSheetVisibleForCompany(sheet, currentCompanyId),
+      ) ?? null
+    )
+  }, [currentCompanyId, isTechnicalSheetVisibleForCompany, selectedProductionSheet, technicalSheets])
+  const selectedProductionByproductSuggestedYield = useMemo(() => {
+    if (!productionDraftState || !selectedProductionSheet || !selectedProductionByproductSheet) {
+      return 0
+    }
+
+    const baseYield = getTechnicalSheetBaseYield(selectedProductionSheet)
+    const desiredYield = parseDecimal(productionDraftState.desiredYield) ?? 0
+    const baseByproductYield = getTechnicalSheetByproductBaseYield(selectedProductionSheet, selectedProductionByproductSheet)
+    return baseYield > 0 && desiredYield > 0 ? baseByproductYield * (desiredYield / baseYield) : baseByproductYield
+  }, [productionDraftState, selectedProductionByproductSheet, selectedProductionSheet])
   const selectedProductionRequestRow = useMemo(
     () =>
       productionDraftState
@@ -6038,7 +6204,7 @@ export default function App() {
     const response = await fetch(`/api/production-drafts/${draft.draftId}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(draft),
+      body: JSON.stringify({ ...draft, companyId: draft.companyId ?? currentCompanyId }),
     })
     if (!response.ok) {
       const errorPayload = (await response.json().catch(() => null)) as { error?: string } | null
@@ -22903,11 +23069,28 @@ export default function App() {
       targetSheet && desiredYield > 0
         ? buildRecipePanelDataForSheet(targetSheet, desiredYield, desiredYield / getTechnicalSheetBaseYield(targetSheet))
         : null
+    const byproductSheet =
+      targetSheet?.yieldDifferenceDestination === 'BYPRODUCT' &&
+      typeof targetSheet.yieldDifferenceByproductTechnicalSheetId === 'number'
+        ? technicalSheets.find(
+            (sheet) =>
+              sheet.id === targetSheet.yieldDifferenceByproductTechnicalSheetId &&
+              sheet.kind === 'PREPARO' &&
+              sheet.isActive &&
+              isTechnicalSheetVisibleForCompany(sheet, currentCompanyId),
+          ) ?? null
+        : null
+    const targetBaseYield = targetSheet ? getTechnicalSheetBaseYield(targetSheet) : 0
+    const suggestedByproductYield =
+      targetSheet && byproductSheet && targetBaseYield > 0
+        ? getTechnicalSheetByproductBaseYield(targetSheet, byproductSheet) * (desiredYield / targetBaseYield)
+        : 0
 
     setProductionCenterId(String(centerId))
     setIsManualProductionModalOpen(false)
     setProductionDraftState({
       draftId: null,
+      companyId: currentCompanyId,
       centerId,
       sheetId,
       startedAt: '',
@@ -22915,6 +23098,7 @@ export default function App() {
       startedByUserName: '',
       desiredYield: formatDecimal(desiredYield),
       finalYield: formatDecimal(desiredYield),
+      byproductYield: suggestedByproductYield > 0 ? formatDecimal(suggestedByproductYield) : '',
       confirmedPh: '',
       confirmedBrix: '',
       ingredientOverrides: Object.fromEntries(
@@ -23259,6 +23443,24 @@ export default function App() {
           const existingLine = lineMap.get(lineKey) ?? null
 
           if (dependencySheet) {
+            const byproductSourceSheet = resolveByproductSourceSheetForCenter(dependencySheet.id, stockCenter)
+            if (byproductSourceSheet && doesCenterProduceTechnicalSheet(stockCenter, byproductSourceSheet)) {
+              const byproductBaseYield = getTechnicalSheetByproductBaseYield(byproductSourceSheet, dependencySheet)
+              const sourceBaseYield = getTechnicalSheetBaseYield(byproductSourceSheet)
+              if (byproductBaseYield > 0 && sourceBaseYield > 0) {
+                const sourceRequiredYield = shortageQuantity * (sourceBaseYield / byproductBaseYield)
+                const requestKey = `${stockCenter.id}:${byproductSourceSheet.id}`
+                const existingRequest = plannedProductionRequests.get(requestKey) ?? null
+                plannedProductionRequests.set(requestKey, {
+                  centerId: stockCenter.id,
+                  sheetId: byproductSourceSheet.id,
+                  desiredYield: (existingRequest?.desiredYield ?? 0) + sourceRequiredYield,
+                })
+                consumeOrRegisterShortage(byproductSourceSheet, sourceRequiredYield, stockCenter.id, nextVisiting)
+                return
+              }
+            }
+
             const producerCenter = resolveDependencyProducerCenter(dependencySheet.id, sourceCenterId)
             const isProducedByCurrentCenter = doesCenterProduceTechnicalSheet(stockCenter, dependencySheet)
 
@@ -24138,7 +24340,7 @@ export default function App() {
       (request) => request.companyId === currentCompanyId && request.rootRequestId === rootRequestId,
     )
     const now = new Date().toISOString()
-    const nextRequisitions = requisitions.map((record) => {
+    const nextRequisitions: RequisitionRecord[] = requisitions.map((record) => {
         if (record.companyId !== currentCompanyId || record.planningRootRequestId !== rootRequestId) {
           return record
         }
@@ -24256,6 +24458,26 @@ export default function App() {
       return
     }
 
+    const byproductYield =
+      selectedProductionByproductSheet === null ? 0 : (parseDecimal(productionDraftState.byproductYield) ?? 0)
+    if (selectedProductionByproductSheet && byproductYield <= 0) {
+      setSaveFeedback({
+        status: 'error',
+        title: 'Subproduto nao informado',
+        message: `Informe a quantidade real gerada de ${selectedProductionByproductSheet.name} antes de confirmar a producao.`,
+      })
+      return
+    }
+
+    if (selectedProductionByproductSheet && !isTechnicalSheetStockTracked(selectedProductionByproductSheet, products)) {
+      setSaveFeedback({
+        status: 'error',
+        title: 'Subproduto fora do estoque',
+        message: `${selectedProductionByproductSheet.name} esta configurado para nao controlar estoque. Ajuste a ficha antes de registrar a producao com subproduto.`,
+      })
+      return
+    }
+
     const countedAt = latestInventoryDateByCenterId.get(selectedProductionCenter.id) ?? getTodayDateInputValue()
     const now = new Date().toISOString()
     const nextSessionId = getNextPersistedIntId([
@@ -24315,12 +24537,58 @@ export default function App() {
       createdByUserId: currentAppUser?.id ?? null,
       createdByUserName: currentAppUser?.fullName ?? 'Administrador do sistema',
     }
+    const productionRecords: InventoryCountRecord[] = [productionRecord]
+
+    if (selectedProductionByproductSheet && byproductYield > 0) {
+      productionRecords.push({
+        id: nextSessionId + 2,
+        inventoryId: null,
+        sessionId: nextSessionId,
+        companyId: currentCompanyId,
+        stockCenterId: selectedProductionCenter.id,
+        countedAt,
+        storageLocation: 'ENTRADA DE PRODUCAO',
+        technicalSheetId: selectedProductionByproductSheet.id,
+        productId: '',
+        serviceItemId: '',
+        packageId: null,
+        technicalSheetName: selectedProductionByproductSheet.name,
+        technicalSheetKind: 'PREPARO',
+        recipientItemId: '',
+        recipientLabel: `SUBPRODUTO DE PRODUCAO • ${selectedProductionSheet.name}`,
+        closedItemsQuantity: formatDecimal(byproductYield),
+        hasOpenItems: false,
+        openItemsGrossWeight: '',
+        openItemsContainerQuantity: '',
+        openItemsNetQuantity: '',
+        totalCountedQuantity: formatDecimal(byproductYield),
+        totalCountedUnit:
+          selectedProductionByproductSheet.outputUnit === 'GRAM'
+            ? 'GRAM'
+            : selectedProductionByproductSheet.outputUnit === 'UNIT'
+              ? 'UNIT'
+              : 'MILLILITER',
+        productionExpectedYield:
+          selectedProductionByproductSuggestedYield > 0 ? formatDecimal(selectedProductionByproductSuggestedYield) : '',
+        productionFinalYield: formatDecimal(byproductYield),
+        productionYieldDifference:
+          selectedProductionByproductSuggestedYield > 0
+            ? formatDecimal(byproductYield - selectedProductionByproductSuggestedYield)
+            : '',
+        productionTargetPh: '',
+        productionConfirmedPh: '',
+        productionTargetBrix: '',
+        productionConfirmedBrix: '',
+        createdByUserId: currentAppUser?.id ?? null,
+        createdByUserName: currentAppUser?.fullName ?? 'Administrador do sistema',
+      })
+    }
 
     const productionMovementResult = registerOperationalInventoryMovement(
       selectedProductionCenter.id,
       `ENTRADA DE PRODUCAO • ${selectedProductionSheet.name}`,
       nextSession,
-      [productionRecord],
+      productionRecords,
     )
     if (productionDraftState.draftId !== null) {
       setProductionInProgressDrafts((current) => current.filter((draft) => draft.draftId !== productionDraftState.draftId))
@@ -24332,8 +24600,12 @@ export default function App() {
       title: 'Producao confirmada',
       message:
         productionMovementResult === 'queued'
-          ? 'O centro produtor esta com inventario aberto. A producao foi registrada como pendente e sera somada ao estoque quando esse inventario for finalizado.'
-          : 'O pre-preparo foi registrado e somado ao estoque do centro de estoque produtor.',
+          ? selectedProductionByproductSheet
+            ? 'O centro produtor esta com inventario aberto. A producao e o subproduto foram registrados como pendentes e serao somados ao estoque quando esse inventario for finalizado.'
+            : 'O centro produtor esta com inventario aberto. A producao foi registrada como pendente e sera somada ao estoque quando esse inventario for finalizado.'
+          : selectedProductionByproductSheet
+            ? 'O pre-preparo e o subproduto foram registrados e somados ao estoque do centro de estoque produtor.'
+            : 'O pre-preparo foi registrado e somado ao estoque do centro de estoque produtor.',
     })
   }
 
@@ -35033,7 +35305,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
       (request) => !impactedManualRequestIds.has(request.id),
     )
     const now = new Date().toISOString()
-    const nextRequisitions = requisitions.map((record) => {
+    const nextRequisitions: RequisitionRecord[] = requisitions.map((record) => {
       if (
         !(
           record.planningSourceSheetId === targetSheet.id ||
@@ -46664,6 +46936,30 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                   placeholder={selectedProductionSheet.targetBrix || 'Ex.: 18'}
                 />
               </label>
+              {selectedProductionByproductSheet ? (
+                <>
+                  <div className="field">
+                    <span>Subproduto gerado</span>
+                    <strong>{selectedProductionByproductSheet.name}</strong>
+                  </div>
+                  <label className="field">
+                    <span>Quantidade do subproduto</span>
+                    <input
+                      value={productionDraftState.byproductYield}
+                      onChange={(event) =>
+                        setProductionDraftState((current) =>
+                          current ? { ...current, byproductYield: event.target.value } : current,
+                        )
+                      }
+                      placeholder={
+                        selectedProductionByproductSuggestedYield > 0
+                          ? `${formatDecimal(selectedProductionByproductSuggestedYield)} ${formatControlUnitShort(selectedProductionByproductSheet.outputUnit)}`
+                          : `Ex.: 100 ${formatControlUnitShort(selectedProductionByproductSheet.outputUnit)}`
+                      }
+                    />
+                  </label>
+                </>
+              ) : null}
             </form>
 
             <section className="inner-panel">
@@ -54115,6 +54411,7 @@ function normalizeProductionDraftState(value: unknown): ProductionDraftState | n
 
   return {
     draftId: isSafePersistedIntId(draft.draftId) ? draft.draftId : null,
+    companyId: isSafePersistedIntId(draft.companyId) ? draft.companyId : null,
     centerId: draft.centerId,
     sheetId: draft.sheetId,
     startedAt: draft.startedAt,
@@ -54122,6 +54419,7 @@ function normalizeProductionDraftState(value: unknown): ProductionDraftState | n
     startedByUserName: draft.startedByUserName,
     desiredYield: draft.desiredYield,
     finalYield: draft.finalYield,
+    byproductYield: typeof draft.byproductYield === 'string' ? draft.byproductYield : '',
     confirmedPh: draft.confirmedPh,
     confirmedBrix: draft.confirmedBrix,
     ingredientOverrides: normalizedOverrides,

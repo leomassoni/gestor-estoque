@@ -935,6 +935,7 @@ export type ProductionRequestRow = {
 
 export type ProductionDraftState = {
   draftId: number | null
+  companyId?: number | null
   centerId: number
   sheetId: number
   startedAt: string
@@ -942,6 +943,7 @@ export type ProductionDraftState = {
   startedByUserName: string
   desiredYield: string
   finalYield: string
+  byproductYield: string
   confirmedPh: string
   confirmedBrix: string
   ingredientOverrides: Record<number, string>

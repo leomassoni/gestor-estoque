@@ -1,6 +1,6 @@
 # Status do Sistema
 
- Ultima atualizacao: 2026-08-09
+ Ultima atualizacao: 2026-08-10
 
 ## Objetivo deste arquivo
 
@@ -152,6 +152,12 @@ Registrar em que pe o sistema esta hoje, por area, para consulta rapida antes de
 - O minimo do centro consumidor, o consolidado operacional do produtor e o minimo de uso devem permanecer conceitos separados.
 - `Entrada de producoes`, `Requisicoes`, `Suprimentos` e `Recebimentos` ja passaram por ajustes para respeitar essa separacao.
 - A prioridade da `Entrada de producoes` e calculada por dependencias de producao. A camada `0` representa itens que precisam ser feitos primeiro por nao dependerem de outro preparo da mesma fila. Quando a fila contem pedidos manuais/planejamento por ficha, esses itens tambem entram no grafo para evitar que dependencias fiquem mascaradas como prioridade `0`.
+- `PREPARO` com `Destino da diferenca = Subproduto` agora fecha o fluxo operacional minimo:
+  - a finalizacao da producao mostra o subproduto vinculado e pede a quantidade real gerada;
+  - a mesma movimentacao de `ENTRADA DE PRODUCAO` registra o preparo principal e uma entrada adicional do subproduto;
+  - se houver inventario aberto, ambos entram como movimentacao pendente;
+  - a fila de `Entrada de producoes` considera que fichas consumidoras do subproduto dependem da ficha geradora;
+  - a demanda por subproduto nao e abatida pelo estoque atual do preparo principal, pois estoque pronto nao gera subproduto novo.
 - A tela de `Entrada de producoes` carrega requisicoes junto com producoes, pois requisicoes pendentes reduzem a necessidade a produzir no centro produtor.
 - A tabela de `Entrada de producoes` nao deve usar virtualizacao invisivel. Ela e uma fila operacional e deve usar paginacao explicita de 20 producoes por pagina, com setas e numeros visiveis para navegar pela lista. A tela tambem exibe resumo de total e distribuicao por prioridade acima da lista.
 - Cancelamentos de producao/planejamento devem remover o grupo inteiro pelo `rootRequestId` real e persistir a remocao/cancelamento na API durante a confirmacao, antes que o polling possa recarregar registros antigos.

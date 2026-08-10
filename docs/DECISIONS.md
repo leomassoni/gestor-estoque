@@ -1,6 +1,6 @@
 # Decisoes do Projeto
 
- Ultima atualizacao: 2026-08-06
+ Ultima atualizacao: 2026-08-10
 
 ## Objetivo deste arquivo
 
@@ -40,6 +40,20 @@ Registrar o que foi decidido, o que foi adiado e o que foi descartado, com foco 
   - a composicao interna e custo de producao da empresa origem;
   - a taxa representa o acrescimo comercial do item transferido entre casas, nao margem recursiva sobre cada etapa produtiva.
 - Caso validado: `BATIDA PEQUI PRE-BATCHED`, origem `COMPLEXO VILA ANALIA`, destino `BOTECO MACAXEIRA`, taxa `30%`.
+
+### Subproduto de PREPARO deve entrar no estoque pela producao geradora
+
+- Decisao: reaproveitamentos como bagaco, polpa residual e outros subprodutos nao devem ser cadastrados como se fossem feitos diretamente do insumo base.
+- Regra:
+  - a ficha geradora declara `Destino da diferenca = Subproduto` e vincula a ficha tecnica do subproduto;
+  - ao finalizar a producao da ficha geradora, a entrada de producao registra o preparo principal e tambem uma entrada adicional do subproduto vinculado;
+  - a quantidade do subproduto e informada/confirmada pelo usuario na finalizacao da producao;
+  - a ficha de subproduto deve ter custo proprio zero/custo absorvido pela ficha principal, evitando dupla baixa e dupla cobranca do insumo base;
+  - fichas que consomem o subproduto passam a depender operacionalmente da ficha geradora no grafo de `Entrada de producoes`.
+- Motivo:
+  - produzir a ficha dependente diretamente de tomate, abacaxi ou outro insumo base distorce custo e estoque;
+  - estoque pronto do preparo principal nao gera subproduto novo, entao a demanda por subproduto precisa criar demanda da producao geradora.
+- Caso base: `CORDIAL DE TOMATE CLARIFICADO` gera `BAGACO DE TOMATE DO CORDIAL`, consumido por `TELHA CROCANTE DE TAPIOCA E TOMATE`; `SHRUB DE ABACAXI COM PIMENTAS` gera `POLPA RESIDUAL DE ABACAXI DO SHRUB`, consumida por `BALA DE ABACAXI`.
 
 ### IDs internos de cadastro pertencem ao servidor/webapp
 

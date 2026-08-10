@@ -638,6 +638,7 @@ model AppProductionDraftRecord {
   startedByUserName          String
   desiredYield               String
   finalYield                 String
+  byproductYield             String   @default("")
   confirmedPh                String
   confirmedBrix              String
   ingredientOverrides        Json

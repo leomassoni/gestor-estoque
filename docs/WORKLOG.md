@@ -1,10 +1,40 @@
 # Worklog
 
- Ultima atualizacao: 2026-08-09
+ Ultima atualizacao: 2026-08-10
 
 ## Objetivo deste arquivo
 
 Registrar um historico resumido do que foi feito, do que falhou e do que ficou pendente.
+
+## 2026-08-10
+
+### Subproduto em producao de PREPARO
+
+- Implementado fluxo minimo para subproduto de pre-preparo:
+  - rascunho de producao ganhou campo persistido `byproductYield`;
+  - o modal de `Entrada de producoes` exibe o subproduto vinculado e permite informar a quantidade real gerada;
+  - ao confirmar a producao, o sistema registra a entrada do preparo principal e uma segunda entrada de estoque para o subproduto na mesma movimentacao;
+  - se o centro produtor estiver com inventario aberto, preparo principal e subproduto ficam juntos como movimentacao pendente;
+  - a fila de producao passou a resolver dependencias por subproduto, apontando para a ficha geradora;
+  - a demanda por subproduto nao e abatida pelo estoque do preparo principal.
+- Criada migration `20260810_production_draft_byproduct_yield` para persistir `byproductYield` em `AppProductionDraftRecord`.
+- Ajustes de tipagem que bloqueavam `tsc`:
+  - desestruturacao de `Map` no impacto de ficha tecnica;
+  - anotacao explicita de `RequisitionRecord[]` em cancelamentos de planejamento/ficha.
+- Planilha Madre atualizada:
+  - `/home/leomassoni/Documentos/Igarapé/Projetos/Madre/Receitas/_nova_carta_marco_2026/Planilhas de apoio/Consolidacao_cadastro_webapp_autorais_Madre_2026-08-09_PDF_BASE.xlsx`;
+  - adicionadas fichas `BAGACO DE TOMATE DO CORDIAL` e `POLPA RESIDUAL DE ABACAXI DO SHRUB`;
+  - `TELHA CROCANTE DE TAPIOCA E TOMATE` e `BALA DE ABACAXI` deixaram de ser pendencias bloqueantes.
+- Validacao executada:
+  - `npm --prefix server run prisma:generate`;
+  - `NODE_OPTIONS=--max-old-space-size=8192 ./node_modules/.bin/vite build`;
+  - `git diff --check`;
+  - boot local em `http://localhost:5174/` via Playwright ate a tela de login;
+  - validacao da planilha confirmou `0` pendencias de produtos, pre-preparos e execucao.
+- Observacao:
+  - `npm run build`/`tsc -b` completo continuou muito lento no repo e foi interrompido apos varios minutos;
+  - `eslint src/App.tsx src/types/domain.ts` estourou heap de Node neste arquivo grande.
+  - a validacao local nao atravessou login/fluxo operacional porque o banco local esta sem a tabela `AppCatalogSharingSaleFeeRecord`; o erro e anterior a esta implementacao.
 
 ## 2026-08-09
 

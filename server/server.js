@@ -3644,6 +3644,7 @@ function normalizeProductionDraftPayload(value) {
     startedByUserName: record.startedByUserName,
     desiredYield: record.desiredYield,
     finalYield: record.finalYield,
+    byproductYield: typeof record.byproductYield === 'string' ? record.byproductYield : '',
     confirmedPh: record.confirmedPh,
     confirmedBrix: record.confirmedBrix,
     ingredientOverrides,
