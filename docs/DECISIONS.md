@@ -436,6 +436,20 @@ Registrar o que foi decidido, o que foi adiado e o que foi descartado, com foco 
   - filtros, busca e ordenacao devem atuar antes da paginacao;
   - otimizacoes de performance nao podem esconder etapas de producao sem indicar ao usuario como acessar o restante da fila.
 
+### Compras consolida faltas dos centros distribuidores
+
+- Regra extraida:
+  - pedido de compra nao deve pular o centro distribuidor quando existe um distribuidor responsavel pela materia-prima;
+  - a necessidade final do centro produtor/consumidor gera suprimento interno para o distribuidor;
+  - se o distribuidor nao tem saldo para atender o suprimento, a falta vira demanda de compras para abastecer o proprio distribuidor;
+  - depois da compra/recebimento, o distribuidor atende o centro solicitante por suprimento.
+- Implementacao inicial:
+  - `Compras` e uma secao de Estoque com permissao propria em perfil de acesso;
+  - a tela consolida por centro a abastecer, produto, familia e subfamilia;
+  - a demanda inferida de `SUPRIMENTOS` pendentes subtrai o estoque atual do centro distribuidor uma unica vez;
+  - linhas `COMPRAS` diretas aprovadas ou prontas para recebimento continuam aparecendo por compatibilidade com fluxos existentes;
+  - a tela exporta XLSX e PDF do consolidado visivel.
+
 ### Planejamento de producao deve ser cancelado pelo `rootRequestId`
 
 - Problema: planejamentos de producao podem gerar varias solicitacoes manuais, cada uma com `id` proprio, mas todas pertencem ao mesmo `rootRequestId`.

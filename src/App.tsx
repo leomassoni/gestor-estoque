@@ -518,6 +518,7 @@ const estoqueAccessSectionOptions: Array<{ key: AppSection; label: string }> = [
   { key: 'EntradaProducoes', label: 'Entrada de producoes' },
   { key: 'Requisicoes', label: 'Requisicao' },
   { key: 'Suprimentos', label: 'Suprimentos' },
+  { key: 'Compras', label: 'Compras' },
   { key: 'Inventario', label: 'Inventario' },
   { key: 'Desperdicio', label: 'Desperdicio' },
   { key: 'CentrosEstoque', label: 'Centros de estoque' },
@@ -810,6 +811,24 @@ const defaultRequisitionFlowColumnVisibility: Record<RequisitionFlowColumnKey, b
   createdBy: true,
 }
 const defaultRequisitionFlowColumnFilters: Partial<Record<RequisitionFlowColumnKey, string[]>> = {}
+type PurchaseDemandRow = {
+  key: string
+  stockCenterId: number
+  stockCenterName: string
+  productId: string
+  productName: string
+  internalId: string
+  family: string
+  subfamily: string
+  unitLabel: string
+  requestedQuantity: number
+  currentQuantity: number
+  purchaseQuantity: number
+  originCount: number
+  requesterCenters: string[]
+  requisitionIds: number[]
+  sourceLabel: string
+}
 const requisitionHistoryColumnOptions: Array<[RequisitionHistoryColumnKey, string]> = [
   ['center', 'Centro'],
   ['status', 'Status'],
@@ -1128,6 +1147,7 @@ const defaultSectionAccessByRole = (role: CompanyUserRole): UserSectionAccess =>
       ConfiguracoesEstoque: true,
       Requisicoes: true,
       Suprimentos: true,
+      Compras: true,
       EntradaProducoes: true,
       RelatoriosEstoque: true,
       Empresa: true,
@@ -1149,6 +1169,7 @@ const defaultSectionAccessByRole = (role: CompanyUserRole): UserSectionAccess =>
       ConfiguracoesEstoque: true,
       Requisicoes: true,
       Suprimentos: true,
+      Compras: true,
       EntradaProducoes: true,
       RelatoriosEstoque: true,
       Empresa: false,
@@ -1169,6 +1190,7 @@ const defaultSectionAccessByRole = (role: CompanyUserRole): UserSectionAccess =>
     ConfiguracoesEstoque: false,
     Requisicoes: false,
     Suprimentos: false,
+    Compras: false,
     EntradaProducoes: false,
     RelatoriosEstoque: false,
     Empresa: false,
@@ -1420,6 +1442,7 @@ const emptyAccessProfileForm = (): AccessProfileFormState => ({
     ConfiguracoesEstoque: false,
     Requisicoes: false,
     Suprimentos: false,
+    Compras: false,
     EntradaProducoes: false,
     RelatoriosEstoque: false,
     Empresa: false,
@@ -2538,6 +2561,7 @@ export default function App() {
   const [isRequisitionEditModalOpen, setIsRequisitionEditModalOpen] = useState(false)
   const [supplySearch, setSupplySearch] = useState('')
   const [supplyScrollTop, setSupplyScrollTop] = useState(0)
+  const [purchaseSearch, setPurchaseSearch] = useState('')
   const [openSupplyColumnMenu, setOpenSupplyColumnMenu] = useState<RequisitionFlowColumnKey | null>(null)
   const [supplyColumnVisibility, setSupplyColumnVisibility] =
     useState<Record<RequisitionFlowColumnKey, boolean>>(defaultRequisitionFlowColumnVisibility)
@@ -2882,6 +2906,7 @@ export default function App() {
         'EntradaProducoes',
         'Requisicoes',
         'Suprimentos',
+        'Compras',
         'Inventario',
         'Desperdicio',
         'CentrosEstoque',
@@ -2902,6 +2927,7 @@ export default function App() {
         'EntradaProducoes',
         'Requisicoes',
         'Suprimentos',
+        'Compras',
         'Inventario',
         'Desperdicio',
         'CentrosEstoque',
@@ -2923,7 +2949,7 @@ export default function App() {
     [allowedSections, cadastroSections],
   )
   const estoqueSections = useMemo<AppSection[]>(
-    () => ['EntradaProducoes', 'Requisicoes', 'Suprimentos', 'Inventario', 'Desperdicio', 'CentrosEstoque', 'ConfiguracoesEstoque', 'RelatoriosEstoque'],
+    () => ['EntradaProducoes', 'Requisicoes', 'Suprimentos', 'Compras', 'Inventario', 'Desperdicio', 'CentrosEstoque', 'ConfiguracoesEstoque', 'RelatoriosEstoque'],
     [],
   )
   const allowedEstoqueSections = useMemo(
@@ -2940,6 +2966,7 @@ export default function App() {
     if (section === 'CentrosEstoque') return 'Centros de estoque'
     if (section === 'ConfiguracoesEstoque') return 'Importar vendas'
     if (section === 'Requisicoes') return 'Requisicao'
+    if (section === 'Compras') return 'Compras'
     if (section === 'RelatoriosEstoque') return 'Relatorios'
     if (section === 'EntradaProducoes') return 'Entrada de producoes'
     if (section === 'Desperdicio') return 'Desperdicio'
@@ -7390,6 +7417,188 @@ export default function App() {
         })
         .sort((left, right) => right.createdAt.localeCompare(left.createdAt)),
     [currentCompanyId, isSystemAdmin, requisitions, stockCenters, supplyResponsibleCenters],
+  )
+  const purchaseDemandRows = useMemo(() => {
+    if (currentCompanyId === null) {
+      return [] as PurchaseDemandRow[]
+    }
+
+    const productById = new Map(products.filter((product) => isProductManagedByCompany(product, currentCompanyId)).map((product) => [product.id, product]))
+    const stockCenterById = new Map(stockCenters.filter((center) => center.companyId === currentCompanyId).map((center) => [center.id, center]))
+    const groups = new Map<
+      string,
+      {
+        center: StockCenterRecord
+        product: ProductRecord | null
+        productId: string
+        productName: string
+        family: string
+        subfamily: string
+        requestedQuantity: number
+        currentQuantity: number
+        requesterCenters: Set<string>
+        requisitionIds: Set<number>
+        sourceLabels: Set<string>
+        shouldSubtractCurrentStock: boolean
+      }
+    >()
+
+    const getLineBaseQuantity = (line: RequisitionLineRecord) => {
+      const quantity = parseDecimal(line.requestedQuantity) ?? 0
+      const product = productById.get(line.productId) ?? null
+      if (product && line.packageId !== null) {
+        const packageForm = product.packages.find((item) => item.id === line.packageId) ?? null
+        return packageForm ? quantity * calculateNormalizedPackageQuantity(packageForm, product.controlUnit) : quantity
+      }
+      return quantity
+    }
+
+    const upsertGroup = (params: {
+      center: StockCenterRecord
+      line: RequisitionLineRecord
+      record: RequisitionRecord
+      sourceLabel: string
+      shouldSubtractCurrentStock: boolean
+    }) => {
+      if (params.line.kind !== 'PRODUTO' || !params.line.productId) {
+        return
+      }
+      const product = productById.get(params.line.productId) ?? null
+      const aggregationKey = buildInventoryAggregationKey({
+        kind: 'PRODUTO',
+        technicalSheetId: null,
+        productId: params.line.productId,
+        serviceItemId: '',
+      })
+      const currentQuantity =
+        latestInventoryQuantityByCenterAndAggregation.get(`${params.center.id}:${aggregationKey}`) ?? 0
+      const groupKey = `${params.center.id}:${params.line.productId}:${params.shouldSubtractCurrentStock ? 'SUPPLY_SHORTAGE' : 'DIRECT_PURCHASE'}`
+      const group =
+        groups.get(groupKey) ??
+        {
+          center: params.center,
+          product,
+          productId: params.line.productId,
+          productName: product?.name ?? params.line.itemName,
+          family: product?.family ?? params.line.family,
+          subfamily: product?.subfamily ?? '-',
+          requestedQuantity: 0,
+          currentQuantity,
+          requesterCenters: new Set<string>(),
+          requisitionIds: new Set<number>(),
+          sourceLabels: new Set<string>(),
+          shouldSubtractCurrentStock: params.shouldSubtractCurrentStock,
+        }
+      group.requestedQuantity += getLineBaseQuantity(params.line)
+      group.currentQuantity = currentQuantity
+      group.requesterCenters.add(params.record.stockCenterName)
+      group.requisitionIds.add(params.record.id)
+      group.sourceLabels.add(params.sourceLabel)
+      groups.set(groupKey, group)
+    }
+
+    requisitions
+      .filter((record) => record.companyId === currentCompanyId && record.status === 'SENT_TO_SUPPLIES' && record.supplyCenterId !== null)
+      .forEach((record) => {
+        const supplierCenter = stockCenterById.get(record.supplyCenterId as number) ?? null
+        if (!supplierCenter || !supplierCenter.isDistributor) {
+          return
+        }
+        record.lines
+          .filter((line) => line.destinationType === 'SUPRIMENTOS')
+          .forEach((line) =>
+            upsertGroup({
+              center: supplierCenter,
+              line,
+              record,
+              sourceLabel: 'Falta em suprimento interno',
+              shouldSubtractCurrentStock: true,
+            }),
+          )
+      })
+
+    requisitions
+      .filter(
+        (record) =>
+          record.companyId === currentCompanyId &&
+          (record.status === 'APPROVED' || record.status === 'READY_TO_RECEIVE'),
+      )
+      .forEach((record) => {
+        const requestingCenter = stockCenterById.get(record.stockCenterId) ?? null
+        if (!requestingCenter || !requestingCenter.isDistributor) {
+          return
+        }
+        record.lines
+          .filter((line) => line.destinationType === 'COMPRAS')
+          .forEach((line) =>
+            upsertGroup({
+              center: requestingCenter,
+              line,
+              record,
+              sourceLabel: 'Compra direta do centro distribuidor',
+              shouldSubtractCurrentStock: false,
+            }),
+          )
+      })
+
+    return Array.from(groups.values())
+      .map((group) => {
+        const purchaseQuantity = group.shouldSubtractCurrentStock
+          ? Math.max(group.requestedQuantity - group.currentQuantity, 0)
+          : group.requestedQuantity
+        return {
+          key: `${group.center.id}:${group.productId}:${Array.from(group.sourceLabels).join('|')}`,
+          stockCenterId: group.center.id,
+          stockCenterName: group.center.name,
+          productId: group.productId,
+          productName: group.productName,
+          internalId: group.product?.companyProductId || group.productId,
+          family: group.family || '-',
+          subfamily: group.subfamily || '-',
+          unitLabel: group.product ? formatControlUnitShort(group.product.controlUnit) : 'UN',
+          requestedQuantity: group.requestedQuantity,
+          currentQuantity: group.currentQuantity,
+          purchaseQuantity,
+          originCount: group.requisitionIds.size,
+          requesterCenters: Array.from(group.requesterCenters).sort((left, right) => left.localeCompare(right, 'pt-BR')),
+          requisitionIds: Array.from(group.requisitionIds).sort((left, right) => left - right),
+          sourceLabel: Array.from(group.sourceLabels).sort((left, right) => left.localeCompare(right, 'pt-BR')).join(' / '),
+        } satisfies PurchaseDemandRow
+      })
+      .filter((row) => row.purchaseQuantity > 0)
+      .sort(
+        (left, right) =>
+          left.stockCenterName.localeCompare(right.stockCenterName, 'pt-BR') ||
+          left.family.localeCompare(right.family, 'pt-BR') ||
+          left.subfamily.localeCompare(right.subfamily, 'pt-BR') ||
+          left.productName.localeCompare(right.productName, 'pt-BR'),
+      )
+  }, [currentCompanyId, latestInventoryQuantityByCenterAndAggregation, products, requisitions, stockCenters])
+  const visiblePurchaseDemandRows = useMemo(() => {
+    const search = normalizeFreeText(purchaseSearch)
+    if (!search) {
+      return purchaseDemandRows
+    }
+    return purchaseDemandRows.filter((row) =>
+      [
+        row.stockCenterName,
+        row.productName,
+        row.internalId,
+        row.family,
+        row.subfamily,
+        row.sourceLabel,
+        row.requesterCenters.join(', '),
+        row.requisitionIds.map((id) => `#${id}`).join(', '),
+      ].some((value) => normalizeFreeText(value).includes(search)),
+    )
+  }, [purchaseDemandRows, purchaseSearch])
+  const purchaseDemandSummary = useMemo(
+    () => ({
+      productCount: visiblePurchaseDemandRows.length,
+      centerCount: new Set(visiblePurchaseDemandRows.map((row) => row.stockCenterId)).size,
+      familyCount: new Set(visiblePurchaseDemandRows.map((row) => row.family)).size,
+    }),
+    [visiblePurchaseDemandRows],
   )
   const visibleReceiveRequisitions = useMemo(
     () =>
@@ -24659,6 +24868,94 @@ export default function App() {
       status: 'success',
       title: `Requisicao exportada em ${format.toUpperCase()}`,
       message: 'O arquivo foi gerado com base na requisicao aprovada.',
+    })
+  }
+
+  async function exportPurchaseDemand(format: 'pdf' | 'xlsx') {
+    if (visiblePurchaseDemandRows.length === 0) {
+      setSaveFeedback({
+        status: 'error',
+        title: 'Exportacao indisponivel',
+        message: 'Nao existem itens visiveis no painel de compras para exportar.',
+      })
+      return
+    }
+
+    const headers = [
+      'Centro a abastecer',
+      'Familia',
+      'Subfamilia',
+      'Produto',
+      'ID produto',
+      'Estoque atual',
+      'Demanda interna',
+      'Comprar',
+      'Unidade',
+      'Origens',
+      'Requisicoes',
+      'Tipo',
+    ]
+    const rows = visiblePurchaseDemandRows.map((row) => [
+      row.stockCenterName,
+      row.family,
+      row.subfamily,
+      row.productName,
+      row.internalId,
+      formatDecimal(row.currentQuantity),
+      formatDecimal(row.requestedQuantity),
+      formatDecimal(row.purchaseQuantity),
+      row.unitLabel,
+      row.requesterCenters.join(', '),
+      row.requisitionIds.map((id) => `#${id}`).join(', '),
+      row.sourceLabel,
+    ])
+    const fileDate = getTodayDateInputValue()
+    const fileBaseName = `compras-consolidado-${fileDate}`
+
+    if (format === 'xlsx') {
+      const xlsxModule = await loadXlsxModule()
+      const worksheet = xlsxModule.utils.aoa_to_sheet([
+        ['Empresa', currentCompany?.tradeName || '-'],
+        ['Data', formatDateForDisplay(fileDate)],
+        ['Busca', purchaseSearch.trim() || '-'],
+        ['Itens visiveis', String(visiblePurchaseDemandRows.length)],
+        [],
+        headers,
+        ...rows,
+      ])
+      const workbook = xlsxModule.utils.book_new()
+      xlsxModule.utils.book_append_sheet(workbook, worksheet, 'Compras')
+      xlsxModule.writeFile(workbook, `${fileBaseName}.xlsx`)
+    } else {
+      const { jsPdfModule, autoTableModule } = await loadPdfDependencies()
+      const { jsPDF } = jsPdfModule
+      const autoTable = autoTableModule.default
+      const doc = new jsPDF({ orientation: 'landscape', unit: 'pt', format: 'a4' })
+      doc.setFontSize(14)
+      doc.text('Compras consolidadas', 40, 32)
+      doc.setFontSize(9)
+      doc.text(`Empresa: ${currentCompany?.tradeName || '-'} | Itens: ${visiblePurchaseDemandRows.length}`, 40, 48)
+      doc.text(`Busca: ${purchaseSearch.trim() || '-'}`, 40, 62)
+      autoTable(doc, {
+        head: [headers],
+        body: rows,
+        startY: 76,
+        styles: { fontSize: 7, cellPadding: 4, overflow: 'linebreak' },
+        headStyles: { fillColor: [15, 72, 124] },
+        columnStyles: {
+          0: { cellWidth: 90 },
+          3: { cellWidth: 130 },
+          9: { cellWidth: 120 },
+          10: { cellWidth: 65 },
+        },
+      })
+      doc.save(`${fileBaseName}.pdf`)
+    }
+
+    setSaveFeedback({
+      status: 'success',
+      title: `Compras exportadas em ${format.toUpperCase()}`,
+      message: 'O arquivo foi gerado com base no consolidado visivel do painel de compras.',
     })
   }
 
@@ -43805,6 +44102,100 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
             )}
           </section>
         </>
+      ) : activeSection === 'Compras' ? (
+        <>
+          <section className="panel">
+            <div className="section-heading">
+              <div>
+                <p className="kicker">Estoque</p>
+                <h2>Compras</h2>
+              </div>
+              <div className="toolbar-actions">
+                <button
+                  type="button"
+                  className="ghost-button"
+                  onClick={() => void exportPurchaseDemand('pdf')}
+                  disabled={visiblePurchaseDemandRows.length === 0}
+                >
+                  Exportar PDF
+                </button>
+                <button
+                  type="button"
+                  className="primary-button"
+                  onClick={() => void exportPurchaseDemand('xlsx')}
+                  disabled={visiblePurchaseDemandRows.length === 0}
+                >
+                  Exportar XLSX
+                </button>
+              </div>
+            </div>
+            <p className="context-copy">
+              Consolida as faltas dos centros distribuidores que precisam ser abastecidos antes de atender requisicoes internas.
+            </p>
+          </section>
+
+          <section className="panel">
+            <div className="requisition-draft-overview">
+              <div className="pill requisition-overview-pill">Itens a comprar: {String(purchaseDemandSummary.productCount)}</div>
+              <div className="pill requisition-overview-pill">Centros a abastecer: {String(purchaseDemandSummary.centerCount)}</div>
+              <div className="pill requisition-overview-pill">Familias: {String(purchaseDemandSummary.familyCount)}</div>
+            </div>
+
+            <label className="field search-field">
+              <span>Buscar compra</span>
+              <input
+                value={purchaseSearch}
+                onChange={(event) => setPurchaseSearch(event.target.value.toLocaleUpperCase('pt-BR'))}
+                placeholder="Digite centro, produto, familia, origem ou requisicao"
+              />
+            </label>
+
+            {visiblePurchaseDemandRows.length > 0 ? (
+              <div className="table-wrap">
+                <table className="product-table">
+                  <thead>
+                    <tr>
+                      <th className="sticky-product">Produto</th>
+                      <th>Centro a abastecer</th>
+                      <th>Familia</th>
+                      <th>Subfamilia</th>
+                      <th>Estoque atual</th>
+                      <th>Demanda interna</th>
+                      <th>Comprar</th>
+                      <th>Origens</th>
+                      <th>Requisicoes</th>
+                      <th>Tipo</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {visiblePurchaseDemandRows.map((row) => (
+                      <tr key={row.key}>
+                        <td className="sticky-product-cell">
+                          <strong>{row.productName}</strong>
+                          <div className="table-cell-support">{row.internalId}</div>
+                        </td>
+                        <td>{row.stockCenterName}</td>
+                        <td>{row.family}</td>
+                        <td>{row.subfamily}</td>
+                        <td>{`${formatDecimal(row.currentQuantity)} ${row.unitLabel}`}</td>
+                        <td>{`${formatDecimal(row.requestedQuantity)} ${row.unitLabel}`}</td>
+                        <td><strong>{`${formatDecimal(row.purchaseQuantity)} ${row.unitLabel}`}</strong></td>
+                        <td>{row.requesterCenters.join(', ')}</td>
+                        <td>{row.requisitionIds.map((id) => `#${id}`).join(', ')}</td>
+                        <td>{row.sourceLabel}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <div className="empty-state">
+                <strong>Nenhuma compra consolidada.</strong>
+                <p>Quando um centro distribuidor nao tiver saldo para atender suprimentos internos, a falta aparecera aqui.</p>
+              </div>
+            )}
+          </section>
+        </>
       ) : activeSection === 'EntradaProducoes' ? (
         <>
           <section className="panel">
@@ -54776,6 +55167,7 @@ function normalizeSessionUser(value: unknown): AppUserRecord | null {
   }
 
   const baseRole: CompanyUserRole = user.role
+  const defaultBaseSectionAccess = defaultSectionAccessByRole(baseRole)
   const normalizedSectionAccess =
     user.sectionAccess && typeof user.sectionAccess === 'object'
         ? {
@@ -54791,6 +55183,10 @@ function normalizeSessionUser(value: unknown): AppUserRecord | null {
             ConfiguracoesEstoque: user.sectionAccess.ConfiguracoesEstoque === true,
             Requisicoes: user.sectionAccess.Requisicoes === true,
             Suprimentos: user.sectionAccess.Suprimentos === true,
+            Compras:
+              typeof user.sectionAccess.Compras === 'boolean'
+                ? user.sectionAccess.Compras
+                : defaultBaseSectionAccess.Compras,
             EntradaProducoes: user.sectionAccess.EntradaProducoes === true,
             RelatoriosEstoque: user.sectionAccess.RelatoriosEstoque === true,
             Empresa: user.sectionAccess.Empresa === true,
@@ -54853,6 +55249,14 @@ function normalizeSessionUser(value: unknown): AppUserRecord | null {
                     ConfiguracoesEstoque: membership.sectionAccess.ConfiguracoesEstoque === true,
                     Requisicoes: membership.sectionAccess.Requisicoes === true,
                     Suprimentos: membership.sectionAccess.Suprimentos === true,
+                    Compras:
+                      typeof membership.sectionAccess.Compras === 'boolean'
+                        ? membership.sectionAccess.Compras
+                        : defaultSectionAccessByRole(
+                            membership.role === 'Administrativo' || membership.role === 'Gestor' || membership.role === 'Colaborador'
+                              ? membership.role
+                              : baseRole,
+                          ).Compras,
                     EntradaProducoes: membership.sectionAccess.EntradaProducoes === true,
                     RelatoriosEstoque: membership.sectionAccess.RelatoriosEstoque === true,
                     Empresa: membership.sectionAccess.Empresa === true,
@@ -54946,6 +55350,10 @@ function normalizeAccessProfileRecord(value: unknown): AccessProfileRecord | nul
             ConfiguracoesEstoque: profile.sectionAccess.ConfiguracoesEstoque === true,
             Requisicoes: profile.sectionAccess.Requisicoes === true,
             Suprimentos: profile.sectionAccess.Suprimentos === true,
+            Compras:
+              typeof profile.sectionAccess.Compras === 'boolean'
+                ? profile.sectionAccess.Compras
+                : defaultSectionAccessByRole(profile.role).Compras,
             EntradaProducoes: profile.sectionAccess.EntradaProducoes === true,
             RelatoriosEstoque: profile.sectionAccess.RelatoriosEstoque === true,
             Empresa: profile.sectionAccess.Empresa === true,

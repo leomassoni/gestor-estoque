@@ -44,6 +44,25 @@ Registrar um historico resumido do que foi feito, do que falhou e do que ficou p
 
 ## 2026-08-10
 
+### Painel inicial de compras
+
+- Implementado painel `Compras` dentro do grupo `Estoque`.
+- Regras aplicadas:
+  - acesso controlado por permissao propria `Compras`;
+  - perfis `Administrativo` e `Gestor` recebem acesso por padrao; `Colaborador` nao recebe acesso por padrao;
+  - requisicoes de `SUPRIMENTOS` pendentes geram demanda de compra para o centro distribuidor quando o estoque dele nao cobre a demanda interna;
+  - linhas `COMPRAS` diretas aprovadas ou prontas para recebimento tambem aparecem por compatibilidade;
+  - o consolidado agrupa por centro a abastecer, produto, familia e subfamilia.
+- Entregas:
+  - busca no painel;
+  - resumo de itens, centros e familias;
+  - exportacao XLSX e PDF do consolidado visivel.
+- Validacao:
+  - `npx vite build`;
+  - leitura da API publicada de `CASA DE MI MADRE LTDA` confirmou que nao havia requisicoes abertas de suprimento/compra no momento, portanto o painel atual fica vazio sem falso positivo.
+- Observacao:
+  - `npx tsc -b --pretty false` voltou a travar sem emitir erro e foi interrompido.
+
 ### Cancelamento de origem por ficha reaparecendo
 
 - Causa confirmada em API:

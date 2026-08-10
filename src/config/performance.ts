@@ -1,6 +1,6 @@
-export const requisitionPollingSections: readonly string[] = ['Requisicoes', 'EntradaProducoes']
+export const requisitionPollingSections: readonly string[] = ['Requisicoes', 'Suprimentos', 'Compras', 'EntradaProducoes']
 export const salesImportPollingSections: readonly string[] = ['ConfiguracoesEstoque']
-export const inventoryPollingSections: readonly string[] = ['Inventario', 'Desperdicio', 'RelatoriosEstoque']
+export const inventoryPollingSections: readonly string[] = ['Inventario', 'Desperdicio', 'Compras', 'RelatoriosEstoque']
 export const productionPollingSections: readonly string[] = ['EntradaProducoes']
 export const adminPollingSections: readonly string[] = ['PainelMaster']
 

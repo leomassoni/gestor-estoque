@@ -151,6 +151,8 @@ Registrar em que pe o sistema esta hoje, por area, para consulta rapida antes de
 - O fluxo de `Importar vendas` usa historico persistido de `sales-consumptions` como fonte principal para minimos quando as linhas importadas nao preservam `MATCHED`.
 - O minimo do centro consumidor, o consolidado operacional do produtor e o minimo de uso devem permanecer conceitos separados.
 - `Entrada de producoes`, `Requisicoes`, `Suprimentos` e `Recebimentos` ja passaram por ajustes para respeitar essa separacao.
+- O painel `Compras` existe como visao consolidada das faltas de centros distribuidores: ele agrupa produtos que precisam ser comprados para abastecer o distribuidor antes que ele atenda requisicoes internas de suprimentos.
+- Compras nao deve nascer diretamente da necessidade final de um centro produtor/consumidor quando houver centro distribuidor responsavel. A cadeia correta e: centro solicitante -> suprimento do distribuidor -> falta do distribuidor -> compras para abastecer o distribuidor -> suprimento ao solicitante.
 - A prioridade da `Entrada de producoes` e calculada por dependencias de producao. A camada `0` representa itens que precisam ser feitos primeiro por nao dependerem de outro preparo da mesma fila. Quando a fila contem pedidos manuais/planejamento por ficha, esses itens tambem entram no grafo para evitar que dependencias fiquem mascaradas como prioridade `0`.
 - `PREPARO` com `Destino da diferenca = Subproduto` agora fecha o fluxo operacional minimo:
   - a finalizacao da producao mostra o subproduto vinculado e pede a quantidade real gerada;

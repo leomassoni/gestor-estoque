@@ -15,6 +15,7 @@ export type AppSection =
   | 'ConfiguracoesEstoque'
   | 'Requisicoes'
   | 'Suprimentos'
+  | 'Compras'
   | 'EntradaProducoes'
   | 'RelatoriosEstoque'
   | 'Empresa'
