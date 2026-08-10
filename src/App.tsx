@@ -7434,7 +7434,7 @@ export default function App() {
     productionInProgressDrafts
       .filter((draft) => draft.companyId === currentCompanyId)
       .forEach((draft) => {
-        draft.manualRequestIds.forEach((requestId) => activePlanningRootRequestIds.add(requestId))
+        ;(draft.manualRequestIds ?? []).forEach((requestId) => activePlanningRootRequestIds.add(requestId))
       })
     const groups = new Map<
       string,
