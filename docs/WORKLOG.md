@@ -8,6 +8,18 @@ Registrar um historico resumido do que foi feito, do que falhou e do que ficou p
 
 ## 2026-08-10
 
+### Compras ignora requisicoes nao enviadas ou canceladas por planejamento
+
+- Corrigido consolidado do painel `Compras`:
+  - falta de suprimento interno entra apenas por requisicao `SENT_TO_SUPPLIES` aprovada e enviada;
+  - compra direta entra apenas quando a requisicao ja foi enviada e esta `READY_TO_RECEIVE`;
+  - requisicao apenas `APPROVED`, ainda nao enviada, nao alimenta a lista de compras.
+- Requisicao vinculada a planejamento por ficha so entra em `Compras` se o `planningRootRequestId` ainda tiver origem ativa na fila de producao ou em producao em andamento.
+- Cancelamento de planejamento por ficha e impacto de inativacao/exclusao de ficha passaram a cancelar tambem compras diretas `READY_TO_RECEIVE` ainda sem recebimento.
+- `READY_TO_RECEIVE` de suprimento interno continua preservada, pois pode ter baixa de estoque do centro fornecedor.
+- Validacao na API publicada de `CASA DE MI MADRE LTDA` encontrou `11` requisicoes `SENT_TO_SUPPLIES` antigas com origem de planejamento inexistente; pela nova regra elas deixam de alimentar o painel `Compras`.
+- Botao `Cancelar` em `Suprimentos` passou a marcar requisicao `SENT_TO_SUPPLIES` como `CANCELLED` e persistir imediatamente na API. Antes ele devolvia para `PENDING_APPROVAL`, o que podia reativar requisicoes ja canceladas.
+
 ### Copia de produto avulso
 
 - Adicionado icone de copiar na lista de `Produtos`.

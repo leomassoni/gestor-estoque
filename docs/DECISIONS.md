@@ -448,7 +448,10 @@ Registrar o que foi decidido, o que foi adiado e o que foi descartado, com foco 
   - `Compras` e uma secao de Estoque com permissao propria em perfil de acesso;
   - a tela consolida por centro a abastecer, produto, familia e subfamilia;
   - a demanda inferida de `SUPRIMENTOS` pendentes subtrai o estoque atual do centro distribuidor uma unica vez;
-  - linhas `COMPRAS` diretas aprovadas ou prontas para recebimento continuam aparecendo por compatibilidade com fluxos existentes;
+  - linhas `COMPRAS` diretas aparecem somente depois que a requisicao foi aprovada, enviada e esta pronta para recebimento;
+  - requisicao apenas `APPROVED`, ainda nao enviada, nao deve alimentar o consolidado de compras;
+  - requisicao vinculada a planejamento por ficha nao deve alimentar `Compras` quando o `planningRootRequestId` nao tiver mais origem ativa na fila de producao ou em producao em andamento;
+  - cancelar uma requisicao em `Suprimentos` deve marcar `CANCELLED`; nao deve devolve-la para `PENDING_APPROVAL`;
   - a tela exporta XLSX e PDF do consolidado visivel.
 
 ### Planejamento de producao deve ser cancelado pelo `rootRequestId`

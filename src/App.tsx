@@ -4343,10 +4343,7 @@ export default function App() {
         id: record.id,
         label: `${record.stockCenterName} • ${getRequisitionHistoryStatusLabel(record.status)}`,
         status: record.status,
-        willCancel:
-          record.status === 'PENDING_APPROVAL' ||
-          record.status === 'APPROVED' ||
-          record.status === 'SENT_TO_SUPPLIES',
+        willCancel: isPlanningRequisitionStillCancelable(record),
       }))
       .sort((left, right) => left.label.localeCompare(right.label, 'pt-BR'))
     const linkedProduct = products.find((product) => product.technicalSheetId === sheet.id) ?? null
@@ -4830,10 +4827,10 @@ export default function App() {
           (record) => record.companyId === currentCompanyId && record.planningRootRequestId === rootRequestId,
         )
         const cancellableRequisitionCount = relatedRequisitions.filter(
-          (record) => record.status === 'PENDING_APPROVAL' || record.status === 'APPROVED' || record.status === 'SENT_TO_SUPPLIES',
+          isPlanningRequisitionStillCancelable,
         ).length
         const movedRequisitionCount = relatedRequisitions.filter(
-          (record) => record.status === 'READY_TO_RECEIVE' || record.status === 'RECEIVED',
+          isPlanningRequisitionAlreadyMoved,
         ).length
 
         return {
@@ -7429,6 +7426,16 @@ export default function App() {
 
     const productById = new Map(products.filter((product) => isProductManagedByCompany(product, currentCompanyId)).map((product) => [product.id, product]))
     const stockCenterById = new Map(stockCenters.filter((center) => center.companyId === currentCompanyId).map((center) => [center.id, center]))
+    const activePlanningRootRequestIds = new Set(
+      manualProductionRequests
+        .filter((request) => request.companyId === currentCompanyId)
+        .map((request) => request.rootRequestId),
+    )
+    productionInProgressDrafts
+      .filter((draft) => draft.companyId === currentCompanyId)
+      .forEach((draft) => {
+        draft.manualRequestIds.forEach((requestId) => activePlanningRootRequestIds.add(requestId))
+      })
     const groups = new Map<
       string,
       {
@@ -7456,6 +7463,9 @@ export default function App() {
       }
       return quantity
     }
+
+    const hasActivePlanningSource = (record: RequisitionRecord) =>
+      typeof record.planningRootRequestId !== 'number' || activePlanningRootRequestIds.has(record.planningRootRequestId)
 
     const upsertGroup = (params: {
       center: StockCenterRecord
@@ -7502,7 +7512,14 @@ export default function App() {
     }
 
     requisitions
-      .filter((record) => record.companyId === currentCompanyId && record.status === 'SENT_TO_SUPPLIES' && record.supplyCenterId !== null)
+      .filter(
+        (record) =>
+          record.companyId === currentCompanyId &&
+          record.status === 'SENT_TO_SUPPLIES' &&
+          record.supplyCenterId !== null &&
+          isRequisitionApprovedAndSent(record) &&
+          hasActivePlanningSource(record),
+      )
       .forEach((record) => {
         const supplierCenter = stockCenterById.get(record.supplyCenterId as number) ?? null
         if (!supplierCenter || !supplierCenter.isDistributor) {
@@ -7525,7 +7542,9 @@ export default function App() {
       .filter(
         (record) =>
           record.companyId === currentCompanyId &&
-          (record.status === 'APPROVED' || record.status === 'READY_TO_RECEIVE'),
+          isDirectPurchaseReadyToReceiveRequisition(record) &&
+          isRequisitionApprovedAndSent(record) &&
+          hasActivePlanningSource(record),
       )
       .forEach((record) => {
         const requestingCenter = stockCenterById.get(record.stockCenterId) ?? null
@@ -7577,7 +7596,7 @@ export default function App() {
           left.subfamily.localeCompare(right.subfamily, 'pt-BR') ||
           left.productName.localeCompare(right.productName, 'pt-BR'),
       )
-  }, [currentCompanyId, latestInventoryQuantityByCenterAndAggregation, products, requisitions, stockCenters])
+  }, [currentCompanyId, latestInventoryQuantityByCenterAndAggregation, manualProductionRequests, productionInProgressDrafts, products, requisitions, stockCenters])
   const visiblePurchaseDemandRows = useMemo(() => {
     const search = normalizeFreeText(purchaseSearch)
     if (!search) {
@@ -21774,50 +21793,54 @@ export default function App() {
     })
   }
 
-  function cancelSupplyRequisition(requisitionId: number) {
+  async function cancelSupplyRequisition(requisitionId: number) {
     const targetRequisition = requisitions.find((record) => record.id === requisitionId) ?? null
     if (!targetRequisition || !canManageSupplyRequisition(targetRequisition)) {
       return
     }
+    if (targetRequisition.status !== 'SENT_TO_SUPPLIES') {
+      setSaveFeedback({
+        status: 'error',
+        title: 'Cancelamento indisponivel',
+        message: 'Somente requisicoes ainda em suprimentos podem ser canceladas. Requisicoes prontas para receber ja avancaram no fluxo.',
+      })
+      return
+    }
 
     const now = new Date().toISOString()
-    setRequisitions((current) =>
-      current.map((record) =>
-        record.id === requisitionId
-          ? {
-              ...record,
-              status: 'PENDING_APPROVAL',
-              editScope: 'FULL',
-              supplyCenterId: null,
-              supplyCenterName: '',
-              supplyCompanyId: null,
-              supplyCompanyName: '',
-              approvedAt: '',
-              approvedByUserId: null,
-              approvedByUserName: '',
-              sentAt: '',
-              sentByUserId: null,
-              sentByUserName: '',
-              preparedAt: '',
-              preparedByUserId: null,
-              preparedByUserName: '',
-              lastUpdatedAt: now,
-              lastUpdatedByUserId: currentAppUser?.id ?? null,
-              lastUpdatedByUserName: currentAppUser?.fullName ?? 'Administrador do sistema',
-            }
-          : record,
-      ),
-    )
+    const cancelledRequisition: RequisitionRecord = {
+      ...targetRequisition,
+      status: 'CANCELLED',
+      lastUpdatedAt: now,
+      lastUpdatedByUserId: currentAppUser?.id ?? null,
+      lastUpdatedByUserName: currentAppUser?.fullName ?? 'Administrador do sistema',
+    }
+
+    try {
+      await upsertRequisitionRecordOnApi(cancelledRequisition)
+    } catch (error) {
+      console.error(error)
+      setSaveFeedback({
+        status: 'error',
+        title: 'Falha ao cancelar requisicao',
+        message: error instanceof Error ? error.message : 'Erro ao cancelar a requisicao no servidor.',
+      })
+      return
+    }
+
+    const nextRequisitions = requisitions.map((record) => (record.id === requisitionId ? cancelledRequisition : record))
+    setRequisitions(nextRequisitions)
+    syncedRequisitionRecordMapRef.current = buildEntitySignatureMap(nextRequisitions, (record) => record.id)
 
     notifyRequisitionStakeholders(
       targetRequisition,
-      `A REQUISICAO DO CENTRO ${targetRequisition.stockCenterName} FOI DEVOLVIDA DE SUPRIMENTOS PARA NOVA APROVACAO.`,
+      `A REQUISICAO DO CENTRO ${targetRequisition.stockCenterName} FOI CANCELADA EM SUPRIMENTOS.`,
     )
 
     setSaveFeedback({
       status: 'success',
-      title: 'Requisicao devolvida para pendente',
-      message: 'A requisicao saiu de suprimentos e voltou para o status pendente de aprovacao.',
+      title: 'Requisicao cancelada',
+      message: 'A requisicao foi cancelada e deixou de alimentar suprimentos e compras.',
     })
   }
 
@@ -24540,11 +24563,7 @@ export default function App() {
         if (record.companyId !== currentCompanyId || record.planningRootRequestId !== rootRequestId) {
           return record
         }
-        if (
-          record.status !== 'PENDING_APPROVAL' &&
-          record.status !== 'APPROVED' &&
-          record.status !== 'SENT_TO_SUPPLIES'
-        ) {
+        if (!isPlanningRequisitionStillCancelable(record)) {
           return record
         }
         return {
@@ -35682,11 +35701,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
       ) {
         return record
       }
-      if (
-        record.status !== 'PENDING_APPROVAL' &&
-        record.status !== 'APPROVED' &&
-        record.status !== 'SENT_TO_SUPPLIES'
-      ) {
+      if (!isPlanningRequisitionStillCancelable(record)) {
         return record
       }
       return {
@@ -44167,7 +44182,12 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                               <button type="button" className="ghost-button" onClick={() => startEditSupplyRequisition(record.id)} disabled={!canManageSupplyRequisition(record)}>
                                 Editar
                               </button>
-                              <button type="button" className="warning-button" onClick={() => cancelSupplyRequisition(record.id)} disabled={!canManageSupplyRequisition(record)}>
+                              <button
+                                type="button"
+                                className="warning-button"
+                                onClick={() => void cancelSupplyRequisition(record.id)}
+                                disabled={!canManageSupplyRequisition(record) || record.status !== 'SENT_TO_SUPPLIES'}
+                              >
                                 Cancelar
                               </button>
                               <button type="button" className="primary-button" onClick={() => moveRequisitionToReceive(record.id)} disabled={!canManageSupplyRequisition(record) || record.status === 'READY_TO_RECEIVE'}>
@@ -52594,6 +52614,36 @@ function buildGlobalStockReportRows(tab: StockReportTab, rows: StockReportRow[])
 
 function getRequisitionHistoryColumnSortLabels(key: RequisitionHistoryColumnKey) {
   return getSortLabels(isNumericRequisitionHistoryColumn(key))
+}
+
+function isRequisitionApprovedAndSent(requisition: RequisitionRecord) {
+  return requisition.approvedAt.trim() !== '' && requisition.sentAt.trim() !== ''
+}
+
+function isDirectPurchaseReadyToReceiveRequisition(requisition: RequisitionRecord) {
+  return (
+    requisition.status === 'READY_TO_RECEIVE' &&
+    requisition.supplyCenterId === null &&
+    requisition.lines.length > 0 &&
+    requisition.lines.every((line) => line.destinationType === 'COMPRAS') &&
+    requisition.lines.every((line) => line.receiptStatus === undefined || line.receiptStatus === 'PENDING')
+  )
+}
+
+function isPlanningRequisitionStillCancelable(requisition: RequisitionRecord) {
+  return (
+    requisition.status === 'PENDING_APPROVAL' ||
+    requisition.status === 'APPROVED' ||
+    requisition.status === 'SENT_TO_SUPPLIES' ||
+    isDirectPurchaseReadyToReceiveRequisition(requisition)
+  )
+}
+
+function isPlanningRequisitionAlreadyMoved(requisition: RequisitionRecord) {
+  return (
+    requisition.status === 'RECEIVED' ||
+    (requisition.status === 'READY_TO_RECEIVE' && !isDirectPurchaseReadyToReceiveRequisition(requisition))
+  )
 }
 
 function getRequisitionHistoryStatusLabel(status: RequisitionStatus) {
