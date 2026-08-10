@@ -821,6 +821,8 @@ type PurchaseDemandRow = {
   family: string
   subfamily: string
   unitLabel: string
+  packageBaseQuantity: number | null
+  packageLabel: string
   requestedQuantity: number
   currentQuantity: number
   purchaseQuantity: number
@@ -828,6 +830,13 @@ type PurchaseDemandRow = {
   requesterCenters: string[]
   requisitionIds: number[]
   sourceLabel: string
+}
+function formatPurchaseDemandQuantity(quantity: number, row: PurchaseDemandRow) {
+  if (row.packageBaseQuantity !== null && row.packageBaseQuantity > 0 && row.packageLabel) {
+    return `${formatDecimal(quantity / row.packageBaseQuantity)} EMB. ${row.packageLabel}`
+  }
+
+  return `${formatDecimal(quantity)} ${row.unitLabel}`
 }
 const requisitionHistoryColumnOptions: Array<[RequisitionHistoryColumnKey, string]> = [
   ['center', 'Centro'],
@@ -7435,6 +7444,8 @@ export default function App() {
         productName: string
         family: string
         subfamily: string
+        packageBaseQuantity: number | null
+        packageLabel: string
         requestedQuantity: number
         currentQuantity: number
         requesterCenters: Set<string>
@@ -7444,14 +7455,56 @@ export default function App() {
       }
     >()
 
+    const resolveLinePackage = (line: RequisitionLineRecord, product: ProductRecord | null) => {
+      if (!product) {
+        return null
+      }
+      if (line.packageId !== null) {
+        return product.packages.find((item) => item.id === line.packageId) ?? null
+      }
+
+      if (normalizeFreeText(line.requestUnitLabel) !== 'EMBALAGENS') {
+        return null
+      }
+
+      const activePackages = product.packages.filter((item) => item.isActive)
+      if (activePackages.length === 1) {
+        return activePackages[0]
+      }
+
+      const currentUnitLabel = normalizeFreeText(line.currentUnitLabel)
+      return (
+        activePackages.find((item) => {
+          const packageQuantity = parseDecimal(item.packageQuantity) ?? 0
+          return normalizeFreeText(`${formatDecimal(packageQuantity)} ${formatUnit(item.packageUnit)}`) === currentUnitLabel
+        }) ?? null
+      )
+    }
+
     const getLineBaseQuantity = (line: RequisitionLineRecord) => {
       const quantity = parseDecimal(line.requestedQuantity) ?? 0
       const product = productById.get(line.productId) ?? null
-      if (product && line.packageId !== null) {
-        const packageForm = product.packages.find((item) => item.id === line.packageId) ?? null
-        return packageForm ? quantity * calculateNormalizedPackageQuantity(packageForm, product.controlUnit) : quantity
+      const packageForm = resolveLinePackage(line, product)
+      return product && packageForm
+        ? quantity * calculateNormalizedPackageQuantity(packageForm, product.controlUnit)
+        : quantity
+    }
+
+    const getLinePurchasePackageInfo = (line: RequisitionLineRecord, product: ProductRecord | null) => {
+      const packageForm = resolveLinePackage(line, product)
+      if (!product || !packageForm) {
+        return {
+          packageBaseQuantity: null,
+          packageLabel: '',
+        }
       }
-      return quantity
+
+      const packageBaseQuantity = calculateNormalizedPackageQuantity(packageForm, product.controlUnit)
+      const packageQuantity = parseDecimal(packageForm.packageQuantity) ?? 0
+      return {
+        packageBaseQuantity: packageBaseQuantity > 0 ? packageBaseQuantity : null,
+        packageLabel: `${formatDecimal(packageQuantity)} ${formatUnit(packageForm.packageUnit)}`,
+      }
     }
 
     const upsertGroup = (params: {
@@ -7465,6 +7518,7 @@ export default function App() {
         return
       }
       const product = productById.get(params.line.productId) ?? null
+      const packageInfo = getLinePurchasePackageInfo(params.line, product)
       const aggregationKey = buildInventoryAggregationKey({
         kind: 'PRODUTO',
         technicalSheetId: null,
@@ -7483,6 +7537,8 @@ export default function App() {
           productName: product?.name ?? params.line.itemName,
           family: product?.family ?? params.line.family,
           subfamily: product?.subfamily ?? '-',
+          packageBaseQuantity: packageInfo.packageBaseQuantity,
+          packageLabel: packageInfo.packageLabel,
           requestedQuantity: 0,
           currentQuantity,
           requesterCenters: new Set<string>(),
@@ -7490,6 +7546,13 @@ export default function App() {
           sourceLabels: new Set<string>(),
           shouldSubtractCurrentStock: params.shouldSubtractCurrentStock,
         }
+      if (
+        group.packageBaseQuantity !== packageInfo.packageBaseQuantity ||
+        group.packageLabel !== packageInfo.packageLabel
+      ) {
+        group.packageBaseQuantity = null
+        group.packageLabel = ''
+      }
       group.requestedQuantity += getLineBaseQuantity(params.line)
       group.currentQuantity = currentQuantity
       group.requesterCenters.add(params.record.stockCenterName)
@@ -7564,6 +7627,8 @@ export default function App() {
           family: group.family || '-',
           subfamily: group.subfamily || '-',
           unitLabel: group.product ? formatControlUnitShort(group.product.controlUnit) : 'UN',
+          packageBaseQuantity: group.packageBaseQuantity,
+          packageLabel: group.packageLabel,
           requestedQuantity: group.requestedQuantity,
           currentQuantity: group.currentQuantity,
           purchaseQuantity,
@@ -24909,10 +24974,10 @@ export default function App() {
       row.subfamily,
       row.productName,
       row.internalId,
-      formatDecimal(row.currentQuantity),
-      formatDecimal(row.requestedQuantity),
-      formatDecimal(row.purchaseQuantity),
-      row.unitLabel,
+      formatPurchaseDemandQuantity(row.currentQuantity, row),
+      formatPurchaseDemandQuantity(row.requestedQuantity, row),
+      formatPurchaseDemandQuantity(row.purchaseQuantity, row),
+      row.packageLabel ? `EMB. ${row.packageLabel}` : row.unitLabel,
       row.requesterCenters.join(', '),
       row.requisitionIds.map((id) => `#${id}`).join(', '),
       row.sourceLabel,
@@ -44303,9 +44368,9 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                         <td>{row.stockCenterName}</td>
                         <td>{row.family}</td>
                         <td>{row.subfamily}</td>
-                        <td>{`${formatDecimal(row.currentQuantity)} ${row.unitLabel}`}</td>
-                        <td>{`${formatDecimal(row.requestedQuantity)} ${row.unitLabel}`}</td>
-                        <td><strong>{`${formatDecimal(row.purchaseQuantity)} ${row.unitLabel}`}</strong></td>
+                        <td>{formatPurchaseDemandQuantity(row.currentQuantity, row)}</td>
+                        <td>{formatPurchaseDemandQuantity(row.requestedQuantity, row)}</td>
+                        <td><strong>{formatPurchaseDemandQuantity(row.purchaseQuantity, row)}</strong></td>
                         <td>{row.requesterCenters.join(', ')}</td>
                         <td>{row.requisitionIds.map((id) => `#${id}`).join(', ')}</td>
                         <td>{row.sourceLabel}</td>

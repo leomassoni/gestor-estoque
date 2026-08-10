@@ -23,6 +23,7 @@ Registrar um historico resumido do que foi feito, do que falhou e do que ficou p
 - Backend passou a bloquear reativacao de requisicao ja `CANCELLED`; clientes antigos/cache local recebem erro ao tentar salvar novamente a mesma requisicao como ativa.
 - Painel `Compras`: removida restauracao de inventario operacional a partir de `localStorage` quando o servidor nao possui inventario. Contagens/sessoes/movimentos de inventario devem vir do banco; cache local antigo nao pode zerar falta de compras.
 - Corrigida dependencia indevida de `Compras` em `manualProductionRequests`: requisicoes aprovadas e enviadas devem alimentar compras mesmo que a fila de producao ainda nao tenha sido carregada no frontend. Cancelamento de planejamento continua sendo responsavel por marcar as requisicoes derivadas como `CANCELLED`.
+- Corrigida exibicao de volumes em `Compras` para requisicoes antigas com unidade de pedido `EMBALAGENS` e `packageId` vazio: o consolidado infere a embalagem ativa unica ou a embalagem indicada pelo rotulo da linha, calcula a base internamente e exibe demanda/compra em `EMB.` para o comprador.
 
 ### Copia de produto avulso
 
