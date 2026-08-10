@@ -833,10 +833,13 @@ type PurchaseDemandRow = {
 }
 function formatPurchaseDemandQuantity(quantity: number, row: PurchaseDemandRow) {
   if (row.packageBaseQuantity !== null && row.packageBaseQuantity > 0 && row.packageLabel) {
-    return `${formatDecimal(quantity / row.packageBaseQuantity)} EMB. ${row.packageLabel}`
+    return `${formatDecimal(quantity / row.packageBaseQuantity)} EMB.`
   }
 
   return `${formatDecimal(quantity)} ${row.unitLabel}`
+}
+function formatPurchaseDemandPackageLabel(row: PurchaseDemandRow) {
+  return row.packageBaseQuantity !== null && row.packageBaseQuantity > 0 && row.packageLabel ? row.packageLabel : '-'
 }
 const requisitionHistoryColumnOptions: Array<[RequisitionHistoryColumnKey, string]> = [
   ['center', 'Centro'],
@@ -24958,6 +24961,7 @@ export default function App() {
       'Centro a abastecer',
       'Familia',
       'Subfamilia',
+      'Embalagem',
       'Produto',
       'ID produto',
       'Estoque atual',
@@ -24972,12 +24976,13 @@ export default function App() {
       row.stockCenterName,
       row.family,
       row.subfamily,
+      formatPurchaseDemandPackageLabel(row),
       row.productName,
       row.internalId,
       formatPurchaseDemandQuantity(row.currentQuantity, row),
       formatPurchaseDemandQuantity(row.requestedQuantity, row),
       formatPurchaseDemandQuantity(row.purchaseQuantity, row),
-      row.packageLabel ? `EMB. ${row.packageLabel}` : row.unitLabel,
+      row.packageLabel ? 'EMB.' : row.unitLabel,
       row.requesterCenters.join(', '),
       row.requisitionIds.map((id) => `#${id}`).join(', '),
       row.sourceLabel,
@@ -25017,9 +25022,9 @@ export default function App() {
         headStyles: { fillColor: [15, 72, 124] },
         columnStyles: {
           0: { cellWidth: 90 },
-          3: { cellWidth: 130 },
-          9: { cellWidth: 120 },
-          10: { cellWidth: 65 },
+          4: { cellWidth: 130 },
+          10: { cellWidth: 120 },
+          11: { cellWidth: 65 },
         },
       })
       doc.save(`${fileBaseName}.pdf`)
@@ -44350,6 +44355,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                       <th>Centro a abastecer</th>
                       <th>Familia</th>
                       <th>Subfamilia</th>
+                      <th>Embalagem</th>
                       <th>Estoque atual</th>
                       <th>Demanda interna</th>
                       <th>Comprar</th>
@@ -44368,6 +44374,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                         <td>{row.stockCenterName}</td>
                         <td>{row.family}</td>
                         <td>{row.subfamily}</td>
+                        <td>{formatPurchaseDemandPackageLabel(row)}</td>
                         <td>{formatPurchaseDemandQuantity(row.currentQuantity, row)}</td>
                         <td>{formatPurchaseDemandQuantity(row.requestedQuantity, row)}</td>
                         <td><strong>{formatPurchaseDemandQuantity(row.purchaseQuantity, row)}</strong></td>
