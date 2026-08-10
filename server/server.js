@@ -1091,6 +1091,20 @@ app.put('/api/manual-production-requests/:id', async (request, response) => {
   response.json({ manualProductionRequest: saved })
 })
 
+app.delete('/api/manual-production-requests/root/:companyId/:rootRequestId', async (request, response) => {
+  const companyId = parseIntegerParam(request.params.companyId)
+  const rootRequestId = parseIntegerParam(request.params.rootRequestId)
+  if (companyId === null || rootRequestId === null) {
+    response.status(400).json({ error: 'Planejamento de producao invalido.' })
+    return
+  }
+
+  const result = await prisma.appManualProductionRequestRecord.deleteMany({
+    where: { companyId, rootRequestId },
+  })
+  response.json({ ok: true, deletedCount: result.count })
+})
+
 app.delete('/api/manual-production-requests/:id', async (request, response) => {
   const requestId = parseIntegerParam(request.params.id)
   if (requestId === null) {

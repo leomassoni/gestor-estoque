@@ -6123,6 +6123,16 @@ export default function App() {
     }
   }
 
+  async function deleteManualProductionRequestsByRootOnApi(companyId: number, rootRequestId: number) {
+    const response = await fetch(`/api/manual-production-requests/root/${companyId}/${rootRequestId}`, {
+      method: 'DELETE',
+    })
+    if (!response.ok) {
+      const errorPayload = (await response.json().catch(() => null)) as { error?: string } | null
+      throw new Error(errorPayload?.error || 'Nao foi possivel excluir o planejamento de producao no servidor.')
+    }
+  }
+
   async function upsertProductionDraftOnApi(draft: ProductionDraftState) {
     if (draft.draftId === null) {
       return
@@ -24290,9 +24300,6 @@ export default function App() {
     }
 
     const rootRequestId = pendingExecutionPlanningCancelRow.rootRequestId
-    const affectedRequests = manualProductionRequests.filter(
-      (request) => request.companyId === currentCompanyId && request.rootRequestId === rootRequestId,
-    )
     const now = new Date().toISOString()
     const nextRequisitions: RequisitionRecord[] = requisitions.map((record) => {
         if (record.companyId !== currentCompanyId || record.planningRootRequestId !== rootRequestId) {
@@ -24317,7 +24324,7 @@ export default function App() {
 
     try {
       await Promise.all([
-        ...affectedRequests.map((request) => deleteManualProductionRequestOnApi(request.id)),
+        deleteManualProductionRequestsByRootOnApi(currentCompanyId, rootRequestId),
         ...changedRequisitions.map((record) => upsertRequisitionRecordOnApi(record)),
       ])
       const nextManualProductionRequests = manualProductionRequests.filter(
@@ -43866,52 +43873,56 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                       ) : null}
                     </div>
                     {productionPaginationControls}
-                    <div className="production-request-list" role="list">
-                      {paginatedProductionRows.map((row) => (
-                        <article className="production-request-row" key={`${row.centerId}-${row.sheetId}`} role="listitem">
-                          <div className="production-request-main">
-                            <strong>{row.sheetName}</strong>
-                            {productionColumnVisibility.sheet ? (
-                              <span className="table-cell-support">{row.internalId}</span>
-                            ) : null}
-                          </div>
-                          <div className="production-request-meta">
-                            {productionColumnVisibility.priority ? (
-                              <span><strong className="meta-label">Prioridade:</strong> {String(row.priority)}</span>
-                            ) : null}
-                            {productionColumnVisibility.current ? (
-                              <span><strong className="meta-label">Estoque:</strong> {row.currentQuantityLabel}</span>
-                            ) : null}
-                            {productionColumnVisibility.useMinimum ? (
-                              <span><strong className="meta-label">Min. uso:</strong> {row.useMinimumLabel}</span>
-                            ) : null}
-                            {productionColumnVisibility.realMinimum ? (
-                              <span><strong className="meta-label">Min. real:</strong> {row.realMinimumLabel}</span>
-                            ) : null}
-                            {productionColumnVisibility.suggestion ? (
-                              <span><strong className="meta-label">Sugestao:</strong> {row.suggestedProductionLabel}</span>
-                            ) : null}
-                            {productionColumnVisibility.status ? (
-                              <span><strong className="meta-label">Status:</strong> {row.statusLabel}</span>
-                            ) : null}
-                          </div>
-                          <div className="production-request-actions">
-                            <button type="button" className="primary-button" onClick={() => startProduction(row)}>
-                              {row.statusLabel === 'Em producao' ? 'Continuar' : 'Produzir'}
-                            </button>
-                            {row.cancellableManualRequestIds.length > 0 && row.statusLabel !== 'Em producao' ? (
-                              <button
-                                type="button"
-                                className="icon-button icon-delete production-cancel-button"
-                                onClick={() => requestCancelProductionRow(row)}
-                                aria-label={`Cancelar producao ${row.sheetName}`}
-                              >
-                                <span aria-hidden="true">×</span>
-                              </button>
-                            ) : null}
-                          </div>
-                        </article>
-                      ))}
+                    <div className="table-wrap">
+                      <table className="product-table">
+                        <thead>
+                          <tr>
+                            {productionColumnVisibility.sheet ? <th className="sticky-product">Pre-preparo</th> : null}
+                            {productionColumnVisibility.priority ? <th>Prioridade</th> : null}
+                            {productionColumnVisibility.current ? <th>Estoque atual</th> : null}
+                            {productionColumnVisibility.useMinimum ? <th>Minimo de uso</th> : null}
+                            {productionColumnVisibility.realMinimum ? <th>Minimo real</th> : null}
+                            {productionColumnVisibility.suggestion ? <th>Sugestao</th> : null}
+                            {productionColumnVisibility.status ? <th>Status</th> : null}
+                            <th className="sticky-actions">Acoes</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {paginatedProductionRows.map((row) => (
+                            <tr key={`${row.centerId}-${row.sheetId}`}>
+                              {productionColumnVisibility.sheet ? (
+                                <td className="sticky-product-cell">
+                                  <strong>{row.sheetName}</strong>
+                                  <div className="table-cell-support">{row.internalId}</div>
+                                </td>
+                              ) : null}
+                              {productionColumnVisibility.priority ? <td>{String(row.priority)}</td> : null}
+                              {productionColumnVisibility.current ? <td>{row.currentQuantityLabel}</td> : null}
+                              {productionColumnVisibility.useMinimum ? <td>{row.useMinimumLabel}</td> : null}
+                              {productionColumnVisibility.realMinimum ? <td>{row.realMinimumLabel}</td> : null}
+                              {productionColumnVisibility.suggestion ? <td>{row.suggestedProductionLabel}</td> : null}
+                              {productionColumnVisibility.status ? <td>{row.statusLabel}</td> : null}
+                              <td className="sticky-actions-cell">
+                                <div className="table-actions">
+                                  <button type="button" className="primary-button" onClick={() => startProduction(row)}>
+                                    {row.statusLabel === 'Em producao' ? 'Continuar' : 'Produzir'}
+                                  </button>
+                                  {row.cancellableManualRequestIds.length > 0 && row.statusLabel !== 'Em producao' ? (
+                                    <button
+                                      type="button"
+                                      className="icon-button icon-delete"
+                                      onClick={() => requestCancelProductionRow(row)}
+                                      aria-label={`Cancelar producao ${row.sheetName}`}
+                                    >
+                                      <span aria-hidden="true">×</span>
+                                    </button>
+                                  ) : null}
+                                </div>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
                     </div>
                     {productionPaginationControls}
                   </>

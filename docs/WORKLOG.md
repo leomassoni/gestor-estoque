@@ -59,7 +59,8 @@ Registrar um historico resumido do que foi feito, do que falhou e do que ficou p
   - dependencias circulares/autorreferentes sao ignoradas no gerador de planejamento;
   - entradas de producao do mesmo centro/ficha agora sao mescladas em uma unica linha, somando quantidades e preservando `isDependencyRequest=false` quando houver demanda direta;
   - `Cancelar planejamento` recarrega producoes/requisicoes da API apos a persistencia do cancelamento;
-  - a fila principal e os planejamentos por ficha deixaram de ser cards/tabela e passaram a ser lista paginada, com acao de cancelamento em botao circular no fim da linha.
+  - `Cancelar planejamento` tambem ganhou uma rota de backend por `companyId/rootRequestId`, evitando depender da lista local para descobrir quais producoes apagar;
+  - a fila principal e os planejamentos por ficha foram padronizados como tabela `product-table`, no mesmo padrao visual das listas de produtos/fichas, com acao no fim da linha.
 - Validacao executada:
   - `npm run build`;
   - leitura da API publicada confirmou solicitacoes manuais sem IDs duplicados;

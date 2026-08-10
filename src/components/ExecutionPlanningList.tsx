@@ -31,33 +31,49 @@ export function ExecutionPlanningList({
       <p className="context-copy">
         As producoes continuam na fila normal abaixo. Este bloco serve para rastrear e cancelar a origem completa da demanda enquanto ela ainda estiver pendente.
       </p>
-      <div className="production-request-list" role="list">
-        {rows.map((row) => (
-          <article key={`execution-planning-${row.rootRequestId}`} className="production-request-row production-planning-row" role="listitem">
-            <div className="production-request-main">
-              <strong>{row.executionSheetName}</strong>
-              <span className="table-cell-support">Planejamento #{row.rootRequestId}</span>
-            </div>
-            <div className="production-request-meta">
-              <span><strong className="meta-label">Centro:</strong> {row.centerName}</span>
-              <span><strong className="meta-label">Quantidade:</strong> {row.requestedQuantityLabel}</span>
-              <span><strong className="meta-label">Producoes:</strong> {row.productionCount}</span>
-              <span><strong className="meta-label">Requisicoes:</strong> {row.requisitionCount}</span>
-              <span><strong className="meta-label">Pendentes para cancelamento:</strong> {row.cancellableRequisitionCount}</span>
-              <span><strong className="meta-label">Ja movidas/recebidas:</strong> {row.movedRequisitionCount}</span>
-            </div>
-            <div className="production-request-actions">
-              <button
-                type="button"
-                className="icon-button icon-delete production-cancel-button"
-                onClick={() => onCancelPlanning(row.rootRequestId)}
-                aria-label={`Cancelar planejamento ${row.executionSheetName}`}
-              >
-                <span aria-hidden="true">×</span>
-              </button>
-            </div>
-          </article>
-        ))}
+      <div className="table-wrap">
+        <table className="product-table">
+          <thead>
+            <tr>
+              <th className="sticky-product">Ficha de execucao</th>
+              <th>Centro</th>
+              <th>Quantidade</th>
+              <th>Producoes</th>
+              <th>Requisicoes</th>
+              <th>Pendentes</th>
+              <th>Ja movidas</th>
+              <th className="sticky-actions">Acoes</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((row) => (
+              <tr key={`execution-planning-${row.rootRequestId}`}>
+                <td className="sticky-product-cell">
+                  <strong>{row.executionSheetName}</strong>
+                  <div className="table-cell-support">Planejamento #{row.rootRequestId}</div>
+                </td>
+                <td>{row.centerName}</td>
+                <td>{row.requestedQuantityLabel}</td>
+                <td>{row.productionCount}</td>
+                <td>{row.requisitionCount}</td>
+                <td>{row.cancellableRequisitionCount}</td>
+                <td>{row.movedRequisitionCount}</td>
+                <td className="sticky-actions-cell">
+                  <div className="table-actions">
+                    <button
+                      type="button"
+                      className="icon-button icon-delete"
+                      onClick={() => onCancelPlanning(row.rootRequestId)}
+                      aria-label={`Cancelar planejamento ${row.executionSheetName}`}
+                    >
+                      <span aria-hidden="true">×</span>
+                    </button>
+                  </div>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
       </div>
     </div>
   )
