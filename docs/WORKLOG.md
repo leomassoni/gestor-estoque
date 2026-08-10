@@ -78,6 +78,7 @@ Registrar um historico resumido do que foi feito, do que falhou e do que ficou p
 - Ajustes aplicados:
   - a lista de origens passou a agrupar `manualProductionRequests` por `rootRequestId`;
   - cada `rootRequestId` vira uma unica linha cancelavel, enquanto a coluna `Producoes` mostra quantas solicitacoes tecnicas ainda pertencem ao planejamento;
+  - ao iniciar uma producao planejada, a solicitacao tecnica correspondente agora e removida explicitamente da API antes da atualizacao local;
   - o botao `Produzir` da fila operacional recebeu o icone `▶`.
 - Validacao executada:
   - `npx vite build`;

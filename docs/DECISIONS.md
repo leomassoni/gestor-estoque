@@ -449,6 +449,9 @@ Registrar o que foi decidido, o que foi adiado e o que foi descartado, com foco 
 - Exibicao esperada:
   - `Origens criadas por ficha de execucao` deve agrupar por `rootRequestId` e mostrar uma linha por entrada feita pelo usuario;
   - a coluna de producoes pode contar quantas solicitacoes tecnicas ainda pertencem ao planejamento, mas nao deve multiplicar a origem na tela.
+- Consumo esperado:
+  - iniciar uma producao derivada de planejamento remove da API apenas as solicitacoes manuais daquela producao;
+  - a origem agrupada permanece enquanto ainda houver solicitacao pendente no mesmo `rootRequestId` e some quando a ultima for consumida.
 - Regra complementar:
   - `manualProductionRequests` e `productionInProgressDrafts` nao devem ser restaurados automaticamente a partir de `localStorage`/snapshot global;
   - a fila operacional deve ser carregada da API por entidade;

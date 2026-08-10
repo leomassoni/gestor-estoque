@@ -24096,9 +24096,26 @@ export default function App() {
     setIsProductionStartConfirmOpen(true)
   }
 
-  function beginProductionDraft() {
+  async function beginProductionDraft() {
     if (!productionDraftState || !selectedProductionSheet || !selectedProductionCenter || currentCompanyId === null) {
       return
+    }
+
+    const manualRequestIds = productionDraftState.manualRequestIds ?? []
+    let nextManualProductionRequests = manualProductionRequests
+    if (manualRequestIds.length > 0) {
+      try {
+        await Promise.all(manualRequestIds.map((requestId) => deleteManualProductionRequestOnApi(requestId)))
+        nextManualProductionRequests = manualProductionRequests.filter((request) => !manualRequestIds.includes(request.id))
+      } catch (error) {
+        console.error(error)
+        setSaveFeedback({
+          status: 'error',
+          title: 'Falha ao iniciar producao',
+          message: error instanceof Error ? error.message : 'Erro ao retirar a solicitacao planejada da fila no servidor.',
+        })
+        return
+      }
     }
 
     const now = new Date().toISOString()
@@ -24207,10 +24224,9 @@ export default function App() {
       consumptionSessionId: productionDraftState.consumptionSessionId ?? (consumptionMovementResult ? movementSessionId : null),
     }
 
-    if ((nextDraft.manualRequestIds?.length ?? 0) > 0) {
-      setManualProductionRequests((current) =>
-        current.filter((request) => !nextDraft.manualRequestIds?.includes(request.id)),
-      )
+    if (manualRequestIds.length > 0) {
+      setManualProductionRequests(nextManualProductionRequests)
+      syncedManualProductionRequestMapRef.current = buildEntitySignatureMap(nextManualProductionRequests, (record) => record.id)
     }
 
     upsertProductionInProgressDraft(nextDraft)
@@ -47147,7 +47163,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
           actionClass="primary-button"
           actionLabel="Iniciar"
           onCancel={() => setIsProductionStartConfirmOpen(false)}
-          onConfirm={beginProductionDraft}
+          onConfirm={() => void beginProductionDraft()}
         />
       ) : null}
 
