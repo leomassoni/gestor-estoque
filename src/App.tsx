@@ -5532,22 +5532,22 @@ export default function App() {
       : []
 
     const nextManualRequestsById = buildEntitySignatureMap(nextManualRequests, (record) => record.id)
-    const currentManualRequestsById = buildEntitySignatureMap(manualProductionRequests, (record) => record.id)
     const nextProductionDraftsById = buildEntitySignatureMap(
       nextProductionDrafts.filter((record) => record.draftId !== null),
       (record) => record.draftId as number,
     )
-    const currentProductionDraftsById = buildEntitySignatureMap(
-      productionInProgressDrafts.filter((record) => record.draftId !== null),
-      (record) => record.draftId as number,
-    )
 
-    if (!areEntitySignatureMapsEqual(nextManualRequestsById, currentManualRequestsById)) {
-      setManualProductionRequests(nextManualRequests)
-    }
-    if (!areEntitySignatureMapsEqual(nextProductionDraftsById, currentProductionDraftsById)) {
-      setProductionInProgressDrafts(nextProductionDrafts)
-    }
+    setManualProductionRequests((current) => {
+      const currentById = buildEntitySignatureMap(current, (record) => record.id)
+      return areEntitySignatureMapsEqual(nextManualRequestsById, currentById) ? current : nextManualRequests
+    })
+    setProductionInProgressDrafts((current) => {
+      const currentById = buildEntitySignatureMap(
+        current.filter((record) => record.draftId !== null),
+        (record) => record.draftId as number,
+      )
+      return areEntitySignatureMapsEqual(nextProductionDraftsById, currentById) ? current : nextProductionDrafts
+    })
     syncedManualProductionRequestMapRef.current = nextManualRequestsById
     syncedProductionDraftMapRef.current = nextProductionDraftsById
   }
@@ -6132,10 +6132,11 @@ export default function App() {
     const response = await fetch(`/api/manual-production-requests/root/${companyId}/${rootRequestId}`, {
       method: 'DELETE',
     })
+    const payload = (await response.json().catch(() => null)) as { error?: string; deletedCount?: number } | null
     if (!response.ok) {
-      const errorPayload = (await response.json().catch(() => null)) as { error?: string } | null
-      throw new Error(errorPayload?.error || 'Nao foi possivel excluir o planejamento de producao no servidor.')
+      throw new Error(payload?.error || 'Nao foi possivel excluir o planejamento de producao no servidor.')
     }
+    return typeof payload?.deletedCount === 'number' ? payload.deletedCount : 0
   }
 
   async function upsertProductionDraftOnApi(draft: ProductionDraftState) {
@@ -24344,10 +24345,11 @@ export default function App() {
     const changedRequisitions = nextRequisitions.filter((record, index) => record !== requisitions[index])
 
     try {
-      await Promise.all([
-        deleteManualProductionRequestsByRootOnApi(currentCompanyId, rootRequestId),
-        ...changedRequisitions.map((record) => upsertRequisitionRecordOnApi(record)),
-      ])
+      const deletedCount = await deleteManualProductionRequestsByRootOnApi(currentCompanyId, rootRequestId)
+      if (deletedCount === 0) {
+        throw new Error('O servidor nao confirmou a exclusao de nenhuma producao desse planejamento. A lista foi recarregada sem aplicar o cancelamento.')
+      }
+      await Promise.all(changedRequisitions.map((record) => upsertRequisitionRecordOnApi(record)))
       const nextManualProductionRequests = manualProductionRequests.filter(
         (request) => !(request.companyId === currentCompanyId && request.rootRequestId === rootRequestId),
       )

@@ -44,6 +44,16 @@ Registrar um historico resumido do que foi feito, do que falhou e do que ficou p
 
 ## 2026-08-10
 
+### Cancelamento de origem por ficha reaparecendo
+
+- Causa confirmada em API:
+  - o `Planejamento #11` (`AURALIA`, empresa `CASA DE MI MADRE LTDA`) estava com a requisicao vinculada ja em `CANCELLED`, mas as `5` solicitacoes manuais do `rootRequestId=11` ainda existiam em `manual-production-requests`;
+  - isso explica a origem reaparecer depois do refresh: a tela estava lendo corretamente o backend, mas o backend ainda tinha as producoes pendentes.
+- Ajustes aplicados:
+  - `deleteManualProductionRequestsByRootOnApi` agora retorna `deletedCount`;
+  - o cancelamento por ficha so exibe sucesso se `deletedCount > 0`;
+  - o refresh de producoes passou a comparar o retorno da API contra o estado atual do `setState`, evitando comparacao com estado fechado antigo.
+
 ### Entrada de producoes: cancelamento, duplicacao e lista operacional
 
 - Corrigida nova fragilidade no fluxo de `Entrada de producoes`.
