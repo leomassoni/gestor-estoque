@@ -155,6 +155,7 @@ Registrar em que pe o sistema esta hoje, por area, para consulta rapida antes de
 - Compras nao deve nascer diretamente da necessidade final de um centro produtor/consumidor quando houver centro distribuidor responsavel. A cadeia correta e: centro solicitante -> suprimento do distribuidor -> falta do distribuidor -> compras para abastecer o distribuidor -> suprimento ao solicitante.
 - `Compras` deve considerar apenas requisicoes aprovadas e enviadas. Compra direta so entra no consolidado quando esta `READY_TO_RECEIVE`; requisicao apenas `APPROVED` ainda nao enviada nao entra.
 - Em `Suprimentos`, cancelar requisicao `SENT_TO_SUPPLIES` deve gravar `CANCELLED` no servidor. O fluxo nao deve reabrir a requisicao como pendente.
+- Uma requisicao ja `CANCELLED` nao pode ser reativada por sincronizacao de cliente antigo/cache local; a API deve bloquear essa sobrescrita.
 - A prioridade da `Entrada de producoes` e calculada por dependencias de producao. A camada `0` representa itens que precisam ser feitos primeiro por nao dependerem de outro preparo da mesma fila. Quando a fila contem pedidos manuais/planejamento por ficha, esses itens tambem entram no grafo para evitar que dependencias fiquem mascaradas como prioridade `0`.
 - `PREPARO` com `Destino da diferenca = Subproduto` agora fecha o fluxo operacional minimo:
   - a finalizacao da producao mostra o subproduto vinculado e pede a quantidade real gerada;

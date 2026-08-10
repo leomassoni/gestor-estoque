@@ -19,6 +19,8 @@ Registrar um historico resumido do que foi feito, do que falhou e do que ficou p
 - `READY_TO_RECEIVE` de suprimento interno continua preservada, pois pode ter baixa de estoque do centro fornecedor.
 - Validacao na API publicada de `CASA DE MI MADRE LTDA` encontrou `11` requisicoes `SENT_TO_SUPPLIES` antigas com origem de planejamento inexistente; pela nova regra elas deixam de alimentar o painel `Compras`.
 - Botao `Cancelar` em `Suprimentos` passou a marcar requisicao `SENT_TO_SUPPLIES` como `CANCELLED` e persistir imediatamente na API. Antes ele devolvia para `PENDING_APPROVAL`, o que podia reativar requisicoes ja canceladas.
+- Botao `Cancelar` na lista de `Requisicoes` passou a funcionar para requisicoes em `SENT_TO_SUPPLIES`, persistindo `CANCELLED` no servidor antes de atualizar a tela.
+- Backend passou a bloquear reativacao de requisicao ja `CANCELLED`; clientes antigos/cache local recebem erro ao tentar salvar novamente a mesma requisicao como ativa.
 
 ### Copia de produto avulso
 

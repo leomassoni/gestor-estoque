@@ -960,12 +960,12 @@ app.post('/api/requisitions', async (request, response) => {
     return
   }
 
-  const saved = await prisma.appRequisitionRecord.upsert({
-    where: { id: requisition.id },
-    create: requisition,
-    update: requisition,
-  })
-  response.json({ requisition: saved })
+  try {
+    const saved = await saveRequisitionWithCancellationGuard(requisition.id, requisition)
+    response.json({ requisition: saved })
+  } catch (error) {
+    response.status(error.statusCode ?? 500).json({ error: error.message ?? 'Erro ao salvar requisicao.' })
+  }
 })
 
 app.put('/api/requisitions/:id', async (request, response) => {
@@ -976,12 +976,12 @@ app.put('/api/requisitions/:id', async (request, response) => {
     return
   }
 
-  const saved = await prisma.appRequisitionRecord.upsert({
-    where: { id: requisitionId },
-    create: requisition,
-    update: requisition,
-  })
-  response.json({ requisition: saved })
+  try {
+    const saved = await saveRequisitionWithCancellationGuard(requisitionId, requisition)
+    response.json({ requisition: saved })
+  } catch (error) {
+    response.status(error.statusCode ?? 500).json({ error: error.message ?? 'Erro ao salvar requisicao.' })
+  }
 })
 
 app.delete('/api/requisitions/:id', async (request, response) => {
@@ -3540,6 +3540,25 @@ function normalizeRequisitionPayload(value) {
     lastUpdatedByUserId,
     lastUpdatedByUserName: record.lastUpdatedByUserName,
   }
+}
+
+async function saveRequisitionWithCancellationGuard(requisitionId, requisition) {
+  const existing = await prisma.appRequisitionRecord.findUnique({
+    where: { id: requisitionId },
+    select: { id: true, status: true, stockCenterName: true },
+  })
+
+  if (existing?.status === 'CANCELLED' && requisition.status !== 'CANCELLED') {
+    const error = new Error(`A requisicao #${existing.id} ja esta cancelada e nao pode ser reativada por sincronizacao antiga.`)
+    error.statusCode = 409
+    throw error
+  }
+
+  return prisma.appRequisitionRecord.upsert({
+    where: { id: requisitionId },
+    create: requisition,
+    update: requisition,
+  })
 }
 
 function normalizeRequisitionNotificationPayload(value) {

@@ -25014,14 +25014,14 @@ export default function App() {
     setRequisitionExportState({ requisitionId: requisition.id, format: 'pdf' })
   }
 
-  function cancelOrDeleteRequisition(requisitionId: number) {
+  async function cancelOrDeleteRequisition(requisitionId: number) {
     const targetRequisition = requisitions.find((record) => record.id === requisitionId) ?? null
     if (
       !targetRequisition ||
       !canManageRequisition(targetRequisition) ||
-      targetRequisition.status === 'SENT_TO_SUPPLIES' ||
       targetRequisition.status === 'READY_TO_RECEIVE' ||
-      targetRequisition.status === 'RECEIVED'
+      targetRequisition.status === 'RECEIVED' ||
+      targetRequisition.status === 'CANCELLED'
     ) {
       return
     }
@@ -25031,21 +25031,29 @@ export default function App() {
       targetRequisition.createdByUserId !== currentAppUser.id &&
       canApproveRequisition(targetRequisition)
 
-    if (actedByResponsible) {
+    if (actedByResponsible || targetRequisition.status === 'SENT_TO_SUPPLIES') {
       const now = new Date().toISOString()
-      setRequisitions((current) =>
-        current.map((record) =>
-          record.id === requisitionId
-            ? {
-                ...record,
-                status: 'CANCELLED',
-                lastUpdatedAt: now,
-                lastUpdatedByUserId: currentAppUser?.id ?? null,
-                lastUpdatedByUserName: currentAppUser?.fullName ?? 'Administrador do sistema',
-              }
-            : record,
-        ),
-      )
+      const cancelledRequisition: RequisitionRecord = {
+        ...targetRequisition,
+        status: 'CANCELLED',
+        lastUpdatedAt: now,
+        lastUpdatedByUserId: currentAppUser?.id ?? null,
+        lastUpdatedByUserName: currentAppUser?.fullName ?? 'Administrador do sistema',
+      }
+      try {
+        await upsertRequisitionRecordOnApi(cancelledRequisition)
+      } catch (error) {
+        console.error(error)
+        setSaveFeedback({
+          status: 'error',
+          title: 'Falha ao cancelar requisicao',
+          message: error instanceof Error ? error.message : 'Erro ao cancelar a requisicao no servidor.',
+        })
+        return
+      }
+      const nextRequisitions = requisitions.map((record) => (record.id === requisitionId ? cancelledRequisition : record))
+      setRequisitions(nextRequisitions)
+      syncedRequisitionRecordMapRef.current = buildEntitySignatureMap(nextRequisitions, (record) => record.id)
       notifyRequisitionStakeholders(
         targetRequisition,
         `A REQUISICAO DO CENTRO ${targetRequisition.stockCenterName} FOI CANCELADA PELO RESPONSAVEL DO CENTRO.`,
@@ -25058,7 +25066,20 @@ export default function App() {
       return
     }
 
-    setRequisitions((current) => current.filter((record) => record.id !== requisitionId))
+    try {
+      await deleteRequisitionRecordOnApi(requisitionId)
+    } catch (error) {
+      console.error(error)
+      setSaveFeedback({
+        status: 'error',
+        title: 'Falha ao excluir requisicao',
+        message: error instanceof Error ? error.message : 'Erro ao excluir a requisicao no servidor.',
+      })
+      return
+    }
+    const nextRequisitions = requisitions.filter((record) => record.id !== requisitionId)
+    setRequisitions(nextRequisitions)
+    syncedRequisitionRecordMapRef.current = buildEntitySignatureMap(nextRequisitions, (record) => record.id)
     setRequisitionNotifications((current) => current.filter((notification) => notification.requisitionId !== requisitionId))
     setSaveFeedback({
       status: 'success',
@@ -43954,16 +43975,18 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                                   <button
                                     type="button"
                                     className="danger-button"
-                                    onClick={() => cancelOrDeleteRequisition(record.id)}
+                                    onClick={() => void cancelOrDeleteRequisition(record.id)}
                                     disabled={
                                       !canManageRequisition(record) ||
-                                      record.status === 'SENT_TO_SUPPLIES' ||
                                       record.status === 'READY_TO_RECEIVE' ||
                                       record.status === 'RECEIVED' ||
                                       record.status === 'CANCELLED'
                                     }
                                   >
-                                    {canApproveRequisition(record) && record.createdByUserId !== currentAppUser?.id ? 'Cancelar' : 'Excluir'}
+                                    {record.status === 'SENT_TO_SUPPLIES' ||
+                                    (canApproveRequisition(record) && record.createdByUserId !== currentAppUser?.id)
+                                      ? 'Cancelar'
+                                      : 'Excluir'}
                                   </button>
                                   <button type="button" className="ghost-button" onClick={() => requestRequisitionExport(record)} disabled={record.status === 'CANCELLED'}>
                                     Exportar
