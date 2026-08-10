@@ -4133,11 +4133,69 @@ export default function App() {
       .sort((left, right) => left.name.localeCompare(right.name, 'pt-BR'))
     const impactedStockCenters = stockCenters
       .filter((center) =>
+        sheet.productionCenters.some((assignment) => Number(assignment.stockCenterId) === center.id) ||
         center.producedTechnicalSheetIds.includes(sheet.id) ||
         center.minimumStocks.some((minimum) => minimum.kind === 'PREPARO' && minimum.technicalSheetId === sheet.id),
       )
-      .map((center) => center.name)
+      .map((center) => `${center.name} • ${getCompanyTradeName(center.companyId)}`)
       .sort((left, right) => left.localeCompare(right, 'pt-BR'))
+    const impactedManualRequests = manualProductionRequests.filter(
+      (request) =>
+        isTechnicalSheetVisibleForCompany(sheet, request.companyId) &&
+        (request.sheetId === sheet.id || request.planningSourceSheetId === sheet.id),
+    )
+    const impactedManualProductionPlans = Array.from(
+      impactedManualRequests.reduce((plans, request) => {
+        const existing = plans.get(request.rootRequestId) ?? {
+          rootRequestId: request.rootRequestId,
+          label:
+            request.planningSourceSheetName ||
+            technicalSheets.find((item) => item.id === request.sheetId)?.name ||
+            sheet.name,
+          centerName:
+            request.planningSourceCenterName ||
+            stockCenters.find((center) => center.id === request.centerId)?.name ||
+            `CENTRO ${request.centerId}`,
+          requestIds: [] as number[],
+        }
+        existing.requestIds.push(request.id)
+        plans.set(request.rootRequestId, existing)
+        return plans
+      }, new Map<number, { rootRequestId: number; label: string; centerName: string; requestIds: number[] }>()),
+    )
+      .map((plan) => ({
+        rootRequestId: plan.rootRequestId,
+        label: `${plan.label} • ${plan.centerName} (${formatDecimal(plan.requestIds.length)} producao(oes) pendente(s))`,
+        requestIds: plan.requestIds,
+      }))
+      .sort((left, right) => left.label.localeCompare(right.label, 'pt-BR'))
+    const impactedManualRootRequestIds = new Set(impactedManualProductionPlans.map((plan) => plan.rootRequestId))
+    const impactedProductionDrafts = productionInProgressDrafts
+      .filter((draft) => draft.sheetId === sheet.id || draft.manualRequestIds?.some((requestId) => impactedManualRequests.some((request) => request.id === requestId)))
+      .map((draft) => {
+        const center = stockCenters.find((item) => item.id === draft.centerId) ?? null
+        return `${sheet.name} • ${center ? `${center.name} • ${getCompanyTradeName(center.companyId)}` : `CENTRO ${draft.centerId}`}`
+      })
+      .sort((left, right) => left.localeCompare(right, 'pt-BR'))
+    const impactedPlanningRequisitions = requisitions
+      .filter(
+        (record) =>
+          isTechnicalSheetVisibleForCompany(sheet, record.companyId) &&
+          (record.planningSourceSheetId === sheet.id ||
+            (typeof record.planningRootRequestId === 'number' &&
+              impactedManualRootRequestIds.has(record.planningRootRequestId)) ||
+            record.lines.some((line) => line.kind === 'PREPARO' && line.technicalSheetId === sheet.id)),
+      )
+      .map((record) => ({
+        id: record.id,
+        label: `${record.stockCenterName} • ${getRequisitionHistoryStatusLabel(record.status)}`,
+        status: record.status,
+        willCancel:
+          record.status === 'PENDING_APPROVAL' ||
+          record.status === 'APPROVED' ||
+          record.status === 'SENT_TO_SUPPLIES',
+      }))
+      .sort((left, right) => left.label.localeCompare(right.label, 'pt-BR'))
     const linkedProduct = products.find((product) => product.technicalSheetId === sheet.id) ?? null
     setTechnicalSheetDisableImpactState({
       action,
@@ -4146,6 +4204,9 @@ export default function App() {
       linkedProductName: linkedProduct?.name ?? null,
       impactedMotherSheets,
       impactedStockCenters,
+      impactedManualProductionPlans,
+      impactedProductionDrafts,
+      impactedPlanningRequisitions,
     })
   }
   const companyLinkableOptions = useMemo(
@@ -24012,43 +24073,72 @@ export default function App() {
     setPendingExecutionPlanningCancelRow(row)
   }
 
-  function confirmCancelProductionRow() {
+  async function confirmCancelProductionRow() {
     if (!pendingProductionCancelRow) {
       return
     }
 
     const targetRow = pendingProductionCancelRow
-    const rootRequestIds = new Set(targetRow.cancellableManualRequestIds)
+    const cancellableRequestIds = new Set(targetRow.cancellableManualRequestIds)
+    const rootRequestIds = new Set(
+      manualProductionRequests
+        .filter(
+          (request) =>
+            request.companyId === currentCompanyId &&
+            request.centerId === targetRow.centerId &&
+            cancellableRequestIds.has(request.id),
+        )
+        .map((request) => request.rootRequestId),
+    )
+    if (rootRequestIds.size === 0) {
+      targetRow.cancellableManualRequestIds.forEach((requestId) => rootRequestIds.add(requestId))
+    }
+    const affectedRequests = manualProductionRequests.filter(
+      (request) => request.companyId === currentCompanyId && rootRequestIds.has(request.rootRequestId),
+    )
     const affectedDependencyRequests = manualProductionRequests.filter(
-      (request) => request.isDependencyRequest && rootRequestIds.has(request.rootRequestId),
+      (request) => request.companyId === currentCompanyId && request.isDependencyRequest && rootRequestIds.has(request.rootRequestId),
     )
-    setManualProductionRequests((current) =>
-      current.filter((request) => !rootRequestIds.has(request.rootRequestId)),
-    )
-    setPendingProductionCancelRow(null)
-    setSaveFeedback({
-      status: 'success',
-      title: 'Producao cancelada',
-      message:
-        affectedDependencyRequests.length > 0
-          ? `A solicitacao manual dessa producao foi retirada da fila junto com ${affectedDependencyRequests.length} producao(oes) dependente(s) vinculada(s) a ela.`
-          : targetRow.statusLabel === 'A produzir'
-            ? 'A solicitacao manual dessa producao foi retirada da fila.'
-            : 'A solicitacao manual vinculada a essa producao foi cancelada.',
-    })
+
+    try {
+      await Promise.all(affectedRequests.map((request) => deleteManualProductionRequestOnApi(request.id)))
+      const nextManualProductionRequests = manualProductionRequests.filter(
+        (request) => !(request.companyId === currentCompanyId && rootRequestIds.has(request.rootRequestId)),
+      )
+      setManualProductionRequests(nextManualProductionRequests)
+      syncedManualProductionRequestMapRef.current = buildEntitySignatureMap(nextManualProductionRequests, (record) => record.id)
+      setPendingProductionCancelRow(null)
+      setSaveFeedback({
+        status: 'success',
+        title: 'Producao cancelada',
+        message:
+          affectedDependencyRequests.length > 0
+            ? `A solicitacao manual dessa producao foi retirada da fila junto com ${affectedDependencyRequests.length} producao(oes) dependente(s) vinculada(s) a ela.`
+            : targetRow.statusLabel === 'A produzir'
+              ? 'A solicitacao manual dessa producao foi retirada da fila.'
+              : 'A solicitacao manual vinculada a essa producao foi cancelada.',
+      })
+    } catch (error) {
+      console.error(error)
+      setSaveFeedback({
+        status: 'error',
+        title: 'Falha ao cancelar producao',
+        message: error instanceof Error ? error.message : 'Erro ao cancelar a producao no servidor.',
+      })
+    }
   }
 
-  function confirmCancelExecutionPlanning() {
+  async function confirmCancelExecutionPlanning() {
     if (!pendingExecutionPlanningCancelRow || currentCompanyId === null) {
       return
     }
 
     const rootRequestId = pendingExecutionPlanningCancelRow.rootRequestId
-    setManualProductionRequests((current) =>
-      current.filter((request) => !(request.companyId === currentCompanyId && request.rootRequestId === rootRequestId)),
+    const affectedRequests = manualProductionRequests.filter(
+      (request) => request.companyId === currentCompanyId && request.rootRequestId === rootRequestId,
     )
-    setRequisitions((current) =>
-      current.map((record) => {
+    const now = new Date().toISOString()
+    const nextRequisitions = requisitions.map((record) => {
         if (record.companyId !== currentCompanyId || record.planningRootRequestId !== rootRequestId) {
           return record
         }
@@ -24062,21 +24152,42 @@ export default function App() {
         return {
           ...record,
           status: 'CANCELLED',
-          lastUpdatedAt: new Date().toISOString(),
+          lastUpdatedAt: now,
           lastUpdatedByUserId: currentAppUser?.id ?? null,
           lastUpdatedByUserName: currentAppUser?.fullName ?? 'Administrador do sistema',
         }
-      }),
-    )
-    setPendingExecutionPlanningCancelRow(null)
-    setSaveFeedback({
-      status: 'success',
-      title: 'Planejamento cancelado',
-      message:
-        pendingExecutionPlanningCancelRow.movedRequisitionCount > 0
-          ? 'As producoes pendentes foram retiradas da fila e as requisicoes ou suprimentos ainda nao movimentados foram cancelados. Itens ja movidos permaneceram ativos.'
-          : 'As producoes pendentes foram retiradas da fila e as requisicoes ou suprimentos vinculados que ainda nao avancaram tambem foram cancelados.',
-    })
+      })
+    const changedRequisitions = nextRequisitions.filter((record, index) => record !== requisitions[index])
+
+    try {
+      await Promise.all([
+        ...affectedRequests.map((request) => deleteManualProductionRequestOnApi(request.id)),
+        ...changedRequisitions.map((record) => upsertRequisitionRecordOnApi(record)),
+      ])
+      const nextManualProductionRequests = manualProductionRequests.filter(
+        (request) => !(request.companyId === currentCompanyId && request.rootRequestId === rootRequestId),
+      )
+      setManualProductionRequests(nextManualProductionRequests)
+      setRequisitions(nextRequisitions)
+      syncedManualProductionRequestMapRef.current = buildEntitySignatureMap(nextManualProductionRequests, (record) => record.id)
+      syncedRequisitionRecordMapRef.current = buildEntitySignatureMap(nextRequisitions, (record) => record.id)
+      setPendingExecutionPlanningCancelRow(null)
+      setSaveFeedback({
+        status: 'success',
+        title: 'Planejamento cancelado',
+        message:
+          pendingExecutionPlanningCancelRow.movedRequisitionCount > 0
+            ? 'As producoes pendentes foram retiradas da fila e as requisicoes ou suprimentos ainda nao movimentados foram cancelados. Itens ja movidos permaneceram ativos.'
+            : 'As producoes pendentes foram retiradas da fila e as requisicoes ou suprimentos vinculados que ainda nao avancaram tambem foram cancelados.',
+      })
+    } catch (error) {
+      console.error(error)
+      setSaveFeedback({
+        status: 'error',
+        title: 'Falha ao cancelar planejamento',
+        message: error instanceof Error ? error.message : 'Erro ao cancelar o planejamento no servidor.',
+      })
+    }
   }
 
   function updateProductionDesiredYield(value: string) {
@@ -34904,6 +35015,50 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
     const impactedMotherActionById = new Map(
       technicalSheetDisableImpactState.impactedMotherSheets.map((sheet) => [sheet.id, sheet.action] as const),
     )
+    if (technicalSheetDisableImpactState.impactedProductionDrafts.length > 0) {
+      setSaveFeedback({
+        status: 'error',
+        title: 'Ficha com producao em andamento',
+        message: 'Finalize a producao em andamento antes de inativar ou excluir esta ficha tecnica.',
+      })
+      return
+    }
+    const impactedManualRootRequestIds = new Set(
+      technicalSheetDisableImpactState.impactedManualProductionPlans.map((plan) => plan.rootRequestId),
+    )
+    const impactedManualRequestIds = new Set(
+      technicalSheetDisableImpactState.impactedManualProductionPlans.flatMap((plan) => plan.requestIds),
+    )
+    const nextManualProductionRequests = manualProductionRequests.filter(
+      (request) => !impactedManualRequestIds.has(request.id),
+    )
+    const now = new Date().toISOString()
+    const nextRequisitions = requisitions.map((record) => {
+      if (
+        !(
+          record.planningSourceSheetId === targetSheet.id ||
+          (typeof record.planningRootRequestId === 'number' &&
+            impactedManualRootRequestIds.has(record.planningRootRequestId))
+        )
+      ) {
+        return record
+      }
+      if (
+        record.status !== 'PENDING_APPROVAL' &&
+        record.status !== 'APPROVED' &&
+        record.status !== 'SENT_TO_SUPPLIES'
+      ) {
+        return record
+      }
+      return {
+        ...record,
+        status: 'CANCELLED',
+        lastUpdatedAt: now,
+        lastUpdatedByUserId: currentAppUser?.id ?? null,
+        lastUpdatedByUserName: currentAppUser?.fullName ?? 'Administrador do sistema',
+      }
+    })
+    const changedRequisitions = nextRequisitions.filter((record, index) => record !== requisitions[index])
     const nextTechnicalSheets = technicalSheets.map((sheet) => {
       const action = impactedMotherActionById.get(sheet.id) ?? 'keep'
       if (action === 'remove') {
@@ -34924,6 +35079,10 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
     })
 
     try {
+      await Promise.all([
+        ...Array.from(impactedManualRequestIds).map((requestId) => deleteManualProductionRequestOnApi(requestId)),
+        ...changedRequisitions.map((record) => upsertRequisitionRecordOnApi(record)),
+      ])
       if (technicalSheetDisableImpactState.action === 'delete') {
         await fetch(`/api/technical-sheets/${targetSheet.id}`, { method: 'DELETE' }).then(async (response) => {
           if (!response.ok) {
@@ -34970,6 +35129,10 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
         }
       }
       await persistChangedTechnicalSheetsOnApi(technicalSheets, nextTechnicalSheets)
+      setManualProductionRequests(nextManualProductionRequests)
+      setRequisitions(nextRequisitions)
+      syncedManualProductionRequestMapRef.current = buildEntitySignatureMap(nextManualProductionRequests, (record) => record.id)
+      syncedRequisitionRecordMapRef.current = buildEntitySignatureMap(nextRequisitions, (record) => record.id)
       await refreshAppCatalogRecordsFromApi()
     } catch (error) {
       console.error(error)
@@ -47391,7 +47554,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
             </div>
 
             <p className="confirm-copy">
-              A ficha tecnica sera {technicalSheetDisableImpactState.action === 'delete' ? 'excluida' : 'inativada'}. Escolha como tratar cada ficha mae que usa este insumo antes de confirmar.
+              A ficha tecnica sera {technicalSheetDisableImpactState.action === 'delete' ? 'excluida' : 'inativada'}. Escolha como tratar cada ficha mae que usa este insumo antes de confirmar. Planejamentos pendentes de producao vinculados a esta ficha serao cancelados junto com requisicoes ou suprimentos que ainda nao avancaram no fluxo.
             </p>
 
             {technicalSheetDisableImpactState.linkedProductName ? (
@@ -47459,11 +47622,58 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
               )}
             </div>
 
+            <div className="confirmation-details">
+              <strong>Planejamentos de producao impactados ({technicalSheetDisableImpactState.impactedManualProductionPlans.length})</strong>
+              {technicalSheetDisableImpactState.impactedManualProductionPlans.length > 0 ? (
+                <ul className="sector-impact-list">
+                  {technicalSheetDisableImpactState.impactedManualProductionPlans.map((plan) => (
+                    <li key={`technical-sheet-disable-impact-production-plan-${plan.rootRequestId}`}>
+                      {plan.label}
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p>Nenhum planejamento pendente da entrada de producoes usa esta ficha no momento.</p>
+              )}
+            </div>
+
+            <div className="confirmation-details">
+              <strong>Requisicoes/suprimentos vinculados ({technicalSheetDisableImpactState.impactedPlanningRequisitions.length})</strong>
+              {technicalSheetDisableImpactState.impactedPlanningRequisitions.length > 0 ? (
+                <ul className="sector-impact-list">
+                  {technicalSheetDisableImpactState.impactedPlanningRequisitions.map((record) => (
+                    <li key={`technical-sheet-disable-impact-requisition-${record.id}`}>
+                      {record.label} - {record.willCancel ? 'sera cancelado' : 'ja avancou e permanecera ativo'}
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p>Nenhuma requisicao ou suprimento vinculado a planejamento desta ficha no momento.</p>
+              )}
+            </div>
+
+            {technicalSheetDisableImpactState.impactedProductionDrafts.length > 0 ? (
+              <div className="confirmation-details">
+                <strong>Producoes em andamento ({technicalSheetDisableImpactState.impactedProductionDrafts.length})</strong>
+                <p>Finalize estas producoes antes de inativar ou excluir a ficha.</p>
+                <ul className="sector-impact-list">
+                  {technicalSheetDisableImpactState.impactedProductionDrafts.map((draftLabel) => (
+                    <li key={`technical-sheet-disable-impact-production-draft-${draftLabel}`}>{draftLabel}</li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
+
             <div className="modal-actions">
               <button className="ghost-button" type="button" onClick={() => setTechnicalSheetDisableImpactState(null)}>
                 Cancelar
               </button>
-              <button className="warning-button" type="button" onClick={runTechnicalSheetDisableImpactAction}>
+              <button
+                className="warning-button"
+                type="button"
+                onClick={runTechnicalSheetDisableImpactAction}
+                disabled={technicalSheetDisableImpactState.impactedProductionDrafts.length > 0}
+              >
                 {technicalSheetDisableImpactState.action === 'delete' ? 'Excluir ficha tecnica' : 'Inativar ficha tecnica'}
               </button>
             </div>

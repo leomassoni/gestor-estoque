@@ -1,6 +1,6 @@
 # Status do Sistema
 
- Ultima atualizacao: 2026-08-06
+ Ultima atualizacao: 2026-08-09
 
 ## Objetivo deste arquivo
 
@@ -154,6 +154,8 @@ Registrar em que pe o sistema esta hoje, por area, para consulta rapida antes de
 - A prioridade da `Entrada de producoes` e calculada por dependencias de producao. A camada `0` representa itens que precisam ser feitos primeiro por nao dependerem de outro preparo da mesma fila. Quando a fila contem pedidos manuais/planejamento por ficha, esses itens tambem entram no grafo para evitar que dependencias fiquem mascaradas como prioridade `0`.
 - A tela de `Entrada de producoes` carrega requisicoes junto com producoes, pois requisicoes pendentes reduzem a necessidade a produzir no centro produtor.
 - A tabela de `Entrada de producoes` nao deve usar virtualizacao invisivel. Ela e uma fila operacional e deve usar paginacao explicita de 20 producoes por pagina, com setas e numeros visiveis para navegar pela lista. A tela tambem exibe resumo de total e distribuicao por prioridade acima da lista.
+- Cancelamentos de producao/planejamento devem remover o grupo inteiro pelo `rootRequestId` real e persistir a remocao/cancelamento na API durante a confirmacao, antes que o polling possa recarregar registros antigos.
+- Inativar ou excluir ficha tecnica deve mostrar impactos em `Entrada de producoes`, incluindo planejamentos pendentes, requisicoes/suprimentos vinculados e producoes em andamento. Producao em andamento bloqueia a inativacao/exclusao ate ser finalizada.
 - `Desperdicio` possui entidades proprias:
   - `wasteSessions`
   - `wasteRecords`

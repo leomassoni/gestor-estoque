@@ -414,6 +414,23 @@ Registrar o que foi decidido, o que foi adiado e o que foi descartado, com foco 
   - filtros, busca e ordenacao devem atuar antes da paginacao;
   - otimizacoes de performance nao podem esconder etapas de producao sem indicar ao usuario como acessar o restante da fila.
 
+### Planejamento de producao deve ser cancelado pelo `rootRequestId`
+
+- Problema: planejamentos de producao podem gerar varias solicitacoes manuais, cada uma com `id` proprio, mas todas pertencem ao mesmo `rootRequestId`.
+- Regra extraida:
+  - nunca cancelar uma producao planejada assumindo que `id === rootRequestId`;
+  - resolver o `rootRequestId` real a partir da solicitacao clicada e remover todo o grupo pendente;
+  - persistir deletes de producao e cancelamento de requisicoes/suprimentos vinculados na API durante a confirmacao;
+  - atualizar os mapas de sincronizacao local apos a API confirmar, para evitar que polling reponha registros antigos.
+
+### Inativar/excluir ficha tecnica precisa avisar impacto em producao
+
+- Decisao: o modal de impacto de ficha tecnica deve incluir `Entrada de producoes`, alem de fichas maes e centros de estoque.
+- Regra operacional:
+  - planejamentos pendentes vinculados a ficha podem ser cancelados junto com a inativacao/exclusao;
+  - requisicoes/suprimentos vinculados so devem ser cancelados se ainda estiverem em etapa reversivel;
+  - producoes em andamento bloqueiam a inativacao/exclusao ate serem finalizadas.
+
 ### Taxa de venda entre empresas precisa ficar visivel quando alterar o custo
 
 - Decisao: quando um `PREPARO` compartilhado receber acrescimo pela regra de compartilhamento entre empresas, o sistema deve exibir o percentual, o valor acrescido e a origem/destino do acrescimo na ficha tecnica, no receituario de pre-preparo e na entrada de producao.

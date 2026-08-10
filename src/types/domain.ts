@@ -1664,6 +1664,18 @@ export type TechnicalSheetDisableImpactState = {
     impactedSharedCompanyLabels: string[]
   }>
   impactedStockCenters: string[]
+  impactedManualProductionPlans: Array<{
+    rootRequestId: number
+    label: string
+    requestIds: number[]
+  }>
+  impactedProductionDrafts: string[]
+  impactedPlanningRequisitions: Array<{
+    id: number
+    label: string
+    status: RequisitionStatus
+    willCancel: boolean
+  }>
 }
 
 export type PackageEditorContext = 'product' | 'technicalSheet' | 'serviceItem'

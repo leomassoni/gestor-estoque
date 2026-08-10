@@ -1,10 +1,35 @@
 # Worklog
 
- Ultima atualizacao: 2026-08-06
+ Ultima atualizacao: 2026-08-09
 
 ## Objetivo deste arquivo
 
 Registrar um historico resumido do que foi feito, do que falhou e do que ficou pendente.
+
+## 2026-08-09
+
+### Impacto e cancelamento em Entrada de producoes
+
+- Corrigido o cancelamento de producoes/planejamentos criados pela `Entrada de producoes`.
+- Causa encontrada:
+  - a fila agrupava producoes por `rootRequestId`, mas o cancelamento por linha usava o `id` da solicitacao manual como se ele fosse sempre o proprio root;
+  - em planejamentos com varias producoes, uma linha podia ter `id` diferente do `rootRequestId`, entao o aviso aparecia como cancelado mas o grupo continuava na fila;
+  - o cancelamento tambem dependia apenas do efeito posterior de sincronizacao, abrindo janela para polling recarregar registros antigos do servidor.
+- Ajuste aplicado:
+  - o cancelamento por linha agora resolve o `rootRequestId` real antes de remover o grupo;
+  - `Cancelar producao` e `Cancelar planejamento` persistem deletes/updates na API durante a confirmacao e atualizam os mapas de sincronizacao local para evitar reentrada por polling;
+  - requisicoes/suprimentos vinculados a planejamentos sao marcados como `CANCELLED` quando ainda estao em estado reversivel.
+- A inativacao/exclusao de ficha tecnica passou a avisar impactos ligados a `Entrada de producoes`:
+  - planejamentos pendentes afetados;
+  - requisicoes/suprimentos vinculados que serao cancelados ou que ja avancaram e permanecerao ativos;
+  - producoes em andamento, que bloqueiam a inativacao/exclusao ate serem finalizadas.
+- Validacao executada:
+  - `./node_modules/.bin/vite build`;
+  - `./node_modules/.bin/eslint src/types/domain.ts`;
+  - `git diff --check`;
+  - leitura da API publicada de `CASA DE MI MADRE LTDA` confirmou grupo `rootRequestId=47` com IDs `[49, 47, 48]`: antes, cancelar pela linha `49` deixaria `3` solicitacoes; com a nova regra, deixa `0`;
+  - a mesma leitura confirmou que a ficha `TELLURIA` impacta `1` planejamento, `3` solicitacoes de producao e `1` requisicao cancelavel.
+- Observacao: `tsc` completo e `eslint src/App.tsx` excederam 180s sem emitir erro nesta execucao.
 
 ## 2026-08-06
 
