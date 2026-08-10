@@ -5683,11 +5683,11 @@ export default function App() {
     const localPendingMovements = loadPendingInventoryMovementsState()
 
     const missingLocations = nextLocations.length === 0 && localLocations.length > 0
-    const missingInventories = nextInventories.length === 0 && localInventories.length > 0
-    const missingActiveRecordLinks = nextActiveRecordLinks.length === 0 && localActiveRecordLinks.length > 0
-    const missingSessions = nextSessions.length === 0 && localSessions.length > 0
-    const missingActiveSessionLinks = nextActiveSessionLinks.length === 0 && localActiveSessionLinks.length > 0
-    const missingCounts = nextCounts.length === 0 && localCounts.length > 0
+    const missingInventories = false
+    const missingActiveRecordLinks = false
+    const missingSessions = false
+    const missingActiveSessionLinks = false
+    const missingCounts = false
     const missingWasteSessions = nextWasteSessions.length === 0 && localWasteSessions.length > 0
     const missingWasteRecords = nextWasteRecords.length === 0 && localWasteRecords.length > 0
     const missingPendingMovements = nextPendingMovements.length === 0 && localPendingMovements.length > 0
@@ -5765,7 +5765,7 @@ export default function App() {
         ]),
       )
 
-      logRemoteAppStateMessage('Os registros de inventario deste navegador foram usados para restaurar dados ausentes no servidor.')
+      logRemoteAppStateMessage('Dados auxiliares locais de inventario foram usados apenas quando nao havia equivalente no servidor.')
       return
     }
     const nextLocationsById = buildEntitySignatureMap(nextLocations, (record) => `${record.companyId}:${record.name}`)

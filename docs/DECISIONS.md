@@ -453,6 +453,7 @@ Registrar o que foi decidido, o que foi adiado e o que foi descartado, com foco 
   - requisicao vinculada a planejamento por ficha nao deve alimentar `Compras` quando o `planningRootRequestId` nao tiver mais origem ativa na fila de producao ou em producao em andamento;
   - cancelar uma requisicao em `Suprimentos` deve marcar `CANCELLED`; nao deve devolve-la para `PENDING_APPROVAL`;
   - requisicao `CANCELLED` e terminal para sincronizacao: cliente antigo/cache local nao pode reativar o registro como pendente, aprovado, em suprimentos ou pronto para receber;
+  - inventario operacional usado para calcular falta de compras deve vir do banco; `localStorage` nao pode restaurar contagens/sessoes/movimentos quando o servidor nao possui esses registros;
   - a tela exporta XLSX e PDF do consolidado visivel.
 
 ### Planejamento de producao deve ser cancelado pelo `rootRequestId`

@@ -21,6 +21,7 @@ Registrar um historico resumido do que foi feito, do que falhou e do que ficou p
 - Botao `Cancelar` em `Suprimentos` passou a marcar requisicao `SENT_TO_SUPPLIES` como `CANCELLED` e persistir imediatamente na API. Antes ele devolvia para `PENDING_APPROVAL`, o que podia reativar requisicoes ja canceladas.
 - Botao `Cancelar` na lista de `Requisicoes` passou a funcionar para requisicoes em `SENT_TO_SUPPLIES`, persistindo `CANCELLED` no servidor antes de atualizar a tela.
 - Backend passou a bloquear reativacao de requisicao ja `CANCELLED`; clientes antigos/cache local recebem erro ao tentar salvar novamente a mesma requisicao como ativa.
+- Painel `Compras`: removida restauracao de inventario operacional a partir de `localStorage` quando o servidor nao possui inventario. Contagens/sessoes/movimentos de inventario devem vir do banco; cache local antigo nao pode zerar falta de compras.
 
 ### Copia de produto avulso
 
