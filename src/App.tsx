@@ -23142,7 +23142,7 @@ export default function App() {
   function mergeProductionEntries(entries: ManualProductionPreviewProductionEntry[]) {
     const merged = new Map<string, ManualProductionPreviewProductionEntry>()
     entries.forEach((entry) => {
-      const key = `${entry.centerId}:${entry.sheetId}:${entry.isDependencyRequest ? 'DEPENDENCY' : 'ROOT'}`
+      const key = `${entry.centerId}:${entry.sheetId}`
       const existingEntry = merged.get(key) ?? null
       if (!existingEntry) {
         merged.set(key, { ...entry })
@@ -23152,6 +23152,7 @@ export default function App() {
       merged.set(key, {
         ...existingEntry,
         desiredYield: existingEntry.desiredYield + entry.desiredYield,
+        isDependencyRequest: existingEntry.isDependencyRequest && entry.isDependencyRequest,
       })
     })
 
@@ -24326,6 +24327,10 @@ export default function App() {
       setRequisitions(nextRequisitions)
       syncedManualProductionRequestMapRef.current = buildEntitySignatureMap(nextManualProductionRequests, (record) => record.id)
       syncedRequisitionRecordMapRef.current = buildEntitySignatureMap(nextRequisitions, (record) => record.id)
+      await Promise.all([
+        refreshAppProductionRecordsFromApi(),
+        refreshAppRequisitionRecordsFromApi(),
+      ])
       setPendingExecutionPlanningCancelRow(null)
       setSaveFeedback({
         status: 'success',

@@ -51,16 +51,21 @@ Registrar um historico resumido do que foi feito, do que falhou e do que ficou p
   - producoes manuais e rascunhos ainda podiam ser restaurados do `localStorage` quando a API retornava vazio, o que poderia ressuscitar registros cancelados em navegadores antigos;
   - a confirmacao de nova entrada nao tinha trava contra duplo clique e atualizava a tela antes da confirmacao da API;
   - o calculo de dependencias podia criar uma producao dependente da propria ficha quando havia referencia circular/autorreferente na composicao.
+  - producoes diretas e dependentes eram mescladas com chaves diferentes (`ROOT`/`DEPENDENCY`), entao a mesma ficha podia aparecer duas vezes no mesmo planejamento.
 - Ajustes aplicados:
   - `manualProductionRequests` e `productionInProgressDrafts` passaram a iniciar vazios e carregar a fila pela API por entidade;
   - essas producoes sairam do snapshot global sincronizado por navegador;
   - a confirmacao de nova entrada grava as solicitacoes na API antes de atualizar a tela, trava reenvio e atualiza o mapa de sincronizacao apos sucesso;
   - dependencias circulares/autorreferentes sao ignoradas no gerador de planejamento;
-  - a fila principal de `Entrada de producoes` deixou de ser tabela e passou a ser lista paginada, com acao de cancelamento em botao circular no fim da linha.
+  - entradas de producao do mesmo centro/ficha agora sao mescladas em uma unica linha, somando quantidades e preservando `isDependencyRequest=false` quando houver demanda direta;
+  - `Cancelar planejamento` recarrega producoes/requisicoes da API apos a persistencia do cancelamento;
+  - a fila principal e os planejamentos por ficha deixaram de ser cards/tabela e passaram a ser lista paginada, com acao de cancelamento em botao circular no fim da linha.
 - Validacao executada:
   - `npm run build`;
-  - leitura da API publicada confirmou `48` solicitacoes manuais, sem IDs duplicados;
-  - leitura da API publicada confirmou duplicatas logicas antigas nos roots `19` e `25`, criadas antes desta correcao; as requisicoes vinculadas ja estavam `CANCELLED`.
+  - leitura da API publicada confirmou solicitacoes manuais sem IDs duplicados;
+  - foi feito backup dos registros em `backups/production-planning-fix-20260810-131026`;
+  - saneamento aplicado nos roots antigos `19` e `25`: removidos apenas os registros duplicados `23` e `30`, somando suas quantidades nos registros mantidos `19` e `27`;
+  - leitura final da API publicada confirmou `37` solicitacoes manuais, sem duplicatas logicas por centro/ficha dentro do mesmo planejamento.
 - Observacao:
   - validacao visual local completa foi bloqueada pelo banco local inconsistente: `migrate deploy` esta travado pela migration antiga `20260618_execution_planning_tracking` e `db push` exigiria reset por coluna obrigatoria em dados legados. O build de frontend passou.
 

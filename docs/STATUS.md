@@ -163,6 +163,7 @@ Registrar em que pe o sistema esta hoje, por area, para consulta rapida antes de
 - Cancelamentos de producao/planejamento devem remover o grupo inteiro pelo `rootRequestId` real e persistir a remocao/cancelamento na API durante a confirmacao, antes que o polling possa recarregar registros antigos.
 - Producoes manuais e rascunhos de producao nao devem ser restaurados do snapshot/localStorage do navegador. A fila operacional deve carregar pela API por entidade, pois restaurar cache local pode ressuscitar cancelamentos ou duplicar planejamentos.
 - O gerador de planejamento nao deve criar producao dependente quando a ficha de preparo ja esta na pilha de dependencias do calculo; ciclos/autorreferencias devem ser ignorados para nao somar producao duplicada.
+- A mesma ficha/centro dentro de um planejamento de producao deve aparecer uma unica vez, mesmo que seja demanda direta e dependencia de outra producao do mesmo planejamento; nesse caso, as quantidades devem ser somadas.
 - Inativar ou excluir ficha tecnica deve mostrar impactos em `Entrada de producoes`, incluindo planejamentos pendentes, requisicoes/suprimentos vinculados e producoes em andamento. Producao em andamento bloqueia a inativacao/exclusao ate ser finalizada.
 - `Desperdicio` possui entidades proprias:
   - `wasteSessions`

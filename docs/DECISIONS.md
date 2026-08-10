@@ -447,7 +447,8 @@ Registrar o que foi decidido, o que foi adiado e o que foi descartado, com foco 
 - Regra complementar:
   - `manualProductionRequests` e `productionInProgressDrafts` nao devem ser restaurados automaticamente a partir de `localStorage`/snapshot global;
   - a fila operacional deve ser carregada da API por entidade;
-  - dependencias circulares/autorreferentes nao devem gerar solicitacao adicional de producao no mesmo planejamento.
+  - dependencias circulares/autorreferentes nao devem gerar solicitacao adicional de producao no mesmo planejamento;
+  - se a mesma ficha/centro aparecer como demanda direta e como dependencia do mesmo planejamento, ela deve virar uma unica producao com quantidade somada, nao duas linhas.
 
 ### Inativar/excluir ficha tecnica precisa avisar impacto em producao
 

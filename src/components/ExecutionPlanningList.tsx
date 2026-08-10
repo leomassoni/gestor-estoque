@@ -21,7 +21,7 @@ export function ExecutionPlanningList({
   }
 
   return (
-    <div className="inner-panel">
+    <div className="inner-panel production-planning-panel">
       <div className="section-heading section-heading-inline">
         <div>
           <p className="kicker">Planejamentos por ficha</p>
@@ -31,11 +31,14 @@ export function ExecutionPlanningList({
       <p className="context-copy">
         As producoes continuam na fila normal abaixo. Este bloco serve para rastrear e cancelar a origem completa da demanda enquanto ela ainda estiver pendente.
       </p>
-      <div className="selector-list company-management-list">
+      <div className="production-request-list" role="list">
         {rows.map((row) => (
-          <article key={`execution-planning-${row.rootRequestId}`} className="list-row">
-            <strong>{row.executionSheetName}</strong>
-            <div className="row-meta">
+          <article key={`execution-planning-${row.rootRequestId}`} className="production-request-row production-planning-row" role="listitem">
+            <div className="production-request-main">
+              <strong>{row.executionSheetName}</strong>
+              <span className="table-cell-support">Planejamento #{row.rootRequestId}</span>
+            </div>
+            <div className="production-request-meta">
               <span><strong className="meta-label">Centro:</strong> {row.centerName}</span>
               <span><strong className="meta-label">Quantidade:</strong> {row.requestedQuantityLabel}</span>
               <span><strong className="meta-label">Producoes:</strong> {row.productionCount}</span>
@@ -43,9 +46,14 @@ export function ExecutionPlanningList({
               <span><strong className="meta-label">Pendentes para cancelamento:</strong> {row.cancellableRequisitionCount}</span>
               <span><strong className="meta-label">Ja movidas/recebidas:</strong> {row.movedRequisitionCount}</span>
             </div>
-            <div className="table-actions">
-              <button type="button" className="danger-button" onClick={() => onCancelPlanning(row.rootRequestId)}>
-                Cancelar planejamento
+            <div className="production-request-actions">
+              <button
+                type="button"
+                className="icon-button icon-delete production-cancel-button"
+                onClick={() => onCancelPlanning(row.rootRequestId)}
+                aria-label={`Cancelar planejamento ${row.executionSheetName}`}
+              >
+                <span aria-hidden="true">×</span>
               </button>
             </div>
           </article>
