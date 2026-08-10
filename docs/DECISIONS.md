@@ -63,6 +63,7 @@ Registrar o que foi decidido, o que foi adiado e o que foi descartado, com foco 
   - deixar o servidor gerar o ID interno;
   - validar apos cadastro se o ID foi persistido e se nao houve colisao;
   - nunca preencher ID interno vazio com valor inventado em script.
+  - copia de produto avulso deve abrir como cadastro novo e consumir o ID retornado pela API; nao deve reaproveitar ID de produto, ID de embalagem, nem `technicalSheetId` da origem.
 - Motivo:
   - IDs internos viram filtros e chaves de relacionamento;
   - colisao de ID pode fazer ficha puxar produto/ficha de empresa errada;

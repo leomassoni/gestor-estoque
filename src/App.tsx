@@ -5943,6 +5943,8 @@ export default function App() {
       const errorPayload = (await response.json().catch(() => null)) as { error?: string } | null
       throw new Error(errorPayload?.error || 'Nao foi possivel salvar o produto no servidor.')
     }
+    const payload = (await response.json().catch(() => null)) as { product?: unknown } | null
+    const savedProduct = normalizeProductRecord(payload?.product)
 
     if (previousId && previousId !== product.id) {
       const deleteResponse = await fetch(`/api/products/${encodeURIComponent(previousId)}`, {
@@ -5952,6 +5954,8 @@ export default function App() {
         throw new Error('O produto foi salvo, mas nao foi possivel limpar o ID anterior no servidor.')
       }
     }
+
+    return savedProduct ?? product
   }
 
   async function upsertServiceItemRecordOnApi(item: ServiceItemRecord, previousId?: string | null) {
@@ -27892,6 +27896,82 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
     )
   }
 
+  function buildProductCopyName(sourceName: string) {
+    const normalizedSourceName = normalizeRegistrationText(sourceName)
+    const baseName = normalizeRegistrationText(`${normalizedSourceName} COPIA`)
+    const visibleNameKeys = new Set(
+      products
+        .filter((product) => isProductVisibleForCompany(product, currentCompanyId))
+        .map((product) => buildNormalizedRegistrationNameKey(product.name)),
+    )
+
+    if (!visibleNameKeys.has(buildNormalizedRegistrationNameKey(baseName))) {
+      return baseName
+    }
+
+    for (let copyIndex = 2; copyIndex <= 99; copyIndex += 1) {
+      const candidateName = normalizeRegistrationText(`${normalizedSourceName} COPIA ${copyIndex}`)
+      if (!visibleNameKeys.has(buildNormalizedRegistrationNameKey(candidateName))) {
+        return candidateName
+      }
+    }
+
+    return baseName
+  }
+
+  function buildCopiedProductPackages(sourcePackages: PackageForm[]) {
+    const packageIdBase = Date.now()
+    return sourcePackages.map((packageForm, packageIndex) => ({
+      ...packageForm,
+      id: packageIdBase + packageIndex,
+      companyPackageId: '',
+      referenceCodes: packageForm.referenceCodes.map((referenceCode, referenceCodeIndex) => ({
+        ...referenceCode,
+        id: referenceCodeIndex + 1,
+      })),
+    }))
+  }
+
+  function openCopyProductForm(productId: string) {
+    const product = products.find((item) => item.id === productId)
+    if (!product || typeof product.technicalSheetId === 'number') {
+      return
+    }
+
+    const nextPackages = buildCopiedProductPackages(product.packages)
+    const nextProductForm = {
+      companyProductId: '',
+      name: buildProductCopyName(product.name),
+      controlUnit: product.controlUnit,
+      family: product.family,
+      subfamily: product.subfamily,
+      sectors: constrainSectorsToCurrentUserScope(product.sectors),
+      alcoholPercentage: product.alcoholPercentage,
+      densitySampleVolume: product.densitySampleVolume,
+      densitySampleWeight: product.densitySampleWeight,
+      ignoreStock: product.ignoreStock,
+      excludeFromExecutionYield: product.excludeFromExecutionYield,
+    } satisfies ProductFormState
+
+    setActiveSection('Produtos')
+    setEditingProductId(null)
+    setDraftProductId(buildProductId(''))
+    setProductForm(nextProductForm)
+    setProductSectorInput('')
+    setPackages(nextPackages)
+    setShowInactivePackages(false)
+    setPackageEditorContext('product')
+    setScreenMode('form')
+    setProductDiscardBaseline(
+      buildProductDiscardSnapshot({
+        form: nextProductForm,
+        sectorInput: '',
+        packages: nextPackages,
+        editingId: null,
+      }),
+    )
+  }
+
   function updateProductForm<K extends keyof ProductFormState>(field: K, value: ProductFormState[K]) {
     if (field === 'controlUnit') {
       const nextControlUnit = value as ControlUnit
@@ -27995,7 +28075,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
     const productToSave: ProductRecord = {
       companyId: previousProduct?.companyId ?? currentCompanyId ?? 0,
       ownerCompanyId: previousProduct?.ownerCompanyId ?? previousProduct?.companyId ?? currentCompanyId ?? 0,
-      id: previousProduct?.id ?? generatedProductId,
+      id: previousProduct?.id ?? '',
       companyProductId: normalizeRegistrationText(productForm.companyProductId.trim()),
       name: normalizedName,
       controlUnit: productForm.controlUnit,
@@ -28010,10 +28090,6 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
       isActive: hasPackages,
       packages,
     }
-
-    const nextProducts = editingProductId
-      ? products.map((product) => (product.id === editingProductId ? { ...product, ...productToSave } : product))
-      : [productToSave, ...products]
 
     let nextTechnicalSheets = technicalSheets
     if (previousProduct) {
@@ -28050,8 +28126,9 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
       title: 'Registrando produto',
       message: 'Registrando, aguarde. Nao feche a tela nem clique novamente em salvar.',
     })
+    let savedProductToSave = productToSave
     try {
-      await upsertProductRecordOnApi(productToSave, editingProductId)
+      savedProductToSave = await upsertProductRecordOnApi(productToSave, editingProductId)
       await persistChangedTechnicalSheetsOnApi(technicalSheets, nextTechnicalSheets)
     } catch (error) {
       console.error(error)
@@ -28067,22 +28144,27 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
       setSaveProgressState(null)
     }
 
+    const nextProducts = editingProductId
+      ? products.map((product) => (product.id === editingProductId ? { ...product, ...savedProductToSave } : product))
+      : [savedProductToSave, ...products]
+
     setProducts(nextProducts)
     setTechnicalSheets(nextTechnicalSheets)
+    setDraftProductId(savedProductToSave.id)
     await refreshAppCatalogRecordsFromApi()
 
-    if (restoreTechnicalSheetDraftWithCreatedIngredient(productToSave.id, productToSave.name)) {
+    if (restoreTechnicalSheetDraftWithCreatedIngredient(savedProductToSave.id, savedProductToSave.name)) {
       setIsTechnicalSheetProductModalOpen(false)
     }
     registerAuditEvent({
-      companyId: productToSave.companyId,
+      companyId: savedProductToSave.companyId,
       module: 'CATALOGO',
       actionKey: editingProductId ? 'UPDATE_PRODUCT' : 'CREATE_PRODUCT',
       actionLabel: editingProductId ? 'Atualizacao de produto' : 'Cadastro de produto',
       targetType: 'PRODUCT',
-      targetId: productToSave.id,
-      targetLabel: productToSave.name,
-      summary: editingProductId ? `Produto ${productToSave.name} foi atualizado.` : `Produto ${productToSave.name} foi cadastrado.`,
+      targetId: savedProductToSave.id,
+      targetLabel: savedProductToSave.name,
+      summary: editingProductId ? `Produto ${savedProductToSave.name} foi atualizado.` : `Produto ${savedProductToSave.name} foi cadastrado.`,
       impactSummary:
         technicalSheetDraftStack.length > 0
           ? 'Produto criado ou alterado dentro de fluxo de ficha tecnica.'
@@ -28090,10 +28172,10 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
       severity: 'MEDIUM',
       result: 'SUCCESS',
       details: {
-        companyProductId: productToSave.companyProductId,
-        controlUnit: productToSave.controlUnit,
-        sectors: productToSave.sectors,
-        packages: productToSave.packages.length,
+        companyProductId: savedProductToSave.companyProductId,
+        controlUnit: savedProductToSave.controlUnit,
+        sectors: savedProductToSave.sectors,
+        packages: savedProductToSave.packages.length,
       },
     })
 
@@ -37485,6 +37567,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                                 className="icon-button icon-edit"
                                 type="button"
                                 aria-label="Editar produto"
+                                title="Editar produto"
                                 onClick={() =>
                                   typeof product.technicalSheetId === 'number'
                                     ? openEditTechnicalSheetForm(product.technicalSheetId)
@@ -37494,9 +37577,23 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                                 <span aria-hidden="true">✎</span>
                               </button>
                               <button
+                                className="icon-button"
+                                type="button"
+                                aria-label={typeof product.technicalSheetId === 'number' ? 'Copiar ficha tecnica' : 'Copiar produto'}
+                                title={typeof product.technicalSheetId === 'number' ? 'Copiar ficha tecnica' : 'Copiar produto'}
+                                onClick={() =>
+                                  typeof product.technicalSheetId === 'number'
+                                    ? openTechnicalSheetCopyModal(product.technicalSheetId)
+                                    : openCopyProductForm(product.id)
+                                }
+                              >
+                                <span aria-hidden="true">⧉</span>
+                              </button>
+                              <button
                                 className="icon-button icon-disable"
                                 type="button"
                                 aria-label={product.isActive ? 'Inativar produto' : 'Ativar produto'}
+                                title={product.isActive ? 'Inativar produto' : 'Ativar produto'}
                                 onClick={() =>
                                   product.isActive
                                     ? openProductDisableImpact(product.id)
@@ -37513,6 +37610,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                                   className="icon-button icon-delete"
                                   type="button"
                                   aria-label="Excluir produto"
+                                  title="Excluir produto"
                                   onClick={() => openProductDisableImpact(product.id, 'delete')}
                                 >
                                   <span aria-hidden="true">🗑</span>

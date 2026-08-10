@@ -8,6 +8,15 @@ Registrar um historico resumido do que foi feito, do que falhou e do que ficou p
 
 ## 2026-08-10
 
+### Copia de produto avulso
+
+- Adicionado icone de copiar na lista de `Produtos`.
+- Produto avulso copiado abre como novo cadastro pre-preenchido, com nome sugerido `COPIA`, sem herdar `technicalSheetId`.
+- `ID empresa` do produto e codigo interno opcional das embalagens ficam vazios na copia para evitar duplicar codigos operacionais manuais.
+- IDs internos de produto novo passam a consumir o retorno persistido pela API; no `POST /api/products`, produto avulso segue podendo enviar `id` vazio para o servidor alocar `PRD-...`.
+- Embalagens copiadas recebem novos IDs internos locais e os codigos de referencia sao reindexados dentro de cada embalagem.
+- Quando a linha da lista for produto vinculado a ficha tecnica, o icone reaproveita o fluxo existente de copiar ficha tecnica.
+
 ### ID de produto avulso no servidor
 
 - Ajustado `POST /api/products` para aceitar `id` vazio em produto avulso e alocar `PRD-...` no backend.

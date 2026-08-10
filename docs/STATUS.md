@@ -302,3 +302,4 @@ Registrar em que pe o sistema esta hoje, por area, para consulta rapida antes de
 - `POST /api/technical-sheets` aloca `id` numerico e `productId` interno da ficha no servidor.
 - `POST /api/products` aceita produto avulso com `id` vazio e aloca `PRD-...` no servidor.
 - Cargas de catalogo nao devem inventar IDs internos; devem consumir o registro retornado pela API.
+- A lista de `Produtos` permite copiar produto avulso como novo cadastro pre-preenchido. A copia nao reaproveita ID interno, ID de embalagem nem `technicalSheetId`; linha vinculada a ficha tecnica usa o fluxo de copiar ficha tecnica.
