@@ -4787,21 +4787,20 @@ export default function App() {
       return [] as ExecutionProductionPlanningRow[]
     }
 
-    const rootRequests = manualProductionRequests.filter(
-      (request) =>
-        request.companyId === currentCompanyId &&
-        request.planningSourceKind === 'EXECUCAO' &&
-        !request.isDependencyRequest &&
-        request.parentRequestId === null,
-    )
+    const requestsByRootRequestId = manualProductionRequests
+      .filter((request) => request.companyId === currentCompanyId && request.planningSourceKind === 'EXECUCAO')
+      .reduce((groups, request) => {
+        groups.set(request.rootRequestId, [...(groups.get(request.rootRequestId) ?? []), request])
+        return groups
+      }, new Map<number, ManualProductionRequestRecord[]>())
 
-    return rootRequests
-      .map((request) => {
-        const relatedRequests = manualProductionRequests.filter(
-          (candidate) => candidate.companyId === currentCompanyId && candidate.rootRequestId === request.rootRequestId,
-        )
+    return Array.from(requestsByRootRequestId.entries())
+      .map(([rootRequestId, relatedRequests]) => {
+        const sourceRequest =
+          relatedRequests.find((request) => !request.isDependencyRequest && request.parentRequestId === null) ??
+          [...relatedRequests].sort((left, right) => left.id - right.id)[0]
         const relatedRequisitions = requisitions.filter(
-          (record) => record.companyId === currentCompanyId && record.planningRootRequestId === request.rootRequestId,
+          (record) => record.companyId === currentCompanyId && record.planningRootRequestId === rootRequestId,
         )
         const cancellableRequisitionCount = relatedRequisitions.filter(
           (record) => record.status === 'PENDING_APPROVAL' || record.status === 'APPROVED' || record.status === 'SENT_TO_SUPPLIES',
@@ -4811,21 +4810,27 @@ export default function App() {
         ).length
 
         return {
-          rootRequestId: request.rootRequestId,
-          centerId: request.planningSourceCenterId ?? request.centerId,
-          centerName: request.planningSourceCenterName ?? stockCenters.find((center) => center.id === request.centerId)?.name ?? `CENTRO ${request.centerId}`,
-          executionSheetId: request.planningSourceSheetId ?? request.sheetId,
-          executionSheetName: request.planningSourceSheetName ?? technicalSheets.find((sheet) => sheet.id === request.sheetId)?.name ?? `FICHA ${request.sheetId}`,
-          requestedQuantityLabel: request.planningSourceQuantityLabel ?? request.desiredYield,
-          createdAt: request.createdAt,
-          createdByUserName: request.createdByUserName,
+          rootRequestId,
+          centerId: sourceRequest.planningSourceCenterId ?? sourceRequest.centerId,
+          centerName:
+            sourceRequest.planningSourceCenterName ??
+            stockCenters.find((center) => center.id === sourceRequest.centerId)?.name ??
+            `CENTRO ${sourceRequest.centerId}`,
+          executionSheetId: sourceRequest.planningSourceSheetId ?? sourceRequest.sheetId,
+          executionSheetName:
+            sourceRequest.planningSourceSheetName ??
+            technicalSheets.find((sheet) => sheet.id === sourceRequest.sheetId)?.name ??
+            `FICHA ${sourceRequest.sheetId}`,
+          requestedQuantityLabel: sourceRequest.planningSourceQuantityLabel ?? sourceRequest.desiredYield,
+          createdAt: sourceRequest.createdAt,
+          createdByUserName: sourceRequest.createdByUserName,
           productionCount: relatedRequests.length,
           requisitionCount: relatedRequisitions.length,
           cancellableRequisitionCount,
           movedRequisitionCount,
         } satisfies ExecutionProductionPlanningRow
       })
-      .sort((left, right) => right.createdAt.localeCompare(left.createdAt))
+      .sort((left, right) => right.createdAt.localeCompare(left.createdAt) || right.rootRequestId - left.rootRequestId)
   }, [currentCompanyId, manualProductionRequests, requisitions, stockCenters, technicalSheets])
   const selectedProductionSheet = useMemo(
     () =>
@@ -43904,8 +43909,9 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                               {productionColumnVisibility.status ? <td>{row.statusLabel}</td> : null}
                               <td className="sticky-actions-cell">
                                 <div className="table-actions">
-                                  <button type="button" className="primary-button" onClick={() => startProduction(row)}>
-                                    {row.statusLabel === 'Em producao' ? 'Continuar' : 'Produzir'}
+                                  <button type="button" className="primary-button production-action-button" onClick={() => startProduction(row)}>
+                                    <span aria-hidden="true">▶</span>
+                                    <span>{row.statusLabel === 'Em producao' ? 'Continuar' : 'Produzir'}</span>
                                   </button>
                                   {row.cancellableManualRequestIds.length > 0 && row.statusLabel !== 'Em producao' ? (
                                     <button

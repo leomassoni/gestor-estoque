@@ -446,6 +446,9 @@ Registrar o que foi decidido, o que foi adiado e o que foi descartado, com foco 
   - atualizar os mapas de sincronizacao local apos a API confirmar, para evitar que polling reponha registros antigos.
 - Implementacao esperada:
   - cancelamento de planejamento por ficha deve apagar as solicitacoes no backend por `companyId/rootRequestId`, nao por uma lista de IDs montada apenas no estado local.
+- Exibicao esperada:
+  - `Origens criadas por ficha de execucao` deve agrupar por `rootRequestId` e mostrar uma linha por entrada feita pelo usuario;
+  - a coluna de producoes pode contar quantas solicitacoes tecnicas ainda pertencem ao planejamento, mas nao deve multiplicar a origem na tela.
 - Regra complementar:
   - `manualProductionRequests` e `productionInProgressDrafts` nao devem ser restaurados automaticamente a partir de `localStorage`/snapshot global;
   - a fila operacional deve ser carregada da API por entidade;

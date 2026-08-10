@@ -763,6 +763,12 @@ h3 {
   text-align: center;
 }
 
+.production-action-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .pill,
 .package-chip,
 .product-status {

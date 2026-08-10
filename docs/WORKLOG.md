@@ -70,6 +70,21 @@ Registrar um historico resumido do que foi feito, do que falhou e do que ficou p
 - Observacao:
   - validacao visual local completa foi bloqueada pelo banco local inconsistente: `migrate deploy` esta travado pela migration antiga `20260618_execution_planning_tracking` e `db push` exigiria reset por coluna obrigatoria em dados legados. O build de frontend passou.
 
+### Entrada de producoes: origem por ficha deve ser uma linha por entrada
+
+- Causa encontrada:
+  - `Origens criadas por ficha de execucao` ainda era montada filtrando producoes diretas (`!isDependencyRequest && parentRequestId === null`) e renderizando cada registro tecnico como uma origem;
+  - quando uma unica entrada do usuario gerava mais de uma producao direta, a tela repetia o mesmo `Planejamento #`, como aconteceu com `Planejamento #4`.
+- Ajustes aplicados:
+  - a lista de origens passou a agrupar `manualProductionRequests` por `rootRequestId`;
+  - cada `rootRequestId` vira uma unica linha cancelavel, enquanto a coluna `Producoes` mostra quantas solicitacoes tecnicas ainda pertencem ao planejamento;
+  - o botao `Produzir` da fila operacional recebeu o icone `▶`.
+- Validacao executada:
+  - `npx vite build`;
+  - leitura da API publicada de `CASA DE MI MADRE LTDA` confirmou roots de execucao com varios registros tecnicos sob uma unica origem esperada, por exemplo `AURALIA` com `5` registros e `NOCTILIA` com `2`.
+- Observacao:
+  - `npx tsc -b --pretty false` ficou travado sem emitir erro e foi interrompido; a validacao de build executada nesta rodada foi pelo Vite.
+
 ## 2026-08-09
 
 ### Impacto e cancelamento em Entrada de producoes
