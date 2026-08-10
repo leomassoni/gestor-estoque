@@ -1497,6 +1497,55 @@ h3 {
   padding: 8px 10px;
 }
 
+.production-request-list {
+  display: grid;
+  gap: 10px;
+  margin: 12px 0;
+}
+
+.production-request-row {
+  display: grid;
+  grid-template-columns: minmax(180px, 1.2fr) minmax(220px, 2fr) auto;
+  gap: 14px;
+  align-items: center;
+  padding: 14px 16px;
+  border: 1px solid rgba(35, 78, 146, 0.14);
+  border-radius: 8px;
+  background: rgba(248, 251, 255, 0.9);
+}
+
+.production-request-main {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+}
+
+.production-request-main strong {
+  overflow-wrap: anywhere;
+}
+
+.production-request-meta {
+  min-width: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+  color: rgba(20, 33, 61, 0.78);
+  font-size: 0.86rem;
+}
+
+.production-request-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.production-cancel-button {
+  flex: 0 0 auto;
+  font-size: 1.2rem;
+  font-weight: 700;
+}
+
 .pagination-gap {
   display: inline-flex;
   min-width: 24px;
@@ -3898,6 +3947,19 @@ h3 {
   .pagination-button {
     min-width: 38px;
     padding: 8px;
+  }
+
+  .production-request-row {
+    grid-template-columns: 1fr;
+    align-items: stretch;
+  }
+
+  .production-request-actions {
+    justify-content: space-between;
+  }
+
+  .production-request-actions .primary-button {
+    flex: 1 1 auto;
   }
 
   .hero-panel {

@@ -889,7 +889,6 @@ const defaultProductionColumnVisibility: Record<ProductionColumnKey, boolean> = 
   suggestion: true,
   status: true,
 }
-const defaultProductionColumnFilters: Partial<Record<ProductionColumnKey, string[]>> = {}
 const productionPageSize = 20
 const stockReportColumnOptions: Array<[StockReportColumnKey, string]> = [
   ['main', 'Principal'],
@@ -2275,6 +2274,7 @@ export default function App() {
   const syncedRequisitionNotificationMapRef = useRef<Map<number, string>>(new Map())
   const syncedManualProductionRequestMapRef = useRef<Map<number, string>>(new Map())
   const syncedProductionDraftMapRef = useRef<Map<number, string>>(new Map())
+  const isManualProductionSavingRef = useRef(false)
   const syncedInventoryRecordMapRef = useRef<Map<number, string>>(new Map())
   const syncedInventoryActiveRecordLinkMapRef = useRef<Map<string, string>>(new Map())
   const syncedInventoryCountSessionMapRef = useRef<Map<number, string>>(new Map())
@@ -2564,12 +2564,8 @@ export default function App() {
   const [receiveReviewColumnFilters, setReceiveReviewColumnFilters] =
     useState<Partial<Record<ReceiveReviewColumnKey, string[]>>>(defaultReceiveReviewColumnFilters)
   const [receiveReviewColumnSort, setReceiveReviewColumnSort] = useState<ColumnSort<ReceiveReviewColumnKey> | null>(null)
-  const [openProductionColumnMenu, setOpenProductionColumnMenu] = useState<ProductionColumnKey | null>(null)
   const [productionColumnVisibility, setProductionColumnVisibility] =
     useState<Record<ProductionColumnKey, boolean>>(defaultProductionColumnVisibility)
-  const [productionColumnFilters, setProductionColumnFilters] =
-    useState<Partial<Record<ProductionColumnKey, string[]>>>(defaultProductionColumnFilters)
-  const [productionColumnSort, setProductionColumnSort] = useState<ColumnSort<ProductionColumnKey> | null>(null)
   const [stockReportTab, setStockReportTab] = useState<StockReportTab>('POSICAO')
   const [stockReportSelectorValue, setStockReportSelectorValue] = useState(stockReportTabDefinitions[0]?.label ?? '')
   const [stockReportScrollTop, setStockReportScrollTop] = useState(0)
@@ -2618,10 +2614,9 @@ export default function App() {
   const [executionProductionSheetId, setExecutionProductionSheetId] = useState('')
   const [executionProductionSheetSearch, setExecutionProductionSheetSearch] = useState('')
   const [executionProductionQuantity, setExecutionProductionQuantity] = useState('1')
-  const [manualProductionRequests, setManualProductionRequests] = useState<ManualProductionRequestRecord[]>(
-    () => loadManualProductionRequestsState(),
-  )
+  const [manualProductionRequests, setManualProductionRequests] = useState<ManualProductionRequestRecord[]>([])
   const [manualProductionPreviewState, setManualProductionPreviewState] = useState<ManualProductionPreviewState | null>(null)
+  const [isManualProductionSaving, setIsManualProductionSaving] = useState(false)
   const [isManualSupplyModalOpen, setIsManualSupplyModalOpen] = useState(false)
   const [manualSupplySourceCenterId, setManualSupplySourceCenterId] = useState('')
   const [manualSupplyTargetCenterId, setManualSupplyTargetCenterId] = useState('')
@@ -2630,9 +2625,7 @@ export default function App() {
   const [productionSearch, setProductionSearch] = useState('')
   const [productionPage, setProductionPage] = useState(1)
   const [productionDraftState, setProductionDraftState] = useState<ProductionDraftState | null>(null)
-  const [productionInProgressDrafts, setProductionInProgressDrafts] = useState<ProductionDraftState[]>(
-    () => loadProductionInProgressDraftsState(),
-  )
+  const [productionInProgressDrafts, setProductionInProgressDrafts] = useState<ProductionDraftState[]>([])
   const [isProductionStartConfirmOpen, setIsProductionStartConfirmOpen] = useState(false)
   const [isProductionFinishConfirmOpen, setIsProductionFinishConfirmOpen] = useState(false)
   const [pendingProductionCancelRow, setPendingProductionCancelRow] = useState<ProductionRequestRow | null>(null)
@@ -4887,21 +4880,10 @@ export default function App() {
   )
   const visibleProductionRows = useMemo(
     () =>
-      sortRecordsByColumn(
-        productionRequestRows.filter((row) => {
-          const matchesFilters = Object.entries(productionColumnFilters).every(([rawKey, selectedValues]) => {
-            if (!selectedValues || selectedValues.length === 0) {
-              return true
-            }
-            const key = rawKey as ProductionColumnKey
-            return selectedValues.includes(getProductionColumnValue(row, key))
-          })
-          return matchesFilters
-        }),
-        productionColumnSort ?? { key: 'priority', direction: 'asc' },
-        (row, key) => getProductionColumnSortableValue(row, key),
+      [...productionRequestRows].sort(
+        (left, right) => left.priority - right.priority || left.sheetName.localeCompare(right.sheetName, 'pt-BR'),
       ),
-    [productionColumnFilters, productionColumnSort, productionRequestRows],
+    [productionRequestRows],
   )
   const visibleProductionPrioritySummary = useMemo(
     () =>
@@ -4912,19 +4894,6 @@ export default function App() {
         }, new Map<number, number>()),
       ).sort((left, right) => left[0] - right[0]),
     [visibleProductionRows],
-  )
-  const distinctProductionColumnValues = useMemo(
-    () =>
-      Object.fromEntries(
-        productionColumnOptions.map(([key]) => [
-          key,
-          sortDistinctValues(
-            Array.from(new Set(productionRequestRows.map((row) => getProductionColumnValue(row, key)))),
-            key === 'priority' || key === 'current' || key === 'useMinimum' || key === 'realMinimum' || key === 'suggestion',
-          ),
-        ]),
-      ) as Record<ProductionColumnKey, string[]>,
-    [productionRequestRows],
   )
   const hiddenProductionColumns = useMemo(
     () => productionColumnOptions.filter(([key]) => !productionColumnVisibility[key]),
@@ -4956,7 +4925,7 @@ export default function App() {
   }, [currentProductionPage, productionPageCount])
   useEffect(() => {
     setProductionPage(1)
-  }, [productionCenterId, productionColumnFilters, productionColumnSort, productionSearch])
+  }, [productionCenterId, productionSearch])
   useEffect(() => {
     setProductionPage((current) => Math.min(current, productionPageCount))
   }, [productionPageCount])
@@ -5557,48 +5526,6 @@ export default function App() {
           .filter((item): item is ProductionDraftState => item !== null)
       : []
 
-    const localManualRequests = loadManualProductionRequestsState()
-    const localDrafts = loadProductionInProgressDraftsState()
-    const missingManualRequests = nextManualRequests.length === 0 && localManualRequests.length > 0
-    const missingDrafts = nextProductionDrafts.length === 0 && localDrafts.length > 0
-
-    if (missingManualRequests || missingDrafts) {
-      await Promise.all([
-        ...(missingManualRequests ? localManualRequests.map((request) => upsertManualProductionRequestOnApi(request)) : []),
-        ...(missingDrafts ? localDrafts.map((draft) => upsertProductionDraftOnApi(draft)) : []),
-      ])
-
-      if (missingManualRequests) {
-        setManualProductionRequests(localManualRequests)
-        syncedManualProductionRequestMapRef.current = new Map(
-          localManualRequests.map((record) => [record.id, JSON.stringify(record)]),
-        )
-      } else {
-        setManualProductionRequests(nextManualRequests)
-        syncedManualProductionRequestMapRef.current = new Map(
-          nextManualRequests.map((record) => [record.id, JSON.stringify(record)]),
-        )
-      }
-
-      if (missingDrafts) {
-        setProductionInProgressDrafts(localDrafts)
-        syncedProductionDraftMapRef.current = new Map(
-          localDrafts
-            .filter((record) => record.draftId !== null)
-            .map((record) => [record.draftId as number, JSON.stringify(record)]),
-        )
-      } else {
-        setProductionInProgressDrafts(nextProductionDrafts)
-        syncedProductionDraftMapRef.current = new Map(
-          nextProductionDrafts
-            .filter((record) => record.draftId !== null)
-            .map((record) => [record.draftId as number, JSON.stringify(record)]),
-        )
-      }
-
-      logRemoteAppStateMessage('As producoes deste navegador foram usadas para restaurar dados ausentes no servidor.')
-      return
-    }
     const nextManualRequestsById = buildEntitySignatureMap(nextManualRequests, (record) => record.id)
     const currentManualRequestsById = buildEntitySignatureMap(manualProductionRequests, (record) => record.id)
     const nextProductionDraftsById = buildEntitySignatureMap(
@@ -16667,7 +16594,6 @@ export default function App() {
       openSupplyColumnMenu === null &&
       openReceiveColumnMenu === null &&
       openReceiveReviewColumnMenu === null &&
-      openProductionColumnMenu === null &&
       openStockReportColumnMenu === null
     ) {
       return
@@ -16694,7 +16620,6 @@ export default function App() {
       setOpenSupplyColumnMenu(null)
       setOpenReceiveColumnMenu(null)
       setOpenReceiveReviewColumnMenu(null)
-      setOpenProductionColumnMenu(null)
       setOpenStockReportColumnMenu(null)
     }
 
@@ -16705,7 +16630,6 @@ export default function App() {
     openInventoryReviewColumnMenu,
     openInventorySummaryColumnMenu,
     openItemColumnMenu,
-    openProductionColumnMenu,
     openReceiveColumnMenu,
     openReceiveReviewColumnMenu,
     openRequisitionDraftColumnMenu,
@@ -23443,6 +23367,10 @@ export default function App() {
           const existingLine = lineMap.get(lineKey) ?? null
 
           if (dependencySheet) {
+            if (nextVisiting.has(dependencySheet.id)) {
+              return
+            }
+
             const byproductSourceSheet = resolveByproductSourceSheetForCenter(dependencySheet.id, stockCenter)
             if (byproductSourceSheet && doesCenterProduceTechnicalSheet(stockCenter, byproductSourceSheet)) {
               const byproductBaseYield = getTechnicalSheetByproductBaseYield(byproductSourceSheet, dependencySheet)
@@ -23909,10 +23837,13 @@ export default function App() {
     return true
   }
 
-  function confirmSaveManualProduction() {
-    if (!manualProductionPreviewState || currentCompanyId === null) {
+  async function confirmSaveManualProduction() {
+    if (!manualProductionPreviewState || currentCompanyId === null || isManualProductionSavingRef.current) {
       return
     }
+
+    isManualProductionSavingRef.current = true
+    setIsManualProductionSaving(true)
 
     const requestId = getNextPersistedIntId(
       manualProductionRequests.flatMap((record) => [record.id, record.rootRequestId, record.parentRequestId]),
@@ -23937,47 +23868,69 @@ export default function App() {
       planningSourceSheetName: manualProductionPreviewState.sheetName,
       planningSourceQuantityLabel: manualProductionPreviewState.desiredYieldLabel,
     }))
-    if (nextRequests.length > 0) {
-      setManualProductionRequests((current) => [...nextRequests, ...current])
-    }
 
-    const requisitionCreated = manualProductionPreviewState.shortageGroups.reduce((createdAny, group) => {
-      if (group.lines.length === 0) {
-        return createdAny
+    try {
+      if (nextRequests.length > 0) {
+        await Promise.all(nextRequests.map((request) => upsertManualProductionRequestOnApi(request)))
       }
-      return (
-        createProductionShortageRequisition({
-          centerId: group.centerId,
-          centerName: group.centerName,
-          shortageLines: group.lines,
-          planningRootRequestId: manualProductionPreviewState.sourceKind === 'EXECUCAO' ? requestId : null,
-          planningSourceKind: manualProductionPreviewState.sourceKind,
-          planningSourceCenterId: manualProductionPreviewState.centerId,
-          planningSourceCenterName: manualProductionPreviewState.centerName,
-          planningSourceSheetId: manualProductionPreviewState.sheetId,
-          planningSourceSheetName: manualProductionPreviewState.sheetName,
-          planningSourceQuantityLabel: manualProductionPreviewState.desiredYieldLabel,
-        }) || createdAny
-      )
-    }, false)
 
-    const dependencyCount = manualProductionPreviewState.plannedProductions.filter((entry) => entry.isDependencyRequest).length
-    setSaveFeedback({
-      status: 'success',
-      title: 'Producao registrada',
-      message:
-        requisitionCreated
-          ? dependencyCount > 0
-            ? 'As producoes foram incluidas na fila, as dependencias tambem entraram automaticamente e as requisicoes necessarias foram criadas.'
-            : 'As producoes foram incluidas na fila e as requisicoes necessarias foram criadas.'
-          : dependencyCount > 0
-            ? 'As producoes foram incluidas na fila e as dependencias tambem entraram automaticamente.'
-            : 'As producoes foram incluidas na fila e ja podem ser iniciadas.',
-    })
+      const requisitionCreated = manualProductionPreviewState.shortageGroups.reduce((createdAny, group) => {
+        if (group.lines.length === 0) {
+          return createdAny
+        }
+        return (
+          createProductionShortageRequisition({
+            centerId: group.centerId,
+            centerName: group.centerName,
+            shortageLines: group.lines,
+            planningRootRequestId: manualProductionPreviewState.sourceKind === 'EXECUCAO' ? requestId : null,
+            planningSourceKind: manualProductionPreviewState.sourceKind,
+            planningSourceCenterId: manualProductionPreviewState.centerId,
+            planningSourceCenterName: manualProductionPreviewState.centerName,
+            planningSourceSheetId: manualProductionPreviewState.sheetId,
+            planningSourceSheetName: manualProductionPreviewState.sheetName,
+            planningSourceQuantityLabel: manualProductionPreviewState.desiredYieldLabel,
+          }) || createdAny
+        )
+      }, false)
 
-    setManualProductionPreviewState(null)
-    setIsManualProductionModalOpen(false)
-    setIsExecutionProductionModalOpen(false)
+      if (nextRequests.length > 0) {
+        const nextManualProductionRequestsById = new Map(
+          [...nextRequests, ...manualProductionRequests].map((request) => [request.id, request] as const),
+        )
+        const nextManualProductionRequests = Array.from(nextManualProductionRequestsById.values())
+        setManualProductionRequests(nextManualProductionRequests)
+        syncedManualProductionRequestMapRef.current = buildEntitySignatureMap(nextManualProductionRequests, (record) => record.id)
+      }
+
+      const dependencyCount = manualProductionPreviewState.plannedProductions.filter((entry) => entry.isDependencyRequest).length
+      setSaveFeedback({
+        status: 'success',
+        title: 'Producao registrada',
+        message:
+          requisitionCreated
+            ? dependencyCount > 0
+              ? 'As producoes foram incluidas na fila, as dependencias tambem entraram automaticamente e as requisicoes necessarias foram criadas.'
+              : 'As producoes foram incluidas na fila e as requisicoes necessarias foram criadas.'
+            : dependencyCount > 0
+              ? 'As producoes foram incluidas na fila e as dependencias tambem entraram automaticamente.'
+              : 'As producoes foram incluidas na fila e ja podem ser iniciadas.',
+      })
+
+      setManualProductionPreviewState(null)
+      setIsManualProductionModalOpen(false)
+      setIsExecutionProductionModalOpen(false)
+    } catch (error) {
+      console.error(error)
+      setSaveFeedback({
+        status: 'error',
+        title: 'Falha ao registrar producao',
+        message: error instanceof Error ? error.message : 'Erro ao salvar a producao no servidor.',
+      })
+    } finally {
+      isManualProductionSavingRef.current = false
+      setIsManualProductionSaving(false)
+    }
   }
 
   function openManualSupplyModal() {
@@ -43908,57 +43861,52 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                       ) : null}
                     </div>
                     {productionPaginationControls}
-                    <div className="table-wrap">
-                    <table className="product-table">
-                      <thead>
-                        <tr>
-                          {productionColumnVisibility.sheet ? renderProductionColumnHeader('sheet', 'Pre-preparo', openProductionColumnMenu, setOpenProductionColumnMenu, productionColumnFilters, distinctProductionColumnValues, setProductionColumnFilters, setProductionColumnVisibility, productionColumnSort, setProductionColumnSort) : null}
-                          {productionColumnVisibility.priority ? renderProductionColumnHeader('priority', 'Prioridade', openProductionColumnMenu, setOpenProductionColumnMenu, productionColumnFilters, distinctProductionColumnValues, setProductionColumnFilters, setProductionColumnVisibility, productionColumnSort, setProductionColumnSort) : null}
-                          {productionColumnVisibility.current ? renderProductionColumnHeader('current', 'Estoque atual', openProductionColumnMenu, setOpenProductionColumnMenu, productionColumnFilters, distinctProductionColumnValues, setProductionColumnFilters, setProductionColumnVisibility, productionColumnSort, setProductionColumnSort) : null}
-                          {productionColumnVisibility.useMinimum ? renderProductionColumnHeader('useMinimum', 'Minimo de uso', openProductionColumnMenu, setOpenProductionColumnMenu, productionColumnFilters, distinctProductionColumnValues, setProductionColumnFilters, setProductionColumnVisibility, productionColumnSort, setProductionColumnSort) : null}
-                          {productionColumnVisibility.realMinimum ? renderProductionColumnHeader('realMinimum', 'Minimo real', openProductionColumnMenu, setOpenProductionColumnMenu, productionColumnFilters, distinctProductionColumnValues, setProductionColumnFilters, setProductionColumnVisibility, productionColumnSort, setProductionColumnSort) : null}
-                          {productionColumnVisibility.suggestion ? renderProductionColumnHeader('suggestion', 'Sugestao', openProductionColumnMenu, setOpenProductionColumnMenu, productionColumnFilters, distinctProductionColumnValues, setProductionColumnFilters, setProductionColumnVisibility, productionColumnSort, setProductionColumnSort) : null}
-                          {productionColumnVisibility.status ? renderProductionColumnHeader('status', 'Status', openProductionColumnMenu, setOpenProductionColumnMenu, productionColumnFilters, distinctProductionColumnValues, setProductionColumnFilters, setProductionColumnVisibility, productionColumnSort, setProductionColumnSort) : null}
-                          <th className="sticky-actions">Acoes</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {paginatedProductionRows.map((row) => (
-                          <tr key={`${row.centerId}-${row.sheetId}`}>
-                            {productionColumnVisibility.sheet ? <td className="sticky-product-cell">
-                              <strong>{row.sheetName}</strong>
-                              <div className="table-cell-support">{row.internalId}</div>
-                            </td> : null}
-                            {productionColumnVisibility.priority ? <td>{String(row.priority)}</td> : null}
-                            {productionColumnVisibility.current ? <td>{row.currentQuantityLabel}</td> : null}
-                            {productionColumnVisibility.useMinimum ? <td>{row.useMinimumLabel}</td> : null}
-                            {productionColumnVisibility.realMinimum ? <td>{row.realMinimumLabel}</td> : null}
-                            {productionColumnVisibility.suggestion ? <td>{row.suggestedProductionLabel}</td> : null}
-                            {productionColumnVisibility.status ? <td>{row.statusLabel}</td> : null}
-                            <td className="sticky-actions-cell">
-                              <div className="table-actions">
+                    <div className="production-request-list" role="list">
+                      {paginatedProductionRows.map((row) => (
+                        <article className="production-request-row" key={`${row.centerId}-${row.sheetId}`} role="listitem">
+                          <div className="production-request-main">
+                            <strong>{row.sheetName}</strong>
+                            {productionColumnVisibility.sheet ? (
+                              <span className="table-cell-support">{row.internalId}</span>
+                            ) : null}
+                          </div>
+                          <div className="production-request-meta">
+                            {productionColumnVisibility.priority ? (
+                              <span><strong className="meta-label">Prioridade:</strong> {String(row.priority)}</span>
+                            ) : null}
+                            {productionColumnVisibility.current ? (
+                              <span><strong className="meta-label">Estoque:</strong> {row.currentQuantityLabel}</span>
+                            ) : null}
+                            {productionColumnVisibility.useMinimum ? (
+                              <span><strong className="meta-label">Min. uso:</strong> {row.useMinimumLabel}</span>
+                            ) : null}
+                            {productionColumnVisibility.realMinimum ? (
+                              <span><strong className="meta-label">Min. real:</strong> {row.realMinimumLabel}</span>
+                            ) : null}
+                            {productionColumnVisibility.suggestion ? (
+                              <span><strong className="meta-label">Sugestao:</strong> {row.suggestedProductionLabel}</span>
+                            ) : null}
+                            {productionColumnVisibility.status ? (
+                              <span><strong className="meta-label">Status:</strong> {row.statusLabel}</span>
+                            ) : null}
+                          </div>
+                          <div className="production-request-actions">
+                            <button type="button" className="primary-button" onClick={() => startProduction(row)}>
+                              {row.statusLabel === 'Em producao' ? 'Continuar' : 'Produzir'}
+                            </button>
+                            {row.cancellableManualRequestIds.length > 0 && row.statusLabel !== 'Em producao' ? (
                               <button
                                 type="button"
-                                className="primary-button"
-                                onClick={() => startProduction(row)}
+                                className="icon-button icon-delete production-cancel-button"
+                                onClick={() => requestCancelProductionRow(row)}
+                                aria-label={`Cancelar producao ${row.sheetName}`}
                               >
-                                  {row.statusLabel === 'Em producao' ? 'Continuar' : 'Produzir'}
+                                <span aria-hidden="true">×</span>
                               </button>
-                              {row.cancellableManualRequestIds.length > 0 && row.statusLabel !== 'Em producao' ? (
-                                <button
-                                  type="button"
-                                  className="ghost-button"
-                                  onClick={() => requestCancelProductionRow(row)}
-                                >
-                                  Cancelar
-                                </button>
-                              ) : null}
-                              </div>
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
+                            ) : null}
+                          </div>
+                        </article>
+                      ))}
                     </div>
                     {productionPaginationControls}
                   </>
@@ -46805,8 +46753,8 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
               <button type="button" className="ghost-button" onClick={() => setManualProductionPreviewState(null)}>
                 Cancelar
               </button>
-              <button type="button" className="primary-button" onClick={confirmSaveManualProduction}>
-                Confirmar entrada de producao
+              <button type="button" className="primary-button" onClick={confirmSaveManualProduction} disabled={isManualProductionSaving}>
+                {isManualProductionSaving ? 'Salvando...' : 'Confirmar entrada de producao'}
               </button>
             </div>
           </section>
@@ -50901,110 +50849,6 @@ function renderReceiveReviewColumnHeader(
   )
 }
 
-function renderProductionColumnHeader(
-  key: ProductionColumnKey,
-  label: string,
-  openColumnMenu: ProductionColumnKey | null,
-  setOpenColumnMenu: Dispatch<SetStateAction<ProductionColumnKey | null>>,
-  columnFilters: Partial<Record<ProductionColumnKey, string[]>>,
-  distinctColumnValues: Record<ProductionColumnKey, string[]>,
-  setColumnFilters: Dispatch<SetStateAction<Partial<Record<ProductionColumnKey, string[]>>>>,
-  setColumnVisibility: Dispatch<SetStateAction<Record<ProductionColumnKey, boolean>>>,
-  columnSort: ColumnSort<ProductionColumnKey> | null,
-  setColumnSort: Dispatch<SetStateAction<ColumnSort<ProductionColumnKey> | null>>,
-) {
-  const activeFilters = columnFilters[key] ?? []
-  const sortDirection = columnSort?.key === key ? columnSort.direction : null
-  const sortLabels = getProductionColumnSortLabels(key)
-
-  return (
-    <th
-      key={key}
-      className={[openColumnMenu === key ? 'menu-open' : '', key === 'sheet' ? 'sticky-product' : '']
-        .filter(Boolean)
-        .join(' ')}
-    >
-      <div className="header-cell">
-        <span>
-          {label}
-          {sortDirection === 'asc' ? ' ↑' : sortDirection === 'desc' ? ' ↓' : ''}
-        </span>
-        <div className="header-tools">
-          {activeFilters.length > 0 ? <span className="header-filter-count">{activeFilters.length}</span> : null}
-          <button
-            className="header-tool-button"
-            type="button"
-            onClick={() => setOpenColumnMenu((current) => (current === key ? null : key))}
-            aria-label={`Filtrar coluna ${label}`}
-            title={`Filtrar coluna ${label}`}
-          >
-            ▼
-          </button>
-          {openColumnMenu === key ? (
-            <div className="header-menu">
-              <div className="header-menu-actions">
-                <button type="button" className="ghost-button" onClick={() => setColumnSort({ key, direction: 'asc' })}>
-                  {sortLabels.asc}
-                </button>
-                <button type="button" className="ghost-button" onClick={() => setColumnSort({ key, direction: 'desc' })}>
-                  {sortLabels.desc}
-                </button>
-                <button
-                  type="button"
-                  className="ghost-button header-menu-icon-action"
-                  onClick={() => {
-                    setColumnSort((current) => (current?.key === key ? null : current))
-                    setColumnFilters((current) => ({ ...current, [key]: [] }))
-                  }}
-                  aria-label={`Limpar filtros da coluna ${label}`}
-                  title={`Limpar filtros da coluna ${label}`}
-                >
-                  🧹
-                </button>
-                {key !== 'sheet' ? (
-                  <button
-                    type="button"
-                    className="ghost-button header-menu-icon-action"
-                    onClick={() => {
-                      setColumnVisibility((current) => ({ ...current, [key]: false }))
-                      setOpenColumnMenu(null)
-                    }}
-                    aria-label={`Ocultar coluna ${label}`}
-                    title={`Ocultar coluna ${label}`}
-                  >
-                    👁
-                  </button>
-                ) : null}
-              </div>
-              <div className="header-menu-list">
-                {distinctColumnValues[key].map((value) => {
-                  const checked = activeFilters.includes(value)
-                  return (
-                    <label key={`${key}-${value}`} className="header-menu-option">
-                      <span>{value || '(vazio)'}</span>
-                      <input
-                        type="checkbox"
-                        checked={checked}
-                        onChange={() =>
-                          setColumnFilters((current) => {
-                            const values = current[key] ?? []
-                            const nextValues = checked ? values.filter((item) => item !== value) : [...values, value]
-                            return { ...current, [key]: nextValues }
-                          })
-                        }
-                      />
-                    </label>
-                  )
-                })}
-              </div>
-            </div>
-          ) : null}
-        </div>
-      </div>
-    </th>
-  )
-}
-
 function renderStockReportColumnHeader(
   key: StockReportColumnKey,
   label: string,
@@ -51849,48 +51693,6 @@ function getReceiveReviewColumnSortableValue(row: ReceiveReviewRow, key: Receive
     return row.sentSortable
   }
   return getReceiveReviewColumnValue(row, key)
-}
-
-function getProductionColumnSortLabels(key: ProductionColumnKey) {
-  return getSortLabels(
-    key === 'priority' || key === 'current' || key === 'useMinimum' || key === 'realMinimum' || key === 'suggestion',
-  )
-}
-
-function getProductionColumnValue(row: ProductionRequestRow, key: ProductionColumnKey) {
-  switch (key) {
-    case 'sheet':
-      return row.sheetName
-    case 'priority':
-      return String(row.priority)
-    case 'current':
-      return row.currentQuantityLabel
-    case 'useMinimum':
-      return row.useMinimumLabel
-    case 'realMinimum':
-      return row.realMinimumLabel
-    case 'suggestion':
-      return row.suggestedProductionLabel
-    case 'status':
-      return row.statusLabel
-  }
-}
-
-function getProductionColumnSortableValue(row: ProductionRequestRow, key: ProductionColumnKey) {
-  switch (key) {
-    case 'priority':
-      return row.priority
-    case 'current':
-      return row.currentQuantity
-    case 'useMinimum':
-      return row.useMinimumQuantity
-    case 'realMinimum':
-      return row.realMinimumQuantity
-    case 'suggestion':
-      return row.suggestedProductionQuantity
-    default:
-      return getProductionColumnValue(row, key)
-  }
 }
 
 function getStockReportColumnValue(row: StockReportRow, key: StockReportColumnKey) {
@@ -54344,30 +54146,6 @@ function normalizeManualProductionRequestRecord(value: unknown): ManualProductio
   }
 }
 
-function loadManualProductionRequestsState(): ManualProductionRequestRecord[] {
-  if (typeof window === 'undefined') {
-    return []
-  }
-
-  try {
-    const raw = window.localStorage.getItem(manualProductionRequestsStorageKey)
-    if (!raw) {
-      return []
-    }
-
-    const parsed = JSON.parse(raw) as unknown
-    if (!Array.isArray(parsed)) {
-      return []
-    }
-
-    return parsed
-      .map(normalizeManualProductionRequestRecord)
-      .filter((item): item is ManualProductionRequestRecord => item !== null)
-  } catch {
-    return []
-  }
-}
-
 function saveManualProductionRequestsState(requests: ManualProductionRequestRecord[]) {
   if (typeof window === 'undefined') {
     return
@@ -54430,30 +54208,6 @@ function normalizeProductionDraftState(value: unknown): ProductionDraftState | n
     manualRequestIds: Array.isArray(draft.manualRequestIds)
       ? draft.manualRequestIds.filter((item): item is number => isSafePersistedIntId(item))
       : [],
-  }
-}
-
-function loadProductionInProgressDraftsState(): ProductionDraftState[] {
-  if (typeof window === 'undefined') {
-    return []
-  }
-
-  try {
-    const raw = window.localStorage.getItem(productionInProgressDraftsStorageKey)
-    if (!raw) {
-      return []
-    }
-
-    const parsed = JSON.parse(raw) as unknown
-    if (!Array.isArray(parsed)) {
-      return []
-    }
-
-    return parsed
-      .map(normalizeProductionDraftState)
-      .filter((item): item is ProductionDraftState => item !== null)
-  } catch {
-    return []
   }
 }
 

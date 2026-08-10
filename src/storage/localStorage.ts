@@ -48,8 +48,6 @@ export const syncedAppStorageKeys = [
   wasteRecordsStorageKey,
   pendingInventoryMovementsStorageKey,
   inventoryStorageLocationsStorageKey,
-  manualProductionRequestsStorageKey,
-  productionInProgressDraftsStorageKey,
 ] as const
 
 export type SyncedAppStorageKey = (typeof syncedAppStorageKeys)[number]

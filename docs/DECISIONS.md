@@ -444,6 +444,10 @@ Registrar o que foi decidido, o que foi adiado e o que foi descartado, com foco 
   - resolver o `rootRequestId` real a partir da solicitacao clicada e remover todo o grupo pendente;
   - persistir deletes de producao e cancelamento de requisicoes/suprimentos vinculados na API durante a confirmacao;
   - atualizar os mapas de sincronizacao local apos a API confirmar, para evitar que polling reponha registros antigos.
+- Regra complementar:
+  - `manualProductionRequests` e `productionInProgressDrafts` nao devem ser restaurados automaticamente a partir de `localStorage`/snapshot global;
+  - a fila operacional deve ser carregada da API por entidade;
+  - dependencias circulares/autorreferentes nao devem gerar solicitacao adicional de producao no mesmo planejamento.
 
 ### Inativar/excluir ficha tecnica precisa avisar impacto em producao
 

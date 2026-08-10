@@ -159,8 +159,10 @@ Registrar em que pe o sistema esta hoje, por area, para consulta rapida antes de
   - a fila de `Entrada de producoes` considera que fichas consumidoras do subproduto dependem da ficha geradora;
   - a demanda por subproduto nao e abatida pelo estoque atual do preparo principal, pois estoque pronto nao gera subproduto novo.
 - A tela de `Entrada de producoes` carrega requisicoes junto com producoes, pois requisicoes pendentes reduzem a necessidade a produzir no centro produtor.
-- A tabela de `Entrada de producoes` nao deve usar virtualizacao invisivel. Ela e uma fila operacional e deve usar paginacao explicita de 20 producoes por pagina, com setas e numeros visiveis para navegar pela lista. A tela tambem exibe resumo de total e distribuicao por prioridade acima da lista.
+- A lista de `Entrada de producoes` nao deve usar virtualizacao invisivel. Ela e uma fila operacional e deve usar paginacao explicita de 20 producoes por pagina, com setas e numeros visiveis para navegar pela lista. A tela tambem exibe resumo de total e distribuicao por prioridade acima da lista.
 - Cancelamentos de producao/planejamento devem remover o grupo inteiro pelo `rootRequestId` real e persistir a remocao/cancelamento na API durante a confirmacao, antes que o polling possa recarregar registros antigos.
+- Producoes manuais e rascunhos de producao nao devem ser restaurados do snapshot/localStorage do navegador. A fila operacional deve carregar pela API por entidade, pois restaurar cache local pode ressuscitar cancelamentos ou duplicar planejamentos.
+- O gerador de planejamento nao deve criar producao dependente quando a ficha de preparo ja esta na pilha de dependencias do calculo; ciclos/autorreferencias devem ser ignorados para nao somar producao duplicada.
 - Inativar ou excluir ficha tecnica deve mostrar impactos em `Entrada de producoes`, incluindo planejamentos pendentes, requisicoes/suprimentos vinculados e producoes em andamento. Producao em andamento bloqueia a inativacao/exclusao ate ser finalizada.
 - `Desperdicio` possui entidades proprias:
   - `wasteSessions`

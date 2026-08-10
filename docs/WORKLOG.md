@@ -42,6 +42,28 @@ Registrar um historico resumido do que foi feito, do que falhou e do que ficou p
   - `eslint src/App.tsx src/types/domain.ts` estourou heap de Node neste arquivo grande.
   - a validacao local nao atravessou login/fluxo operacional porque o banco local esta sem a tabela `AppCatalogSharingSaleFeeRecord`; o erro e anterior a esta implementacao.
 
+## 2026-08-10
+
+### Entrada de producoes: cancelamento, duplicacao e lista operacional
+
+- Corrigida nova fragilidade no fluxo de `Entrada de producoes`.
+- Causas encontradas:
+  - producoes manuais e rascunhos ainda podiam ser restaurados do `localStorage` quando a API retornava vazio, o que poderia ressuscitar registros cancelados em navegadores antigos;
+  - a confirmacao de nova entrada nao tinha trava contra duplo clique e atualizava a tela antes da confirmacao da API;
+  - o calculo de dependencias podia criar uma producao dependente da propria ficha quando havia referencia circular/autorreferente na composicao.
+- Ajustes aplicados:
+  - `manualProductionRequests` e `productionInProgressDrafts` passaram a iniciar vazios e carregar a fila pela API por entidade;
+  - essas producoes sairam do snapshot global sincronizado por navegador;
+  - a confirmacao de nova entrada grava as solicitacoes na API antes de atualizar a tela, trava reenvio e atualiza o mapa de sincronizacao apos sucesso;
+  - dependencias circulares/autorreferentes sao ignoradas no gerador de planejamento;
+  - a fila principal de `Entrada de producoes` deixou de ser tabela e passou a ser lista paginada, com acao de cancelamento em botao circular no fim da linha.
+- Validacao executada:
+  - `npm run build`;
+  - leitura da API publicada confirmou `48` solicitacoes manuais, sem IDs duplicados;
+  - leitura da API publicada confirmou duplicatas logicas antigas nos roots `19` e `25`, criadas antes desta correcao; as requisicoes vinculadas ja estavam `CANCELLED`.
+- Observacao:
+  - validacao visual local completa foi bloqueada pelo banco local inconsistente: `migrate deploy` esta travado pela migration antiga `20260618_execution_planning_tracking` e `db push` exigiria reset por coluna obrigatoria em dados legados. O build de frontend passou.
+
 ## 2026-08-09
 
 ### Impacto e cancelamento em Entrada de producoes
