@@ -8,6 +8,12 @@ Registrar um historico resumido do que foi feito, do que falhou e do que ficou p
 
 ## 2026-08-16
 
+### Copia de ficha tecnica preserva vinculos compartilhados
+
+- Corrigida copia de ficha tecnica para preencher `Empresas vinculadas` com a mesma superficie de visibilidade da ficha original, filtrando apenas empresas invalidas para a empresa destino da copia.
+- IDs internos e `ID empresa` continuam nao sendo copiados; a ficha copiada segue como cadastro novo e usa o fluxo normal de geracao/persistencia.
+- No fluxo de copia direta para empresa vinculada, as dependencias tecnicas passam a ser verificadas para todos os destinos que a copia herdara.
+
 ### Perfis de acesso compartilhados entre empresas vinculadas
 
 - Implementada visibilidade de `Perfis de acesso` pelo mesmo grafo de empresas vinculadas usado pelo catalogo compartilhado.

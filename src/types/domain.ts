@@ -1044,10 +1044,12 @@ export type TechnicalSheetCopyPreviewState = {
   targetCompanyId: number
   targetCompanyLabel: string
   newName: string
+  sharedCompanyIds: number[]
   dependencySheets: Array<{
     id: number
     name: string
     status: 'already_shared' | 'share_now'
+    targetCompanyIds: number[]
     targetCompanyLabels: string[]
   }>
   willResetProductionCenters: boolean

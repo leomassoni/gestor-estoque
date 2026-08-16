@@ -28659,6 +28659,14 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
       return
     }
 
+    const sourceOwnerCompanyId = getTechnicalSheetOwnerCompanyId(sourceSheet)
+    const targetCompanyLinkScopeIds = new Set(getCompanyLinkScopeIds(normalizedTargetCompanyId))
+    const copiedSharedCompanyIds = Array.from(
+      new Set([sourceOwnerCompanyId, ...getTechnicalSheetExplicitSharedCompanyIds(sourceSheet)]),
+    )
+      .filter((companyId) => companyId !== normalizedTargetCompanyId)
+      .filter((companyId) => targetCompanyLinkScopeIds.has(companyId))
+
     const linkedTechnicalSheetProduct =
       products.find((product) => product.technicalSheetId === sourceSheet.id && isProductVisibleForCompany(product, currentCompanyId)) ?? null
     const filteredProductionCenters =
@@ -28679,7 +28687,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
       isTechnicalSheetVisibleForCompany(byproductSheet, normalizedTargetCompanyId)
     const nextForm = {
       kind: sourceSheet.kind,
-      sharedCompanyIds: [],
+      sharedCompanyIds: copiedSharedCompanyIds,
       companyProductId: '',
       name: newName,
       family: sourceSheet.family,
@@ -28871,8 +28879,16 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
       return
     }
 
+    const sourceOwnerCompanyId = getTechnicalSheetOwnerCompanyId(fullSourceSheet)
+    const targetCompanyLinkScopeIds = new Set(getCompanyLinkScopeIds(targetCompanyId))
+    const copiedSharedCompanyIds = Array.from(
+      new Set([sourceOwnerCompanyId, ...getTechnicalSheetExplicitSharedCompanyIds(fullSourceSheet)]),
+    )
+      .filter((companyId) => companyId !== targetCompanyId)
+      .filter((companyId) => targetCompanyLinkScopeIds.has(companyId))
+    const copyDependencyTargetCompanyIds = Array.from(new Set([targetCompanyId, ...copiedSharedCompanyIds]))
     const copyCascadeAnalysis = collectTechnicalSheetDependencies(
-      [targetCompanyId],
+      copyDependencyTargetCompanyIds,
       fullSourceSheet.ingredients,
       fullSourceSheet.garnishIngredients,
       fullSourceSheet.id,
@@ -28909,13 +28925,19 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
 
     const dependencySheets = copyCascadeAnalysis.dependencySheets
       .flatMap((sheet) => {
-        const alreadyShared = getTechnicalSheetSharedCompanyIds(sheet).includes(targetCompanyId)
+        const sheetSharedCompanyIds = getTechnicalSheetSharedCompanyIds(sheet)
+        const targetCompanyIdsToShare = copyDependencyTargetCompanyIds.filter(
+          (companyId) => !sheetSharedCompanyIds.includes(companyId),
+        )
+        const listedTargetCompanyIds =
+          targetCompanyIdsToShare.length > 0 ? targetCompanyIdsToShare : copyDependencyTargetCompanyIds
         return [
           {
             id: sheet.id,
             name: sheet.name,
-            status: alreadyShared ? ('already_shared' as const) : ('share_now' as const),
-            targetCompanyLabels: [getCompanyTradeName(targetCompanyId)],
+            status: targetCompanyIdsToShare.length > 0 ? ('share_now' as const) : ('already_shared' as const),
+            targetCompanyIds: listedTargetCompanyIds,
+            targetCompanyLabels: listedTargetCompanyIds.map((companyId) => getCompanyTradeName(companyId)),
           },
         ]
       })
@@ -28934,6 +28956,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
       targetCompanyId,
       targetCompanyLabel: targetCompany.tradeName,
       newName: normalizedName,
+      sharedCompanyIds: copiedSharedCompanyIds,
       dependencySheets,
       willResetProductionCenters: fullSourceSheet.kind === 'PREPARO',
     })
@@ -28944,8 +28967,15 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
       return
     }
 
-    const { sourceSheet, targetCompanyId, targetCompanyLabel, newName, dependencySheets, willResetProductionCenters } =
-      technicalSheetCopyPreviewState
+    const {
+      sourceSheet,
+      targetCompanyId,
+      targetCompanyLabel,
+      newName,
+      sharedCompanyIds,
+      dependencySheets,
+      willResetProductionCenters,
+    } = technicalSheetCopyPreviewState
     let technicalSheetId = await fetchNextTechnicalSheetIdFromApi()
     const generatedProductId = buildTechnicalSheetProductId(newName, sourceSheet.kind)
     let nextCopiedTechnicalSheet: TechnicalSheetRecord = {
@@ -28953,7 +28983,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
       id: technicalSheetId,
       companyId: targetCompanyId,
       ownerCompanyId: targetCompanyId,
-      sharedCompanyIds: [],
+      sharedCompanyIds,
       productId: generatedProductId,
       companyProductId: '',
       companyProductIdsByCompanyId: {},
@@ -28965,6 +28995,11 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
     const dependencyIdsToShare = new Set(
       dependencySheets.filter((sheet) => sheet.status === 'share_now').map((sheet) => sheet.id),
     )
+    const dependencyTargetCompanyIdsBySheetId = new Map(
+      dependencySheets
+        .filter((sheet) => sheet.status === 'share_now')
+        .map((sheet) => [sheet.id, sheet.targetCompanyIds] as const),
+    )
 
     const buildCopySaveState = (sheetToCopy: TechnicalSheetRecord) => {
       const nextTechnicalSheets = [sheetToCopy, ...technicalSheets].map((sheet) =>
@@ -28972,7 +29007,10 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
           ? {
               ...sheet,
               sharedCompanyIds: Array.from(
-                new Set([...getTechnicalSheetExplicitSharedCompanyIds(sheet), targetCompanyId]),
+                new Set([
+                  ...getTechnicalSheetExplicitSharedCompanyIds(sheet),
+                  ...(dependencyTargetCompanyIdsBySheetId.get(sheet.id) ?? []),
+                ]),
               ),
             }
           : sheet,

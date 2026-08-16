@@ -65,6 +65,7 @@ Registrar em que pe o sistema esta hoje, por area, para consulta rapida antes de
 - A API de lista de fichas com `companyId` retorna tambem fichas compartilhadas visiveis para a empresa consultada.
 - O ID interno de ficha tecnica deve ser gerado pelo servidor/webapp; scripts e importacoes nao devem escolher IDs.
 - `ID empresa` de ficha tecnica e contextual por empresa, opcional e preenchido manualmente pelo usuario. Ele nao deve ser propagado automaticamente para empresas vinculadas.
+- Copia de ficha tecnica deve abrir/preparar cadastro novo como espelho operacional da origem, incluindo empresas vinculadas validas; IDs internos e `ID empresa` continuam zerados/gerados pelo fluxo normal.
 - Quando um `PREPARO` compartilhado recebe taxa de venda entre empresas, o cadastro e os receituarios exibem o percentual, o valor acrescido e a origem/destino do acrescimo. A informacao e calculada no momento de exibicao, sem gravar custo derivado na ficha.
 
 ### PREPARO
