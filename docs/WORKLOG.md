@@ -8,6 +8,19 @@ Registrar um historico resumido do que foi feito, do que falhou e do que ficou p
 
 ## 2026-08-16
 
+### Contagem de inventario nao deve perder sessao ativa apos pausa/reload
+
+- Investigado caso real `CASA DE MI MADRE LTDA`: `INV-0007` e `CON-0008` existem na API, estao abertos e sem itens registrados.
+- Causa encontrada no frontend:
+  - ao carregar/retomar a tela, os efeitos de vinculo ativo podiam persistir `inventoryId: null` e `sessionId: null` antes de a API terminar de hidratar inventarios/sessoes;
+  - a validacao de sessao selecionada podia limpar a contagem restaurada antes de o inventario correspondente ser selecionado a partir da propria sessao.
+- Ajustes aplicados:
+  - criada trava de hidratacao especifica para dados remotos de inventario;
+  - restauracao explicita de sessao ativa pelo link salvo em `inventory-active-session-links`;
+  - preservacao de vinculo ativo valido enquanto inventario/contagem abertos ainda estao sendo restaurados;
+  - item novo de contagem busca o proximo ID atual em `/api/inventory-counts` antes de salvar, reduzindo risco de ID local obsoleto;
+  - backend passou a rejeitar sobrescrita de item de contagem quando o ID ja pertence a outro inventario/sessao/empresa.
+
 ### Copia de ficha tecnica preserva vinculos compartilhados
 
 - Corrigida copia de ficha tecnica para preencher `Empresas vinculadas` com a mesma superficie de visibilidade da ficha original, filtrando apenas empresas invalidas para a empresa destino da copia.

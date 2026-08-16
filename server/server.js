@@ -1437,6 +1437,22 @@ app.put('/api/inventory-counts/:id', async (request, response) => {
     return
   }
 
+  const existing = await prisma.appInventoryCountRecord.findUnique({
+    where: { id: countId },
+    select: { id: true, companyId: true, inventoryId: true, sessionId: true },
+  })
+  if (
+    existing &&
+    (existing.companyId !== count.companyId ||
+      existing.inventoryId !== count.inventoryId ||
+      existing.sessionId !== count.sessionId)
+  ) {
+    response.status(409).json({
+      error: 'ID de item de contagem ja pertence a outro inventario. Recarregue a pagina e tente registrar novamente.',
+    })
+    return
+  }
+
   const saved = await prisma.appInventoryCountRecord.upsert({
     where: { id: countId },
     create: count,

@@ -2475,6 +2475,7 @@ export default function App() {
   const [inventoryStorageLocations, setInventoryStorageLocations] = useState<InventoryStorageLocationRecord[]>(
     () => loadInventoryStorageLocationsState(),
   )
+  const [isInventoryRemoteStateReady, setIsInventoryRemoteStateReady] = useState(false)
   const [stockModuleSettings, setStockModuleSettings] = useState<StockModuleSettingsRecord[]>(() => loadStockModuleSettingsState())
   const [catalogSharingSaleFees, setCatalogSharingSaleFees] = useState<CatalogSharingSaleFeeRecord[]>([])
   const [catalogSharingSaleFeeDrafts, setCatalogSharingSaleFeeDrafts] = useState<Record<string, string>>({})
@@ -5824,6 +5825,7 @@ export default function App() {
       )
 
       logRemoteAppStateMessage('Dados auxiliares locais de inventario foram usados apenas quando nao havia equivalente no servidor.')
+      setIsInventoryRemoteStateReady(true)
       return
     }
     const nextLocationsById = buildEntitySignatureMap(nextLocations, (record) => `${record.companyId}:${record.name}`)
@@ -5881,6 +5883,7 @@ export default function App() {
     syncedWasteSessionMapRef.current = nextWasteSessionsById
     syncedWasteRecordMapRef.current = nextWasteRecordsById
     syncedPendingInventoryMovementMapRef.current = nextPendingMovementsById
+    setIsInventoryRemoteStateReady(true)
   }
 
   async function refreshAppCatalogRecordsFromApi() {
@@ -5985,6 +5988,22 @@ export default function App() {
     return typeof payload?.nextId === 'number' && Number.isFinite(payload.nextId) && payload.nextId > 0
       ? payload.nextId
       : fallbackId
+  }
+
+  async function fetchNextInventoryCountIdFromApi() {
+    const fallbackId = getNextPersistedIntId(inventoryCounts.map((record) => record.id))
+    const response = await fetch('/api/inventory-counts', { cache: 'no-store' })
+    if (!response.ok) {
+      return fallbackId
+    }
+
+    const payload = (await response.json().catch(() => null)) as { inventoryCounts?: unknown } | null
+    const remoteCounts = Array.isArray(payload?.inventoryCounts)
+      ? payload.inventoryCounts
+          .map(normalizeInventoryCountRecord)
+          .filter((record): record is InventoryCountRecord => record !== null)
+      : []
+    return getNextPersistedIntId([...inventoryCounts, ...remoteCounts].map((record) => record.id))
   }
 
   async function upsertProductRecordOnApi(product: ProductRecord, previousId?: string | null) {
@@ -8043,6 +8062,15 @@ export default function App() {
             (link) => link.companyId === currentCompanyId && link.userKey === inventorySessionUserKey,
           )?.inventoryId ?? null,
     [currentCompanyId, inventoryActiveRecordLinks, inventorySessionUserKey],
+  )
+  const persistedInventoryActiveSessionId = useMemo(
+    () =>
+      currentCompanyId === null
+        ? null
+        : inventoryActiveSessionLinks.find(
+            (link) => link.companyId === currentCompanyId && link.userKey === inventorySessionUserKey,
+          )?.sessionId ?? null,
+    [currentCompanyId, inventoryActiveSessionLinks, inventorySessionUserKey],
   )
   const selectedInventoryCountSession = useMemo(
     () =>
@@ -16466,6 +16494,10 @@ export default function App() {
       return
     }
 
+    if (selectedSession.inventoryId !== null && selectedInventoryId !== selectedSession.inventoryId) {
+      return
+    }
+
     if (
       !selectedInventoryRecord ||
       selectedSession.inventoryId !== selectedInventoryRecord.id ||
@@ -16497,6 +16529,26 @@ export default function App() {
   }, [currentCompanyId, inventoryRecords, persistedInventoryActiveRecordId, selectedInventoryId])
 
   useEffect(() => {
+    if (selectedInventorySessionId !== null || persistedInventoryActiveSessionId === null) {
+      return
+    }
+
+    const persistedSession =
+      inventoryCountSessions.find(
+        (sessionRecord) =>
+          sessionRecord.id === persistedInventoryActiveSessionId &&
+          sessionRecord.companyId === currentCompanyId &&
+          !sessionRecord.isClosed,
+      ) ?? null
+
+    if (!persistedSession) {
+      return
+    }
+
+    setSelectedInventorySessionId(persistedSession.id)
+  }, [currentCompanyId, inventoryCountSessions, persistedInventoryActiveSessionId, selectedInventorySessionId])
+
+  useEffect(() => {
     if (!selectedInventoryCountSession) {
       return
     }
@@ -16522,7 +16574,7 @@ export default function App() {
   }, [selectedInventoryRecord])
 
   useEffect(() => {
-    if (currentCompanyId === null) {
+    if (currentCompanyId === null || !isInventoryRemoteStateReady) {
       return
     }
 
@@ -16530,6 +16582,18 @@ export default function App() {
       const existingIndex = current.findIndex(
         (link) => link.companyId === currentCompanyId && link.userKey === inventorySessionUserKey,
       )
+      const existingLink = existingIndex >= 0 ? current[existingIndex] : null
+      if (!selectedInventoryRecord && existingLink?.inventoryId !== null && existingLink?.inventoryId !== undefined) {
+        const linkedInventoryStillOpen = inventoryRecords.some(
+          (inventoryRecord) =>
+            inventoryRecord.id === existingLink.inventoryId &&
+            inventoryRecord.companyId === currentCompanyId &&
+            !inventoryRecord.isClosed,
+        )
+        if (linkedInventoryStillOpen) {
+          return current
+        }
+      }
       const nextLink: InventoryActiveRecordLinkRecord = {
         companyId: currentCompanyId,
         userKey: inventorySessionUserKey,
@@ -16545,10 +16609,10 @@ export default function App() {
 
       return current.map((link, index) => (index === existingIndex ? nextLink : link))
     })
-  }, [currentCompanyId, inventorySessionUserKey, selectedInventoryRecord])
+  }, [currentCompanyId, inventoryRecords, inventorySessionUserKey, isInventoryRemoteStateReady, selectedInventoryRecord])
 
   useEffect(() => {
-    if (currentCompanyId === null) {
+    if (currentCompanyId === null || !isInventoryRemoteStateReady) {
       return
     }
 
@@ -16556,6 +16620,18 @@ export default function App() {
       const existingIndex = current.findIndex(
         (link) => link.companyId === currentCompanyId && link.userKey === inventorySessionUserKey,
       )
+      const existingLink = existingIndex >= 0 ? current[existingIndex] : null
+      if (!selectedInventoryCountSession && existingLink?.sessionId !== null && existingLink?.sessionId !== undefined) {
+        const linkedSessionStillOpen = inventoryCountSessions.some(
+          (sessionRecord) =>
+            sessionRecord.id === existingLink.sessionId &&
+            sessionRecord.companyId === currentCompanyId &&
+            !sessionRecord.isClosed,
+        )
+        if (linkedSessionStillOpen) {
+          return current
+        }
+      }
       const nextLink: InventoryActiveSessionLinkRecord = {
         companyId: currentCompanyId,
         userKey: inventorySessionUserKey,
@@ -16571,7 +16647,7 @@ export default function App() {
 
       return current.map((link, index) => (index === existingIndex ? nextLink : link))
     })
-  }, [currentCompanyId, inventorySessionUserKey, selectedInventoryCountSession])
+  }, [currentCompanyId, inventoryCountSessions, inventorySessionUserKey, isInventoryRemoteStateReady, selectedInventoryCountSession])
 
   useEffect(() => {
     if (technicalSheetScreenMode !== 'form' || isTechnicalSheetProductModalOpen) {
@@ -19491,6 +19567,15 @@ export default function App() {
       return
     }
 
+    if (!isInventoryRemoteStateReady) {
+      setSaveFeedback({
+        status: 'error',
+        title: 'Inventario ainda carregando',
+        message: 'Aguarde os dados do inventario carregarem do servidor antes de registrar itens.',
+      })
+      return
+    }
+
     if (
       currentCompanyId === null ||
       !validateInventoryForm() ||
@@ -19522,8 +19607,9 @@ export default function App() {
       editingInventoryCountId === null
         ? null
         : inventoryCounts.find((record) => record.id === editingInventoryCountId && record.companyId === currentCompanyId) ?? null
+    const nextInventoryCountId = existingRecord?.id ?? (await fetchNextInventoryCountIdFromApi())
     const nextRecord: InventoryCountRecord = {
-      id: existingRecord?.id ?? getNextPersistedIntId(inventoryCounts.map((record) => record.id)),
+      id: nextInventoryCountId,
       inventoryId: activeInventoryRecord.id,
       sessionId: activeCountSession.id,
       companyId: currentCompanyId,
