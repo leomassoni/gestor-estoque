@@ -1,6 +1,6 @@
 # Status do Sistema
 
- Ultima atualizacao: 2026-08-10
+ Ultima atualizacao: 2026-08-16
 
 ## Objetivo deste arquivo
 
@@ -119,6 +119,11 @@ Registrar em que pe o sistema esta hoje, por area, para consulta rapida antes de
 ## Permissoes e perfis de acesso
 
 - Existe controle de acesso por perfil.
+- Perfis de acesso cadastrados sao visiveis para empresas vinculadas, no mesmo escopo simplificado usado pelo catalogo compartilhado.
+- Perfil compartilhado funciona como modelo reutilizavel de permissoes; ele nao concede acesso a empresa de origem do perfil nem a outras empresas vinculadas. O usuario continua acessando apenas empresas onde possui vinculo ativo.
+- Atribuicao de usuarios aceita perfil de empresa vinculada quando esse perfil esta no escopo da empresa do vinculo.
+- A lista de perfis deduplica nomes dentro do escopo vinculado e mostra a origem quando o perfil pertence a outra empresa.
+- Edicao, inativacao e exclusao de perfil compartilhado devem ser feitas na empresa de origem.
 - A organizacao visual das permissoes acompanha a sidebar.
 - `Cadastros` aparece como grupo com filhos:
   - `Fichas Tecnicas`

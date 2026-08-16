@@ -1,6 +1,6 @@
 # Decisoes do Projeto
 
- Ultima atualizacao: 2026-08-10
+ Ultima atualizacao: 2026-08-16
 
 ## Objetivo deste arquivo
 
@@ -110,27 +110,32 @@ Registrar o que foi decidido, o que foi adiado e o que foi descartado, com foco 
   - o operador precisa ver a quantidade efetivamente manipulada/servida, enquanto o sistema preserva a entrada para custo, estoque e rendimento.
 - Status: implementado.
 
-### Usuario multiempresa deve evoluir para vinculo por empresa
+### Usuario multiempresa usa vinculo por empresa com perfil compartilhavel
 
 - Decisao: o usuario deve manter `login unico`, mas o perfil efetivo de acesso nao deve mais ser global.
-- Modelagem alvo:
-  - criar `UserCompanyMembership`
+- Modelagem:
+  - usar `UserCompanyMembership`
   - cada vinculo guarda:
     - `userId`
     - `companyId`
     - `accessProfileId`
     - `sectors`
     - `isActive`
-    - opcionalmente `defaultAfterLogin` e `lastAccessedAt`
 - Regra:
-  - o usuario pode escolher a empresa ao entrar
-  - ao trocar de empresa, o sistema carrega o `membership` correspondente
-  - `perfil`, `setores` e permissoes passam a ser resolvidos pela empresa ativa, nao pelo usuario global
+  - o usuario pode escolher a empresa ao entrar;
+  - ao trocar de empresa, o sistema carrega o `membership` correspondente;
+  - `perfil`, `setores` e permissoes sao resolvidos pela empresa ativa, nao pelo usuario global;
+  - perfis de acesso cadastrados ficam disponiveis para empresas vinculadas, como acontece com produtos;
+  - perfil compartilhado nao concede acesso a empresa de origem nem a outras empresas vinculadas;
+  - o usuario continua acessando apenas paineis e dados das empresas em que possui `UserCompanyMembership` ativo;
+  - o cadastro do perfil continua pertencendo a empresa de origem, e edicao/inativacao/exclusao devem ser feitas nessa origem;
+  - perfis com mesmo nome dentro do escopo de empresas vinculadas nao devem aparecer duplicados para cadastro/atribuicao;
+  - quando houver duplicidade por nome entre `COMPLEXO VILA ANALIA` e empresas vinculadas, o perfil correto e o cadastro de `COMPLEXO VILA ANALIA`; usuarios das vinculadas devem ser remapeados para esse perfil compartilhado antes da exclusao da duplicata.
 - Motivo:
-  - evitar espelhamento artificial de perfis entre empresas
-  - permitir perfis e setores diferentes por empresa
-  - reduzir bugs quando empresas vinculadas nao compartilham o mesmo catalogo de perfis/setores
-- Status: decidido como proxima evolucao estrutural, ainda nao implementado.
+  - evitar espelhamento artificial de perfis entre empresas vinculadas;
+  - permitir que setores continuem diferentes por empresa;
+  - reduzir duplicidade e divergencia de permissoes em empresas que operam com catalogo compartilhado.
+- Status: implementado para visibilidade/atribuicao de perfis em empresas vinculadas.
 
 ### Formularios de ficha tecnica devem obedecer configuracoes centralizadas
 

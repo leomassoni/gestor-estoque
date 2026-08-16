@@ -232,6 +232,37 @@ async function syncCompanyLinkedCompanyIds(transaction, companyId, linkedCompany
   }
 }
 
+async function getCompanyLinkScopeIdsFromDatabase(companyId) {
+  const companies = await prisma.appCompanyRecord.findMany({
+    select: { id: true, linkedCompanyIds: true },
+  })
+  const visitedCompanyIds = new Set()
+  const pendingCompanyIds = [companyId]
+
+  while (pendingCompanyIds.length > 0) {
+    const currentCompanyId = pendingCompanyIds.shift() ?? null
+    if (currentCompanyId === null || visitedCompanyIds.has(currentCompanyId)) {
+      continue
+    }
+
+    visitedCompanyIds.add(currentCompanyId)
+    const currentCompany = companies.find((item) => item.id === currentCompanyId) ?? null
+    const linkedCompanyIds = currentCompany?.linkedCompanyIds.filter((linkedCompanyId) => linkedCompanyId !== currentCompanyId) ?? []
+    const reverseLinkedCompanyIds = companies
+      .filter((item) => item.id !== currentCompanyId && item.linkedCompanyIds.includes(currentCompanyId))
+      .map((item) => item.id)
+
+    const neighborCompanyIds = [...linkedCompanyIds, ...reverseLinkedCompanyIds]
+    neighborCompanyIds.forEach((linkedCompanyId) => {
+      if (!visitedCompanyIds.has(linkedCompanyId)) {
+        pendingCompanyIds.push(linkedCompanyId)
+      }
+    })
+  }
+
+  return Array.from(visitedCompanyIds).sort((left, right) => left - right)
+}
+
 app.post('/api/companies', async (request, response) => {
   const company = normalizeCompanyPayload(request.body)
   if (!company) {
@@ -370,8 +401,9 @@ app.delete('/api/companies/:id', async (request, response) => {
 app.get('/api/access-profiles', async (request, response) => {
   await ensureAppAdminRecordsSeeded()
   const companyId = parseIntegerParam(request.query.companyId)
+  const scopedCompanyIds = companyId === null ? null : await getCompanyLinkScopeIdsFromDatabase(companyId)
   const accessProfiles = await prisma.appAccessProfileRecord.findMany({
-    where: companyId === null ? undefined : { companyId },
+    where: scopedCompanyIds === null ? undefined : { companyId: { in: scopedCompanyIds } },
     orderBy: [{ name: 'asc' }, { id: 'asc' }],
   })
   response.json({ accessProfiles })

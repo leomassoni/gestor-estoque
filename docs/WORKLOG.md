@@ -1,10 +1,23 @@
 # Worklog
 
- Ultima atualizacao: 2026-08-10
+ Ultima atualizacao: 2026-08-16
 
 ## Objetivo deste arquivo
 
 Registrar um historico resumido do que foi feito, do que falhou e do que ficou pendente.
+
+## 2026-08-16
+
+### Perfis de acesso compartilhados entre empresas vinculadas
+
+- Implementada visibilidade de `Perfis de acesso` pelo mesmo grafo de empresas vinculadas usado pelo catalogo compartilhado.
+- Atribuicao de usuario passa a aceitar perfil cadastrado em empresa vinculada, desde que o usuario tenha `membership` ativo na empresa onde acessara o sistema.
+- Perfil compartilhado nao concede acesso a empresa de origem nem a outras empresas; o escopo de dados/paineis continua vindo dos vinculos do usuario.
+- A lista de perfis deduplica nomes no escopo vinculado e indica quando o cadastro pertence a outra empresa.
+- Edicao, inativacao e exclusao de perfil compartilhado ficam restritas a empresa de origem do perfil.
+- Permissoes de estoque associadas ao formulario do perfil sao sincronizadas para empresas vinculadas, mantendo o mesmo conjunto de permissoes quando o perfil compartilhado e atribuido em uma empresa vinculada.
+- API `GET /api/access-profiles?companyId=...` passou a retornar perfis no escopo de empresas vinculadas, mantendo `GET /api/access-profiles` sem filtro como leitura completa.
+- Pendente operacional desta rodada: apos deploy, consolidar duplicatas de nome entre `COMPLEXO VILA ANALIA` e empresas vinculadas, remapeando usuarios para o perfil da origem antes de excluir duplicatas.
 
 ## 2026-08-10
 

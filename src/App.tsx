@@ -1411,19 +1411,55 @@ const buildDefaultAccessProfiles = (companyId: number | null): AccessProfileReco
 function buildCompanyAccessProfilesForSettings(
   companyId: number | null,
   accessProfiles: AccessProfileRecord[],
+  visibleCompanyIds?: number[],
 ): AccessProfileRecord[] {
   const defaultProfiles = buildDefaultAccessProfiles(companyId)
+  const visibleCompanyIdSet = new Set(
+    visibleCompanyIds ?? (companyId === null ? [] : [companyId]),
+  )
+  const visibleCompanyRankById = new Map(
+    Array.from(visibleCompanyIdSet)
+      .sort((left, right) => left - right)
+      .map((visibleCompanyId, index) => [visibleCompanyId, index] as const),
+  )
   const storedProfiles =
     companyId === null
       ? []
-      : accessProfiles.filter((profile) => profile.companyId === companyId)
+      : accessProfiles.filter((profile) => visibleCompanyIdSet.has(profile.companyId))
 
   const defaultIds = new Set(defaultProfiles.map((profile) => profile.id))
+  const defaultNameKeys = new Set(defaultProfiles.map((profile) => normalizeFreeText(profile.name)))
+  const sortedStoredProfiles = [...storedProfiles].sort((left, right) => {
+    const leftCompanyRank = visibleCompanyRankById.get(left.companyId) ?? Number.MAX_SAFE_INTEGER
+    const rightCompanyRank = visibleCompanyRankById.get(right.companyId) ?? Number.MAX_SAFE_INTEGER
+    return (
+      leftCompanyRank - rightCompanyRank ||
+      left.name.localeCompare(right.name, 'pt-BR') ||
+      left.id - right.id
+    )
+  })
   const mergedDefaults = defaultProfiles.map((profile) => {
     const override = storedProfiles.find((storedProfile) => storedProfile.id === profile.id)
-    return override ?? profile
+    const namedOverride = sortedStoredProfiles.find(
+      (storedProfile) =>
+        storedProfile.role === profile.role &&
+        normalizeFreeText(storedProfile.name) === normalizeFreeText(profile.name),
+    )
+    return override ?? namedOverride ?? profile
   })
-  const customProfiles = storedProfiles.filter((profile) => !defaultIds.has(profile.id))
+  const mergedDefaultIds = new Set(mergedDefaults.map((profile) => profile.id))
+  const customProfilesByName = new Map<string, AccessProfileRecord>()
+  sortedStoredProfiles
+    .filter((profile) => !defaultIds.has(profile.id))
+    .filter((profile) => !mergedDefaultIds.has(profile.id))
+    .filter((profile) => !defaultNameKeys.has(normalizeFreeText(profile.name)))
+    .forEach((profile) => {
+      const nameKey = normalizeFreeText(profile.name)
+      if (!customProfilesByName.has(nameKey)) {
+        customProfilesByName.set(nameKey, profile)
+      }
+    })
+  const customProfiles = Array.from(customProfilesByName.values())
 
   return [...mergedDefaults, ...customProfiles]
 }
@@ -1432,8 +1468,9 @@ function resolveStockModuleProfileIdsByRoles(
   companyId: number,
   accessProfiles: AccessProfileRecord[],
   roles: CompanyUserRole[],
+  visibleCompanyIds?: number[],
 ) {
-  const companyProfiles = buildCompanyAccessProfilesForSettings(companyId, accessProfiles)
+  const companyProfiles = buildCompanyAccessProfilesForSettings(companyId, accessProfiles, visibleCompanyIds)
   return companyProfiles
     .filter((profile) => roles.includes(profile.role))
     .map((profile) => profile.id)
@@ -3009,7 +3046,7 @@ export default function App() {
   }, [session, sessionAppUser])
   const currentAppUser = useMemo(
     () => (rawSessionAppUser ? buildEffectiveAppUserForCompany(rawSessionAppUser, currentCompanyId) : null),
-    [accessProfiles, currentCompanyId, rawSessionAppUser],
+    [accessProfiles, companies, currentCompanyId, rawSessionAppUser],
   )
   const currentUserSectorScope = currentAppUser?.sectors ?? []
   const shouldFilterByUserSectors = session?.kind === 'appUser' && currentUserSectorScope.length > 0
@@ -3883,7 +3920,7 @@ export default function App() {
       accessProfiles.find(
         (profile) =>
           profile.id === membership.accessProfileId &&
-          profile.companyId === membership.companyId &&
+          isAccessProfileVisibleForCompany(profile, membership.companyId) &&
           profile.isActive,
       ) ?? null
     )
@@ -3915,7 +3952,10 @@ export default function App() {
   ) {
     let membershipChanged = false
     const nextMemberships = user.memberships.map((membership) => {
-      if (membership.companyId !== companyId || membership.accessProfileId !== removedProfileId) {
+      if (membership.accessProfileId !== removedProfileId) {
+        return membership
+      }
+      if (!getCompanyLinkScopeIds(companyId).includes(membership.companyId)) {
         return membership
       }
 
@@ -3956,7 +3996,7 @@ export default function App() {
   ) {
     let membershipChanged = false
     const nextMemberships = user.memberships.map((membership) => {
-      if (membership.companyId !== profile.companyId || membership.accessProfileId !== profile.id) {
+      if (membership.accessProfileId !== profile.id || !isAccessProfileVisibleForCompany(profile, membership.companyId)) {
         return membership
       }
 
@@ -3995,6 +4035,12 @@ export default function App() {
   }
   function isProductManagedByCompany(product: ProductRecord, companyId: number | null) {
     return companyId !== null && getProductOwnerCompanyId(product) === companyId
+  }
+  function isAccessProfileVisibleForCompany(profile: AccessProfileRecord, companyId: number | null) {
+    return companyId !== null && getCompanyLinkScopeIds(profile.companyId).includes(companyId)
+  }
+  function isAccessProfileManagedByCompany(profile: AccessProfileRecord, companyId: number | null) {
+    return companyId !== null && profile.companyId === companyId
   }
   function isServiceItemVisibleForCompany(item: ServiceItemRecord, companyId: number | null) {
     return companyId !== null && getCompanyLinkScopeIds(getServiceItemOwnerCompanyId(item)).includes(companyId)
@@ -8437,8 +8483,8 @@ export default function App() {
     }
   }, [selectedSalesImportBatch, selectedSalesImportBatchConsumptions, selectedSalesImportBatchRows])
   const companyAccessProfiles = useMemo(() => {
-    return buildCompanyAccessProfilesForSettings(currentCompanyId, accessProfiles)
-  }, [accessProfiles, currentCompanyId])
+    return buildCompanyAccessProfilesForSettings(currentCompanyId, accessProfiles, getCompanyLinkScopeIds(currentCompanyId))
+  }, [accessProfiles, companies, currentCompanyId])
   const activeCompanyAccessProfiles = useMemo(
     () => companyAccessProfiles.filter((profile) => profile.isActive),
     [companyAccessProfiles],
@@ -13435,13 +13481,13 @@ export default function App() {
   const assignableAccessProfilesByCompanyId = useMemo(() => {
     const entries = userAssignableCompanies.map((company) => [
       company.id,
-      buildCompanyAccessProfilesForSettings(company.id, accessProfiles)
+      buildCompanyAccessProfilesForSettings(company.id, accessProfiles, getCompanyLinkScopeIds(company.id))
         .filter((profile) => profile.isActive)
         .filter((profile) => canAssignPrivilegedUserRoles || profile.role === 'Colaborador')
         .sort((left, right) => left.name.localeCompare(right.name, 'pt-BR')),
     ] as const)
     return new Map<number, AccessProfileRecord[]>(entries)
-  }, [accessProfiles, canAssignPrivilegedUserRoles, userAssignableCompanies])
+  }, [accessProfiles, canAssignPrivilegedUserRoles, companies, userAssignableCompanies])
   const userAssignableCompanyLabels = useMemo(
     () => userAssignableCompanies.map((company) => `${company.tradeName} (${company.cnpj || `ID ${company.id}`})`),
     [userAssignableCompanies],
@@ -15867,10 +15913,30 @@ export default function App() {
         .filter((company) => !existingCompanyIds.has(company.id))
         .map((company) => ({
           companyId: company.id,
-          inventorySummaryEditProfileIds: resolveStockModuleProfileIdsByRoles(company.id, accessProfiles, ['Administrativo', 'Gestor']),
-          inventorySummaryDeleteProfileIds: resolveStockModuleProfileIdsByRoles(company.id, accessProfiles, ['Administrativo', 'Gestor']),
-          closedInventoryReopenProfileIds: resolveStockModuleProfileIdsByRoles(company.id, accessProfiles, ['Administrativo', 'Gestor']),
-          closedInventoryDeleteProfileIds: resolveStockModuleProfileIdsByRoles(company.id, accessProfiles, ['Administrativo', 'Gestor']),
+          inventorySummaryEditProfileIds: resolveStockModuleProfileIdsByRoles(
+            company.id,
+            accessProfiles,
+            ['Administrativo', 'Gestor'],
+            getCompanyLinkScopeIds(company.id),
+          ),
+          inventorySummaryDeleteProfileIds: resolveStockModuleProfileIdsByRoles(
+            company.id,
+            accessProfiles,
+            ['Administrativo', 'Gestor'],
+            getCompanyLinkScopeIds(company.id),
+          ),
+          closedInventoryReopenProfileIds: resolveStockModuleProfileIdsByRoles(
+            company.id,
+            accessProfiles,
+            ['Administrativo', 'Gestor'],
+            getCompanyLinkScopeIds(company.id),
+          ),
+          closedInventoryDeleteProfileIds: resolveStockModuleProfileIdsByRoles(
+            company.id,
+            accessProfiles,
+            ['Administrativo', 'Gestor'],
+            getCompanyLinkScopeIds(company.id),
+          ),
           salesImportDefaultHistoryMode: 'ROLLING_MONTHS' as const,
           salesImportDefaultHistoryMonths: 3,
           salesImportDefaultCoverageDays: 7,
@@ -15896,6 +15962,7 @@ export default function App() {
                 record.companyId,
                 accessProfiles,
                 record.legacyInventorySummaryEditRoles ?? ['Administrativo', 'Gestor'],
+                getCompanyLinkScopeIds(record.companyId),
               )
         const inventorySummaryDeleteProfileIds =
           record.inventorySummaryDeleteProfileIds.length > 0
@@ -15904,6 +15971,7 @@ export default function App() {
                 record.companyId,
                 accessProfiles,
                 record.legacyInventorySummaryDeleteRoles ?? ['Administrativo', 'Gestor'],
+                getCompanyLinkScopeIds(record.companyId),
               )
         const closedInventoryReopenProfileIds =
           record.closedInventoryReopenProfileIds.length > 0
@@ -15912,6 +15980,7 @@ export default function App() {
                 record.companyId,
                 accessProfiles,
                 record.legacyClosedInventoryReopenRoles ?? ['Administrativo', 'Gestor'],
+                getCompanyLinkScopeIds(record.companyId),
               )
         const closedInventoryDeleteProfileIds =
           record.closedInventoryDeleteProfileIds.length > 0
@@ -15920,10 +15989,15 @@ export default function App() {
                 record.companyId,
                 accessProfiles,
                 record.legacyClosedInventoryDeleteRoles ?? ['Administrativo', 'Gestor'],
+                getCompanyLinkScopeIds(record.companyId),
               )
 
         const activeProfileIds = new Set(
-          buildCompanyAccessProfilesForSettings(record.companyId, accessProfiles).map((profile) => profile.id),
+          buildCompanyAccessProfilesForSettings(
+            record.companyId,
+            accessProfiles,
+            getCompanyLinkScopeIds(record.companyId),
+          ).map((profile) => profile.id),
         )
         const sanitizedEdit = inventorySummaryEditProfileIds.filter((profileId) => activeProfileIds.has(profileId))
         const sanitizedDelete = inventorySummaryDeleteProfileIds.filter((profileId) => activeProfileIds.has(profileId))
@@ -15964,7 +16038,7 @@ export default function App() {
 
       return didChange ? next : current
     })
-  }, [accessProfiles])
+  }, [accessProfiles, companies])
 
   useEffect(() => {
     if (currentCompanyStockCenters.length === 0) {
@@ -16834,10 +16908,11 @@ export default function App() {
       current.map((user) => {
         let membershipsChanged = false
         const nextMemberships = user.memberships.map((membership) => {
-          const companyProfiles = [
-            ...buildDefaultAccessProfiles(membership.companyId),
-            ...accessProfiles.filter((profile) => profile.companyId === membership.companyId && profile.isActive),
-          ]
+          const companyProfiles = buildCompanyAccessProfilesForSettings(
+            membership.companyId,
+            accessProfiles,
+            getCompanyLinkScopeIds(membership.companyId),
+          ).filter((profile) => profile.isActive)
           const assignedProfile =
             membership.accessProfileId === null
               ? null
@@ -16880,7 +16955,7 @@ export default function App() {
         }
       }),
     )
-  }, [accessProfiles])
+  }, [accessProfiles, companies])
 
   useEffect(() => {
     if (
@@ -26744,12 +26819,14 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
     if (!name) {
       errors.push('nome do perfil obrigatorio')
     }
+    if (editingStoredProfile && !isAccessProfileManagedByCompany(editingStoredProfile, companyId)) {
+      errors.push('perfil compartilhado deve ser alterado na empresa de origem')
+    }
 
     const duplicateProfile = companyAccessProfiles.find(
       (profile) =>
         profile.id !== editingAccessProfileId &&
-        profile.companyId === companyId &&
-        profile.name === name,
+        normalizeFreeText(profile.name) === normalizeFreeText(name),
     )
     if (duplicateProfile) {
       errors.push('ja existe outro perfil com esse nome')
@@ -26768,7 +26845,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
       id:
         editingAccessProfileId ??
         (accessProfiles.length > 0 ? Math.max(...accessProfiles.map((profile) => profile.id)) + 1 : 1),
-      companyId: companyId as number,
+      companyId: editingStoredProfile?.companyId ?? (companyId as number),
       name,
       role: profileRole,
       sectionAccess: accessProfileForm.sectionAccess,
@@ -26818,75 +26895,83 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
       }))
     }
 
+    const profileVisibleCompanyIds = getCompanyLinkScopeIds(profileToSave.companyId)
     const nextStockModuleSettings = (() => {
       const current = stockModuleSettings
-      const nextRecord =
-        current.find((record) => record.companyId === profileToSave.companyId) ?? {
-          companyId: profileToSave.companyId,
-          inventorySummaryEditProfileIds: [],
-          inventorySummaryDeleteProfileIds: [],
-          closedInventoryReopenProfileIds: [],
-          closedInventoryDeleteProfileIds: [],
-          salesImportDefaultHistoryMode: 'ROLLING_MONTHS' as const,
-          salesImportDefaultHistoryMonths: 3,
-          salesImportDefaultCoverageDays: 7,
-          salesImportDefaultSafetyMarginPercent: '20',
-          salesImportAutoApplySuggestedMinimum: true,
-          salesImportAllowManualMinimumOverride: true,
-          salesImportUnmatchedRowPolicy: 'BLOCK' as const,
-          salesImportDuplicateRowPolicy: 'BLOCK' as const,
-        }
-
       const syncProfileId = (profileIds: number[], isEnabled: boolean) =>
         isEnabled
           ? Array.from(new Set([...profileIds, profileToSave.id]))
           : profileIds.filter((profileId) => profileId !== profileToSave.id)
 
-      const updatedRecord: StockModuleSettingsRecord = {
-        companyId: nextRecord.companyId,
-        inventorySummaryEditProfileIds: syncProfileId(
-          nextRecord.inventorySummaryEditProfileIds,
-          accessProfileForm.stockPermissions.inventorySummaryEdit,
-        ),
-        inventorySummaryDeleteProfileIds: syncProfileId(
-          nextRecord.inventorySummaryDeleteProfileIds,
-          accessProfileForm.stockPermissions.inventorySummaryDelete,
-        ),
-        closedInventoryReopenProfileIds: syncProfileId(
-          nextRecord.closedInventoryReopenProfileIds,
-          accessProfileForm.stockPermissions.closedInventoryReopen,
-        ),
-        closedInventoryDeleteProfileIds: syncProfileId(
-          nextRecord.closedInventoryDeleteProfileIds,
-          accessProfileForm.stockPermissions.closedInventoryDelete,
-        ),
-        salesImportDefaultHistoryMode: nextRecord.salesImportDefaultHistoryMode,
-        salesImportDefaultHistoryMonths: nextRecord.salesImportDefaultHistoryMonths,
-        salesImportDefaultCoverageDays: nextRecord.salesImportDefaultCoverageDays,
-        salesImportDefaultSafetyMarginPercent: nextRecord.salesImportDefaultSafetyMarginPercent,
-        salesImportAutoApplySuggestedMinimum: nextRecord.salesImportAutoApplySuggestedMinimum,
-        salesImportAllowManualMinimumOverride: nextRecord.salesImportAllowManualMinimumOverride,
-        salesImportUnmatchedRowPolicy: nextRecord.salesImportUnmatchedRowPolicy,
-        salesImportDuplicateRowPolicy: nextRecord.salesImportDuplicateRowPolicy,
-      }
+      return profileVisibleCompanyIds.reduce<StockModuleSettingsRecord[]>((records, targetCompanyId) => {
+        const nextRecord =
+          records.find((record) => record.companyId === targetCompanyId) ?? {
+            companyId: targetCompanyId,
+            inventorySummaryEditProfileIds: [],
+            inventorySummaryDeleteProfileIds: [],
+            closedInventoryReopenProfileIds: [],
+            closedInventoryDeleteProfileIds: [],
+            salesImportDefaultHistoryMode: 'ROLLING_MONTHS' as const,
+            salesImportDefaultHistoryMonths: 3,
+            salesImportDefaultCoverageDays: 7,
+            salesImportDefaultSafetyMarginPercent: '20',
+            salesImportAutoApplySuggestedMinimum: true,
+            salesImportAllowManualMinimumOverride: true,
+            salesImportUnmatchedRowPolicy: 'BLOCK' as const,
+            salesImportDuplicateRowPolicy: 'BLOCK' as const,
+          }
 
-      return current.some((record) => record.companyId === profileToSave.companyId)
-        ? current.map((record) => (record.companyId === profileToSave.companyId ? updatedRecord : record))
-        : [...current, updatedRecord]
+        const updatedRecord: StockModuleSettingsRecord = {
+          companyId: nextRecord.companyId,
+          inventorySummaryEditProfileIds: syncProfileId(
+            nextRecord.inventorySummaryEditProfileIds,
+            accessProfileForm.stockPermissions.inventorySummaryEdit,
+          ),
+          inventorySummaryDeleteProfileIds: syncProfileId(
+            nextRecord.inventorySummaryDeleteProfileIds,
+            accessProfileForm.stockPermissions.inventorySummaryDelete,
+          ),
+          closedInventoryReopenProfileIds: syncProfileId(
+            nextRecord.closedInventoryReopenProfileIds,
+            accessProfileForm.stockPermissions.closedInventoryReopen,
+          ),
+          closedInventoryDeleteProfileIds: syncProfileId(
+            nextRecord.closedInventoryDeleteProfileIds,
+            accessProfileForm.stockPermissions.closedInventoryDelete,
+          ),
+          salesImportDefaultHistoryMode: nextRecord.salesImportDefaultHistoryMode,
+          salesImportDefaultHistoryMonths: nextRecord.salesImportDefaultHistoryMonths,
+          salesImportDefaultCoverageDays: nextRecord.salesImportDefaultCoverageDays,
+          salesImportDefaultSafetyMarginPercent: nextRecord.salesImportDefaultSafetyMarginPercent,
+          salesImportAutoApplySuggestedMinimum: nextRecord.salesImportAutoApplySuggestedMinimum,
+          salesImportAllowManualMinimumOverride: nextRecord.salesImportAllowManualMinimumOverride,
+          salesImportUnmatchedRowPolicy: nextRecord.salesImportUnmatchedRowPolicy,
+          salesImportDuplicateRowPolicy: nextRecord.salesImportDuplicateRowPolicy,
+        }
+
+        return records.some((record) => record.companyId === targetCompanyId)
+          ? records.map((record) => (record.companyId === targetCompanyId ? updatedRecord : record))
+          : [...records, updatedRecord]
+      }, current)
     })()
 
-    const targetStockModuleSettings =
-      nextStockModuleSettings.find((record) => record.companyId === profileToSave.companyId) ?? null
-    if (targetStockModuleSettings) {
+    const targetStockModuleSettings = nextStockModuleSettings.filter((record) =>
+      profileVisibleCompanyIds.includes(record.companyId),
+    )
+    if (targetStockModuleSettings.length > 0) {
       try {
-        const response = await fetch(`/api/stock-module-settings/${profileToSave.companyId}`, {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(targetStockModuleSettings),
-        })
-        if (!response.ok) {
-          throw new Error('Nao foi possivel salvar as permissoes de estoque do perfil no servidor.')
-        }
+        await Promise.all(
+          targetStockModuleSettings.map(async (record) => {
+            const response = await fetch(`/api/stock-module-settings/${record.companyId}`, {
+              method: 'PUT',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(record),
+            })
+            if (!response.ok) {
+              throw new Error('Nao foi possivel salvar as permissoes de estoque do perfil no servidor.')
+            }
+          }),
+        )
       } catch (error) {
         console.error(error)
         setSaveProgressState(null)
@@ -26969,6 +27054,14 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
     if (!targetProfile) {
       return
     }
+    if (!isAccessProfileManagedByCompany(targetProfile, currentCompanyId)) {
+      setSaveFeedback({
+        status: 'error',
+        title: 'Perfil compartilhado',
+        message: `Este perfil pertence a ${getCompanyTradeName(targetProfile.companyId)} e deve ser alterado na empresa de origem.`,
+      })
+      return
+    }
 
     setActiveSection('Usuarios')
     setEditingAccessProfileId(profileId)
@@ -26989,6 +27082,14 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
   async function toggleAccessProfileStatus(profileId: number) {
     const targetProfile = companyAccessProfiles.find((profile) => profile.id === profileId)
     if (!targetProfile) {
+      return
+    }
+    if (!isAccessProfileManagedByCompany(targetProfile, currentCompanyId)) {
+      setSaveFeedback({
+        status: 'error',
+        title: 'Perfil compartilhado',
+        message: `Este perfil pertence a ${getCompanyTradeName(targetProfile.companyId)} e deve ser inativado na empresa de origem.`,
+      })
       return
     }
 
@@ -27023,21 +27124,29 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
               }),
             ),
         )
-        const targetStockModuleSettings = stockModuleSettings.find((record) => record.companyId === targetProfile.companyId) ?? null
-        if (targetStockModuleSettings) {
-          const nextSettings = {
-            ...targetStockModuleSettings,
-            inventorySummaryEditProfileIds: targetStockModuleSettings.inventorySummaryEditProfileIds.filter((item) => item !== profileId),
-            inventorySummaryDeleteProfileIds: targetStockModuleSettings.inventorySummaryDeleteProfileIds.filter((item) => item !== profileId),
-            closedInventoryReopenProfileIds: targetStockModuleSettings.closedInventoryReopenProfileIds.filter((item) => item !== profileId),
-            closedInventoryDeleteProfileIds: targetStockModuleSettings.closedInventoryDeleteProfileIds.filter((item) => item !== profileId),
-          }
-          await fetch(`/api/stock-module-settings/${targetProfile.companyId}`, {
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(nextSettings),
-          })
-        }
+        const targetStockModuleSettings = stockModuleSettings.filter(
+          (record) =>
+            record.inventorySummaryEditProfileIds.includes(profileId) ||
+            record.inventorySummaryDeleteProfileIds.includes(profileId) ||
+            record.closedInventoryReopenProfileIds.includes(profileId) ||
+            record.closedInventoryDeleteProfileIds.includes(profileId),
+        )
+        await Promise.all(
+          targetStockModuleSettings.map((record) => {
+            const nextSettings = {
+              ...record,
+              inventorySummaryEditProfileIds: record.inventorySummaryEditProfileIds.filter((item) => item !== profileId),
+              inventorySummaryDeleteProfileIds: record.inventorySummaryDeleteProfileIds.filter((item) => item !== profileId),
+              closedInventoryReopenProfileIds: record.closedInventoryReopenProfileIds.filter((item) => item !== profileId),
+              closedInventoryDeleteProfileIds: record.closedInventoryDeleteProfileIds.filter((item) => item !== profileId),
+            }
+            return fetch(`/api/stock-module-settings/${record.companyId}`, {
+              method: 'PUT',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(nextSettings),
+            })
+          }),
+        )
       }
     } catch (error) {
       console.error(error)
@@ -27052,33 +27161,36 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
     if (
       targetProfile.isActive &&
       userForm.memberships.some(
-        (membership) => membership.companyId === targetProfile.companyId && membership.accessProfileId === String(profileId),
+        (membership) =>
+          membership.accessProfileId === String(profileId) &&
+          isAccessProfileVisibleForCompany(targetProfile, membership.companyId),
       )
     ) {
+      const visibleCompanyIds = new Set(getCompanyLinkScopeIds(targetProfile.companyId))
       setUserForm((current) => {
         const primaryCompanyId = current.companyIds[0] ?? null
         return {
           ...current,
           accessProfileId:
-            primaryCompanyId === targetProfile.companyId
+            primaryCompanyId !== null && visibleCompanyIds.has(primaryCompanyId)
               ? fallbackProfile
                 ? String(fallbackProfile.id)
                 : ''
               : current.accessProfileId,
           sectionAccess:
-            primaryCompanyId === targetProfile.companyId
+            primaryCompanyId !== null && visibleCompanyIds.has(primaryCompanyId)
               ? fallbackProfile?.sectionAccess ?? defaultSectionAccessByRole(current.role)
               : current.sectionAccess,
           catalogAccess:
-            primaryCompanyId === targetProfile.companyId
+            primaryCompanyId !== null && visibleCompanyIds.has(primaryCompanyId)
               ? fallbackProfile?.catalogAccess ?? defaultCatalogAccessByRole(current.role)
               : current.catalogAccess,
           recipePanelAccess:
-            primaryCompanyId === targetProfile.companyId
+            primaryCompanyId !== null && visibleCompanyIds.has(primaryCompanyId)
               ? fallbackProfile?.recipePanelAccess ?? defaultRecipePanelAccess()
               : current.recipePanelAccess,
           memberships: current.memberships.map((membership) =>
-            membership.companyId === targetProfile.companyId && membership.accessProfileId === String(profileId)
+            membership.accessProfileId === String(profileId) && visibleCompanyIds.has(membership.companyId)
               ? {
                   ...membership,
                   accessProfileId: fallbackProfile ? String(fallbackProfile.id) : '',
@@ -27099,6 +27211,14 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
   async function deleteAccessProfile(profileId: number) {
     const targetProfile = companyAccessProfiles.find((profile) => profile.id === profileId)
     if (!targetProfile) {
+      return
+    }
+    if (!isAccessProfileManagedByCompany(targetProfile, currentCompanyId)) {
+      setSaveFeedback({
+        status: 'error',
+        title: 'Perfil compartilhado',
+        message: `Este perfil pertence a ${getCompanyTradeName(targetProfile.companyId)} e deve ser excluido na empresa de origem.`,
+      })
       return
     }
 
@@ -27144,33 +27264,36 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
 
     if (
       userForm.memberships.some(
-        (membership) => membership.companyId === targetProfile.companyId && membership.accessProfileId === String(profileId),
+        (membership) =>
+          membership.accessProfileId === String(profileId) &&
+          isAccessProfileVisibleForCompany(targetProfile, membership.companyId),
       )
     ) {
+      const visibleCompanyIds = new Set(getCompanyLinkScopeIds(targetProfile.companyId))
       setUserForm((current) => {
         const primaryCompanyId = current.companyIds[0] ?? null
         return {
           ...current,
           accessProfileId:
-            primaryCompanyId === targetProfile.companyId
+            primaryCompanyId !== null && visibleCompanyIds.has(primaryCompanyId)
               ? fallbackProfile
                 ? String(fallbackProfile.id)
                 : ''
               : current.accessProfileId,
           sectionAccess:
-            primaryCompanyId === targetProfile.companyId
+            primaryCompanyId !== null && visibleCompanyIds.has(primaryCompanyId)
               ? fallbackProfile?.sectionAccess ?? defaultSectionAccessByRole(current.role)
               : current.sectionAccess,
           catalogAccess:
-            primaryCompanyId === targetProfile.companyId
+            primaryCompanyId !== null && visibleCompanyIds.has(primaryCompanyId)
               ? fallbackProfile?.catalogAccess ?? defaultCatalogAccessByRole(current.role)
               : current.catalogAccess,
           recipePanelAccess:
-            primaryCompanyId === targetProfile.companyId
+            primaryCompanyId !== null && visibleCompanyIds.has(primaryCompanyId)
               ? fallbackProfile?.recipePanelAccess ?? defaultRecipePanelAccess()
               : current.recipePanelAccess,
           memberships: current.memberships.map((membership) =>
-            membership.companyId === targetProfile.companyId && membership.accessProfileId === String(profileId)
+            membership.accessProfileId === String(profileId) && visibleCompanyIds.has(membership.companyId)
               ? {
                   ...membership,
                   accessProfileId: fallbackProfile ? String(fallbackProfile.id) : '',
@@ -45990,39 +46113,46 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
             </div>
 
             <div className="selector-list company-management-list">
-              {listedCompanyAccessProfiles.map((profile) => (
-                <article key={profile.id} className="list-row user-list-row">
-                  <div className="user-row-header">
-                    <div className="user-title-group">
-                      <strong>{profile.name}</strong>
-                      <span className={profile.isActive ? 'status-pill status-active' : 'status-pill status-inactive'}>
-                        {profile.isActive ? 'Ativo' : 'Inativo'}
-                      </span>
+              {listedCompanyAccessProfiles.map((profile) => {
+                const isManagedProfile = isAccessProfileManagedByCompany(profile, currentCompanyId)
+                return (
+                  <article key={profile.id} className="list-row user-list-row">
+                    <div className="user-row-header">
+                      <div className="user-title-group">
+                        <strong>{profile.name}</strong>
+                        <span className={profile.isActive ? 'status-pill status-active' : 'status-pill status-inactive'}>
+                          {profile.isActive ? 'Ativo' : 'Inativo'}
+                        </span>
+                        {!isManagedProfile && (
+                          <span className="status-pill">Compartilhado por {getCompanyTradeName(profile.companyId)}</span>
+                        )}
+                      </div>
+                      {isManagedProfile && (
+                        <div className="row-actions">
+                          <button
+                            type="button"
+                            className="ghost-button"
+                            onClick={() => editAccessProfile(profile.id)}
+                          >
+                            Atualizar
+                          </button>
+                          <button
+                            type="button"
+                            className={profile.isActive ? 'warning-button' : 'ghost-button'}
+                            onClick={() => toggleAccessProfileStatus(profile.id)}
+                          >
+                            {profile.isActive ? 'Inativar' : 'Ativar'}
+                          </button>
+                          <button
+                            type="button"
+                            className="danger-button"
+                            onClick={() => deleteAccessProfile(profile.id)}
+                          >
+                            Excluir
+                          </button>
+                        </div>
+                      )}
                     </div>
-                    <div className="row-actions">
-                      <button
-                        type="button"
-                        className="ghost-button"
-                        onClick={() => editAccessProfile(profile.id)}
-                      >
-                        Atualizar
-                      </button>
-                      <button
-                        type="button"
-                        className={profile.isActive ? 'warning-button' : 'ghost-button'}
-                        onClick={() => toggleAccessProfileStatus(profile.id)}
-                      >
-                        {profile.isActive ? 'Inativar' : 'Ativar'}
-                      </button>
-                      <button
-                        type="button"
-                        className="danger-button"
-                        onClick={() => deleteAccessProfile(profile.id)}
-                      >
-                        Excluir
-                      </button>
-                    </div>
-                  </div>
                   <div className="row-meta user-row-meta">
 	                    <div className="user-meta-line">
 	                      <span>
@@ -46072,11 +46202,12 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                         ]
                           .filter(Boolean)
                           .join(', ') || 'Sem permissao'}
-                      </span>
-                    </div>
-                  </div>
-                </article>
-              ))}
+	                      </span>
+	                    </div>
+	                  </div>
+                  </article>
+                )
+              })}
             </div>
           </section>
           ) : null}
