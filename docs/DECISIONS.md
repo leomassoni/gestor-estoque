@@ -454,7 +454,7 @@ Registrar o que foi decidido, o que foi adiado e o que foi descartado, com foco 
   - cancelar uma requisicao em `Suprimentos` deve marcar `CANCELLED`; nao deve devolve-la para `PENDING_APPROVAL`;
   - requisicao `CANCELLED` e terminal para sincronizacao: cliente antigo/cache local nao pode reativar o registro como pendente, aprovado, em suprimentos ou pronto para receber;
   - inventario operacional usado para calcular falta de compras deve vir do banco; `localStorage` nao pode restaurar contagens/sessoes/movimentos quando o servidor nao possui esses registros;
-  - requisicoes antigas com `requestUnitLabel = EMBALAGENS` e `packageId` vazio devem ser interpretadas por embalagem quando a embalagem puder ser inferida com seguranca, para evitar exibir quantidade de embalagens como se fosse ML/G/UN; no painel de `Compras`, o comprador deve ver a referencia em coluna `Embalagem` e as quantidades em `EMB.` quando a compra puder ser expressa por embalagem.
+  - requisicoes antigas com `requestUnitLabel = EMBALAGENS` e `packageId` vazio devem ser interpretadas por embalagem quando a embalagem puder ser inferida com seguranca, para evitar exibir quantidade de embalagens como se fosse ML/G/UN; no painel de `Compras`, o comprador deve ver a referencia em coluna `Embalagem` e as quantidades sem sufixo quando a compra puder ser expressa por embalagem.
   - a tela exporta XLSX e PDF do consolidado visivel.
 
 ### Planejamento de producao deve ser cancelado pelo `rootRequestId`

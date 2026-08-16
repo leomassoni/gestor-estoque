@@ -833,7 +833,7 @@ type PurchaseDemandRow = {
 }
 function formatPurchaseDemandQuantity(quantity: number, row: PurchaseDemandRow) {
   if (row.packageBaseQuantity !== null && row.packageBaseQuantity > 0 && row.packageLabel) {
-    return `${formatDecimal(quantity / row.packageBaseQuantity)} EMB.`
+    return formatDecimal(quantity / row.packageBaseQuantity)
   }
 
   return `${formatDecimal(quantity)} ${row.unitLabel}`
