@@ -3233,7 +3233,10 @@ function normalizeSalesImportBatchPayload(value) {
     return null
   }
 
-  const summary = record.summary && typeof record.summary === 'object' && !Array.isArray(record.summary) ? record.summary : {}
+  const summary = record.summary && typeof record.summary === 'object' && !Array.isArray(record.summary) ? { ...record.summary } : {}
+  if (typeof record.importCode === 'string' && record.importCode.trim() !== '' && typeof summary.importCode !== 'string') {
+    summary.importCode = record.importCode.trim()
+  }
 
   return {
     id,

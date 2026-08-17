@@ -813,6 +813,7 @@ const defaultRequisitionFlowColumnVisibility: Record<RequisitionFlowColumnKey, b
 const defaultRequisitionFlowColumnFilters: Partial<Record<RequisitionFlowColumnKey, string[]>> = {}
 type PurchaseDemandRow = {
   key: string
+  purchaseOrderCode: string
   stockCenterId: number
   stockCenterName: string
   productId: string
@@ -829,7 +830,43 @@ type PurchaseDemandRow = {
   originCount: number
   requesterCenters: string[]
   requisitionIds: number[]
+  originDetails: PurchaseDemandOriginDetail[]
   sourceLabel: string
+}
+type PurchaseDemandOriginDetail = {
+  requisitionId: number
+  requisitionGroupId: number
+  purchaseOrderCode: string
+  requestingCenterName: string
+  sourceLabel: string
+  requestedQuantity: number
+}
+type PurchaseOrderGroupLine = {
+  key: string
+  productName: string
+  internalId: string
+  family: string
+  subfamily: string
+  packageLabel: string
+  unitLabel: string
+  requestedQuantity: number
+  purchaseQuantity: number
+  sourceLabel: string
+  demandRow: PurchaseDemandRow | null
+}
+type PurchaseOrderGroup = {
+  key: string
+  purchaseOrderCode: string
+  requisitionId: number
+  requisitionGroupId: number
+  status: RequisitionStatus
+  statusLabel: string
+  isCancelled: boolean
+  requestingCenterName: string
+  supplyCenterName: string
+  createdByUserName: string
+  createdAt: string
+  lines: PurchaseOrderGroupLine[]
 }
 type PurchasePanelTab = 'demand' | 'supplies'
 function formatPurchaseDemandQuantity(quantity: number, row: PurchaseDemandRow) {
@@ -841,6 +878,22 @@ function formatPurchaseDemandQuantity(quantity: number, row: PurchaseDemandRow) 
 }
 function formatPurchaseDemandPackageLabel(row: PurchaseDemandRow) {
   return row.packageBaseQuantity !== null && row.packageBaseQuantity > 0 && row.packageLabel ? row.packageLabel : '-'
+}
+function buildPurchaseOrderOperationalCode(record: Pick<RequisitionRecord, 'id' | 'companyId' | 'stockCenterId'>) {
+  return `PC-C${record.companyId}-CE${record.stockCenterId}-REQ${String(record.id).padStart(4, '0')}`
+}
+function isPurchaseDemandEligibleRequisition(record: RequisitionRecord) {
+  return (
+    record.status !== 'CANCELLED' &&
+    record.status !== 'RECEIVED' &&
+    isRequisitionApprovedAndSent(record)
+  )
+}
+function isCancelledPurchaseOriginRequisition(record: RequisitionRecord) {
+  return (
+    record.status === 'CANCELLED' &&
+    record.lines.some((line) => line.kind === 'PRODUTO' && (line.destinationType === 'COMPRAS' || line.destinationType === 'SUPRIMENTOS'))
+  )
 }
 const requisitionHistoryColumnOptions: Array<[RequisitionHistoryColumnKey, string]> = [
   ['center', 'Centro'],
@@ -2102,6 +2155,37 @@ function getSalesImportCoverageModeLegacyDays(mode: SalesImportCoverageMode) {
   return 30
 }
 
+function formatDateKeyCompact(value: string) {
+  const match = value.trim().match(/^(\d{4})-(\d{2})-(\d{2})/)
+  if (!match) {
+    return getTodayDateInputValue().replace(/-/g, '')
+  }
+  return `${match[1]}${match[2]}${match[3]}`
+}
+
+function buildSalesImportBatchOperationalCode(params: {
+  id: number
+  companyId: number
+  stockCenterId: number
+  importedAt: string
+}) {
+  return `IMP-C${params.companyId}-CE${params.stockCenterId}-${formatDateKeyCompact(params.importedAt)}-${String(params.id).padStart(4, '0')}`
+}
+
+function getSalesImportBatchOperationalCode(batch: SalesImportBatchRecord) {
+  if (typeof batch.importCode === 'string' && batch.importCode.trim() !== '') {
+    return batch.importCode.trim()
+  }
+  const summaryImportCode =
+    batch.summary && typeof batch.summary === 'object'
+      ? (batch.summary as { importCode?: unknown }).importCode
+      : undefined
+  if (typeof summaryImportCode === 'string' && summaryImportCode.trim() !== '') {
+    return summaryImportCode.trim()
+  }
+  return buildSalesImportBatchOperationalCode(batch)
+}
+
 function getSalesImportBatchCoverageMode(batch: Pick<SalesImportBatchRecord, 'coverageMode' | 'coverageDays' | 'summary'>) {
   const summaryCoverageMode =
     batch.summary && typeof batch.summary === 'object'
@@ -2615,6 +2699,8 @@ export default function App() {
   const [supplyScrollTop, setSupplyScrollTop] = useState(0)
   const [purchasePanelTab, setPurchasePanelTab] = useState<PurchasePanelTab>('demand')
   const [purchaseSearch, setPurchaseSearch] = useState('')
+  const [showCancelledPurchaseOrders, setShowCancelledPurchaseOrders] = useState(false)
+  const [selectedPurchaseOrderKey, setSelectedPurchaseOrderKey] = useState<string | null>(null)
   const [purchaseSupplySearch, setPurchaseSupplySearch] = useState('')
   const [purchaseSupplyEditingRequisitionId, setPurchaseSupplyEditingRequisitionId] = useState<number | null>(null)
   const [purchaseSupplyDraftLines, setPurchaseSupplyDraftLines] = useState<RequisitionDraftLine[]>([])
@@ -7531,6 +7617,7 @@ export default function App() {
         currentQuantity: number
         requesterCenters: Set<string>
         requisitionIds: Set<number>
+        originDetails: Map<number, PurchaseDemandOriginDetail>
         sourceLabels: Set<string>
         shouldSubtractCurrentStock: boolean
       }
@@ -7624,6 +7711,7 @@ export default function App() {
           currentQuantity,
           requesterCenters: new Set<string>(),
           requisitionIds: new Set<number>(),
+          originDetails: new Map<number, PurchaseDemandOriginDetail>(),
           sourceLabels: new Set<string>(),
           shouldSubtractCurrentStock: params.shouldSubtractCurrentStock,
         }
@@ -7638,6 +7726,15 @@ export default function App() {
       group.currentQuantity = currentQuantity
       group.requesterCenters.add(params.record.stockCenterName)
       group.requisitionIds.add(params.record.id)
+      const currentOrigin = group.originDetails.get(params.record.id)
+      group.originDetails.set(params.record.id, {
+        requisitionId: params.record.id,
+        requisitionGroupId: params.record.requisitionGroupId,
+        purchaseOrderCode: buildPurchaseOrderOperationalCode(params.record),
+        requestingCenterName: params.record.stockCenterName,
+        sourceLabel: params.sourceLabel,
+        requestedQuantity: (currentOrigin?.requestedQuantity ?? 0) + getLineBaseQuantity(params.line),
+      })
       group.sourceLabels.add(params.sourceLabel)
       groups.set(groupKey, group)
     }
@@ -7646,9 +7743,10 @@ export default function App() {
       .filter(
         (record) =>
           record.companyId === currentCompanyId &&
+          isPurchaseDemandEligibleRequisition(record) &&
           record.status === 'SENT_TO_SUPPLIES' &&
           record.supplyCenterId !== null &&
-          isRequisitionApprovedAndSent(record),
+          record.lines.some((line) => line.destinationType === 'SUPRIMENTOS'),
       )
       .forEach((record) => {
         const supplierCenter = stockCenterById.get(record.supplyCenterId as number) ?? null
@@ -7672,8 +7770,9 @@ export default function App() {
       .filter(
         (record) =>
           record.companyId === currentCompanyId &&
+          isPurchaseDemandEligibleRequisition(record) &&
           isDirectPurchaseReadyToReceiveRequisition(record) &&
-          isRequisitionApprovedAndSent(record),
+          record.lines.some((line) => line.destinationType === 'COMPRAS'),
       )
       .forEach((record) => {
         const requestingCenter = stockCenterById.get(record.stockCenterId) ?? null
@@ -7698,8 +7797,13 @@ export default function App() {
         const purchaseQuantity = group.shouldSubtractCurrentStock
           ? Math.max(group.requestedQuantity - group.currentQuantity, 0)
           : group.requestedQuantity
+        const originDetails = Array.from(group.originDetails.values()).sort((left, right) => left.requisitionId - right.requisitionId)
         return {
           key: `${group.center.id}:${group.productId}:${Array.from(group.sourceLabels).join('|')}`,
+          purchaseOrderCode:
+            originDetails.length === 1
+              ? originDetails[0]?.purchaseOrderCode ?? `PC-C${currentCompanyId}-CE${group.center.id}`
+              : `PC-C${currentCompanyId}-CE${group.center.id}-CONSOLIDADO`,
           stockCenterId: group.center.id,
           stockCenterName: group.center.name,
           productId: group.productId,
@@ -7716,6 +7820,7 @@ export default function App() {
           originCount: group.requisitionIds.size,
           requesterCenters: Array.from(group.requesterCenters).sort((left, right) => left.localeCompare(right, 'pt-BR')),
           requisitionIds: Array.from(group.requisitionIds).sort((left, right) => left - right),
+          originDetails,
           sourceLabel: Array.from(group.sourceLabels).sort((left, right) => left.localeCompare(right, 'pt-BR')).join(' / '),
         } satisfies PurchaseDemandRow
       })
@@ -7740,9 +7845,11 @@ export default function App() {
         row.internalId,
         row.family,
         row.subfamily,
+        row.purchaseOrderCode,
         row.sourceLabel,
         row.requesterCenters.join(', '),
         row.requisitionIds.map((id) => `#${id}`).join(', '),
+        row.originDetails.map((origin) => origin.purchaseOrderCode).join(', '),
       ].some((value) => normalizeFreeText(value).includes(search)),
     )
   }, [purchaseDemandRows, purchaseSearch])
@@ -7753,6 +7860,109 @@ export default function App() {
       familyCount: new Set(visiblePurchaseDemandRows.map((row) => row.family)).size,
     }),
     [visiblePurchaseDemandRows],
+  )
+  const visiblePurchaseOrderGroups = useMemo(() => {
+    if (currentCompanyId === null) {
+      return [] as PurchaseOrderGroup[]
+    }
+    const visibleDemandRows = visiblePurchaseDemandRows
+    const visibleDemandRowKeys = new Set(visibleDemandRows.map((row) => row.key))
+    const productById = new Map(products.filter((product) => isProductManagedByCompany(product, currentCompanyId)).map((product) => [product.id, product]))
+    const stockCenterById = new Map(stockCenters.filter((center) => center.companyId === currentCompanyId).map((center) => [center.id, center]))
+
+    const buildCancelledLines = (record: RequisitionRecord) =>
+      record.lines
+        .filter((line) => line.kind === 'PRODUTO' && (line.destinationType === 'COMPRAS' || line.destinationType === 'SUPRIMENTOS'))
+        .map((line) => {
+          const product = productById.get(line.productId) ?? null
+          const requestedQuantity = parseDecimal(line.requestedQuantity) ?? 0
+          return {
+            key: `${record.id}:${line.key}`,
+            productName: product?.name ?? line.itemName,
+            internalId: product?.companyProductId || product?.id || line.productId,
+            family: product?.family ?? line.family,
+            subfamily: product?.subfamily ?? '-',
+            packageLabel: line.requestUnitLabel,
+            unitLabel: line.currentUnitLabel || (product ? formatControlUnitShort(product.controlUnit) : 'UN'),
+            requestedQuantity,
+            purchaseQuantity: 0,
+            sourceLabel: line.destinationType === 'COMPRAS' ? 'Origem cancelada em compras' : 'Origem cancelada em suprimento interno',
+            demandRow: null,
+          } satisfies PurchaseOrderGroupLine
+        })
+
+    return companyRequisitions
+      .filter((record) => {
+        if (record.companyId !== currentCompanyId) {
+          return false
+        }
+        const isCancelledOrigin = isCancelledPurchaseOriginRequisition(record)
+        if (isCancelledOrigin) {
+          return showCancelledPurchaseOrders
+        }
+        if (!isPurchaseDemandEligibleRequisition(record)) {
+          return false
+        }
+        return visibleDemandRows.some((row) => row.requisitionIds.includes(record.id))
+      })
+      .map((record) => {
+        const activeLines = visibleDemandRows
+          .filter((row) => row.requisitionIds.includes(record.id) && visibleDemandRowKeys.has(row.key))
+          .flatMap((row) =>
+            row.originDetails
+              .filter((origin) => origin.requisitionId === record.id)
+              .map((origin) => {
+                const allocationRatio = row.requestedQuantity > 0 ? origin.requestedQuantity / row.requestedQuantity : 0
+                return {
+                  key: `${record.id}:${row.key}`,
+                  productName: row.productName,
+                  internalId: row.internalId,
+                  family: row.family,
+                  subfamily: row.subfamily,
+                  packageLabel: formatPurchaseDemandPackageLabel(row),
+                  unitLabel: row.packageLabel ? 'EMB.' : row.unitLabel,
+                  requestedQuantity: origin.requestedQuantity,
+                  purchaseQuantity: row.purchaseQuantity * allocationRatio,
+                  sourceLabel: origin.sourceLabel,
+                  demandRow: row,
+                } satisfies PurchaseOrderGroupLine
+              }),
+          )
+        const isCancelled = record.status === 'CANCELLED'
+        const lines = isCancelled ? buildCancelledLines(record) : activeLines
+        const supplyCenterName =
+          record.supplyCenterName ||
+          stockCenterById.get(record.supplyCenterId ?? record.stockCenterId)?.name ||
+          record.stockCenterName
+        return {
+          key: buildPurchaseOrderOperationalCode(record),
+          purchaseOrderCode: buildPurchaseOrderOperationalCode(record),
+          requisitionId: record.id,
+          requisitionGroupId: record.requisitionGroupId,
+          status: record.status,
+          statusLabel: isCancelled ? 'Cancelado' : 'Ativo',
+          isCancelled,
+          requestingCenterName: record.stockCenterName,
+          supplyCenterName,
+          createdByUserName: record.createdByUserName,
+          createdAt: record.createdAt,
+          lines,
+        } satisfies PurchaseOrderGroup
+      })
+      .filter((group) => group.isCancelled || group.lines.length > 0)
+      .sort((left, right) => {
+        if (left.isCancelled !== right.isCancelled) {
+          return left.isCancelled ? 1 : -1
+        }
+        return right.createdAt.localeCompare(left.createdAt) || left.purchaseOrderCode.localeCompare(right.purchaseOrderCode, 'pt-BR')
+      })
+  }, [companyRequisitions, currentCompanyId, products, showCancelledPurchaseOrders, stockCenters, visiblePurchaseDemandRows])
+  const purchaseOrderSummary = useMemo(
+    () => ({
+      activeOrderCount: visiblePurchaseOrderGroups.filter((group) => !group.isCancelled).length,
+      cancelledOrderCount: visiblePurchaseOrderGroups.filter((group) => group.isCancelled).length,
+    }),
+    [visiblePurchaseOrderGroups],
   )
   const purchaseSupplyProductKeysByRequisitionId = useMemo(() => {
     const nextMap = new Map<number, Set<string>>()
@@ -7772,7 +7982,7 @@ export default function App() {
         if (currentCompanyId === null || record.companyId !== currentCompanyId) {
           return false
         }
-        if (record.status !== 'SENT_TO_SUPPLIES' || record.supplyCenterId === null) {
+        if (!isPurchaseDemandEligibleRequisition(record) || record.status !== 'SENT_TO_SUPPLIES' || record.supplyCenterId === null) {
           return false
         }
         const productKeys = purchaseSupplyProductKeysByRequisitionId.get(record.id)
@@ -25791,6 +26001,7 @@ export default function App() {
     }
 
     const headers = [
+      'Pedido',
       'Centro a abastecer',
       'Familia',
       'Subfamilia',
@@ -25803,9 +26014,11 @@ export default function App() {
       'Unidade',
       'Origens',
       'Requisicoes',
+      'Pedidos origem',
       'Tipo',
     ]
     const rows = visiblePurchaseDemandRows.map((row) => [
+      row.purchaseOrderCode,
       row.stockCenterName,
       row.family,
       row.subfamily,
@@ -25818,6 +26031,7 @@ export default function App() {
       row.packageLabel ? 'EMB.' : row.unitLabel,
       row.requesterCenters.join(', '),
       row.requisitionIds.map((id) => `#${id}`).join(', '),
+      row.originDetails.map((origin) => origin.purchaseOrderCode).join(', '),
       row.sourceLabel,
     ])
     const fileDate = getTodayDateInputValue()
@@ -25867,6 +26081,98 @@ export default function App() {
       status: 'success',
       title: `Compras exportadas em ${format.toUpperCase()}`,
       message: 'O arquivo foi gerado com base no consolidado visivel do painel de compras.',
+    })
+  }
+
+  async function exportPurchaseOrderGroup(group: PurchaseOrderGroup, format: 'pdf' | 'xlsx') {
+    if (group.lines.length === 0) {
+      setSaveFeedback({
+        status: 'error',
+        title: 'Exportacao indisponivel',
+        message: 'Este pedido nao possui linhas para exportar.',
+      })
+      return
+    }
+
+    const formatGroupQuantity = (quantity: number, line: PurchaseOrderGroupLine) =>
+      line.demandRow ? formatPurchaseDemandQuantity(quantity, line.demandRow) : `${formatDecimal(quantity)} ${line.unitLabel}`
+
+    const headers = [
+      'Pedido',
+      'Status',
+      'Requisicao',
+      'Centro solicitante',
+      'Centro distribuidor',
+      'Familia',
+      'Subfamilia',
+      'Produto',
+      'ID produto',
+      'Embalagem',
+      'Demanda interna',
+      'Comprar',
+      'Tipo',
+    ]
+    const rows = group.lines.map((line) => [
+      group.purchaseOrderCode,
+      group.statusLabel,
+      `#${group.requisitionId}`,
+      group.requestingCenterName,
+      group.supplyCenterName,
+      line.family,
+      line.subfamily,
+      line.productName,
+      line.internalId,
+      line.packageLabel,
+      formatGroupQuantity(line.requestedQuantity, line),
+      formatGroupQuantity(line.purchaseQuantity, line),
+      line.sourceLabel,
+    ])
+    const fileBaseName = `compras-${group.purchaseOrderCode.toLowerCase()}`
+
+    if (format === 'xlsx') {
+      const xlsxModule = await loadXlsxModule()
+      const worksheet = xlsxModule.utils.aoa_to_sheet([
+        ['Empresa', currentCompany?.tradeName || '-'],
+        ['Pedido', group.purchaseOrderCode],
+        ['Status', group.statusLabel],
+        ['Requisicao', `#${group.requisitionId}`],
+        ['Centro solicitante', group.requestingCenterName],
+        ['Centro distribuidor', group.supplyCenterName],
+        [],
+        headers,
+        ...rows,
+      ])
+      const workbook = xlsxModule.utils.book_new()
+      xlsxModule.utils.book_append_sheet(workbook, worksheet, 'Pedido')
+      xlsxModule.writeFile(workbook, `${fileBaseName}.xlsx`)
+    } else {
+      const { jsPdfModule, autoTableModule } = await loadPdfDependencies()
+      const { jsPDF } = jsPdfModule
+      const autoTable = autoTableModule.default
+      const doc = new jsPDF({ orientation: 'landscape', unit: 'pt', format: 'a4' })
+      doc.setFontSize(14)
+      doc.text(`Pedido de compra ${group.purchaseOrderCode}`, 40, 32)
+      doc.setFontSize(9)
+      doc.text(`Empresa: ${currentCompany?.tradeName || '-'} | Status: ${group.statusLabel} | Requisicao: #${group.requisitionId}`, 40, 48)
+      autoTable(doc, {
+        head: [headers],
+        body: rows,
+        startY: 64,
+        styles: { fontSize: 7, cellPadding: 4, overflow: 'linebreak' },
+        headStyles: { fillColor: [15, 72, 124] },
+        columnStyles: {
+          0: { cellWidth: 96 },
+          7: { cellWidth: 130 },
+          12: { cellWidth: 120 },
+        },
+      })
+      doc.save(`${fileBaseName}.pdf`)
+    }
+
+    setSaveFeedback({
+      status: 'success',
+      title: `Pedido exportado em ${format.toUpperCase()}`,
+      message: `O pedido ${group.purchaseOrderCode} foi exportado.`,
     })
   }
 
@@ -25973,6 +26279,36 @@ export default function App() {
       status: 'success',
       title: 'Requisicao excluida',
       message: 'A requisicao foi removida do historico.',
+    })
+  }
+
+  async function deleteCancelledPurchaseOrder(requisitionId: number) {
+    const targetRequisition = requisitions.find((record) => record.id === requisitionId) ?? null
+    if (!targetRequisition || targetRequisition.status !== 'CANCELLED' || !canManageRequisition(targetRequisition)) {
+      return
+    }
+
+    try {
+      await deleteRequisitionRecordOnApi(requisitionId)
+    } catch (error) {
+      console.error(error)
+      setSaveFeedback({
+        status: 'error',
+        title: 'Falha ao excluir pedido cancelado',
+        message: error instanceof Error ? error.message : 'Erro ao excluir o pedido cancelado no servidor.',
+      })
+      return
+    }
+
+    const nextRequisitions = requisitions.filter((record) => record.id !== requisitionId)
+    setRequisitions(nextRequisitions)
+    syncedRequisitionRecordMapRef.current = buildEntitySignatureMap(nextRequisitions, (record) => record.id)
+    setRequisitionNotifications((current) => current.filter((notification) => notification.requisitionId !== requisitionId))
+    setSelectedPurchaseOrderKey((current) => (current === buildPurchaseOrderOperationalCode(targetRequisition) ? null : current))
+    setSaveFeedback({
+      status: 'success',
+      title: 'Pedido cancelado excluido',
+      message: 'A origem cancelada foi removida do painel de compras.',
     })
   }
 
@@ -33815,10 +34151,17 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
     const nextBatchId = getNextPersistedIntId(salesImportBatches.map((batch) => batch.id))
     const importedAt = new Date().toISOString()
     const postingMode = salesImportPostingMode
+    const importCode = buildSalesImportBatchOperationalCode({
+      id: nextBatchId,
+      companyId: currentCompanyId,
+      stockCenterId: targetCenter.id,
+      importedAt,
+    })
     const batchToSave: SalesImportBatchRecord = {
       id: nextBatchId,
       companyId: currentCompanyId,
       stockCenterId: targetCenter.id,
+      importCode,
       templateId,
       uploadedByUserId: currentAppUser?.id ?? null,
       uploadedByUserName: currentAppUser?.fullName ?? 'Administrador do sistema',
@@ -33847,6 +34190,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
         sourceSheet: salesImportCurrentSheet.name,
         coverageMode,
         coverageWeekStartsOn,
+        importCode,
       },
     }
 
@@ -44121,7 +44465,8 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                                     })
                                   }
                                 />
-                              </th>
+                            </th>
+                            <th>ID importacao</th>
                             <th>Arquivo</th>
                             <th>Centro</th>
                             <th>Historico</th>
@@ -44136,7 +44481,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                           <tbody>
                             {visibleSalesImportBatchHistoryRange.topSpacerHeight > 0 ? (
                               <tr aria-hidden="true">
-                                <td colSpan={10} style={{ height: `${visibleSalesImportBatchHistoryRange.topSpacerHeight}px`, padding: 0, border: 0 }} />
+                                <td colSpan={11} style={{ height: `${visibleSalesImportBatchHistoryRange.topSpacerHeight}px`, padding: 0, border: 0 }} />
                               </tr>
                             ) : null}
                             {visibleSalesImportBatchHistoryRows.map((batch) => (
@@ -44156,6 +44501,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                                     }
                                   />
                                 </td>
+                                <td>{getSalesImportBatchOperationalCode(batch)}</td>
                                 <td>{batch.fileName}</td>
                                 <td>{stockCenters.find((center) => center.id === batch.stockCenterId)?.name ?? `CENTRO ${batch.stockCenterId}`}</td>
                                 <td>{getSalesImportHistoryModeLabel(batch.historyMode, batch.historyMonths)}</td>
@@ -44208,7 +44554,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                             ))}
                             {visibleSalesImportBatchHistoryRange.bottomSpacerHeight > 0 ? (
                               <tr aria-hidden="true">
-                                <td colSpan={10} style={{ height: `${visibleSalesImportBatchHistoryRange.bottomSpacerHeight}px`, padding: 0, border: 0 }} />
+                                <td colSpan={11} style={{ height: `${visibleSalesImportBatchHistoryRange.bottomSpacerHeight}px`, padding: 0, border: 0 }} />
                               </tr>
                             ) : null}
                           </tbody>
@@ -44225,6 +44571,10 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                               </div>
                             </div>
                             <div className="receituario-summary-grid">
+                              <article className="receituario-metric-card">
+                                <span>ID importacao</span>
+                                <strong>{getSalesImportBatchOperationalCode(selectedSalesImportBatch)}</strong>
+                              </article>
                               <article className="receituario-metric-card">
                                 <span>Linhas validas</span>
                                 <strong>{selectedSalesImportBatchSummary.matchedRows}</strong>
@@ -45314,6 +45664,8 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
             {purchasePanelTab === 'demand' ? (
               <>
                 <div className="requisition-draft-overview">
+                  <div className="pill requisition-overview-pill">Pedidos ativos: {String(purchaseOrderSummary.activeOrderCount)}</div>
+                  <div className="pill requisition-overview-pill">Pedidos cancelados: {String(purchaseOrderSummary.cancelledOrderCount)}</div>
                   <div className="pill requisition-overview-pill">Itens a comprar: {String(purchaseDemandSummary.productCount)}</div>
                   <div className="pill requisition-overview-pill">Centros a abastecer: {String(purchaseDemandSummary.centerCount)}</div>
                   <div className="pill requisition-overview-pill">Familias: {String(purchaseDemandSummary.familyCount)}</div>
@@ -45327,12 +45679,149 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                     placeholder="Digite centro, produto, familia, origem ou requisicao"
                   />
                 </label>
+                <label className="checkbox-row">
+                  <input
+                    type="checkbox"
+                    checked={showCancelledPurchaseOrders}
+                    onChange={(event) => {
+                      setShowCancelledPurchaseOrders(event.target.checked)
+                      if (!event.target.checked) {
+                        setSelectedPurchaseOrderKey((current) => {
+                          const selectedGroup = visiblePurchaseOrderGroups.find((group) => group.key === current) ?? null
+                          return selectedGroup?.isCancelled ? null : current
+                        })
+                      }
+                    }}
+                  />
+                  <span>Exibir pedidos cancelados</span>
+                </label>
+
+                {visiblePurchaseOrderGroups.length > 0 ? (
+                  <section className="inner-panel">
+                    <div className="section-heading section-heading-inline stock-center-subheading">
+                      <div>
+                        <p className="kicker">Pedidos</p>
+                        <h2>Pedidos de compra por requisicao</h2>
+                      </div>
+                    </div>
+                    <div className="table-wrap">
+                      <table className="product-table">
+                        <thead>
+                          <tr>
+                            <th>Pedido</th>
+                            <th>Status</th>
+                            <th>Centro solicitante</th>
+                            <th>Centro distribuidor</th>
+                            <th>Itens</th>
+                            <th>Requisicao</th>
+                            <th>Criada por</th>
+                            <th className="sticky-actions-cell">Acoes</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {visiblePurchaseOrderGroups.map((group) => (
+                            <tr key={group.key} className={group.isCancelled ? 'muted-row' : ''}>
+                              <td className="sticky-product-cell">
+                                <strong>{group.purchaseOrderCode}</strong>
+                              </td>
+                              <td>
+                                <span className={`status-badge status-badge-${group.isCancelled ? 'cancelled' : 'imported'}`}>
+                                  {group.statusLabel}
+                                </span>
+                              </td>
+                              <td>{group.requestingCenterName}</td>
+                              <td>{group.supplyCenterName}</td>
+                              <td>{String(group.lines.length)}</td>
+                              <td>#{group.requisitionId}</td>
+                              <td>{group.createdByUserName}</td>
+                              <td className="sticky-actions-cell">
+                                <div className="table-actions">
+                                  <button
+                                    type="button"
+                                    className={selectedPurchaseOrderKey === group.key ? 'icon-button icon-view active' : 'icon-button icon-view'}
+                                    aria-label="Ver pedido"
+                                    title="Ver pedido"
+                                    onClick={() => setSelectedPurchaseOrderKey((current) => (current === group.key ? null : group.key))}
+                                  >
+                                    <span aria-hidden="true">◉</span>
+                                  </button>
+                                  <button
+                                    type="button"
+                                    className="ghost-button"
+                                    onClick={() => void exportPurchaseOrderGroup(group, 'pdf')}
+                                  >
+                                    PDF
+                                  </button>
+                                  <button
+                                    type="button"
+                                    className="secondary-button"
+                                    onClick={() => void exportPurchaseOrderGroup(group, 'xlsx')}
+                                  >
+                                    XLSX
+                                  </button>
+                                  {group.isCancelled ? (
+                                    <button
+                                      type="button"
+                                      className="danger-button"
+                                      onClick={() => void deleteCancelledPurchaseOrder(group.requisitionId)}
+                                    >
+                                      Excluir
+                                    </button>
+                                  ) : null}
+                                </div>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                    {selectedPurchaseOrderKey ? (
+                      (() => {
+                        const selectedGroup = visiblePurchaseOrderGroups.find((group) => group.key === selectedPurchaseOrderKey) ?? null
+                        return selectedGroup ? (
+                          <div className="table-wrap">
+                            <table className="product-table">
+                              <thead>
+                                <tr>
+                                  <th>Produto</th>
+                                  <th>Familia</th>
+                                  <th>Subfamilia</th>
+                                  <th>Embalagem</th>
+                                  <th>Demanda interna</th>
+                                  <th>Comprar</th>
+                                  <th>Tipo</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {selectedGroup.lines.map((line) => (
+                                  <tr key={line.key}>
+                                    <td className="sticky-product-cell">
+                                      <strong>{line.productName}</strong>
+                                      <div className="table-cell-support">{line.internalId}</div>
+                                    </td>
+                                    <td>{line.family}</td>
+                                    <td>{line.subfamily}</td>
+                                    <td>{line.packageLabel}</td>
+                                    <td>{line.demandRow ? formatPurchaseDemandQuantity(line.requestedQuantity, line.demandRow) : `${formatDecimal(line.requestedQuantity)} ${line.unitLabel}`}</td>
+                                    <td><strong>{line.demandRow ? formatPurchaseDemandQuantity(line.purchaseQuantity, line.demandRow) : `${formatDecimal(line.purchaseQuantity)} ${line.unitLabel}`}</strong></td>
+                                    <td>{line.sourceLabel}</td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        ) : null
+                      })()
+                    ) : null}
+                  </section>
+                ) : null}
 
                 {visiblePurchaseDemandRows.length > 0 ? (
                   <div className="table-wrap">
                     <table className="product-table">
                       <thead>
                         <tr>
+                          <th>Pedido</th>
                           <th className="sticky-product">Produto</th>
                           <th>Centro a abastecer</th>
                           <th>Familia</th>
@@ -45349,6 +45838,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                       <tbody>
                         {visiblePurchaseDemandRows.map((row) => (
                           <tr key={row.key}>
+                            <td>{row.purchaseOrderCode}</td>
                             <td className="sticky-product-cell">
                               <strong>{row.productName}</strong>
                               <div className="table-cell-support">{row.internalId}</div>

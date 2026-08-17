@@ -1574,6 +1574,7 @@ export type SalesImportBatchRecord = {
   id: number
   companyId: number
   stockCenterId: number
+  importCode?: string
   templateId: number | null
   uploadedByUserId: number | null
   uploadedByUserName: string
