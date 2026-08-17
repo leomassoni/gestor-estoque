@@ -963,7 +963,7 @@ const productionColumnOptions: Array<[ProductionColumnKey, string]> = [
   ['priority', 'Prioridade'],
   ['current', 'Estoque atual'],
   ['useMinimum', 'Minimo de uso'],
-  ['realMinimum', 'Minimo real'],
+  ['realMinimum', 'Demanda operacional'],
   ['suggestion', 'Sugestao'],
   ['status', 'Status'],
 ]
@@ -1123,8 +1123,8 @@ const stockReportTabDefinitions: Array<{ key: StockReportTab; label: string; des
   },
   {
     key: 'MINIMO_REAL',
-    label: 'Estoque minimo real de pre-preparo',
-    description: 'Minimo de uso, abastecimento externo e composicao para cada centro produtor.',
+    label: 'Demanda operacional de pre-preparo',
+    description: 'Minimo local, requisicoes recebidas para producao e dependencias internas de cada centro produtor.',
   },
   {
     key: 'DEPENDENCIAS',
@@ -3734,11 +3734,15 @@ export default function App() {
       .filter(
         (record) =>
           record.supplyCenterId === supplierCenter.id &&
-          (record.status === 'SENT_TO_SUPPLIES' || record.status === 'READY_TO_RECEIVE'),
+          record.status === 'SENT_TO_SUPPLIES',
       )
       .forEach((record) => {
         record.lines.forEach((line) => {
-          if (line.kind !== 'PREPARO' || typeof line.technicalSheetId !== 'number') {
+          if (
+            line.destinationType !== 'PRODUCOES' ||
+            line.kind !== 'PREPARO' ||
+            typeof line.technicalSheetId !== 'number'
+          ) {
             return
           }
           pendingDemandBySheetId.set(
@@ -3823,12 +3827,6 @@ export default function App() {
     })
 
     const pendingSupplyDemandBySheetId = buildPendingRequisitionDemandBySheetIdForSupplierCenter(center)
-    producedSheets.forEach((sheet) => {
-      currentQuantityBySheetId.set(
-        sheet.id,
-        (currentQuantityBySheetId.get(sheet.id) ?? 0) - (pendingSupplyDemandBySheetId.get(sheet.id) ?? 0),
-      )
-    })
 
     const effectiveMinimumMemo = new Map<number, number>()
     const byproductSourceDemandMemo = new Map<number, number>()
@@ -3918,7 +3916,11 @@ export default function App() {
       }
 
       if (visiting.has(sheetId)) {
-        return useMinimumBySheetId.get(sheetId) ?? 0
+        return (
+          (useMinimumBySheetId.get(sheetId) ?? 0) +
+          (realMinimumBySheetId.get(sheetId) ?? 0) +
+          (pendingSupplyDemandBySheetId.get(sheetId) ?? 0)
+        )
       }
 
       const targetSheet = sheetById.get(sheetId) ?? null
@@ -3930,7 +3932,7 @@ export default function App() {
       nextVisiting.add(sheetId)
       const ownUseMinimum = useMinimumBySheetId.get(sheetId) ?? 0
       const ownRealMinimum = realMinimumBySheetId.get(sheetId) ?? 0
-      const externalUseMinimum = externalUseMinimumBySheetId.get(sheetId) ?? 0
+      const operationalDemand = pendingSupplyDemandBySheetId.get(sheetId) ?? 0
 
       const productionContribution = producedSheets.reduce((sum, candidateSheet) => {
         if (candidateSheet.id === sheetId) {
@@ -3952,7 +3954,7 @@ export default function App() {
       }, 0)
       const byproductContribution = computeByproductSourceDemand(sheetId, nextVisiting)
 
-      const total = ownUseMinimum + ownRealMinimum + externalUseMinimum + productionContribution + byproductContribution
+      const total = ownUseMinimum + ownRealMinimum + operationalDemand + productionContribution + byproductContribution
       effectiveMinimumMemo.set(sheetId, total)
       return total
     }
@@ -13358,7 +13360,7 @@ export default function App() {
           ({
               id: `real-min-${row.centerId}-${row.sheetId}`,
               main: row.sheetName,
-              secondary: `Uso ${formatDecimal(row.useMinimumQuantity)} ${row.unit} • Externo ${formatDecimal(row.externalUseMinimumQuantity)} ${row.unit}`,
+              secondary: `Uso ${formatDecimal(row.useMinimumQuantity)} ${row.unit} • Cobertura potencial externa ${formatDecimal(row.externalUseMinimumQuantity)} ${row.unit}`,
               internalId: row.internalId,
               companyId: technicalSheets.find((sheet) => sheet.id === row.sheetId)?.companyProductId ?? '',
               packageId: '',
@@ -13369,7 +13371,7 @@ export default function App() {
               status: row.suggestedProductionQuantity > 0 ? 'A produzir' : 'Coberto',
               recorded: formatDecimal(row.useMinimumQuantity),
               quantity: formatDecimal(row.realMinimumQuantity),
-              position: `Externo ${formatDecimal(row.externalUseMinimumQuantity)} ${row.unit} • Dependencias ${formatDecimal(Math.max(row.realMinimumQuantity - row.useMinimumQuantity - row.externalUseMinimumQuantity, 0))} ${row.unit}`,
+              position: `Requisicoes ${formatDecimal(row.committedQuantity)} ${row.unit} • Dependencias ${formatDecimal(Math.max(row.realMinimumQuantity - row.useMinimumQuantity - row.committedQuantity, 0))} ${row.unit}`,
               minimum: formatDecimal(row.useMinimumQuantity),
               unitCost: formatCurrencyLabel(
                 stockUnitCostByAggregationKey.get(
@@ -13397,7 +13399,7 @@ export default function App() {
               sortValues: {
                 recorded: row.useMinimumQuantity,
                 quantity: row.realMinimumQuantity,
-                position: row.externalUseMinimumQuantity,
+                position: row.committedQuantity,
                 minimum: row.useMinimumQuantity,
                 unitCost:
                   stockUnitCostByAggregationKey.get(
@@ -46469,7 +46471,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
               </div>
             </div>
             <p className="context-copy">
-              A fila de producao considera o estoque minimo de uso e o estoque minimo de composicao dos pre-preparos do centro produtor.
+              A fila de producao considera o minimo local, as requisicoes recebidas para producao e as dependencias dos pre-preparos do centro produtor.
             </p>
           </section>
 
@@ -46555,7 +46557,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                             {productionColumnVisibility.priority ? <th>Prioridade</th> : null}
                             {productionColumnVisibility.current ? <th>Estoque atual</th> : null}
                             {productionColumnVisibility.useMinimum ? <th>Minimo de uso</th> : null}
-                            {productionColumnVisibility.realMinimum ? <th>Minimo real</th> : null}
+                            {productionColumnVisibility.realMinimum ? <th>Demanda operacional</th> : null}
                             {productionColumnVisibility.suggestion ? <th>Sugestao</th> : null}
                             {productionColumnVisibility.status ? <th>Status</th> : null}
                             <th className="sticky-actions">Acoes</th>
@@ -54725,7 +54727,7 @@ function getStockReportColumnLabel(key: StockReportColumnKey, tab: StockReportTa
   }
 
   if (tab === 'MINIMO_REAL' && key === 'quantity') {
-    return 'Minimo real'
+    return 'Demanda operacional'
   }
 
   if (tab === 'MINIMO_REAL' && key === 'recorded') {
@@ -54737,7 +54739,7 @@ function getStockReportColumnLabel(key: StockReportColumnKey, tab: StockReportTa
   }
 
   if (tab === 'MINIMO_REAL' && key === 'position') {
-    return 'Externo / dependencias'
+    return 'Requisicoes / dependencias'
   }
 
   if (tab === 'OCORRENCIAS' && key === 'quantity') {
