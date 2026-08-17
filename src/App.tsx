@@ -7645,7 +7645,17 @@ export default function App() {
     }
 
     const isLineRequestedInPackageQuantity = (line: RequisitionLineRecord) => {
-      return line.packageId !== null || normalizeFreeText(line.requestUnitLabel) === 'EMBALAGENS'
+      if (line.packageId !== null) {
+        return true
+      }
+      if (normalizeFreeText(line.requestUnitLabel) !== 'EMBALAGENS') {
+        return false
+      }
+      const product = productById.get(line.productId) ?? null
+      if (!product) {
+        return false
+      }
+      return normalizeFreeText(line.currentUnitLabel) !== normalizeFreeText(formatControlUnitShort(product.controlUnit))
     }
 
     const getLineBaseQuantity = (line: RequisitionLineRecord) => {
