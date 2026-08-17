@@ -1,10 +1,37 @@
 # Worklog
 
- Ultima atualizacao: 2026-08-16
+ Ultima atualizacao: 2026-08-17
 
 ## Objetivo deste arquivo
 
 Registrar um historico resumido do que foi feito, do que falhou e do que ficou pendente.
+
+## 2026-08-17
+
+### Projecao Madre e vendas fake para estoque minimo
+
+- Implementado fallback no import de vendas: a coluna de identificador continua aceitando `ID empresa`, mas tambem faz match por `productId` interno da ficha (`EXE-*`/`VEN-*`) ou pelo ID numerico da ficha quando o ID empresa nao existir.
+- Criado dry-run [`scripts/madre_demand_projection_dry_run.py`](/home/leomassoni/Documentos/Igarapé/Projetos/TCC-SP/gestor-estoque/scripts/madre_demand_projection_dry_run.py) para ler a planilha de abertura da Madre, consultar a API publicada, resolver empresa/centro/fichas/produtos, calcular consumo projetado e gerar XLSX auditavel de importacao.
+- O fake de vendas foi gerado para `2026-08-12` a `2026-08-16`, com fator `0,8` aplicado sobre as quantidades projetadas porque o webapp acrescenta `20%` de margem ao calcular estoque minimo.
+- Criadas via API as fichas `VENDA` de bebidas fechadas que faltavam: `COCA LATA`, `COCA ZERO LATA`, `GUARANA LATA`, `GUARANA ZERO LATA`, `CORONA`, `AGUA SEM GAS` e `AGUA COM GAS`.
+- Cada ficha `VENDA` de fechado consome uma embalagem normalizada do produto rastreavel correspondente.
+- Relatorio final gerado em `auditorias/madre-demand-projection-20260817T050315Z.xlsx` e `.json`, com `145` linhas importaveis, `simulation_id=madre-demand-projection-20260817T050315Z` e `0` inconsistencias.
+
+### Compras envia suprimentos aos centros solicitantes
+
+- `Compras` ganhou abas `Demanda` e `Suprimentos`.
+- A aba `Demanda` preserva o consolidado de faltas dos centros distribuidores.
+- A aba `Suprimentos` lista requisicoes `SENT_TO_SUPPLIES` que alimentam o consolidado de compras e permite enviar quantidades aos centros solicitantes.
+- O envio vindo de compras move os itens enviados para `READY_TO_RECEIVE` no centro solicitante, sem registrar recebimento externo de fornecedor nem baixar estoque do centro distribuidor.
+- Quando o usuario envia menos que a quantidade original, o residual permanece pendente em `SENT_TO_SUPPLIES`; quando envia igual ou mais, a linha deixa a pendencia.
+
+### Tentativa revertida: inventario consolidado com multiplas contagens por centro
+
+- A hipotese testada foi transformar `Inventario` em ciclo consolidado por empresa/data, mantendo o centro real em cada sessao de contagem e item contado.
+- A implementacao exigia `AppInventoryRecord.stockCenterId` opcional, inferencia de centros cobertos por sessoes/itens/movimentacoes pendentes, ajustes em fechamento, saldo e relatorios, e migration `inventory_multi_center`.
+- A migration aplicou corretamente em banco limpo de validacao, mas a direcao foi descartada por risco de confusao operacional para o usuario.
+- O codigo foi revertido para o modelo vigente: um inventario por centro de estoque.
+- A ideia ficou registrada em `docs/DECISIONS.md` como `a decidir`, nao como implementada.
 
 ## 2026-08-16
 

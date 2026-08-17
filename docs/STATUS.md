@@ -1,6 +1,6 @@
 # Status do Sistema
 
- Ultima atualizacao: 2026-08-16
+ Ultima atualizacao: 2026-08-17
 
 ## Objetivo deste arquivo
 
@@ -41,6 +41,13 @@ Registrar em que pe o sistema esta hoje, por area, para consulta rapida antes de
 - `Consumos analiticos de vendas`
 - `Desperdicio`
 - `Movimentacoes pendentes`
+
+### Importacao de vendas e simulacao Madre
+
+- O import de vendas aceita identificador por `ID empresa` e, como fallback, por ID interno da ficha/produto de `EXECUCAO` ou `VENDA`.
+- Para a simulacao de demanda da Casa de mi Madre, existe dry-run local em [`scripts/madre_demand_projection_dry_run.py`](/home/leomassoni/Documentos/Igarapé/Projetos/TCC-SP/gestor-estoque/scripts/madre_demand_projection_dry_run.py).
+- O relatorio fake final usa vendas datadas de `2026-08-12` a `2026-08-16`, com fator `0,8` sobre a projecao para compensar a margem automatica de `20%` do estoque minimo.
+- Bebidas fechadas vendidas em relatorio precisam de ficha `VENDA`; na Madre ja foram criadas fichas para Coca, Coca Zero, Guarana, Guarana Zero, Corona, Agua sem gas e Agua com gas.
 
 ### Ainda sensivel ao modelo hibrido
 
@@ -162,6 +169,7 @@ Registrar em que pe o sistema esta hoje, por area, para consulta rapida antes de
 - Compras nao deve nascer diretamente da necessidade final de um centro produtor/consumidor quando houver centro distribuidor responsavel. A cadeia correta e: centro solicitante -> suprimento do distribuidor -> falta do distribuidor -> compras para abastecer o distribuidor -> suprimento ao solicitante.
 - `Compras` deve considerar requisicoes aprovadas e enviadas como obrigacao operacional propria. Compra direta so entra no consolidado quando esta `READY_TO_RECEIVE`; requisicao apenas `APPROVED`, ainda nao enviada, nao entra.
 - Requisicoes de `Compras` nao devem depender da fila de `Entrada de producoes` continuar carregada no frontend. Se um planejamento for cancelado, o cancelamento deve marcar as requisicoes derivadas como `CANCELLED`; enquanto a requisicao estiver `SENT_TO_SUPPLIES`/`READY_TO_RECEIVE`, ela deve aparecer no fluxo correspondente.
+- `Compras` agora possui aba `Suprimentos` para enviar produtos comprados aos centros solicitantes. Esse envio move as quantidades escolhidas para `READY_TO_RECEIVE` sem registrar recebimento externo de fornecedor nem baixar estoque do centro distribuidor; envio parcial mantem residual pendente.
 - Linhas antigas de requisicao podem ter sido salvas com `requestUnitLabel = EMBALAGENS` e `packageId` vazio. No consolidado de `Compras`, quando houver uma embalagem ativa unica ou uma embalagem que corresponda ao rotulo salvo da linha, a quantidade deve ser calculada em unidade base internamente, mas exibida para o comprador em embalagens. A referencia da embalagem aparece em coluna propria `Embalagem`; as colunas `Estoque atual`, `Demanda interna` e `Comprar` exibem apenas a quantidade.
 - Em `Suprimentos`, cancelar requisicao `SENT_TO_SUPPLIES` deve gravar `CANCELLED` no servidor. O fluxo nao deve reabrir a requisicao como pendente.
 - Uma requisicao ja `CANCELLED` nao pode ser reativada por sincronizacao de cliente antigo/cache local; a API deve bloquear essa sobrescrita.
@@ -170,6 +178,7 @@ Registrar em que pe o sistema esta hoje, por area, para consulta rapida antes de
 - Novas requisicoes `PENDING_APPROVAL` geradas no mesmo dia para a mesma empresa, mesmo centro solicitante e mesmo destino operacional devem ser anexadas a uma pendente compatível, somando linhas por chave semantica. Requisicoes aprovadas, enviadas, recebidas, canceladas ou vinculadas a planejamento de producao nao devem ser consolidadas.
 - Inventario operacional usado por `Compras` deve vir do banco. O navegador nao deve restaurar contagens/sessoes/movimentos locais quando o servidor estiver vazio.
 - Vinculos ativos de inventario/contagem nao devem ser gravados como `null` durante a hidratacao inicial por API. A tela deve preservar inventario e sessao abertos ate que o estado remoto confirme que eles foram fechados/removidos.
+- Inventario permanece separado por centro de estoque. A alternativa de inventario consolidado por empresa/data com contagens de varios centros esta registrada em `DECISIONS.md` como `a decidir`, mas nao esta implementada.
 - A prioridade da `Entrada de producoes` e calculada por dependencias de producao. A camada `0` representa itens que precisam ser feitos primeiro por nao dependerem de outro preparo da mesma fila. Quando a fila contem pedidos manuais/planejamento por ficha, esses itens tambem entram no grafo para evitar que dependencias fiquem mascaradas como prioridade `0`.
 - `PREPARO` com `Destino da diferenca = Subproduto` agora fecha o fluxo operacional minimo:
   - a finalizacao da producao mostra o subproduto vinculado e pede a quantidade real gerada;

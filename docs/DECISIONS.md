@@ -8,6 +8,29 @@ Registrar o que foi decidido, o que foi adiado e o que foi descartado, com foco 
 
 ## Decisoes ativas
 
+### Importacao de vendas pode usar ID interno como fallback
+
+- Decisao: a importacao de vendas deve tentar resolver o identificador informado contra o `ID empresa` da ficha, mas tambem aceitar o `productId` interno (`EXE-*`/`VEN-*`) ou o ID numerico da ficha quando o ID empresa nao existir.
+- Regra:
+  - o match continua restrito a fichas `EXECUCAO` e `VENDA`;
+  - o arquivo de importacao pode trazer uma coluna generica de `identificador`;
+  - linhas sem identificador valido continuam bloqueadas como erro estrutural;
+  - linhas com identificador informado, mas sem ficha correspondente, continuam como `UNMATCHED` para auditoria.
+- Motivo:
+  - algumas fichas ainda nao possuem `ID empresa` externo;
+  - o ID interno da ficha/produto e suficiente para um match seguro quando gerado pelo proprio webapp/API.
+
+### Bebida fechada vendida deve ter ficha `VENDA`
+
+- Decisao: softs, cervejas e aguas vendidos por unidade devem entrar no fluxo por ficha `VENDA`, nao por baixa direta avulsa do produto.
+- Regra:
+  - uma unidade vendida da ficha representa uma embalagem comercial;
+  - a ficha `VENDA` consome o produto rastreavel na quantidade normalizada da embalagem ativa, por exemplo `COCA LATA` consome `350 ML` de `COCA COLA LATA`;
+  - relatorios fake de venda devem usar o identificador interno da ficha `VENDA`, nao o produto insumo direto.
+- Motivo:
+  - preserva o mesmo caminho operacional das fichas comerciais;
+  - permite que importacao de vendas, consumo analitico, estoque minimo e compras usem uma unica regra.
+
 ### Catalogo compartilhado deve seguir empresas vinculadas, nao grupo + produto mestre
 
 - Decisao: o compartilhamento de `Produtos` e `Fichas tecnicas` deve seguir um modelo simplificado de `empresas vinculadas`.
@@ -191,6 +214,31 @@ Registrar o que foi decidido, o que foi adiado e o que foi descartado, com foco 
   - inventario estabelece nova posicao de estoque
   - desperdicio e perda operacional, ou seja, retirada do estoque existente
 - Status: implementado.
+
+### Inventario permanece separado por centro de estoque
+
+- Decisao: manter o modelo atual do webapp, com um inventario por centro de estoque.
+- Regra:
+  - `AppInventoryRecord.stockCenterId` continua obrigatorio e identifica o centro do inventario;
+  - contagens e itens contados continuam vinculados ao inventario do mesmo centro;
+  - abertura, retomada, fechamento, relatorios e saldo devem tratar o centro do inventario como fronteira operacional;
+  - a tela nao deve misturar centros diferentes dentro de um mesmo inventario sem nova decisao.
+- Motivo:
+  - reduz confusao operacional para o usuario;
+  - evita que uma contagem de um centro pareca cobrir ou interferir em outro;
+  - preserva a leitura de seguranca: quem abre/fecha inventario sabe exatamente qual centro esta sendo afetado.
+- Status: decisao vigente.
+
+### A decidir: inventario consolidado com multiplas contagens por centro
+
+- Ideia futura: permitir que um ciclo de inventario por empresa/data abrigue contagens de centros diferentes.
+- Notas da tentativa revertida:
+  - exigiria tornar `AppInventoryRecord.stockCenterId` legado/opcional;
+  - sessoes (`AppInventoryCountSessionRecord`) e itens (`AppInventoryCountRecord`) manteriam o `stockCenterId` real;
+  - fechamento, saldo atual e relatorios precisariam inferir centros cobertos por sessoes, itens e movimentacoes pendentes;
+  - inventarios abertos precisariam permitir entrada de usuarios de outros centros antes de existir sessao daquele centro;
+  - migrations aplicaram corretamente em banco limpo, mas a mudanca foi revertida por risco de confusao de uso.
+- Status: a decidir; nao implementado no codigo atual.
 
 ### Minimo do centro e consolidado operacional devem permanecer separados
 
@@ -489,6 +537,9 @@ Registrar o que foi decidido, o que foi adiado e o que foi descartado, com foco 
   - consolidar requisicoes picadas somente enquanto estiverem `PENDING_APPROVAL`, no mesmo dia, mesma empresa, mesmo centro solicitante e mesmo destino operacional; nao consolidar requisicoes ja aprovadas/enviadas nem vinculadas a planejamento de producao;
   - inventario operacional usado para calcular falta de compras deve vir do banco; `localStorage` nao pode restaurar contagens/sessoes/movimentos quando o servidor nao possui esses registros;
   - requisicoes antigas com `requestUnitLabel = EMBALAGENS` e `packageId` vazio devem ser interpretadas por embalagem quando a embalagem puder ser inferida com seguranca, para evitar exibir quantidade de embalagens como se fosse ML/G/UN; no painel de `Compras`, o comprador deve ver a referencia em coluna `Embalagem` e as quantidades sem sufixo quando a compra puder ser expressa por embalagem.
+  - por enquanto, `Compras` nao registra recebimento externo de fornecedor; quando o comprador decide distribuir os itens comprados, a aba `Suprimentos` de `Compras` move as quantidades enviadas para `READY_TO_RECEIVE` no centro solicitante;
+  - envio parcial vindo de `Compras` preserva o residual pendente na requisicao original; envio igual ou maior remove a linha da pendencia de suprimento;
+  - o envio vindo de `Compras` nao baixa estoque do centro distribuidor, pois essa etapa representa a distribuicao da compra sem modelagem de entrada previa no estoque do distribuidor.
   - a tela exporta XLSX e PDF do consolidado visivel.
 
 ### Planejamento de producao deve ser cancelado pelo `rootRequestId`
