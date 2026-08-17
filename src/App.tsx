@@ -22490,6 +22490,160 @@ export default function App() {
     confirmSendRequisition(requisitionId)
   }
 
+  function buildProductionSupplyRequisitionsForSentProductionRequisitions(
+    productionRequisitions: RequisitionRecord[],
+    sentAt: string,
+    reservedIds: number[] = [],
+  ) {
+    if (currentCompanyId === null || productionRequisitions.length === 0) {
+      return [] as RequisitionRecord[]
+    }
+
+    const usedIds = new Set([
+      ...requisitions.map((record) => record.id),
+      ...requisitions.map((record) => record.requisitionGroupId),
+      ...productionRequisitions.map((record) => record.id),
+      ...productionRequisitions.map((record) => record.requisitionGroupId),
+      ...reservedIds,
+    ])
+    let nextIdCandidate = getNextPersistedIntId(Array.from(usedIds))
+    const reserveNextId = () => {
+      while (usedIds.has(nextIdCandidate)) {
+        nextIdCandidate += 1
+      }
+      const nextId = nextIdCandidate
+      usedIds.add(nextId)
+      nextIdCandidate += 1
+      return nextId
+    }
+    const registerUsedRecordIds = (recordsToRegister: RequisitionRecord[]) => {
+      recordsToRegister.forEach((record) => {
+        usedIds.add(record.id)
+        usedIds.add(record.requisitionGroupId)
+      })
+      nextIdCandidate = Math.max(nextIdCandidate, getNextPersistedIntId(Array.from(usedIds)))
+    }
+
+    const downstreamRequisitions: RequisitionRecord[] = []
+    productionRequisitions
+      .filter((record) => record.companyId === currentCompanyId && record.supplyCenterId !== null)
+      .forEach((productionRequisition) => {
+        const producerCenter = stockCenters.find((center) => center.id === productionRequisition.supplyCenterId) ?? null
+        if (!producerCenter || !producerCenter.isProducer) {
+          return
+        }
+
+        const shortageLines = productionRequisition.lines.flatMap((line) => {
+          if (line.destinationType !== 'PRODUCOES' || line.kind !== 'PREPARO' || typeof line.technicalSheetId !== 'number') {
+            return [] as RequisitionLineRecord[]
+          }
+          const sheet =
+            technicalSheets.find(
+              (item) =>
+                item.id === line.technicalSheetId &&
+                item.kind === 'PREPARO' &&
+                item.isActive &&
+                isTechnicalSheetVisibleForCompany(item, producerCenter.companyId),
+            ) ?? null
+          if (!sheet) {
+            return []
+          }
+          const requestedQuantity = parseDecimal(line.requestedQuantity) ?? 0
+          const requiredYield = requestedQuantity * Math.max(getStockCenterBaseQuantity(sheet), 1)
+          return buildManualProductionShortageLines(producerCenter, sheet, requiredYield).shortageLines
+        })
+
+        const mergedShortageLines = mergeRequisitionLines(shortageLines).filter(
+          (line) => (parseDecimal(line.requestedQuantity) ?? 0) > 0,
+        )
+        if (mergedShortageLines.length === 0) {
+          return
+        }
+
+        const downstreamId = reserveNextId()
+        const downstreamDraft: RequisitionRecord = {
+          id: downstreamId,
+          companyId: currentCompanyId,
+          requisitionGroupId: downstreamId,
+          planningRootRequestId: productionRequisition.requisitionGroupId,
+          planningSourceKind: 'PREPARO',
+          planningSourceCenterId: productionRequisition.stockCenterId,
+          planningSourceCenterName: productionRequisition.stockCenterName,
+          planningSourceSheetId: null,
+          planningSourceSheetName: 'Requisicao de producao',
+          planningSourceQuantityLabel: '',
+          stockCenterId: producerCenter.id,
+          stockCenterName: producerCenter.name,
+          supplyCenterId: null,
+          supplyCenterName: '',
+          supplyCompanyId: null,
+          supplyCompanyName: '',
+          sector: producerCenter.sector,
+          countedAt: getTodayDateInputValue(),
+          status: 'APPROVED',
+          editScope: 'LINES_ONLY',
+          lines: mergedShortageLines,
+          createdAt: sentAt,
+          createdByUserId: currentAppUser?.id ?? null,
+          createdByUserName: currentAppUser?.fullName ?? 'Administrador do sistema',
+          approvedAt: sentAt,
+          approvedByUserId: currentAppUser?.id ?? null,
+          approvedByUserName: currentAppUser?.fullName ?? 'Administrador do sistema',
+          sentAt: '',
+          sentByUserId: null,
+          sentByUserName: '',
+          preparedAt: '',
+          preparedByUserId: null,
+          preparedByUserName: '',
+          receivedAt: '',
+          receivedByUserId: null,
+          receivedByUserName: '',
+          lastUpdatedAt: sentAt,
+          lastUpdatedByUserId: currentAppUser?.id ?? null,
+          lastUpdatedByUserName: currentAppUser?.fullName ?? 'Administrador do sistema',
+        }
+
+        const splitResult = buildSplitRequisitionsForSending(downstreamDraft, {
+          reservedIds: Array.from(usedIds),
+          sentAt,
+        })
+        if (splitResult.error) {
+          return
+        }
+
+        const nextRecords = [...splitResult.requisitions]
+        registerUsedRecordIds(nextRecords)
+        if (splitResult.remainingPurchaseLines.length > 0) {
+          const purchaseRecordId = nextRecords.length === 0 ? downstreamId : reserveNextId()
+          const purchaseRecord: RequisitionRecord = {
+            ...downstreamDraft,
+            id: purchaseRecordId,
+            lines: splitResult.remainingPurchaseLines,
+            status: 'READY_TO_RECEIVE',
+            supplyCenterId: null,
+            supplyCenterName: '',
+            supplyCompanyId: null,
+            supplyCompanyName: '',
+            sentAt,
+            sentByUserId: currentAppUser?.id ?? null,
+            sentByUserName: currentAppUser?.fullName ?? 'Administrador do sistema',
+            preparedAt: sentAt,
+            preparedByUserId: currentAppUser?.id ?? null,
+            preparedByUserName: currentAppUser?.fullName ?? 'Administrador do sistema',
+            lastUpdatedAt: sentAt,
+            lastUpdatedByUserId: currentAppUser?.id ?? null,
+            lastUpdatedByUserName: currentAppUser?.fullName ?? 'Administrador do sistema',
+          }
+          nextRecords.push(purchaseRecord)
+          registerUsedRecordIds([purchaseRecord])
+        }
+
+        downstreamRequisitions.push(...nextRecords)
+      })
+
+    return downstreamRequisitions
+  }
+
   function approveRequisition(requisitionId: number) {
     const targetRequisition = requisitions.find((record) => record.id === requisitionId) ?? null
     if (!targetRequisition || !canApproveRequisition(targetRequisition)) {
@@ -22620,6 +22774,7 @@ export default function App() {
       targetIds.add(targetRequisition.id)
       nextSentRecords.push(...splitResult.requisitions)
       reservedIds.push(...splitResult.requisitions.map((record) => record.id))
+      reservedIds.push(...splitResult.requisitions.map((record) => record.requisitionGroupId))
 
       if (splitResult.remainingPurchaseLines.length > 0) {
         nextSentRecords.push({
@@ -22653,7 +22808,14 @@ export default function App() {
       return
     }
 
+    const downstreamProductionRequisitions = buildProductionSupplyRequisitionsForSentProductionRequisitions(
+      nextSentRecords.filter((record) => record.lines.some((line) => line.destinationType === 'PRODUCOES')),
+      now,
+      reservedIds,
+    )
+
     setRequisitions((current) => [
+      ...downstreamProductionRequisitions,
       ...nextSentRecords,
       ...current.filter((record) => !targetIds.has(record.id)),
     ])
@@ -22665,7 +22827,10 @@ export default function App() {
     setSaveFeedback({
       status: 'success',
       title: 'Requisicoes enviadas',
-      message: `${targetIds.size} requisicao(oes) foram enviadas em lote.`,
+      message:
+        downstreamProductionRequisitions.length > 0
+          ? `${targetIds.size} requisicao(oes) foram enviadas em lote e ${downstreamProductionRequisitions.length} requisicao(oes) de insumos foram criadas automaticamente para producao.`
+          : `${targetIds.size} requisicao(oes) foram enviadas em lote.`,
     })
   }
 
@@ -22738,10 +22903,14 @@ export default function App() {
     }
 
     const now = new Date().toISOString()
+    const downstreamProductionRequisitions = buildProductionSupplyRequisitionsForSentProductionRequisitions(
+      splitResult.requisitions.filter((record) => record.lines.some((line) => line.destinationType === 'PRODUCOES')),
+      now,
+    )
 
     setRequisitions((current) => {
       const remainingRecords = current.filter((record) => record.id !== targetRequisition.id)
-      const nextRecords = [...splitResult.requisitions]
+      const nextRecords = [...downstreamProductionRequisitions, ...splitResult.requisitions]
 
       if (splitResult.remainingPurchaseLines.length > 0) {
         nextRecords.push({
@@ -22771,13 +22940,17 @@ export default function App() {
     setSaveFeedback({
       status: 'success',
       title:
-        splitResult.requisitions.length > 0 && splitResult.remainingPurchaseLines.length > 0
+        downstreamProductionRequisitions.length > 0
+          ? 'Requisicao enviada com cadeia de producao'
+          : splitResult.requisitions.length > 0 && splitResult.remainingPurchaseLines.length > 0
           ? 'Requisicao desdobrada e enviada'
           : splitResult.requisitions.length > 0
             ? 'Requisicao enviada'
             : 'Requisicao enviada para receber',
       message:
-        splitResult.requisitions.length > 0 && splitResult.remainingPurchaseLines.length > 0
+        downstreamProductionRequisitions.length > 0
+          ? `Os pre-preparos foram enviados ao centro produtor e ${downstreamProductionRequisitions.length} requisicao(oes) de insumos foram criadas automaticamente para abastecer a producao.`
+          : splitResult.requisitions.length > 0 && splitResult.remainingPurchaseLines.length > 0
           ? 'Os itens internos foram enviados aos centros de suprimentos ou producao e os itens de compras seguiram direto para receber.'
           : splitResult.requisitions.length > 0
             ? 'Os itens internos foram enviados automaticamente aos centros de suprimentos ou producao correspondentes.'
