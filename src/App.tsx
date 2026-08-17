@@ -7629,33 +7629,30 @@ export default function App() {
       if (!product) {
         return null
       }
-      if (line.packageId !== null) {
-        return product.packages.find((item) => item.id === line.packageId) ?? null
-      }
-
-      if (normalizeFreeText(line.requestUnitLabel) !== 'EMBALAGENS') {
-        return null
-      }
-
       const activePackages = product.packages.filter((item) => item.isActive)
-      if (activePackages.length === 1) {
-        return activePackages[0]
+      if (line.packageId !== null) {
+        return activePackages.find((item) => item.id === line.packageId) ?? null
       }
 
       const currentUnitLabel = normalizeFreeText(line.currentUnitLabel)
-      return (
+      const matchingPackage =
         activePackages.find((item) => {
           const packageQuantity = parseDecimal(item.packageQuantity) ?? 0
           return normalizeFreeText(`${formatDecimal(packageQuantity)} ${formatUnit(item.packageUnit)}`) === currentUnitLabel
         }) ?? null
-      )
+
+      return matchingPackage ?? activePackages[0] ?? null
+    }
+
+    const isLineRequestedInPackageQuantity = (line: RequisitionLineRecord) => {
+      return line.packageId !== null || normalizeFreeText(line.requestUnitLabel) === 'EMBALAGENS'
     }
 
     const getLineBaseQuantity = (line: RequisitionLineRecord) => {
       const quantity = parseDecimal(line.requestedQuantity) ?? 0
       const product = productById.get(line.productId) ?? null
       const packageForm = resolveLinePackage(line, product)
-      return product && packageForm
+      return product && packageForm && isLineRequestedInPackageQuantity(line)
         ? quantity * calculateNormalizedPackageQuantity(packageForm, product.controlUnit)
         : quantity
     }
@@ -7698,7 +7695,13 @@ export default function App() {
       })
       const currentQuantity =
         latestInventoryQuantityByCenterAndAggregation.get(`${params.center.id}:${aggregationKey}`) ?? 0
-      const groupKey = `${params.center.id}:${params.line.productId}:${params.shouldSubtractCurrentStock ? 'SUPPLY_SHORTAGE' : 'DIRECT_PURCHASE'}`
+      const groupKey = [
+        params.center.id,
+        params.line.productId,
+        packageInfo.packageBaseQuantity ?? 'BASE',
+        packageInfo.packageLabel || 'BASE',
+        params.shouldSubtractCurrentStock ? 'SUPPLY_SHORTAGE' : 'DIRECT_PURCHASE',
+      ].join(':')
       const group =
         groups.get(groupKey) ??
         {
