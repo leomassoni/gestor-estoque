@@ -22511,7 +22511,7 @@ export default function App() {
     sentAt: string,
     reservedIds: number[] = [],
   ) {
-    if (currentCompanyId === null || productionRequisitions.length === 0) {
+    if (productionRequisitions.length === 0) {
       return [] as RequisitionRecord[]
     }
 
@@ -22542,7 +22542,7 @@ export default function App() {
 
     const downstreamRequisitions: RequisitionRecord[] = []
     productionRequisitions
-      .filter((record) => record.companyId === currentCompanyId && record.supplyCenterId !== null)
+      .filter((record) => record.supplyCenterId !== null)
       .forEach((productionRequisition) => {
         const producerCenter = stockCenters.find((center) => center.id === productionRequisition.supplyCenterId) ?? null
         if (!producerCenter || !producerCenter.isProducer) {
@@ -22579,7 +22579,7 @@ export default function App() {
         const downstreamId = reserveNextId()
         const downstreamDraft: RequisitionRecord = {
           id: downstreamId,
-          companyId: currentCompanyId,
+          companyId: producerCenter.companyId,
           requisitionGroupId: downstreamId,
           planningRootRequestId: productionRequisition.requisitionGroupId,
           planningSourceKind: 'PREPARO',
@@ -24819,11 +24819,12 @@ export default function App() {
 
   function updateManualProductionSelection(nextCenterId: string, nextSheetId?: string) {
     const nextCenter = productionEligibleCenters.find((center) => String(center.id) === nextCenterId) ?? null
+    const nextCenterProducedSheets = nextCenter ? getProducedPreparationSheetsForCenter(nextCenter, currentCompanyId) : []
     const resolvedSheetId =
       typeof nextSheetId === 'string'
         ? nextSheetId
-        : nextCenter?.producedTechnicalSheetIds[0]
-          ? String(nextCenter.producedTechnicalSheetIds[0])
+        : nextCenterProducedSheets[0]
+          ? String(nextCenterProducedSheets[0].id)
           : ''
     const targetSheet =
       technicalSheets.find(
@@ -24878,7 +24879,8 @@ export default function App() {
   function openManualProductionModal() {
     const nextCenterId = productionCenterId || (productionEligibleCenters[0] ? String(productionEligibleCenters[0].id) : '')
     const nextCenter = productionEligibleCenters.find((center) => String(center.id) === nextCenterId) ?? null
-    const nextSheetId = nextCenter?.producedTechnicalSheetIds[0] ? String(nextCenter.producedTechnicalSheetIds[0]) : ''
+    const nextCenterProducedSheets = nextCenter ? getProducedPreparationSheetsForCenter(nextCenter, currentCompanyId) : []
+    const nextSheetId = nextCenterProducedSheets[0] ? String(nextCenterProducedSheets[0].id) : ''
     setManualProductionCenterId(nextCenterId)
     setManualProductionSheetId(nextSheetId)
     setManualProductionRecipeCount('1')
@@ -24926,7 +24928,7 @@ export default function App() {
   function mergeProductionEntries(entries: ManualProductionPreviewProductionEntry[]) {
     const merged = new Map<string, ManualProductionPreviewProductionEntry>()
     entries.forEach((entry) => {
-      const key = `${entry.centerId}:${entry.sheetId}`
+      const key = `${entry.companyId}:${entry.centerId}:${entry.sheetId}`
       const existingEntry = merged.get(key) ?? null
       if (!existingEntry) {
         merged.set(key, { ...entry })
@@ -25220,6 +25222,8 @@ export default function App() {
     const { shortageLines, dependencyRequests } = buildManualProductionShortageLines(stockCenter, targetSheet, desiredYield)
     const plannedProductions = mergeProductionEntries([
       {
+        companyId: stockCenter.companyId,
+        companyName: getCompanyTradeName(stockCenter.companyId),
         centerId: stockCenter.id,
         centerName: stockCenter.name,
         sheetId: targetSheet.id,
@@ -25231,6 +25235,8 @@ export default function App() {
         const dependencySheet = technicalSheets.find((sheet) => sheet.id === request.sheetId) ?? null
         const dependencyCenter = stockCenters.find((center) => center.id === request.centerId) ?? null
         return {
+          companyId: dependencyCenter?.companyId ?? stockCenter.companyId,
+          companyName: getCompanyTradeName(dependencyCenter?.companyId ?? stockCenter.companyId),
           centerId: request.centerId,
           centerName: dependencyCenter?.name ?? `CENTRO ${request.centerId}`,
           sheetId: request.sheetId,
@@ -25254,6 +25260,8 @@ export default function App() {
         shortageLines.length > 0
           ? [
               {
+                companyId: stockCenter.companyId,
+                companyName: getCompanyTradeName(stockCenter.companyId),
                 centerId: stockCenter.id,
                 centerName: stockCenter.name,
                 lines: mergeRequisitionLines(shortageLines),
@@ -25322,6 +25330,8 @@ export default function App() {
           const rootKey = `${consumerCenter.id}:${dependencySheet.id}`
           const currentRequest = rootPreparationRequests.get(rootKey) ?? null
           rootPreparationRequests.set(rootKey, {
+            companyId: consumerCenter.companyId,
+            companyName: getCompanyTradeName(consumerCenter.companyId),
             centerId: consumerCenter.id,
             centerName: consumerCenter.name,
             sheetId: dependencySheet.id,
@@ -25340,6 +25350,8 @@ export default function App() {
         const supplierRootKey = `${supplyResolution.supplierCenter.id}:${dependencySheet.id}`
         const existingSupplierRequest = rootPreparationRequests.get(supplierRootKey) ?? null
         rootPreparationRequests.set(supplierRootKey, {
+          companyId: supplyResolution.supplierCenter.companyId,
+          companyName: getCompanyTradeName(supplyResolution.supplierCenter.companyId),
           centerId: supplyResolution.supplierCenter.id,
           centerName: supplyResolution.supplierCenter.name,
           sheetId: dependencySheet.id,
@@ -25422,14 +25434,23 @@ export default function App() {
     })
 
     const plannedProductions: ManualProductionPreviewProductionEntry[] = []
-    const shortageGroupsMap = new Map<number, ManualProductionPreviewShortageGroup>()
-    const appendShortageGroupLines = (centerId: number, centerName: string, lines: RequisitionLineRecord[]) => {
+    const shortageGroupsMap = new Map<string, ManualProductionPreviewShortageGroup>()
+    const appendShortageGroupLines = (
+      companyId: number,
+      companyName: string,
+      centerId: number,
+      centerName: string,
+      lines: RequisitionLineRecord[],
+    ) => {
       if (lines.length === 0) {
         return
       }
-      const existingGroup = shortageGroupsMap.get(centerId) ?? null
+      const groupKey = `${companyId}:${centerId}`
+      const existingGroup = shortageGroupsMap.get(groupKey) ?? null
       if (!existingGroup) {
-        shortageGroupsMap.set(centerId, {
+        shortageGroupsMap.set(groupKey, {
+          companyId,
+          companyName,
           centerId,
           centerName,
           lines: mergeRequisitionLines(lines),
@@ -25439,7 +25460,13 @@ export default function App() {
       existingGroup.lines = mergeRequisitionLines([...existingGroup.lines, ...lines])
     }
 
-    appendShortageGroupLines(consumerCenter.id, consumerCenter.name, directShortageLines)
+    appendShortageGroupLines(
+      consumerCenter.companyId,
+      getCompanyTradeName(consumerCenter.companyId),
+      consumerCenter.id,
+      consumerCenter.name,
+      directShortageLines,
+    )
 
     Array.from(rootPreparationRequests.values()).forEach((request) => {
       const targetCenter = stockCenters.find((center) => center.id === request.centerId) ?? null
@@ -25453,7 +25480,9 @@ export default function App() {
       productionPlan.plannedProductions
         .filter((entry) => entry.isDependencyRequest)
         .forEach((entry) => plannedProductions.push(entry))
-      productionPlan.shortageGroups.forEach((group) => appendShortageGroupLines(group.centerId, group.centerName, group.lines))
+      productionPlan.shortageGroups.forEach((group) =>
+        appendShortageGroupLines(group.companyId, group.companyName, group.centerId, group.centerName, group.lines),
+      )
     })
 
     return {
@@ -25548,6 +25577,7 @@ export default function App() {
   }
 
   function createProductionShortageRequisition(params: {
+    companyId: number
     centerId: number
     centerName: string
     shortageLines: RequisitionLineRecord[]
@@ -25558,8 +25588,9 @@ export default function App() {
     planningSourceSheetId?: number | null
     planningSourceSheetName?: string
     planningSourceQuantityLabel?: string
+    reservedIds?: number[]
   }) {
-    if (currentCompanyId === null || params.shortageLines.length === 0) {
+    if (params.shortageLines.length === 0) {
       return false
     }
 
@@ -25567,10 +25598,11 @@ export default function App() {
     const requisitionId = getNextPersistedIntId([
       ...requisitions.map((record) => record.id),
       ...requisitions.map((record) => record.requisitionGroupId),
+      ...(params.reservedIds ?? []),
     ])
     const nextRequisition: RequisitionRecord = {
       id: requisitionId,
-      companyId: currentCompanyId,
+      companyId: params.companyId,
       requisitionGroupId: requisitionId,
       planningRootRequestId: params.planningRootRequestId ?? null,
       planningSourceKind: params.planningSourceKind ?? '',
@@ -25618,6 +25650,9 @@ export default function App() {
       })
       return false
     }
+    params.reservedIds?.push(
+      ...splitDraftResult.requisitions.flatMap((record) => [record.id, record.requisitionGroupId]),
+    )
     setRequisitions((current) => [...splitDraftResult.requisitions, ...current])
     return true
   }
@@ -25636,7 +25671,7 @@ export default function App() {
     const createdAt = new Date().toISOString()
     const nextRequests = manualProductionPreviewState.plannedProductions.map((entry, index) => ({
       id: requestId + index,
-      companyId: currentCompanyId,
+      companyId: entry.companyId,
       centerId: entry.centerId,
       sheetId: entry.sheetId,
       desiredYield: formatDecimal(entry.desiredYield),
@@ -25659,12 +25694,14 @@ export default function App() {
         await Promise.all(nextRequests.map((request) => upsertManualProductionRequestOnApi(request)))
       }
 
+      const reservedRequisitionIds: number[] = []
       const requisitionCreated = manualProductionPreviewState.shortageGroups.reduce((createdAny, group) => {
         if (group.lines.length === 0) {
           return createdAny
         }
         return (
           createProductionShortageRequisition({
+            companyId: group.companyId,
             centerId: group.centerId,
             centerName: group.centerName,
             shortageLines: group.lines,
@@ -25675,6 +25712,7 @@ export default function App() {
             planningSourceSheetId: manualProductionPreviewState.sheetId,
             planningSourceSheetName: manualProductionPreviewState.sheetName,
             planningSourceQuantityLabel: manualProductionPreviewState.desiredYieldLabel,
+            reservedIds: reservedRequisitionIds,
           }) || createdAny
         )
       }, false)
@@ -49470,13 +49508,16 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                         technicalSheets.find((sheet) => sheet.id === request.sheetId && isTechnicalSheetVisibleForCompany(sheet, currentCompanyId)) ?? null
                       return (
                         <article
-                          key={`manual-production-dependency-${request.centerId}-${request.sheetId}-${request.isDependencyRequest ? 'dependency' : 'root'}`}
+                          key={`manual-production-dependency-${request.companyId}-${request.centerId}-${request.sheetId}-${request.isDependencyRequest ? 'dependency' : 'root'}`}
                           className="list-row"
                         >
                           <strong>{dependencySheet?.name ?? `PRE-PREPARO ${request.sheetId}`}</strong>
                           <div className="row-meta">
                             <span>
                               <strong className="meta-label">Centro:</strong> {request.centerName}
+                            </span>
+                            <span>
+                              <strong className="meta-label">Empresa:</strong> {request.companyName}
                             </span>
                             <span>
                               <strong className="meta-label">Quantidade:</strong>{' '}
@@ -49510,11 +49551,12 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                     Os centros abaixo nao possuem saldo suficiente para cobrir esta necessidade. Ao confirmar, o sistema criara as requisicoes correspondentes para abastecimento, compras ou envio ao centro produtor.
                   </p>
                   {manualProductionPreviewState.shortageGroups.map((group) => (
-                    <div key={`manual-production-shortage-group-${group.centerId}`} className="inner-panel">
+                    <div key={`manual-production-shortage-group-${group.companyId}-${group.centerId}`} className="inner-panel">
                       <div className="section-heading section-heading-inline">
                         <div>
                           <p className="kicker">Centro requisitante</p>
                           <h2>{group.centerName}</h2>
+                          <p className="helper-text">{group.companyName}</p>
                         </div>
                       </div>
                       <div className="table-wrap">
@@ -49529,7 +49571,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                           </thead>
                           <tbody>
                             {group.lines.map((line) => (
-                              <tr key={`manual-production-shortage-${group.centerId}-${line.key}`}>
+                              <tr key={`manual-production-shortage-${group.companyId}-${group.centerId}-${line.key}`}>
                                 <td className="sticky-product-cell"><strong>{line.itemName}</strong></td>
                                 <td>{line.itemTypeLabel}</td>
                                 <td>{formatRequisitionEffectiveQuantity(line, line.requestedQuantity)}</td>

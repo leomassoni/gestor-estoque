@@ -989,6 +989,8 @@ export type ExecutionProductionPlanningRow = {
 }
 
 export type ManualProductionPreviewProductionEntry = {
+  companyId: number
+  companyName: string
   centerId: number
   centerName: string
   sheetId: number
@@ -998,6 +1000,8 @@ export type ManualProductionPreviewProductionEntry = {
 }
 
 export type ManualProductionPreviewShortageGroup = {
+  companyId: number
+  companyName: string
   centerId: number
   centerName: string
   lines: RequisitionLineRecord[]
