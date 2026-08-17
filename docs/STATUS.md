@@ -47,6 +47,7 @@ Registrar em que pe o sistema esta hoje, por area, para consulta rapida antes de
 - O snapshot global `/api/state` ainda existe e deve ser tratado como legado/compatibilidade.
 - O frontend ainda mantem varios estados locais e sincroniza entidades por refresh/polling.
 - Mudancas no modelo de sincronizacao continuam sendo de alto risco e devem ficar para uma etapa planejada.
+- Ainda nao existe sincronizacao em tempo real entre sessoes/dispositivos. O comportamento esperado futuro e que cadastros, movimentacoes, registros e atividades gravadas no servidor sejam refletidos nas outras paginas abertas sem refresh manual, respeitando escopo de empresa/permissao. Ate la, cache/localStorage nao pode ser tratado como fonte da verdade para fluxo operacional critico.
 
 ### Ponto atual da migracao
 
@@ -205,8 +206,8 @@ Registrar em que pe o sistema esta hoje, por area, para consulta rapida antes de
 
 ## Riscos e limitacoes atuais
 
-- [`src/App.tsx`](/home/leomassoni/Documentos/Igarapé/Projetos/TCC-SP/gestor-estoque/src/App.tsx) esta muito grande, o que aumenta risco de regressao.
-- A ultima rodada de separacao reduziu [`src/App.tsx`](/home/leomassoni/Documentos/Igarapé/Projetos/TCC-SP/gestor-estoque/src/App.tsx) para aproximadamente 53,8 mil linhas.
+- [`src/App.tsx`](/home/leomassoni/Documentos/Igarapé/Projetos/TCC-SP/gestor-estoque/src/App.tsx) esta muito grande, o que aumenta risco de regressao e lentidao de manutencao.
+- A contagem atual de [`src/App.tsx`](/home/leomassoni/Documentos/Igarapé/Projetos/TCC-SP/gestor-estoque/src/App.tsx) esta em aproximadamente 57,2 mil linhas.
 - A separacao inicial de [`src/App.tsx`](/home/leomassoni/Documentos/Igarapé/Projetos/TCC-SP/gestor-estoque/src/App.tsx) ja comecou com:
   - [`src/utils/core.ts`](/home/leomassoni/Documentos/Igarapé/Projetos/TCC-SP/gestor-estoque/src/utils/core.ts)
   - [`src/components/ExecutionPlanningList.tsx`](/home/leomassoni/Documentos/Igarapé/Projetos/TCC-SP/gestor-estoque/src/components/ExecutionPlanningList.tsx)
@@ -230,6 +231,11 @@ Registrar em que pe o sistema esta hoje, por area, para consulta rapida antes de
   - Fica como melhoria futura de performance:
     - code splitting com `dynamic import()`
     - quebrar [`src/App.tsx`](/home/leomassoni/Documentos/Igarapé/Projetos/TCC-SP/gestor-estoque/src/App.tsx) em modulos menores
+- Antes de uma separacao estrutural maior de [`src/App.tsx`](/home/leomassoni/Documentos/Igarapé/Projetos/TCC-SP/gestor-estoque/src/App.tsx), o trabalho deve incluir obrigatoriamente:
+  - backup total dos dados do servidor, com registro de data, origem e destino do arquivo;
+  - registro detalhado das funcionalidades existentes, incluindo entradas, saidas, tabelas/endpoints usados, permissoes, dependencias entre modulos, uso permitido de localStorage/cache e criterios de validacao;
+  - checklist de regressao por fluxo antes e depois de cada bloco extraido;
+  - plano de rollback usando o backup, caso haja perda de dados ou regressao operacional.
 - Ainda nao existe integracao com relatorios de venda / ponto de venda externo.
   - Isso limita relatorios mais avancados de consumo teorico vs venda, CMV real por periodo e comparacoes entre estoque e venda.
 - Ha uma pendencia de regra no roteamento de requisicoes de `PREPARO` quando existir mais de um centro produtor valido para o mesmo item.
@@ -269,6 +275,12 @@ Registrar em que pe o sistema esta hoje, por area, para consulta rapida antes de
       - imagens
       - duplicacao entre snapshot e tabelas por entidade
   - prioridade alta, risco medio:
+    - planejar e implementar sincronizacao em tempo real por entidade:
+      - servidor deve publicar eventos apos gravacoes confirmadas no banco;
+      - frontend deve invalidar/recarregar apenas as entidades afetadas e no escopo da empresa/permissao ativa;
+      - abas do mesmo navegador podem usar `BroadcastChannel` como complemento, mas o servidor continua sendo a fonte da verdade;
+      - cache/localStorage deve ficar restrito a rascunhos antes do usuario confirmar o salvamento ou a compatibilidade temporaria;
+      - validar em desktop e mobile com dois usuarios/sessoes abertos.
     - implementar tratamento de imagem no cadastro de fichas tecnicas:
       - ao subir imagem, abrir etapa de ajuste antes de salvar
       - sugerir automaticamente corte quadrado com foco central no drink/produto
@@ -281,6 +293,7 @@ Registrar em que pe o sistema esta hoje, por area, para consulta rapida antes de
     - manter exportacoes com `xlsx` apenas temporariamente, enquanto a leitura de usuario deixa de depender dele
     - validar a migracao com imports reais de vendas antes de remover o parser antigo
     - continuar quebrando [`src/App.tsx`](/home/leomassoni/Documentos/Igarapé/Projetos/TCC-SP/gestor-estoque/src/App.tsx) e isolando calculos pesados em passos pequenos, sempre com build e teste de fluxo antes de avançar
+    - antes da proxima rodada estrutural dessa modularizacao, criar backup total do servidor e mapa funcional detalhado para evitar regressao/perda de dados
     - extrair normalizadores de entidade em subfases menores, comecando pelos menos acoplados
     - separar hooks/paineis por fluxo apenas depois dos normalizadores e calculos estarem isolados
   - prioridade media, risco medio:

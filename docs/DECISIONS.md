@@ -255,6 +255,32 @@ Registrar o que foi decidido, o que foi adiado e o que foi descartado, com foco 
   - preservar funcionamento enquanto a arquitetura melhora
 - Status: iniciado.
 
+### Separacao estrutural de App.tsx exige backup e mapa funcional
+
+- Decisao: antes de uma nova rodada estrutural de modularizacao de [`src/App.tsx`](/home/leomassoni/Documentos/Igarapé/Projetos/TCC-SP/gestor-estoque/src/App.tsx), deve existir backup total dos dados do servidor e um registro detalhado das funcionalidades do sistema.
+- O backup deve cobrir cadastros, fichas, produtos, empresas, usuarios, perfis, centros, inventarios, producoes, requisicoes, suprimentos, recebimentos, vendas importadas, desperdicios, notificacoes e demais entidades persistidas.
+- O registro funcional deve descrever, por fluxo:
+  - o que a funcionalidade faz;
+  - quais dados consome e grava;
+  - quais endpoints/tabelas usa;
+  - quais permissoes e escopos de empresa respeita;
+  - como se comunica com outros fluxos;
+  - quais dados podem ficar temporariamente no navegador antes da confirmacao do usuario;
+  - como validar que a funcionalidade nao regrediu apos a extracao.
+- Regra operacional: nao mover fluxos criticos de estoque, producao, requisicao, compras, fichas tecnicas, inventario ou sincronizacao sem checklist de regressao e possibilidade clara de rollback.
+- Status: planejado.
+
+### Sincronizacao em tempo real deve substituir refresh manual em fluxos criticos
+
+- Decisao: o comportamento desejado do sistema e que alteracoes confirmadas no servidor aparecam nas demais sessoes/dispositivos sem exigir refresh manual.
+- Direcao tecnica preferida: canal de eventos do servidor por entidade/empresa, com invalidacao e recarga pontual no frontend.
+- Regra:
+  - o banco/API seguem como fonte da verdade;
+  - `localStorage` nao deve ressuscitar registros cancelados, duplicar planejamentos ou sobrescrever dado mais novo do servidor;
+  - cache local so deve apoiar rascunhos antes do salvamento ou compatibilidade temporaria claramente controlada;
+  - a implementacao deve respeitar empresa ativa, empresas vinculadas e permissoes do usuario.
+- Status: planejado, alto risco, exige fase propria.
+
 ### XLSX deve ser tratado como entrada nao confiavel
 
 - Decisao: arquivos XLSX importados por usuario devem ser tratados como entrada nao confiavel.
@@ -296,7 +322,7 @@ Registrar o que foi decidido, o que foi adiado e o que foi descartado, com foco 
 - Risco aceito: manutencao ainda e lenta ate a modularizacao avancar.
 - Diretriz operacional: continuar extraindo apenas blocos isolados e validar com build a cada etapa, evitando mover regras de estoque/importacao/producao sem teste especifico do fluxo.
 - Decisao adicional: normalizadores de entidade continuam no [`src/App.tsx`](/home/leomassoni/Documentos/Igarapé/Projetos/TCC-SP/gestor-estoque/src/App.tsx) por enquanto, pois estao acoplados a defaults de acesso, recuperacao legada e regras de minimo/estoque. Devem ser extraidos em subfases menores.
-- Proxima ordem recomendada: normalizadores menos acoplados primeiro, depois hooks/paineis por fluxo. Nao extrair fluxos de requisicao, producao ou importacao antes de haver teste especifico do fluxo.
+- Proxima ordem recomendada: normalizadores menos acoplados primeiro, depois hooks/paineis por fluxo. Antes dessa rodada, criar backup total do servidor e mapa funcional detalhado. Nao extrair fluxos de requisicao, producao ou importacao antes de haver teste especifico do fluxo.
 
 ### O bundle grande do frontend fica como melhoria futura, nao como bloqueio de deploy
 

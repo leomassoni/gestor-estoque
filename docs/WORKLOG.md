@@ -8,6 +8,12 @@ Registrar um historico resumido do que foi feito, do que falhou e do que ficou p
 
 ## 2026-08-16
 
+### Planejamento de sincronizacao e modularizacao segura
+
+- Registrada pendencia de sincronizacao em tempo real entre sessoes/dispositivos: alteracoes confirmadas no servidor devem aparecer para outros usuarios/paginas sem refresh manual, respeitando empresa ativa e permissoes.
+- Registrada regra operacional para a proxima separacao estrutural de `src/App.tsx`: antes de mover blocos criticos, fazer backup total dos dados do servidor e criar mapa funcional detalhado com comportamento esperado, comunicacao entre modulos e checklist de regressao.
+- Reforcado que navegador/localStorage nao deve ser fonte da verdade para dados operacionais criticos; deve ficar restrito a rascunhos antes do salvamento ou compatibilidade temporaria controlada.
+
 ### Contagem de inventario nao deve perder sessao ativa apos pausa/reload
 
 - Investigado caso real `CASA DE MI MADRE LTDA`: `INV-0007` e `CON-0008` existem na API, estao abertos e sem itens registrados.
