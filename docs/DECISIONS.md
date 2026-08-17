@@ -484,6 +484,9 @@ Registrar o que foi decidido, o que foi adiado e o que foi descartado, com foco 
   - requisicao aprovada e enviada para suprimentos deve alimentar `Compras` independentemente do carregamento local da fila de producao; o cancelamento do planejamento e que deve cancelar as requisicoes derivadas;
   - cancelar uma requisicao em `Suprimentos` deve marcar `CANCELLED`; nao deve devolve-la para `PENDING_APPROVAL`;
   - requisicao `CANCELLED` e terminal para sincronizacao: cliente antigo/cache local nao pode reativar o registro como pendente, aprovado, em suprimentos ou pronto para receber;
+  - aprovacao/envio em lote no painel de requisicoes deve exigir selecao explicita por checkbox e respeitar a permissao de aprovacao/envio de cada centro;
+  - excluir canceladas em lote deve ser acao restrita a aprovadores e remover apenas requisicoes `CANCELLED` elegiveis no escopo visivel;
+  - consolidar requisicoes picadas somente enquanto estiverem `PENDING_APPROVAL`, no mesmo dia, mesma empresa, mesmo centro solicitante e mesmo destino operacional; nao consolidar requisicoes ja aprovadas/enviadas nem vinculadas a planejamento de producao;
   - inventario operacional usado para calcular falta de compras deve vir do banco; `localStorage` nao pode restaurar contagens/sessoes/movimentos quando o servidor nao possui esses registros;
   - requisicoes antigas com `requestUnitLabel = EMBALAGENS` e `packageId` vazio devem ser interpretadas por embalagem quando a embalagem puder ser inferida com seguranca, para evitar exibir quantidade de embalagens como se fosse ML/G/UN; no painel de `Compras`, o comprador deve ver a referencia em coluna `Embalagem` e as quantidades sem sufixo quando a compra puder ser expressa por embalagem.
   - a tela exporta XLSX e PDF do consolidado visivel.

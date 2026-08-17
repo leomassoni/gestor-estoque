@@ -8,6 +8,14 @@ Registrar um historico resumido do que foi feito, do que falhou e do que ficou p
 
 ## 2026-08-16
 
+### Acoes em lote e consolidacao de requisicoes pendentes
+
+- `Requisicoes feitas` ganhou selecao por checkbox para aprovar e enviar requisicoes em lote.
+- O envio individual e o envio em lote passam a respeitar a permissao de aprovacao/envio do centro da requisicao.
+- Aprovadores podem excluir em lote requisicoes `CANCELLED` elegiveis na lista atual.
+- Novas requisicoes pendentes do mesmo dia, mesma empresa, mesmo centro solicitante e mesmo destino operacional passam a ser anexadas a requisicoes pendentes compatíveis, somando linhas por chave semantica.
+- A consolidacao nao se aplica a requisicoes aprovadas, enviadas, recebidas, canceladas ou vinculadas a planejamento de producao.
+
 ### Planejamento de sincronizacao e modularizacao segura
 
 - Registrada pendencia de sincronizacao em tempo real entre sessoes/dispositivos: alteracoes confirmadas no servidor devem aparecer para outros usuarios/paginas sem refresh manual, respeitando empresa ativa e permissoes.

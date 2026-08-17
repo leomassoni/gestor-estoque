@@ -2589,6 +2589,7 @@ export default function App() {
   const [requisitionDraftLines, setRequisitionDraftLines] = useState<RequisitionDraftLine[]>([])
   const [requisitionDraftSearch, setRequisitionDraftSearch] = useState('')
   const [requisitionHistorySearch, setRequisitionHistorySearch] = useState('')
+  const [selectedRequisitionIds, setSelectedRequisitionIds] = useState<Set<number>>(() => new Set())
   const [requisitionHistoryScrollTop, setRequisitionHistoryScrollTop] = useState(0)
   const [requisitionReceiveSearch, setRequisitionReceiveSearch] = useState('')
   const [requisitionReceiveScrollTop, setRequisitionReceiveScrollTop] = useState(0)
@@ -7867,6 +7868,38 @@ export default function App() {
       ),
     [requisitionHistoryColumnFilters, requisitionHistoryColumnSort, requisitionHistorySearch, visibleHistoryRequisitions],
   )
+  const selectableRequisitionHistoryRows = useMemo(
+    () => visibleRequisitionHistoryRows.filter((record) => canSelectRequisitionForBulkAction(record)),
+    [visibleRequisitionHistoryRows],
+  )
+  const selectedRequisitionRecords = useMemo(
+    () => visibleHistoryRequisitions.filter((record) => selectedRequisitionIds.has(record.id)),
+    [selectedRequisitionIds, visibleHistoryRequisitions],
+  )
+  const selectedPendingApprovalRequisitions = useMemo(
+    () =>
+      selectedRequisitionRecords.filter(
+        (record) => record.status === 'PENDING_APPROVAL' && canApproveRequisition(record),
+      ),
+    [selectedRequisitionRecords],
+  )
+  const selectedApprovedRequisitions = useMemo(
+    () =>
+      selectedRequisitionRecords.filter(
+        (record) => record.status === 'APPROVED' && canSendRequisition(record),
+      ),
+    [selectedRequisitionRecords],
+  )
+  const deletableCancelledRequisitionRows = useMemo(
+    () =>
+      visibleRequisitionHistoryRows.filter(
+        (record) => record.status === 'CANCELLED' && canApproveRequisition(record),
+      ),
+    [visibleRequisitionHistoryRows],
+  )
+  const allSelectableRequisitionHistoryRowsSelected =
+    selectableRequisitionHistoryRows.length > 0 &&
+    selectableRequisitionHistoryRows.every((record) => selectedRequisitionIds.has(record.id))
   const distinctRequisitionHistoryColumnValues = useMemo(
     () =>
       Object.fromEntries(
@@ -15414,6 +15447,14 @@ export default function App() {
   }, [requisitions])
 
   useEffect(() => {
+    const selectableIds = new Set(visibleHistoryRequisitions.filter((record) => canSelectRequisitionForBulkAction(record)).map((record) => record.id))
+    setSelectedRequisitionIds((current) => {
+      const next = new Set(Array.from(current).filter((id) => selectableIds.has(id)))
+      return next.size === current.size ? current : next
+    })
+  }, [visibleHistoryRequisitions])
+
+  useEffect(() => {
     saveRequisitionNotificationsState(requisitionNotifications)
   }, [requisitionNotifications])
 
@@ -21297,7 +21338,8 @@ export default function App() {
         return
       }
 
-      setRequisitions((current) => [...splitDraftResult.requisitions, ...current])
+      const consolidationResult = consolidatePendingRequisitions(requisitions, splitDraftResult.requisitions, now)
+      setRequisitions(consolidationResult.requisitions)
       registerAuditEvent({
         companyId: nextRequisition.companyId,
         module: 'REQUISICOES',
@@ -21307,7 +21349,7 @@ export default function App() {
         targetId: String(nextRequisition.requisitionGroupId),
         targetLabel: `${nextRequisition.stockCenterName} • ${formatDateForDisplay(nextRequisition.countedAt)}`,
         summary: `Requisicao criada para o centro ${nextRequisition.stockCenterName}.`,
-        impactSummary: `${splitDraftResult.requisitions.length} requisicao(oes) registrada(s) por destino operacional.`,
+        impactSummary: `${splitDraftResult.requisitions.length} requisicao(oes) processada(s) por destino operacional; ${consolidationResult.mergedCount} anexada(s) a pendentes existentes.`,
         severity: 'MEDIUM',
         result: 'SUCCESS',
         relatedCompanyIds: Array.from(
@@ -21321,6 +21363,8 @@ export default function App() {
           stockCenterId: nextRequisition.stockCenterId,
           lineCount: linesToSave.length,
           requisitionCount: splitDraftResult.requisitions.length,
+          createdCount: consolidationResult.createdCount,
+          mergedCount: consolidationResult.mergedCount,
           destinations: Array.from(new Set(linesToSave.map((line) => line.destinationType))),
         },
       })
@@ -21328,9 +21372,11 @@ export default function App() {
         status: 'success',
         title: 'Requisicao criada com sucesso',
         message:
-          splitDraftResult.requisitions.length === 1
-            ? 'A requisicao foi criada e agora aguarda aprovacao do responsavel pelo centro de estoque.'
-            : `${splitDraftResult.requisitions.length} requisicoes foram criadas, uma para cada destino operacional, e agora aguardam aprovacao.`,
+          consolidationResult.mergedCount > 0
+            ? `${consolidationResult.createdCount} requisicao(oes) nova(s) criada(s) e ${consolidationResult.mergedCount} demanda(s) anexada(s) a requisicoes pendentes do mesmo dia/destino.`
+            : splitDraftResult.requisitions.length === 1
+              ? 'A requisicao foi criada e agora aguarda aprovacao do responsavel pelo centro de estoque.'
+              : `${splitDraftResult.requisitions.length} requisicoes foram criadas, uma para cada destino operacional, e agora aguardam aprovacao.`,
       })
     } else {
       const currentRecord = requisitions.find((record) => record.id === editingRequisitionId) ?? null
@@ -21409,6 +21455,17 @@ export default function App() {
     return (
       isSystemAdmin ||
       requisitionApprovalCenters.some((center) => center.id === record.stockCenterId)
+    )
+  }
+
+  function canSendRequisition(record: RequisitionRecord) {
+    return canApproveRequisition(record)
+  }
+
+  function canSelectRequisitionForBulkAction(record: RequisitionRecord) {
+    return (
+      (record.status === 'PENDING_APPROVAL' && canApproveRequisition(record)) ||
+      (record.status === 'APPROVED' && canSendRequisition(record))
     )
   }
 
@@ -21534,7 +21591,10 @@ export default function App() {
     )
   }
 
-  function buildSplitRequisitionsForSending(record: RequisitionRecord) {
+  function buildSplitRequisitionsForSending(
+    record: RequisitionRecord,
+    options: { reservedIds?: number[]; sentAt?: string } = {},
+  ) {
     const productionLines = record.lines.filter((line) => line.destinationType === 'PRODUCOES')
     const supplyLines = record.lines.filter((line) => line.destinationType === 'SUPRIMENTOS')
     const purchaseLines = record.lines.filter((line) => line.destinationType === 'COMPRAS')
@@ -21573,10 +21633,11 @@ export default function App() {
       linesByDestination.set(line.supplierCenterId, [...(linesByDestination.get(line.supplierCenterId) ?? []), line])
     })
 
-    const now = new Date().toISOString()
+    const now = options.sentAt ?? new Date().toISOString()
     const nextSplitRequisitionId = getNextPersistedIntId([
       ...requisitions.map((item) => item.id),
       ...requisitions.map((item) => item.requisitionGroupId),
+      ...(options.reservedIds ?? []),
     ])
     const splitRequisitions = Array.from(linesByDestination.entries()).map(([centerId, lines], index) => {
       const center = stockCenters.find((item) => item.id === centerId) ?? null
@@ -21720,6 +21781,70 @@ export default function App() {
     }
   }
 
+  function getRequisitionCreationDateKey(record: RequisitionRecord) {
+    return record.createdAt.slice(0, 10) || record.countedAt
+  }
+
+  function canConsolidatePendingRequisition(existing: RequisitionRecord, incoming: RequisitionRecord) {
+    return (
+      existing.status === 'PENDING_APPROVAL' &&
+      incoming.status === 'PENDING_APPROVAL' &&
+      existing.companyId === incoming.companyId &&
+      existing.stockCenterId === incoming.stockCenterId &&
+      existing.supplyCenterId === incoming.supplyCenterId &&
+      existing.supplyCompanyId === incoming.supplyCompanyId &&
+      getRequisitionCreationDateKey(existing) === getRequisitionCreationDateKey(incoming) &&
+      !existing.planningRootRequestId &&
+      !incoming.planningRootRequestId
+    )
+  }
+
+  function mergePendingRequisitionIntoExisting(
+    existing: RequisitionRecord,
+    incoming: RequisitionRecord,
+    mergedAt: string,
+  ): RequisitionRecord {
+    return {
+      ...existing,
+      lines: mergeRequisitionLines([...existing.lines, ...incoming.lines]),
+      lastUpdatedAt: mergedAt,
+      lastUpdatedByUserId: currentAppUser?.id ?? null,
+      lastUpdatedByUserName: currentAppUser?.fullName ?? 'Administrador do sistema',
+    }
+  }
+
+  function consolidatePendingRequisitions(
+    current: RequisitionRecord[],
+    incomingRequisitions: RequisitionRecord[],
+    mergedAt: string,
+  ) {
+    let mergedCount = 0
+    let createdCount = 0
+    const nextRequisitions = [...current]
+
+    incomingRequisitions.forEach((incoming) => {
+      const existingIndex = nextRequisitions.findIndex((existing) => canConsolidatePendingRequisition(existing, incoming))
+      if (existingIndex >= 0) {
+        nextRequisitions[existingIndex] = mergePendingRequisitionIntoExisting(
+          nextRequisitions[existingIndex],
+          incoming,
+          mergedAt,
+        )
+        mergedCount += 1
+        return
+      }
+
+      nextRequisitions.unshift(incoming)
+      createdCount += 1
+    })
+
+    return {
+      requisitions: nextRequisitions,
+      mergedCount,
+      createdCount,
+    }
+  }
+
   function startEditRequisition(requisitionId: number) {
     const targetRequisition = requisitions.find((record) => record.id === requisitionId) ?? null
     if (
@@ -21775,7 +21900,7 @@ export default function App() {
 
   function startSendRequisition(requisitionId: number) {
     const targetRequisition = requisitions.find((record) => record.id === requisitionId) ?? null
-    if (!targetRequisition || targetRequisition.status !== 'APPROVED') {
+    if (!targetRequisition || targetRequisition.status !== 'APPROVED' || !canSendRequisition(targetRequisition)) {
       return
     }
 
@@ -21829,6 +21954,203 @@ export default function App() {
     })
   }
 
+  function toggleRequisitionSelection(requisitionId: number, isSelected: boolean) {
+    const targetRequisition = visibleHistoryRequisitions.find((record) => record.id === requisitionId) ?? null
+    if (!targetRequisition || !canSelectRequisitionForBulkAction(targetRequisition)) {
+      return
+    }
+
+    setSelectedRequisitionIds((current) => {
+      const next = new Set(current)
+      if (isSelected) {
+        next.add(requisitionId)
+      } else {
+        next.delete(requisitionId)
+      }
+      return next
+    })
+  }
+
+  function toggleVisibleRequisitionSelection(isSelected: boolean) {
+    setSelectedRequisitionIds((current) => {
+      const next = new Set(current)
+      selectableRequisitionHistoryRows.forEach((record) => {
+        if (isSelected) {
+          next.add(record.id)
+        } else {
+          next.delete(record.id)
+        }
+      })
+      return next
+    })
+  }
+
+  function approveSelectedRequisitions() {
+    if (selectedPendingApprovalRequisitions.length === 0) {
+      setSaveFeedback({
+        status: 'error',
+        title: 'Nenhuma requisicao selecionada',
+        message: 'Selecione ao menos uma requisicao pendente de aprovacao para aprovar em lote.',
+      })
+      return
+    }
+
+    const now = new Date().toISOString()
+    const selectedIds = new Set(selectedPendingApprovalRequisitions.map((record) => record.id))
+    setRequisitions((current) =>
+      current.map((record) =>
+        selectedIds.has(record.id) && record.status === 'PENDING_APPROVAL' && canApproveRequisition(record)
+          ? {
+              ...record,
+              status: 'APPROVED',
+              approvedAt: now,
+              approvedByUserId: currentAppUser?.id ?? null,
+              approvedByUserName: currentAppUser?.fullName ?? 'Administrador do sistema',
+              lastUpdatedAt: now,
+              lastUpdatedByUserId: currentAppUser?.id ?? null,
+              lastUpdatedByUserName: currentAppUser?.fullName ?? 'Administrador do sistema',
+            }
+          : record,
+      ),
+    )
+    setSelectedRequisitionIds((current) => {
+      const next = new Set(current)
+      selectedIds.forEach((id) => next.delete(id))
+      return next
+    })
+    setSaveFeedback({
+      status: 'success',
+      title: 'Requisicoes aprovadas',
+      message: `${selectedPendingApprovalRequisitions.length} requisicao(oes) foram aprovadas.`,
+    })
+  }
+
+  function sendSelectedRequisitions() {
+    if (selectedApprovedRequisitions.length === 0) {
+      setSaveFeedback({
+        status: 'error',
+        title: 'Nenhuma requisicao selecionada',
+        message: 'Selecione ao menos uma requisicao aprovada para enviar em lote.',
+      })
+      return
+    }
+
+    const now = new Date().toISOString()
+    const reservedIds: number[] = []
+    const targetIds = new Set<number>()
+    const nextSentRecords: RequisitionRecord[] = []
+    const errors: string[] = []
+
+    selectedApprovedRequisitions.forEach((targetRequisition) => {
+      const splitResult = buildSplitRequisitionsForSending(targetRequisition, { reservedIds, sentAt: now })
+      if (splitResult.error) {
+        errors.push(`${targetRequisition.stockCenterName}: ${splitResult.error}`)
+        return
+      }
+      if (splitResult.requisitions.length === 0 && splitResult.remainingPurchaseLines.length === 0) {
+        errors.push(`${targetRequisition.stockCenterName}: sem itens com destino operacional para envio.`)
+        return
+      }
+
+      targetIds.add(targetRequisition.id)
+      nextSentRecords.push(...splitResult.requisitions)
+      reservedIds.push(...splitResult.requisitions.map((record) => record.id))
+
+      if (splitResult.remainingPurchaseLines.length > 0) {
+        nextSentRecords.push({
+          ...targetRequisition,
+          lines: splitResult.remainingPurchaseLines,
+          status: 'READY_TO_RECEIVE',
+          editScope: 'LINES_ONLY',
+          supplyCenterId: null,
+          supplyCenterName: '',
+          supplyCompanyId: null,
+          supplyCompanyName: '',
+          sentAt: now,
+          sentByUserId: currentAppUser?.id ?? null,
+          sentByUserName: currentAppUser?.fullName ?? 'Administrador do sistema',
+          preparedAt: now,
+          preparedByUserId: currentAppUser?.id ?? null,
+          preparedByUserName: currentAppUser?.fullName ?? 'Administrador do sistema',
+          lastUpdatedAt: now,
+          lastUpdatedByUserId: currentAppUser?.id ?? null,
+          lastUpdatedByUserName: currentAppUser?.fullName ?? 'Administrador do sistema',
+        })
+      }
+    })
+
+    if (errors.length > 0) {
+      setSaveFeedback({
+        status: 'error',
+        title: 'Envio em lote interrompido',
+        message: errors.slice(0, 3).join(' | '),
+      })
+      return
+    }
+
+    setRequisitions((current) => [
+      ...nextSentRecords,
+      ...current.filter((record) => !targetIds.has(record.id)),
+    ])
+    setSelectedRequisitionIds((current) => {
+      const next = new Set(current)
+      targetIds.forEach((id) => next.delete(id))
+      return next
+    })
+    setSaveFeedback({
+      status: 'success',
+      title: 'Requisicoes enviadas',
+      message: `${targetIds.size} requisicao(oes) foram enviadas em lote.`,
+    })
+  }
+
+  async function deleteCancelledRequisitions() {
+    if (deletableCancelledRequisitionRows.length === 0) {
+      setSaveFeedback({
+        status: 'error',
+        title: 'Nenhuma requisicao cancelada',
+        message: 'Nao ha requisicoes canceladas elegiveis para excluir na lista atual.',
+      })
+      return
+    }
+
+    const targetIds = new Set(deletableCancelledRequisitionRows.map((record) => record.id))
+    if (
+      !window.confirm(
+        `Excluir ${targetIds.size} requisicao(oes) cancelada(s) da lista atual? Esta acao remove esses registros do historico.`,
+      )
+    ) {
+      return
+    }
+
+    try {
+      await Promise.all(Array.from(targetIds).map((id) => deleteRequisitionRecordOnApi(id)))
+    } catch (error) {
+      console.error(error)
+      setSaveFeedback({
+        status: 'error',
+        title: 'Falha ao excluir canceladas',
+        message: error instanceof Error ? error.message : 'Erro ao excluir requisicoes canceladas no servidor.',
+      })
+      return
+    }
+
+    const nextRequisitions = requisitions.filter((record) => !targetIds.has(record.id))
+    setRequisitions(nextRequisitions)
+    syncedRequisitionRecordMapRef.current = buildEntitySignatureMap(nextRequisitions, (record) => record.id)
+    setSelectedRequisitionIds((current) => {
+      const next = new Set(current)
+      targetIds.forEach((id) => next.delete(id))
+      return next
+    })
+    setRequisitionNotifications((current) => current.filter((notification) => !targetIds.has(notification.requisitionId)))
+    setSaveFeedback({
+      status: 'success',
+      title: 'Canceladas excluidas',
+      message: `${targetIds.size} requisicao(oes) cancelada(s) foram removidas do historico.`,
+    })
+  }
+
   function confirmSendRequisition(requisitionIdOverride?: number) {
     if (typeof requisitionIdOverride !== 'number') {
       return
@@ -21836,7 +22158,7 @@ export default function App() {
     const targetId = requisitionIdOverride
 
     const targetRequisition = requisitions.find((record) => record.id === targetId) ?? null
-    if (!targetRequisition || targetRequisition.status !== 'APPROVED') {
+    if (!targetRequisition || targetRequisition.status !== 'APPROVED' || !canSendRequisition(targetRequisition)) {
       return
     }
 
@@ -44190,6 +44512,32 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                         placeholder="Digite centro, status, setor, usuario ou destino"
                       />
                     </label>
+                    <div className="toolbar-actions">
+                      <button
+                        type="button"
+                        className="primary-button"
+                        onClick={approveSelectedRequisitions}
+                        disabled={selectedPendingApprovalRequisitions.length === 0}
+                      >
+                        Aprovar selecionadas ({selectedPendingApprovalRequisitions.length})
+                      </button>
+                      <button
+                        type="button"
+                        className="warning-button"
+                        onClick={sendSelectedRequisitions}
+                        disabled={selectedApprovedRequisitions.length === 0}
+                      >
+                        Enviar selecionadas ({selectedApprovedRequisitions.length})
+                      </button>
+                      <button
+                        type="button"
+                        className="danger-button"
+                        onClick={() => void deleteCancelledRequisitions()}
+                        disabled={deletableCancelledRequisitionRows.length === 0}
+                      >
+                        Excluir canceladas ({deletableCancelledRequisitionRows.length})
+                      </button>
+                    </div>
                     {hiddenRequisitionHistoryColumns.length > 0 ? (
                       <div className="hidden-columns">
                         <strong>Colunas ocultas</strong>
@@ -44211,6 +44559,15 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                       <table className="product-table">
                         <thead>
                           <tr>
+                            <th>
+                              <input
+                                type="checkbox"
+                                aria-label="Selecionar requisicoes exibidas"
+                                checked={allSelectableRequisitionHistoryRowsSelected}
+                                disabled={selectableRequisitionHistoryRows.length === 0}
+                                onChange={(event) => toggleVisibleRequisitionSelection(event.target.checked)}
+                              />
+                            </th>
                             {requisitionHistoryColumnVisibility.center
                               ? renderRequisitionHistoryColumnHeader(
                                   'center',
@@ -44239,11 +44596,20 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                         <tbody>
                           {visibleRequisitionHistoryRange.topSpacerHeight > 0 ? (
                             <tr aria-hidden="true">
-                              <td colSpan={10} style={{ height: `${visibleRequisitionHistoryRange.topSpacerHeight}px`, padding: 0, border: 0 }} />
+                              <td colSpan={11} style={{ height: `${visibleRequisitionHistoryRange.topSpacerHeight}px`, padding: 0, border: 0 }} />
                             </tr>
                           ) : null}
                           {virtualizedRequisitionHistoryRows.map((record) => (
                             <tr key={record.id}>
+                              <td>
+                                <input
+                                  type="checkbox"
+                                  aria-label={`Selecionar requisicao ${record.id}`}
+                                  checked={selectedRequisitionIds.has(record.id)}
+                                  disabled={!canSelectRequisitionForBulkAction(record)}
+                                  onChange={(event) => toggleRequisitionSelection(record.id, event.target.checked)}
+                                />
+                              </td>
                               {requisitionHistoryColumnVisibility.center ? <td className="sticky-product-cell"><strong>{record.stockCenterName}</strong></td> : null}
                               {requisitionHistoryColumnVisibility.status ? <td>{getRequisitionHistoryStatusLabel(record.status)}</td> : null}
                               {requisitionHistoryColumnVisibility.date ? <td>{formatDateForDisplay(record.countedAt)}</td> : null}
@@ -44297,7 +44663,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                                     type="button"
                                     className="warning-button"
                                     onClick={() => startSendRequisition(record.id)}
-                                    disabled={record.status !== 'APPROVED'}
+                                    disabled={record.status !== 'APPROVED' || !canSendRequisition(record)}
                                   >
                                     {record.status === 'SENT_TO_SUPPLIES' ||
                                     record.status === 'READY_TO_RECEIVE' ||
@@ -44311,7 +44677,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                           ))}
                           {visibleRequisitionHistoryRange.bottomSpacerHeight > 0 ? (
                             <tr aria-hidden="true">
-                              <td colSpan={10} style={{ height: `${visibleRequisitionHistoryRange.bottomSpacerHeight}px`, padding: 0, border: 0 }} />
+                              <td colSpan={11} style={{ height: `${visibleRequisitionHistoryRange.bottomSpacerHeight}px`, padding: 0, border: 0 }} />
                             </tr>
                           ) : null}
                         </tbody>
