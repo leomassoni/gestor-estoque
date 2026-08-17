@@ -12,13 +12,26 @@ type ExecutionPlanningListRow = {
 export function ExecutionPlanningList({
   rows,
   onCancelPlanning,
+  selectedRootRequestIds,
+  selectedCount,
+  onTogglePlanningSelection,
+  onToggleAllPlanningSelection,
+  onCancelSelectedPlanning,
 }: {
   rows: ExecutionPlanningListRow[]
   onCancelPlanning: (rootRequestId: number) => void
+  selectedRootRequestIds?: Set<number>
+  selectedCount?: number
+  onTogglePlanningSelection?: (rootRequestId: number, isSelected: boolean) => void
+  onToggleAllPlanningSelection?: (isSelected: boolean) => void
+  onCancelSelectedPlanning?: () => void
 }) {
   if (rows.length === 0) {
     return null
   }
+
+  const selectionEnabled = Boolean(selectedRootRequestIds && onTogglePlanningSelection && onToggleAllPlanningSelection)
+  const allRowsSelected = selectionEnabled && rows.every((row) => selectedRootRequestIds?.has(row.rootRequestId))
 
   return (
     <div className="inner-panel production-planning-panel">
@@ -27,6 +40,16 @@ export function ExecutionPlanningList({
           <p className="kicker">Planejamentos por ficha</p>
           <h2>Origens criadas por ficha de execucao</h2>
         </div>
+        {onCancelSelectedPlanning ? (
+          <button
+            type="button"
+            className="danger-button"
+            onClick={onCancelSelectedPlanning}
+            disabled={(selectedCount ?? 0) === 0}
+          >
+            Cancelar selecionados ({selectedCount ?? 0})
+          </button>
+        ) : null}
       </div>
       <p className="context-copy">
         As producoes continuam na fila normal abaixo. Este bloco serve para rastrear e cancelar a origem completa da demanda enquanto ela ainda estiver pendente.
@@ -35,6 +58,16 @@ export function ExecutionPlanningList({
         <table className="product-table">
           <thead>
             <tr>
+              {selectionEnabled ? (
+                <th>
+                  <input
+                    type="checkbox"
+                    aria-label="Selecionar planejamentos exibidos"
+                    checked={allRowsSelected}
+                    onChange={(event) => onToggleAllPlanningSelection?.(event.target.checked)}
+                  />
+                </th>
+              ) : null}
               <th className="sticky-product">Ficha de execucao</th>
               <th>Centro</th>
               <th>Quantidade</th>
@@ -48,6 +81,16 @@ export function ExecutionPlanningList({
           <tbody>
             {rows.map((row) => (
               <tr key={`execution-planning-${row.rootRequestId}`}>
+                {selectionEnabled ? (
+                  <td>
+                    <input
+                      type="checkbox"
+                      aria-label={`Selecionar planejamento ${row.executionSheetName}`}
+                      checked={selectedRootRequestIds?.has(row.rootRequestId) ?? false}
+                      onChange={(event) => onTogglePlanningSelection?.(row.rootRequestId, event.target.checked)}
+                    />
+                  </td>
+                ) : null}
                 <td className="sticky-product-cell">
                   <strong>{row.executionSheetName}</strong>
                   <div className="table-cell-support">Planejamento #{row.rootRequestId}</div>

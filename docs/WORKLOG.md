@@ -8,6 +8,12 @@ Registrar um historico resumido do que foi feito, do que falhou e do que ficou p
 
 ## 2026-08-16
 
+### Cancelamento em lote de planejamentos por ficha
+
+- `Origens criadas por ficha de execucao` ganhou selecao por checkbox e botao `Cancelar selecionados`.
+- O cancelamento em lote reutiliza o fluxo por `rootRequestId`: remove producoes pendentes no backend e cancela requisicoes/suprimentos vinculados somente quando ainda nao avancaram.
+- O modal de confirmacao informa quantos planejamentos, producoes e requisicoes/suprimentos reversiveis serao afetados, mantendo itens ja movidos/recebidos ativos.
+
 ### Acoes em lote e consolidacao de requisicoes pendentes
 
 - `Requisicoes feitas` ganhou selecao por checkbox para aprovar e enviar requisicoes em lote.

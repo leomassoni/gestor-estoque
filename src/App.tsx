@@ -2705,6 +2705,8 @@ export default function App() {
   const [isProductionFinishConfirmOpen, setIsProductionFinishConfirmOpen] = useState(false)
   const [pendingProductionCancelRow, setPendingProductionCancelRow] = useState<ProductionRequestRow | null>(null)
   const [pendingExecutionPlanningCancelRow, setPendingExecutionPlanningCancelRow] = useState<ExecutionProductionPlanningRow | null>(null)
+  const [pendingExecutionPlanningBatchCancelRows, setPendingExecutionPlanningBatchCancelRows] = useState<ExecutionProductionPlanningRow[] | null>(null)
+  const [selectedExecutionPlanningRootIds, setSelectedExecutionPlanningRootIds] = useState<Set<number>>(() => new Set())
   const [technicalSheetExportSearch, setTechnicalSheetExportSearch] = useState('')
   const [recipePanelTab, setRecipePanelTab] = useState<RecipePanelTab>('PREPARO')
   const [recipePanelSearch, setRecipePanelSearch] = useState<Record<RecipePanelTab, string>>({
@@ -4916,6 +4918,10 @@ export default function App() {
       })
       .sort((left, right) => right.createdAt.localeCompare(left.createdAt) || right.rootRequestId - left.rootRequestId)
   }, [currentCompanyId, manualProductionRequests, requisitions, stockCenters, technicalSheets])
+  const selectedExecutionPlanningRows = useMemo(
+    () => executionProductionPlanningRows.filter((row) => selectedExecutionPlanningRootIds.has(row.rootRequestId)),
+    [executionProductionPlanningRows, selectedExecutionPlanningRootIds],
+  )
   const selectedProductionSheet = useMemo(
     () =>
       productionDraftState
@@ -15539,6 +15545,14 @@ export default function App() {
   }, [manualProductionRequests])
 
   useEffect(() => {
+    const visibleRootIds = new Set(executionProductionPlanningRows.map((row) => row.rootRequestId))
+    setSelectedExecutionPlanningRootIds((current) => {
+      const next = new Set(Array.from(current).filter((rootRequestId) => visibleRootIds.has(rootRequestId)))
+      return next.size === current.size ? current : next
+    })
+  }, [executionProductionPlanningRows])
+
+  useEffect(() => {
     if (!isRemoteAppStateReady) {
       return
     }
@@ -25033,6 +25047,49 @@ export default function App() {
     setPendingExecutionPlanningCancelRow(row)
   }
 
+  function toggleExecutionPlanningSelection(rootRequestId: number, isSelected: boolean) {
+    if (!executionProductionPlanningRows.some((row) => row.rootRequestId === rootRequestId)) {
+      return
+    }
+
+    setSelectedExecutionPlanningRootIds((current) => {
+      const next = new Set(current)
+      if (isSelected) {
+        next.add(rootRequestId)
+      } else {
+        next.delete(rootRequestId)
+      }
+      return next
+    })
+  }
+
+  function toggleAllExecutionPlanningSelection(isSelected: boolean) {
+    setSelectedExecutionPlanningRootIds((current) => {
+      const next = new Set(current)
+      executionProductionPlanningRows.forEach((row) => {
+        if (isSelected) {
+          next.add(row.rootRequestId)
+        } else {
+          next.delete(row.rootRequestId)
+        }
+      })
+      return next
+    })
+  }
+
+  function requestCancelSelectedExecutionPlannings() {
+    if (selectedExecutionPlanningRows.length === 0) {
+      setSaveFeedback({
+        status: 'error',
+        title: 'Nenhum planejamento selecionado',
+        message: 'Selecione ao menos uma origem criada por ficha de execucao para cancelar.',
+      })
+      return
+    }
+
+    setPendingExecutionPlanningBatchCancelRows(selectedExecutionPlanningRows)
+  }
+
   async function confirmCancelProductionRow() {
     if (!pendingProductionCancelRow) {
       return
@@ -25088,15 +25145,20 @@ export default function App() {
     }
   }
 
-  async function confirmCancelExecutionPlanning() {
-    if (!pendingExecutionPlanningCancelRow || currentCompanyId === null) {
+  async function cancelExecutionPlanningRows(rows: ExecutionProductionPlanningRow[]) {
+    if (rows.length === 0 || currentCompanyId === null) {
       return
     }
 
-    const rootRequestId = pendingExecutionPlanningCancelRow.rootRequestId
+    const rootRequestIds = new Set(rows.map((row) => row.rootRequestId))
     const now = new Date().toISOString()
     const nextRequisitions: RequisitionRecord[] = requisitions.map((record) => {
-        if (record.companyId !== currentCompanyId || record.planningRootRequestId !== rootRequestId) {
+        if (
+          record.companyId !== currentCompanyId ||
+          record.planningRootRequestId === null ||
+          typeof record.planningRootRequestId !== 'number' ||
+          !rootRequestIds.has(record.planningRootRequestId)
+        ) {
           return record
         }
         if (!isPlanningRequisitionStillCancelable(record)) {
@@ -25113,13 +25175,19 @@ export default function App() {
     const changedRequisitions = nextRequisitions.filter((record, index) => record !== requisitions[index])
 
     try {
-      const deletedCount = await deleteManualProductionRequestsByRootOnApi(currentCompanyId, rootRequestId)
-      if (deletedCount === 0) {
-        throw new Error('O servidor nao confirmou a exclusao de nenhuma producao desse planejamento. A lista foi recarregada sem aplicar o cancelamento.')
+      const deleteResults = await Promise.all(
+        Array.from(rootRequestIds).map(async (rootRequestId) => ({
+          rootRequestId,
+          deletedCount: await deleteManualProductionRequestsByRootOnApi(currentCompanyId, rootRequestId),
+        })),
+      )
+      const missingDeleteResult = deleteResults.find((result) => result.deletedCount === 0) ?? null
+      if (missingDeleteResult) {
+        throw new Error(`O servidor nao confirmou a exclusao de nenhuma producao do planejamento #${missingDeleteResult.rootRequestId}. A lista foi recarregada sem aplicar o cancelamento.`)
       }
       await Promise.all(changedRequisitions.map((record) => upsertRequisitionRecordOnApi(record)))
       const nextManualProductionRequests = manualProductionRequests.filter(
-        (request) => !(request.companyId === currentCompanyId && request.rootRequestId === rootRequestId),
+        (request) => !(request.companyId === currentCompanyId && rootRequestIds.has(request.rootRequestId)),
       )
       setManualProductionRequests(nextManualProductionRequests)
       setRequisitions(nextRequisitions)
@@ -25129,12 +25197,18 @@ export default function App() {
         refreshAppProductionRecordsFromApi(),
         refreshAppRequisitionRecordsFromApi(),
       ])
+      setSelectedExecutionPlanningRootIds((current) => {
+        const next = new Set(current)
+        rootRequestIds.forEach((rootRequestId) => next.delete(rootRequestId))
+        return next
+      })
       setPendingExecutionPlanningCancelRow(null)
+      setPendingExecutionPlanningBatchCancelRows(null)
       setSaveFeedback({
         status: 'success',
-        title: 'Planejamento cancelado',
+        title: rows.length === 1 ? 'Planejamento cancelado' : 'Planejamentos cancelados',
         message:
-          pendingExecutionPlanningCancelRow.movedRequisitionCount > 0
+          rows.some((row) => row.movedRequisitionCount > 0)
             ? 'As producoes pendentes foram retiradas da fila e as requisicoes ou suprimentos ainda nao movimentados foram cancelados. Itens ja movidos permaneceram ativos.'
             : 'As producoes pendentes foram retiradas da fila e as requisicoes ou suprimentos vinculados que ainda nao avancaram tambem foram cancelados.',
       })
@@ -25146,6 +25220,20 @@ export default function App() {
         message: error instanceof Error ? error.message : 'Erro ao cancelar o planejamento no servidor.',
       })
     }
+  }
+
+  async function confirmCancelExecutionPlanning() {
+    if (!pendingExecutionPlanningCancelRow) {
+      return
+    }
+    await cancelExecutionPlanningRows([pendingExecutionPlanningCancelRow])
+  }
+
+  async function confirmCancelSelectedExecutionPlannings() {
+    if (!pendingExecutionPlanningBatchCancelRows) {
+      return
+    }
+    await cancelExecutionPlanningRows(pendingExecutionPlanningBatchCancelRows)
   }
 
   function updateProductionDesiredYield(value: string) {
@@ -45034,12 +45122,17 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
               <>
                 <ExecutionPlanningList
                   rows={executionProductionPlanningRows}
+                  selectedRootRequestIds={selectedExecutionPlanningRootIds}
+                  selectedCount={selectedExecutionPlanningRows.length}
                   onCancelPlanning={(rootRequestId) => {
                     const row = executionProductionPlanningRows.find((entry) => entry.rootRequestId === rootRequestId) ?? null
                     if (row) {
                       requestCancelExecutionPlanning(row)
                     }
                   }}
+                  onTogglePlanningSelection={toggleExecutionPlanningSelection}
+                  onToggleAllPlanningSelection={toggleAllExecutionPlanningSelection}
+                  onCancelSelectedPlanning={requestCancelSelectedExecutionPlannings}
                 />
 
                 <form className="form-grid company-form-grid" onSubmit={(event) => event.preventDefault()}>
@@ -48431,6 +48524,24 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
           actionLabel="Cancelar planejamento"
           onCancel={() => setPendingExecutionPlanningCancelRow(null)}
           onConfirm={confirmCancelExecutionPlanning}
+        />
+      ) : null}
+
+      {pendingExecutionPlanningBatchCancelRows ? (
+        <ConfirmationModal
+          title="Cancelar planejamentos selecionados?"
+          message={
+            `Deseja cancelar ${pendingExecutionPlanningBatchCancelRows.length} planejamento(s) selecionado(s)? ` +
+            `${pendingExecutionPlanningBatchCancelRows.reduce((sum, row) => sum + row.productionCount, 0)} producao(oes) pendente(s) serao retiradas da fila e ` +
+            `${pendingExecutionPlanningBatchCancelRows.reduce((sum, row) => sum + row.cancellableRequisitionCount, 0)} requisicao(oes)/suprimento(s) ainda nao movimentado(s) serao cancelados. ` +
+            (pendingExecutionPlanningBatchCancelRows.some((row) => row.movedRequisitionCount > 0)
+              ? `${pendingExecutionPlanningBatchCancelRows.reduce((sum, row) => sum + row.movedRequisitionCount, 0)} item(ns) ja movido(s) ou recebido(s) permanecerao ativos.`
+              : '')
+          }
+          actionClass="danger-button"
+          actionLabel="Cancelar selecionados"
+          onCancel={() => setPendingExecutionPlanningBatchCancelRows(null)}
+          onConfirm={confirmCancelSelectedExecutionPlannings}
         />
       ) : null}
 
