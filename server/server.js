@@ -1023,10 +1023,29 @@ app.delete('/api/requisitions/:id', async (request, response) => {
     return
   }
 
-  await prisma.$transaction([
-    prisma.appRequisitionNotificationRecord.deleteMany({ where: { requisitionId } }),
-    prisma.appRequisitionRecord.deleteMany({ where: { id: requisitionId } }),
-  ])
+  await prisma.$transaction(async (transaction) => {
+    const existing = await transaction.appRequisitionRecord.findUnique({
+      where: { id: requisitionId },
+      select: { companyId: true, stockCenterId: true, stockCenterName: true },
+    })
+    await transaction.appDeletedRequisitionRecord.upsert({
+      where: { id: requisitionId },
+      create: {
+        id: requisitionId,
+        companyId: existing?.companyId ?? null,
+        stockCenterId: existing?.stockCenterId ?? null,
+        stockCenterName: existing?.stockCenterName ?? '',
+      },
+      update: {
+        companyId: existing?.companyId ?? null,
+        stockCenterId: existing?.stockCenterId ?? null,
+        stockCenterName: existing?.stockCenterName ?? '',
+        deletedAt: new Date(),
+      },
+    })
+    await transaction.appRequisitionNotificationRecord.deleteMany({ where: { requisitionId } })
+    await transaction.appRequisitionRecord.deleteMany({ where: { id: requisitionId } })
+  })
   response.json({ ok: true })
 })
 
@@ -3594,10 +3613,22 @@ function normalizeRequisitionPayload(value) {
 }
 
 async function saveRequisitionWithCancellationGuard(requisitionId, requisition) {
-  const existing = await prisma.appRequisitionRecord.findUnique({
-    where: { id: requisitionId },
-    select: { id: true, status: true, stockCenterName: true },
-  })
+  const [existing, deletedRecord] = await Promise.all([
+    prisma.appRequisitionRecord.findUnique({
+      where: { id: requisitionId },
+      select: { id: true, status: true, stockCenterName: true },
+    }),
+    prisma.appDeletedRequisitionRecord.findUnique({
+      where: { id: requisitionId },
+      select: { id: true },
+    }),
+  ])
+
+  if (!existing && deletedRecord) {
+    const error = new Error(`A requisicao #${requisitionId} foi excluida e nao pode ser recriada por sincronizacao antiga.`)
+    error.statusCode = 409
+    throw error
+  }
 
   if (existing?.status === 'CANCELLED' && requisition.status !== 'CANCELLED') {
     const error = new Error(`A requisicao #${existing.id} ja esta cancelada e nao pode ser reativada por sincronizacao antiga.`)
@@ -4929,11 +4960,12 @@ async function ensureAppRequisitionRecordsSeeded() {
 
   await sanitizeLegacyEntitySnapshotIds()
 
-  const [requisitionsCount, notificationsCount] = await Promise.all([
+  const [requisitionsCount, notificationsCount, deletedRequisitionsCount] = await Promise.all([
     prisma.appRequisitionRecord.count(),
     prisma.appRequisitionNotificationRecord.count(),
+    prisma.appDeletedRequisitionRecord.count(),
   ])
-  if (requisitionsCount > 0 || notificationsCount > 0) {
+  if (requisitionsCount > 0 || notificationsCount > 0 || deletedRequisitionsCount > 0) {
     hasSeededAppRequisitionRecords = true
     return
   }

@@ -585,6 +585,17 @@ model AppRequisitionRecord {
   @@index([status])
 }
 
+model AppDeletedRequisitionRecord {
+  id              Int      @id
+  companyId       Int?
+  stockCenterId   Int?
+  stockCenterName String   @default("")
+  deletedAt       DateTime @default(now())
+
+  @@index([companyId])
+  @@index([stockCenterId])
+}
+
 model AppRequisitionNotificationRecord {
   id             Int      @id
   companyId      Int

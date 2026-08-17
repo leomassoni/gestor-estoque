@@ -8422,6 +8422,10 @@ export default function App() {
       ),
     [selectedRequisitionRecords],
   )
+  const selectedCancellableRequisitions = useMemo(
+    () => selectedRequisitionRecords.filter((record) => canCancelRequisitionInBulk(record)),
+    [selectedRequisitionRecords],
+  )
   const deletableCancelledRequisitionRows = useMemo(
     () =>
       visibleRequisitionHistoryRows.filter(
@@ -22007,7 +22011,8 @@ export default function App() {
   function canSelectRequisitionForBulkAction(record: RequisitionRecord) {
     return (
       (record.status === 'PENDING_APPROVAL' && canApproveRequisition(record)) ||
-      (record.status === 'APPROVED' && canSendRequisition(record))
+      (record.status === 'APPROVED' && canSendRequisition(record)) ||
+      canCancelRequisitionInBulk(record)
     )
   }
 
@@ -22017,6 +22022,15 @@ export default function App() {
       (currentAppUser
         ? record.createdByUserId === currentAppUser.id || canApproveRequisition(record)
         : false)
+    )
+  }
+
+  function canCancelRequisitionInBulk(record: RequisitionRecord) {
+    return (
+      canManageRequisition(record) &&
+      record.status !== 'READY_TO_RECEIVE' &&
+      record.status !== 'RECEIVED' &&
+      record.status !== 'CANCELLED'
     )
   }
 
@@ -22831,6 +22845,68 @@ export default function App() {
         downstreamProductionRequisitions.length > 0
           ? `${targetIds.size} requisicao(oes) foram enviadas em lote e ${downstreamProductionRequisitions.length} requisicao(oes) de insumos foram criadas automaticamente para producao.`
           : `${targetIds.size} requisicao(oes) foram enviadas em lote.`,
+    })
+  }
+
+  async function cancelSelectedRequisitions() {
+    if (selectedCancellableRequisitions.length === 0) {
+      setSaveFeedback({
+        status: 'error',
+        title: 'Nenhuma requisicao selecionada',
+        message: 'Selecione ao menos uma requisicao cancelavel para cancelar em lote.',
+      })
+      return
+    }
+
+    const targetIds = new Set(selectedCancellableRequisitions.map((record) => record.id))
+    if (
+      !window.confirm(
+        `Cancelar ${targetIds.size} requisicao(oes) selecionada(s)? Requisicoes prontas para receber ou recebidas nao serao alteradas.`,
+      )
+    ) {
+      return
+    }
+
+    const now = new Date().toISOString()
+    const cancelledRequisitions = selectedCancellableRequisitions.map((record) => ({
+      ...record,
+      status: 'CANCELLED' as const,
+      lastUpdatedAt: now,
+      lastUpdatedByUserId: currentAppUser?.id ?? null,
+      lastUpdatedByUserName: currentAppUser?.fullName ?? 'Administrador do sistema',
+    }))
+
+    try {
+      await Promise.all(cancelledRequisitions.map((record) => upsertRequisitionRecordOnApi(record)))
+    } catch (error) {
+      console.error(error)
+      setSaveFeedback({
+        status: 'error',
+        title: 'Falha ao cancelar selecionadas',
+        message: error instanceof Error ? error.message : 'Erro ao cancelar requisicoes no servidor.',
+      })
+      return
+    }
+
+    const cancelledById = new Map(cancelledRequisitions.map((record) => [record.id, record] as const))
+    const nextRequisitions = requisitions.map((record) => cancelledById.get(record.id) ?? record)
+    setRequisitions(nextRequisitions)
+    syncedRequisitionRecordMapRef.current = buildEntitySignatureMap(nextRequisitions, (record) => record.id)
+    setSelectedRequisitionIds((current) => {
+      const next = new Set(current)
+      targetIds.forEach((id) => next.delete(id))
+      return next
+    })
+    cancelledRequisitions.forEach((record) => {
+      notifyRequisitionStakeholders(
+        record,
+        `A REQUISICAO DO CENTRO ${record.stockCenterName} FOI CANCELADA EM LOTE.`,
+      )
+    })
+    setSaveFeedback({
+      status: 'success',
+      title: 'Requisicoes canceladas',
+      message: `${targetIds.size} requisicao(oes) selecionada(s) foram cancelada(s).`,
     })
   }
 
@@ -45660,6 +45736,14 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                         disabled={selectedApprovedRequisitions.length === 0}
                       >
                         Enviar selecionadas ({selectedApprovedRequisitions.length})
+                      </button>
+                      <button
+                        type="button"
+                        className="danger-button"
+                        onClick={() => void cancelSelectedRequisitions()}
+                        disabled={selectedCancellableRequisitions.length === 0}
+                      >
+                        Cancelar selecionadas ({selectedCancellableRequisitions.length})
                       </button>
                       <button
                         type="button"
