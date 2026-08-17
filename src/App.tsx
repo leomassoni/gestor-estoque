@@ -892,7 +892,9 @@ function isPurchaseDemandEligibleRequisition(record: RequisitionRecord) {
 function isCancelledPurchaseOriginRequisition(record: RequisitionRecord) {
   return (
     record.status === 'CANCELLED' &&
-    record.lines.some((line) => line.kind === 'PRODUTO' && (line.destinationType === 'COMPRAS' || line.destinationType === 'SUPRIMENTOS'))
+    record.lines.some(
+      (line) => line.destinationType === 'COMPRAS' || line.destinationType === 'SUPRIMENTOS' || line.destinationType === 'PRODUCOES',
+    )
   )
 }
 const requisitionHistoryColumnOptions: Array<[RequisitionHistoryColumnKey, string]> = [
@@ -7681,6 +7683,7 @@ export default function App() {
       record: RequisitionRecord
       sourceLabel: string
       shouldSubtractCurrentStock: boolean
+      requesterCenterName?: string
     }) => {
       if (params.line.kind !== 'PRODUTO' || !params.line.productId) {
         return
@@ -7724,19 +7727,210 @@ export default function App() {
       }
       group.requestedQuantity += getLineBaseQuantity(params.line)
       group.currentQuantity = currentQuantity
-      group.requesterCenters.add(params.record.stockCenterName)
+      const requestingCenterName = params.requesterCenterName ?? params.record.stockCenterName
+      group.requesterCenters.add(requestingCenterName)
       group.requisitionIds.add(params.record.id)
       const currentOrigin = group.originDetails.get(params.record.id)
       group.originDetails.set(params.record.id, {
         requisitionId: params.record.id,
         requisitionGroupId: params.record.requisitionGroupId,
         purchaseOrderCode: buildPurchaseOrderOperationalCode(params.record),
-        requestingCenterName: params.record.stockCenterName,
+        requestingCenterName,
         sourceLabel: params.sourceLabel,
         requestedQuantity: (currentOrigin?.requestedQuantity ?? 0) + getLineBaseQuantity(params.line),
       })
       group.sourceLabels.add(params.sourceLabel)
       groups.set(groupKey, group)
+    }
+
+    const availableBaseQuantityByCenterAndAggregation = new Map<string, number>()
+    latestInventoryQuantityByCenterAndAggregation.forEach((quantity, key) => {
+      availableBaseQuantityByCenterAndAggregation.set(key, quantity)
+    })
+
+    const consumeAvailableBaseQuantity = (centerId: number, aggregationKey: string, requiredQuantity: number) => {
+      const key = `${centerId}:${aggregationKey}`
+      const availableQuantity = availableBaseQuantityByCenterAndAggregation.get(key) ?? 0
+      const consumedQuantity = Math.min(availableQuantity, requiredQuantity)
+      if (consumedQuantity > 0) {
+        availableBaseQuantityByCenterAndAggregation.set(key, availableQuantity - consumedQuantity)
+      }
+      return Math.max(requiredQuantity - availableQuantity, 0)
+    }
+
+    const buildProductShortageLine = (
+      product: ProductRecord,
+      shortageQuantity: number,
+      lineKey: string,
+    ): RequisitionLineRecord => {
+      const selectedPackage = product.packages.find((item) => item.isActive) ?? null
+      const packageQuantity =
+        selectedPackage ? calculateNormalizedPackageQuantity(selectedPackage, product.controlUnit) : 1
+      const requestedQuantity = packageQuantity > 0 ? shortageQuantity / packageQuantity : shortageQuantity
+      return {
+        key: lineKey,
+        kind: 'PRODUTO',
+        technicalSheetId: null,
+        productId: product.id,
+        serviceItemId: '',
+        packageId: selectedPackage?.id ?? null,
+        itemName: product.name,
+        itemTypeLabel: 'PRODUTO',
+        family: product.family,
+        suggestedQuantity: formatDecimal(requestedQuantity),
+        requestedQuantity: formatDecimal(requestedQuantity),
+        requestUnitLabel: selectedPackage ? 'EMBALAGENS' : formatControlUnitShort(product.controlUnit),
+        currentQuantity: '0',
+        currentUnitLabel: selectedPackage
+          ? `${formatDecimal(parseDecimal(selectedPackage.packageQuantity) ?? 0)} ${formatUnit(selectedPackage.packageUnit)}`
+          : formatControlUnitShort(product.controlUnit),
+        minimumDefinitionLabel: '-',
+        destinationType: 'COMPRAS',
+        destinationCenterId: null,
+        destinationCenterName: '',
+        destinationLabel: 'COMPRAS',
+        supplierCenterId: null,
+        supplierCenterName: '',
+        supplierCompanyId: null,
+        supplierCompanyName: '',
+        receiptStatus: 'PENDING',
+      }
+    }
+
+    const resolveProducerCenterForPreparation = (
+      sheet: TechnicalSheetRecord,
+      preferredCenter: StockCenterRecord,
+    ) => {
+      if (doesCenterProduceTechnicalSheet(preferredCenter, sheet)) {
+        return preferredCenter
+      }
+      const supplyResolution = resolveTechnicalSheetSupplyRoute(sheet, preferredCenter)
+      return supplyResolution.status === 'resolved' ? supplyResolution.supplierCenter : null
+    }
+
+    const explodePreparationDemandForPurchase = (
+      center: StockCenterRecord,
+      sheet: TechnicalSheetRecord,
+      requiredYield: number,
+      record: RequisitionRecord,
+      sourceTrail: string[],
+      visiting = new Set<string>(),
+    ) => {
+      if (requiredYield <= 0 || !sheet.isActive || sheet.kind !== 'PREPARO') {
+        return
+      }
+      const visitKey = `${center.id}:${sheet.id}`
+      if (visiting.has(visitKey)) {
+        return
+      }
+      const nextVisiting = new Set(visiting)
+      nextVisiting.add(visitKey)
+
+      const preparationAggregationKey = buildInventoryAggregationKey({
+        kind: 'PREPARO',
+        technicalSheetId: sheet.id,
+        productId: '',
+        serviceItemId: '',
+      })
+      const shortageYield = consumeAvailableBaseQuantity(center.id, preparationAggregationKey, requiredYield)
+      if (shortageYield <= 0) {
+        return
+      }
+
+      const baseYield = getTechnicalSheetBaseYield(sheet)
+      if (baseYield <= 0) {
+        return
+      }
+      const recipeData = buildRecipePanelDataForSheet(sheet, shortageYield, shortageYield / baseYield)
+      ;[...recipeData.ingredientMetrics, ...recipeData.garnishMetrics]
+        .filter((ingredient) => ingredient.productId.trim() !== '' && ingredient.scaledInputQuantity > 0)
+        .forEach((ingredient) => {
+          const dependencySheet = resolvePreparationSheetForCenterByProductId(ingredient.productId, center)
+          if (dependencySheet) {
+            const byproductSourceSheet = resolveByproductSourceSheetForCenter(dependencySheet.id, center)
+            if (byproductSourceSheet && doesCenterProduceTechnicalSheet(center, byproductSourceSheet)) {
+              const byproductBaseYield = getTechnicalSheetByproductBaseYield(byproductSourceSheet, dependencySheet)
+              const sourceBaseYield = getTechnicalSheetBaseYield(byproductSourceSheet)
+              if (byproductBaseYield > 0 && sourceBaseYield > 0) {
+                explodePreparationDemandForPurchase(
+                  center,
+                  byproductSourceSheet,
+                  ingredient.scaledInputQuantity * (sourceBaseYield / byproductBaseYield),
+                  record,
+                  [...sourceTrail, byproductSourceSheet.name],
+                  nextVisiting,
+                )
+              }
+              return
+            }
+
+            const producerCenter = resolveProducerCenterForPreparation(dependencySheet, center)
+            if (!producerCenter) {
+              return
+            }
+            explodePreparationDemandForPurchase(
+              producerCenter,
+              dependencySheet,
+              ingredient.scaledInputQuantity,
+              record,
+              [...sourceTrail, dependencySheet.name],
+              nextVisiting,
+            )
+            return
+          }
+
+          const linkedProduct = productById.get(ingredient.productId) ?? null
+          if (!linkedProduct || !linkedProduct.isActive || !isProductStockTracked(linkedProduct)) {
+            return
+          }
+
+          const productAggregationKey = buildInventoryAggregationKey({
+            kind: 'PRODUTO',
+            technicalSheetId: null,
+            productId: linkedProduct.id,
+            serviceItemId: '',
+          })
+          const productShortageQuantity = consumeAvailableBaseQuantity(
+            center.id,
+            productAggregationKey,
+            ingredient.scaledInputQuantity,
+          )
+          if (productShortageQuantity <= 0) {
+            return
+          }
+
+          const distributorCenter = findDistributorCenterForRequisitionLine(center, {
+            kind: 'PRODUTO',
+            productId: linkedProduct.id,
+          })
+          const shortageLine = buildProductShortageLine(
+            linkedProduct,
+            productShortageQuantity,
+            `PRODUCTION-PURCHASE:${record.id}:${center.id}:${sheet.id}:${linkedProduct.id}:${groups.size}`,
+          )
+          const sourceLabel = `Insumo para producao: ${sourceTrail.join(' > ')}`
+          upsertGroup({
+            center: distributorCenter ?? center,
+            line: distributorCenter
+              ? {
+                  ...shortageLine,
+                  destinationType: 'SUPRIMENTOS',
+                  destinationLabel: `CENTRO DISTRIBUIDOR: ${distributorCenter.name}`,
+                  supplierCenterId: distributorCenter.id,
+                  supplierCenterName: distributorCenter.name,
+                  supplierCompanyId: distributorCenter.companyId,
+                  supplierCompanyName: getCompanyTradeName(distributorCenter.companyId),
+                }
+              : shortageLine,
+            record,
+            sourceLabel,
+            shouldSubtractCurrentStock: Boolean(distributorCenter),
+            requesterCenterName:
+              record.stockCenterId === center.id
+                ? center.name
+                : `${record.stockCenterName} -> ${center.name}`,
+          })
+        })
     }
 
     requisitions
@@ -7764,6 +7958,40 @@ export default function App() {
               shouldSubtractCurrentStock: true,
             }),
           )
+      })
+
+    requisitions
+      .filter(
+        (record) =>
+          record.companyId === currentCompanyId &&
+          isPurchaseDemandEligibleRequisition(record) &&
+          record.status === 'SENT_TO_SUPPLIES' &&
+          record.supplyCenterId !== null &&
+          record.lines.some((line) => line.destinationType === 'PRODUCOES'),
+      )
+      .forEach((record) => {
+        const producerCenter = stockCenterById.get(record.supplyCenterId as number) ?? null
+        if (!producerCenter || !producerCenter.isProducer) {
+          return
+        }
+        record.lines
+          .filter((line) => line.destinationType === 'PRODUCOES' && line.kind === 'PREPARO' && typeof line.technicalSheetId === 'number')
+          .forEach((line) => {
+            const sheet =
+              technicalSheets.find(
+                (item) =>
+                  item.id === line.technicalSheetId &&
+                  item.kind === 'PREPARO' &&
+                  item.isActive &&
+                  isTechnicalSheetVisibleForCompany(item, producerCenter.companyId),
+              ) ?? null
+            if (!sheet) {
+              return
+            }
+            const requestedQuantity = parseDecimal(line.requestedQuantity) ?? 0
+            const requiredYield = requestedQuantity * Math.max(getStockCenterBaseQuantity(sheet), 1)
+            explodePreparationDemandForPurchase(producerCenter, sheet, requiredYield, record, [sheet.name])
+          })
       })
 
     requisitions
@@ -7832,7 +8060,16 @@ export default function App() {
           left.subfamily.localeCompare(right.subfamily, 'pt-BR') ||
           left.productName.localeCompare(right.productName, 'pt-BR'),
       )
-  }, [currentCompanyId, latestInventoryQuantityByCenterAndAggregation, products, requisitions, stockCenters])
+  }, [
+    currentCompanyCostContext,
+    currentCompanyId,
+    latestInventoryQuantityByCenterAndAggregation,
+    products,
+    requisitions,
+    serviceItems,
+    stockCenters,
+    technicalSheets,
+  ])
   const visiblePurchaseDemandRows = useMemo(() => {
     const search = normalizeFreeText(purchaseSearch)
     if (!search) {
@@ -7872,21 +8109,30 @@ export default function App() {
 
     const buildCancelledLines = (record: RequisitionRecord) =>
       record.lines
-        .filter((line) => line.kind === 'PRODUTO' && (line.destinationType === 'COMPRAS' || line.destinationType === 'SUPRIMENTOS'))
+        .filter((line) => line.destinationType === 'COMPRAS' || line.destinationType === 'SUPRIMENTOS' || line.destinationType === 'PRODUCOES')
         .map((line) => {
-          const product = productById.get(line.productId) ?? null
+          const product = line.kind === 'PRODUTO' ? productById.get(line.productId) ?? null : null
+          const preparation =
+            line.kind === 'PREPARO' && typeof line.technicalSheetId === 'number'
+              ? technicalSheets.find((sheet) => sheet.id === line.technicalSheetId && sheet.kind === 'PREPARO') ?? null
+              : null
           const requestedQuantity = parseDecimal(line.requestedQuantity) ?? 0
           return {
             key: `${record.id}:${line.key}`,
-            productName: product?.name ?? line.itemName,
-            internalId: product?.companyProductId || product?.id || line.productId,
-            family: product?.family ?? line.family,
-            subfamily: product?.subfamily ?? '-',
+            productName: product?.name ?? preparation?.name ?? line.itemName,
+            internalId: product?.companyProductId || product?.id || preparation?.productId || line.productId,
+            family: product?.family ?? preparation?.family ?? line.family,
+            subfamily: product?.subfamily ?? preparation?.subfamily ?? '-',
             packageLabel: line.requestUnitLabel,
-            unitLabel: line.currentUnitLabel || (product ? formatControlUnitShort(product.controlUnit) : 'UN'),
+            unitLabel: line.currentUnitLabel || (product ? formatControlUnitShort(product.controlUnit) : preparation ? formatControlUnitShort(preparation.outputUnit) : 'UN'),
             requestedQuantity,
             purchaseQuantity: 0,
-            sourceLabel: line.destinationType === 'COMPRAS' ? 'Origem cancelada em compras' : 'Origem cancelada em suprimento interno',
+            sourceLabel:
+              line.destinationType === 'COMPRAS'
+                ? 'Origem cancelada em compras'
+                : line.destinationType === 'SUPRIMENTOS'
+                  ? 'Origem cancelada em suprimento interno'
+                  : 'Origem cancelada em producao',
             demandRow: null,
           } satisfies PurchaseOrderGroupLine
         })
@@ -7956,7 +8202,7 @@ export default function App() {
         }
         return right.createdAt.localeCompare(left.createdAt) || left.purchaseOrderCode.localeCompare(right.purchaseOrderCode, 'pt-BR')
       })
-  }, [companyRequisitions, currentCompanyId, products, showCancelledPurchaseOrders, stockCenters, visiblePurchaseDemandRows])
+  }, [companyRequisitions, currentCompanyId, products, showCancelledPurchaseOrders, stockCenters, technicalSheets, visiblePurchaseDemandRows])
   const purchaseOrderSummary = useMemo(
     () => ({
       activeOrderCount: visiblePurchaseOrderGroups.filter((group) => !group.isCancelled).length,
