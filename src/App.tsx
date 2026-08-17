@@ -6,7 +6,6 @@ import {
   useRef,
   useState,
   type Dispatch,
-  type DragEvent,
   type FormEvent,
   type KeyboardEvent,
   type SetStateAction,
@@ -133,7 +132,6 @@ import {
   getRequisitionRequestUnitLabel,
   getStockCenterMinimumColumnValue,
   sortDistinctValues,
-  extractLeadingNumericValue,
 } from './domain/inventory'
 import {
   accessProfilesStorageKey,
@@ -231,7 +229,6 @@ import type {
   SaveFeedback,
   SaveProgressState,
   StockCountableKind,
-  WasteCountableKind,
   SalesImportCoverageMode,
   StockCenterSalesImportSettings,
   StockCenterMinimumStock,
@@ -52652,40 +52649,12 @@ function getSortLabels(isNumeric: boolean) {
     : { asc: 'A-Z', desc: 'Z-A' }
 }
 
-function getColumnSortLabels(key: ColumnKey) {
-  return getSortLabels(isNumericProductColumn(key))
-}
-
-function getTechnicalSheetColumnSortLabels(key: TechnicalSheetColumnKey) {
-  return getSortLabels(isNumericTechnicalSheetColumn(key))
-}
-
-function getItemColumnSortLabels(key: ItemColumnKey) {
-  return getSortLabels(isNumericItemColumn(key))
-}
-
-function isNumericStockCenterMinimumColumn(key: StockCenterMinimumColumnKey) {
-  return key === 'yield' || key === 'minimum' || key === 'realMinimum' || key === 'consolidatedMinimum'
-}
-
-function getStockCenterMinimumColumnSortLabels(key: StockCenterMinimumColumnKey) {
-  return getSortLabels(isNumericStockCenterMinimumColumn(key))
-}
-
 function isNumericInventoryReviewColumn(key: InventoryReviewColumnKey) {
   return key === 'total'
 }
 
-function getInventoryReviewColumnSortLabels(key: InventoryReviewColumnKey) {
-  return getSortLabels(isNumericInventoryReviewColumn(key))
-}
-
 function isNumericInventorySummaryColumn(key: InventorySummaryColumnKey) {
   return key === 'closed' || key === 'open' || key === 'total'
-}
-
-function getInventorySummaryColumnSortLabels(key: InventorySummaryColumnKey) {
-  return getSortLabels(isNumericInventorySummaryColumn(key))
 }
 
 function getInventoryReviewColumnValue(row: InventoryReviewRow, key: InventoryReviewColumnKey) {
@@ -52937,10 +52906,6 @@ function isNumericRequisitionDraftColumn(key: RequisitionDraftColumnKey) {
   return key === 'current' || key === 'requested' || key === 'suggestion'
 }
 
-function getRequisitionDraftColumnSortLabels(key: RequisitionDraftColumnKey) {
-  return getSortLabels(isNumericRequisitionDraftColumn(key))
-}
-
 function formatRequisitionDraftColumnQuantity(
   line: RequisitionDraftLine,
   quantityValue: string,
@@ -53095,10 +53060,6 @@ function isNumericRequisitionFlowColumn(key: RequisitionFlowColumnKey) {
   return key === 'items'
 }
 
-function getRequisitionFlowColumnSortLabels(key: RequisitionFlowColumnKey) {
-  return getSortLabels(isNumericRequisitionFlowColumn(key))
-}
-
 function getRequisitionSupplyDisplayLabel(record: RequisitionRecord) {
   if (record.supplyCenterName.trim()) {
     return record.supplyCompanyName.trim()
@@ -53154,10 +53115,6 @@ function getRequisitionFlowColumnSortableValue(record: RequisitionRecord, key: R
     return record.lines.length
   }
   return getRequisitionFlowColumnValue(record, key)
-}
-
-function getReceiveReviewColumnSortLabels(key: ReceiveReviewColumnKey) {
-  return getSortLabels(key === 'sent')
 }
 
 type ReceiveReviewRow = {
@@ -53562,10 +53519,6 @@ function buildGlobalStockReportRows(tab: StockReportTab, rows: StockReportRow[])
       },
     } satisfies StockReportRow
   })
-}
-
-function getRequisitionHistoryColumnSortLabels(key: RequisitionHistoryColumnKey) {
-  return getSortLabels(isNumericRequisitionHistoryColumn(key))
 }
 
 function isRequisitionApprovedAndSent(requisition: RequisitionRecord) {

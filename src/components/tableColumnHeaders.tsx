@@ -13,6 +13,7 @@ import type {
   StockReportColumnKey,
   TechnicalSheetColumnKey,
 } from '../types/domain'
+import { normalizeRegistrationText } from '../utils/core'
 
 function getSortLabels(isNumeric: boolean) {
   return isNumeric
