@@ -22642,6 +22642,84 @@ export default function App() {
     return downstreamRequisitions
   }
 
+  function buildManualProductionRequestsForSentProductionRequisitions(
+    productionRequisitions: RequisitionRecord[],
+    createdAt: string,
+  ) {
+    if (productionRequisitions.length === 0) {
+      return [] as ManualProductionRequestRecord[]
+    }
+
+    const usedIds = new Set(
+      manualProductionRequests.flatMap((record) => [record.id, record.rootRequestId, record.parentRequestId]),
+    )
+    let nextIdCandidate = getNextPersistedIntId(Array.from(usedIds))
+    const reserveNextId = () => {
+      while (usedIds.has(nextIdCandidate)) {
+        nextIdCandidate += 1
+      }
+      const nextId = nextIdCandidate
+      usedIds.add(nextId)
+      nextIdCandidate += 1
+      return nextId
+    }
+
+    return productionRequisitions.flatMap((productionRequisition) => {
+      const producerCenter =
+        productionRequisition.supplyCenterId !== null
+          ? stockCenters.find((center) => center.id === productionRequisition.supplyCenterId) ?? null
+          : null
+      if (!producerCenter || !producerCenter.isProducer) {
+        return [] as ManualProductionRequestRecord[]
+      }
+
+      return productionRequisition.lines.flatMap((line) => {
+        if (line.destinationType !== 'PRODUCOES' || line.kind !== 'PREPARO' || typeof line.technicalSheetId !== 'number') {
+          return [] as ManualProductionRequestRecord[]
+        }
+
+        const sheet =
+          technicalSheets.find(
+            (item) =>
+              item.id === line.technicalSheetId &&
+              item.kind === 'PREPARO' &&
+              item.isActive &&
+              isTechnicalSheetVisibleForCompany(item, producerCenter.companyId),
+          ) ?? null
+        if (!sheet) {
+          return [] as ManualProductionRequestRecord[]
+        }
+
+        const requestedQuantity = parseDecimal(line.requestedQuantity) ?? 0
+        const desiredYield = requestedQuantity * Math.max(getStockCenterBaseQuantity(sheet), 1)
+        if (desiredYield <= 0) {
+          return [] as ManualProductionRequestRecord[]
+        }
+
+        const requestId = reserveNextId()
+        return [{
+          id: requestId,
+          companyId: producerCenter.companyId,
+          centerId: producerCenter.id,
+          sheetId: sheet.id,
+          desiredYield: formatDecimal(desiredYield),
+          createdAt,
+          createdByUserId: currentAppUser?.id ?? null,
+          createdByUserName: currentAppUser?.fullName ?? 'Administrador do sistema',
+          rootRequestId: requestId,
+          parentRequestId: null,
+          isDependencyRequest: false,
+          planningSourceKind: 'PREPARO',
+          planningSourceCenterId: productionRequisition.stockCenterId,
+          planningSourceCenterName: productionRequisition.stockCenterName,
+          planningSourceSheetId: sheet.id,
+          planningSourceSheetName: sheet.name,
+          planningSourceQuantityLabel: `${line.requestedQuantity} ${line.requestUnitLabel}`,
+        } satisfies ManualProductionRequestRecord]
+      })
+    })
+  }
+
   function approveRequisition(requisitionId: number) {
     const targetRequisition = requisitions.find((record) => record.id === requisitionId) ?? null
     if (!targetRequisition || !canApproveRequisition(targetRequisition)) {
@@ -22941,7 +23019,7 @@ export default function App() {
     })
   }
 
-  function confirmSendRequisition(requisitionIdOverride?: number) {
+  async function confirmSendRequisition(requisitionIdOverride?: number) {
     if (typeof requisitionIdOverride !== 'number') {
       return
     }
@@ -22967,40 +23045,73 @@ export default function App() {
       splitResult.requisitions.filter((record) => record.lines.some((line) => line.destinationType === 'PRODUCOES')),
       now,
     )
+    const productionRequests = buildManualProductionRequestsForSentProductionRequisitions(
+      splitResult.requisitions.filter((record) => record.lines.some((line) => line.destinationType === 'PRODUCOES')),
+      now,
+    )
+    const nextRecords = [...downstreamProductionRequisitions, ...splitResult.requisitions]
 
+    if (splitResult.remainingPurchaseLines.length > 0) {
+      nextRecords.push({
+        ...targetRequisition,
+        lines: splitResult.remainingPurchaseLines,
+        status: 'READY_TO_RECEIVE',
+        editScope: 'LINES_ONLY',
+        supplyCenterId: null,
+        supplyCenterName: '',
+        supplyCompanyId: null,
+        supplyCompanyName: '',
+        sentAt: now,
+        sentByUserId: currentAppUser?.id ?? null,
+        sentByUserName: currentAppUser?.fullName ?? 'Administrador do sistema',
+        preparedAt: now,
+        preparedByUserId: currentAppUser?.id ?? null,
+        preparedByUserName: currentAppUser?.fullName ?? 'Administrador do sistema',
+        lastUpdatedAt: now,
+        lastUpdatedByUserId: currentAppUser?.id ?? null,
+        lastUpdatedByUserName: currentAppUser?.fullName ?? 'Administrador do sistema',
+      })
+    }
+
+    const shouldDeleteOriginalRequisition = !nextRecords.some((record) => record.id === targetRequisition.id)
+
+    try {
+      await Promise.all([
+        ...productionRequests.map((request) => upsertManualProductionRequestOnApi(request)),
+        ...nextRecords.map((record) => upsertRequisitionRecordOnApi(record)),
+      ])
+      if (shouldDeleteOriginalRequisition) {
+        await deleteRequisitionRecordOnApi(targetRequisition.id)
+      }
+    } catch (error) {
+      console.error(error)
+      setSaveFeedback({
+        status: 'error',
+        title: 'Falha ao enviar requisicao',
+        message: error instanceof Error ? error.message : 'Nao foi possivel enviar a requisicao e criar a cadeia de producao.',
+      })
+      return
+    }
+
+    const nextRequisitions = [...nextRecords, ...requisitions.filter((record) => record.id !== targetRequisition.id)]
     setRequisitions((current) => {
       const remainingRecords = current.filter((record) => record.id !== targetRequisition.id)
-      const nextRecords = [...downstreamProductionRequisitions, ...splitResult.requisitions]
-
-      if (splitResult.remainingPurchaseLines.length > 0) {
-        nextRecords.push({
-          ...targetRequisition,
-          lines: splitResult.remainingPurchaseLines,
-          status: 'READY_TO_RECEIVE',
-          editScope: 'LINES_ONLY',
-          supplyCenterId: null,
-          supplyCenterName: '',
-          supplyCompanyId: null,
-          supplyCompanyName: '',
-          sentAt: now,
-          sentByUserId: currentAppUser?.id ?? null,
-          sentByUserName: currentAppUser?.fullName ?? 'Administrador do sistema',
-          preparedAt: now,
-          preparedByUserId: currentAppUser?.id ?? null,
-          preparedByUserName: currentAppUser?.fullName ?? 'Administrador do sistema',
-          lastUpdatedAt: now,
-          lastUpdatedByUserId: currentAppUser?.id ?? null,
-          lastUpdatedByUserName: currentAppUser?.fullName ?? 'Administrador do sistema',
-        })
-      }
-
       return [...nextRecords, ...remainingRecords]
     })
+    syncedRequisitionRecordMapRef.current = buildEntitySignatureMap(nextRequisitions, (record) => record.id)
+    if (productionRequests.length > 0) {
+      const nextManualProductionRequestsById = new Map(
+        [...productionRequests, ...manualProductionRequests].map((request) => [request.id, request] as const),
+      )
+      const nextManualProductionRequests = Array.from(nextManualProductionRequestsById.values())
+      setManualProductionRequests(nextManualProductionRequests)
+      syncedManualProductionRequestMapRef.current = buildEntitySignatureMap(nextManualProductionRequests, (record) => record.id)
+    }
 
     setSaveFeedback({
       status: 'success',
       title:
-        downstreamProductionRequisitions.length > 0
+        productionRequests.length > 0 || downstreamProductionRequisitions.length > 0
           ? 'Requisicao enviada com cadeia de producao'
           : splitResult.requisitions.length > 0 && splitResult.remainingPurchaseLines.length > 0
           ? 'Requisicao desdobrada e enviada'
@@ -23008,8 +23119,8 @@ export default function App() {
             ? 'Requisicao enviada'
             : 'Requisicao enviada para receber',
       message:
-        downstreamProductionRequisitions.length > 0
-          ? `Os pre-preparos foram enviados ao centro produtor e ${downstreamProductionRequisitions.length} requisicao(oes) de insumos foram criadas automaticamente para abastecer a producao.`
+        productionRequests.length > 0 || downstreamProductionRequisitions.length > 0
+          ? `Os pre-preparos foram enviados ao centro produtor, ${productionRequests.length} entrada(s) de producao foram criada(s) e ${downstreamProductionRequisitions.length} requisicao(oes) de insumos foram criadas automaticamente para abastecer a producao.`
           : splitResult.requisitions.length > 0 && splitResult.remainingPurchaseLines.length > 0
           ? 'Os itens internos foram enviados aos centros de suprimentos ou producao e os itens de compras seguiram direto para receber.'
           : splitResult.requisitions.length > 0
