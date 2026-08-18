@@ -6182,6 +6182,18 @@ export default function App() {
     }
   }
 
+  async function fetchNextRequisitionIdFromApi() {
+    const response = await fetch('/api/requisitions/next-id')
+    if (!response.ok) {
+      const errorPayload = (await response.json().catch(() => null)) as { error?: string } | null
+      throw new Error(errorPayload?.error || 'Nao foi possivel reservar o proximo id de requisicao no servidor.')
+    }
+    const payload = (await response.json()) as { nextId?: unknown }
+    return typeof payload.nextId === 'number' && Number.isInteger(payload.nextId) && payload.nextId > 0
+      ? payload.nextId
+      : null
+  }
+
   async function deleteRequisitionRecordOnApi(requisitionId: number) {
     const response = await fetch(`/api/requisitions/${requisitionId}`, {
       method: 'DELETE',
@@ -21757,10 +21769,21 @@ export default function App() {
     const requisitionReferenceDate = selectedRequisitionLatestInventoryDate || getTodayDateInputValue()
     const now = new Date().toISOString()
     if (editingRequisitionId === null) {
-      const nextRequisitionId = getNextPersistedIntId([
+      let nextRequisitionId = getNextPersistedIntId([
         ...baseRequisitions.map((record) => record.id),
         ...baseRequisitions.map((record) => record.requisitionGroupId),
       ])
+      try {
+        nextRequisitionId = Math.max(nextRequisitionId, await fetchNextRequisitionIdFromApi() ?? nextRequisitionId)
+      } catch (error) {
+        console.error(error)
+        setSaveFeedback({
+          status: 'error',
+          title: 'Falha ao reservar requisicao',
+          message: error instanceof Error ? error.message : 'Nao foi possivel confirmar o proximo id de requisicao no servidor.',
+        })
+        return
+      }
       const nextRequisition: RequisitionRecord = {
         id: nextRequisitionId,
         companyId: currentCompanyId,

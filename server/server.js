@@ -985,6 +985,22 @@ app.get('/api/requisitions', async (request, response) => {
   response.json({ requisitions })
 })
 
+app.get('/api/requisitions/next-id', async (_request, response) => {
+  await ensureAppRequisitionRecordsSeeded()
+  const [requisitionIdAggregate, requisitionGroupIdAggregate, deletedRequisitionIdAggregate] = await Promise.all([
+    prisma.appRequisitionRecord.aggregate({ _max: { id: true } }),
+    prisma.appRequisitionRecord.aggregate({ _max: { requisitionGroupId: true } }),
+    prisma.appDeletedRequisitionRecord.aggregate({ _max: { id: true } }),
+  ])
+  const nextId =
+    Math.max(
+      requisitionIdAggregate._max.id ?? 0,
+      requisitionGroupIdAggregate._max.requisitionGroupId ?? 0,
+      deletedRequisitionIdAggregate._max.id ?? 0,
+    ) + 1
+  response.json({ nextId })
+})
+
 app.post('/api/requisitions', async (request, response) => {
   const requisition = normalizeRequisitionPayload(request.body)
   if (!requisition) {
