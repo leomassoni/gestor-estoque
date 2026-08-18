@@ -971,6 +971,9 @@ export type ManualProductionRequestRecord = {
   planningSourceSheetId?: number | null
   planningSourceSheetName?: string
   planningSourceQuantityLabel?: string
+  sourceRequisitionId?: number | null
+  sourceRequisitionGroupId?: number | null
+  sourceRequisitionLineKey?: string
 }
 
 export type ExecutionProductionPlanningRow = {

@@ -22027,6 +22027,32 @@ export default function App() {
     )
   }
 
+  function getManualProductionRequestsLinkedToRequisitions(targetRequisitions: RequisitionRecord[]) {
+    const targetIds = new Set(targetRequisitions.map((record) => record.id))
+    const targetGroupIds = new Set(targetRequisitions.map((record) => record.requisitionGroupId))
+
+    return manualProductionRequests.filter((request) => {
+      if (request.sourceRequisitionId !== null && typeof request.sourceRequisitionId === 'number') {
+        return targetIds.has(request.sourceRequisitionId)
+      }
+      if (request.sourceRequisitionGroupId !== null && typeof request.sourceRequisitionGroupId === 'number') {
+        return targetGroupIds.has(request.sourceRequisitionGroupId)
+      }
+      return false
+    })
+  }
+
+  async function deleteManualProductionRequestsLinkedToRequisitions(targetRequisitions: RequisitionRecord[]) {
+    const linkedRequests = getManualProductionRequestsLinkedToRequisitions(targetRequisitions)
+    if (linkedRequests.length === 0) {
+      return manualProductionRequests
+    }
+
+    const linkedRequestIds = new Set(linkedRequests.map((request) => request.id))
+    await Promise.all(linkedRequests.map((request) => deleteManualProductionRequestOnApi(request.id)))
+    return manualProductionRequests.filter((request) => !linkedRequestIds.has(request.id))
+  }
+
   function canManagePurchaseSupplyRequisition(record: RequisitionRecord) {
     return (
       record.companyId === currentCompanyId &&
@@ -22766,6 +22792,9 @@ export default function App() {
             planningSourceSheetId: sheet.id,
             planningSourceSheetName: sheet.name,
             planningSourceQuantityLabel: `${line.requestedQuantity} ${line.requestUnitLabel}`,
+            sourceRequisitionId: productionRequisition.id,
+            sourceRequisitionGroupId: productionRequisition.requisitionGroupId,
+            sourceRequisitionLineKey: line.key,
           })
         })
 
@@ -22787,6 +22816,9 @@ export default function App() {
           planningSourceSheetId: sheet.id,
           planningSourceSheetName: sheet.name,
           planningSourceQuantityLabel: `${line.requestedQuantity} ${line.requestUnitLabel}`,
+          sourceRequisitionId: productionRequisition.id,
+          sourceRequisitionGroupId: productionRequisition.requisitionGroupId,
+          sourceRequisitionLineKey: line.key,
         } satisfies ManualProductionRequestRecord]
       })
 
@@ -22894,7 +22926,7 @@ export default function App() {
     })
   }
 
-  function sendSelectedRequisitions() {
+  async function sendSelectedRequisitions() {
     if (selectedApprovedRequisitions.length === 0) {
       setSaveFeedback({
         status: 'error',
@@ -22963,12 +22995,41 @@ export default function App() {
       now,
       reservedIds,
     )
+    const productionRequests = buildManualProductionRequestsForSentProductionRequisitions(
+      nextSentRecords.filter((record) => record.lines.some((line) => line.destinationType === 'PRODUCOES')),
+      now,
+    )
+    const nextRecords = [...downstreamProductionRequisitions, ...nextSentRecords]
+    const nextRecordIds = new Set(nextRecords.map((record) => record.id))
+    const originalIdsToDelete = Array.from(targetIds).filter((id) => !nextRecordIds.has(id))
 
-    setRequisitions((current) => [
-      ...downstreamProductionRequisitions,
-      ...nextSentRecords,
-      ...current.filter((record) => !targetIds.has(record.id)),
-    ])
+    try {
+      await Promise.all([
+        ...productionRequests.map((request) => upsertManualProductionRequestOnApi(request)),
+        ...nextRecords.map((record) => upsertRequisitionRecordOnApi(record)),
+      ])
+      await Promise.all(originalIdsToDelete.map((id) => deleteRequisitionRecordOnApi(id)))
+    } catch (error) {
+      console.error(error)
+      setSaveFeedback({
+        status: 'error',
+        title: 'Falha ao enviar selecionadas',
+        message: error instanceof Error ? error.message : 'Nao foi possivel enviar as requisicoes e criar a cadeia de producao.',
+      })
+      return
+    }
+
+    const nextRequisitions = [...nextRecords, ...requisitions.filter((record) => !targetIds.has(record.id))]
+    setRequisitions(nextRequisitions)
+    syncedRequisitionRecordMapRef.current = buildEntitySignatureMap(nextRequisitions, (record) => record.id)
+    if (productionRequests.length > 0) {
+      const nextManualProductionRequestsById = new Map(
+        [...productionRequests, ...manualProductionRequests].map((request) => [request.id, request] as const),
+      )
+      const nextManualProductionRequests = Array.from(nextManualProductionRequestsById.values())
+      setManualProductionRequests(nextManualProductionRequests)
+      syncedManualProductionRequestMapRef.current = buildEntitySignatureMap(nextManualProductionRequests, (record) => record.id)
+    }
     setSelectedRequisitionIds((current) => {
       const next = new Set(current)
       targetIds.forEach((id) => next.delete(id))
@@ -22978,8 +23039,8 @@ export default function App() {
       status: 'success',
       title: 'Requisicoes enviadas',
       message:
-        downstreamProductionRequisitions.length > 0
-          ? `${targetIds.size} requisicao(oes) foram enviadas em lote e ${downstreamProductionRequisitions.length} requisicao(oes) de insumos foram criadas automaticamente para producao.`
+        productionRequests.length > 0 || downstreamProductionRequisitions.length > 0
+          ? `${targetIds.size} requisicao(oes) foram enviadas em lote, ${productionRequests.length} entrada(s) de producao foram criada(s) e ${downstreamProductionRequisitions.length} requisicao(oes) de insumos foram criadas automaticamente para producao.`
           : `${targetIds.size} requisicao(oes) foram enviadas em lote.`,
     })
   }
@@ -23013,13 +23074,16 @@ export default function App() {
     }))
 
     try {
+      const nextManualProductionRequests = await deleteManualProductionRequestsLinkedToRequisitions(selectedCancellableRequisitions)
       await Promise.all(cancelledRequisitions.map((record) => upsertRequisitionRecordOnApi(record)))
+      setManualProductionRequests(nextManualProductionRequests)
+      syncedManualProductionRequestMapRef.current = buildEntitySignatureMap(nextManualProductionRequests, (record) => record.id)
     } catch (error) {
       console.error(error)
       setSaveFeedback({
         status: 'error',
         title: 'Falha ao cancelar selecionadas',
-        message: error instanceof Error ? error.message : 'Erro ao cancelar requisicoes no servidor.',
+        message: error instanceof Error ? error.message : 'Erro ao cancelar requisicoes e producoes vinculadas no servidor.',
       })
       return
     }
@@ -23066,13 +23130,16 @@ export default function App() {
     }
 
     try {
+      const nextManualProductionRequests = await deleteManualProductionRequestsLinkedToRequisitions(deletableCancelledRequisitionRows)
       await Promise.all(Array.from(targetIds).map((id) => deleteRequisitionRecordOnApi(id)))
+      setManualProductionRequests(nextManualProductionRequests)
+      syncedManualProductionRequestMapRef.current = buildEntitySignatureMap(nextManualProductionRequests, (record) => record.id)
     } catch (error) {
       console.error(error)
       setSaveFeedback({
         status: 'error',
         title: 'Falha ao excluir canceladas',
-        message: error instanceof Error ? error.message : 'Erro ao excluir requisicoes canceladas no servidor.',
+        message: error instanceof Error ? error.message : 'Erro ao excluir requisicoes canceladas e producoes vinculadas no servidor.',
       })
       return
     }
@@ -26957,13 +27024,16 @@ export default function App() {
         lastUpdatedByUserName: currentAppUser?.fullName ?? 'Administrador do sistema',
       }
       try {
+        const nextManualProductionRequests = await deleteManualProductionRequestsLinkedToRequisitions([targetRequisition])
         await upsertRequisitionRecordOnApi(cancelledRequisition)
+        setManualProductionRequests(nextManualProductionRequests)
+        syncedManualProductionRequestMapRef.current = buildEntitySignatureMap(nextManualProductionRequests, (record) => record.id)
       } catch (error) {
         console.error(error)
         setSaveFeedback({
           status: 'error',
           title: 'Falha ao cancelar requisicao',
-          message: error instanceof Error ? error.message : 'Erro ao cancelar a requisicao no servidor.',
+          message: error instanceof Error ? error.message : 'Erro ao cancelar a requisicao e producoes vinculadas no servidor.',
         })
         return
       }
@@ -26983,13 +27053,16 @@ export default function App() {
     }
 
     try {
+      const nextManualProductionRequests = await deleteManualProductionRequestsLinkedToRequisitions([targetRequisition])
       await deleteRequisitionRecordOnApi(requisitionId)
+      setManualProductionRequests(nextManualProductionRequests)
+      syncedManualProductionRequestMapRef.current = buildEntitySignatureMap(nextManualProductionRequests, (record) => record.id)
     } catch (error) {
       console.error(error)
       setSaveFeedback({
         status: 'error',
         title: 'Falha ao excluir requisicao',
-        message: error instanceof Error ? error.message : 'Erro ao excluir a requisicao no servidor.',
+        message: error instanceof Error ? error.message : 'Erro ao excluir a requisicao e producoes vinculadas no servidor.',
       })
       return
     }
@@ -27011,13 +27084,16 @@ export default function App() {
     }
 
     try {
+      const nextManualProductionRequests = await deleteManualProductionRequestsLinkedToRequisitions([targetRequisition])
       await deleteRequisitionRecordOnApi(requisitionId)
+      setManualProductionRequests(nextManualProductionRequests)
+      syncedManualProductionRequestMapRef.current = buildEntitySignatureMap(nextManualProductionRequests, (record) => record.id)
     } catch (error) {
       console.error(error)
       setSaveFeedback({
         status: 'error',
         title: 'Falha ao excluir pedido cancelado',
-        message: error instanceof Error ? error.message : 'Erro ao excluir o pedido cancelado no servidor.',
+        message: error instanceof Error ? error.message : 'Erro ao excluir o pedido cancelado e producoes vinculadas no servidor.',
       })
       return
     }
@@ -55208,6 +55284,10 @@ function normalizeManualProductionRequestRecord(value: unknown): ManualProductio
       typeof record.planningSourceSheetName === 'string' ? normalizeRegistrationText(record.planningSourceSheetName) : '',
     planningSourceQuantityLabel:
       typeof record.planningSourceQuantityLabel === 'string' ? normalizeRegistrationText(record.planningSourceQuantityLabel) : '',
+    sourceRequisitionId: isSafePersistedIntId(record.sourceRequisitionId) ? record.sourceRequisitionId : null,
+    sourceRequisitionGroupId: isSafePersistedIntId(record.sourceRequisitionGroupId) ? record.sourceRequisitionGroupId : null,
+    sourceRequisitionLineKey:
+      typeof record.sourceRequisitionLineKey === 'string' ? normalizeRegistrationText(record.sourceRequisitionLineKey) : '',
   }
 }
 

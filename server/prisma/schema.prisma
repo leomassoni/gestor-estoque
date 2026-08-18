@@ -630,6 +630,9 @@ model AppManualProductionRequestRecord {
   planningSourceSheetId Int?
   planningSourceSheetName String @default("")
   planningSourceQuantityLabel String @default("")
+  sourceRequisitionId Int?
+  sourceRequisitionGroupId Int?
+  sourceRequisitionLineKey String @default("")
   createdAtRecord DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
@@ -637,6 +640,8 @@ model AppManualProductionRequestRecord {
   @@index([centerId])
   @@index([sheetId])
   @@index([rootRequestId])
+  @@index([sourceRequisitionId])
+  @@index([sourceRequisitionGroupId])
 }
 
 model AppProductionDraftRecord {

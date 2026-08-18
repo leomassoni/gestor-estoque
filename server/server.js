@@ -3748,6 +3748,9 @@ function normalizeManualProductionRequestPayload(value) {
   const sheetId = parseIntegerParam(record.sheetId)
   const planningSourceCenterId = record.planningSourceCenterId === null ? null : parseIntegerParam(record.planningSourceCenterId)
   const planningSourceSheetId = record.planningSourceSheetId === null ? null : parseIntegerParam(record.planningSourceSheetId)
+  const sourceRequisitionId = record.sourceRequisitionId === null ? null : parseIntegerParam(record.sourceRequisitionId)
+  const sourceRequisitionGroupId =
+    record.sourceRequisitionGroupId === null ? null : parseIntegerParam(record.sourceRequisitionGroupId)
   const createdByUserId = record.createdByUserId === null ? null : parseIntegerParam(record.createdByUserId)
   const rootRequestId = parseIntegerParam(record.rootRequestId)
   const parentRequestId = record.parentRequestId === null ? null : parseIntegerParam(record.parentRequestId)
@@ -3785,6 +3788,9 @@ function normalizeManualProductionRequestPayload(value) {
     planningSourceSheetId,
     planningSourceSheetName: typeof record.planningSourceSheetName === 'string' ? record.planningSourceSheetName : '',
     planningSourceQuantityLabel: typeof record.planningSourceQuantityLabel === 'string' ? record.planningSourceQuantityLabel : '',
+    sourceRequisitionId,
+    sourceRequisitionGroupId,
+    sourceRequisitionLineKey: typeof record.sourceRequisitionLineKey === 'string' ? record.sourceRequisitionLineKey : '',
   }
 }
 
