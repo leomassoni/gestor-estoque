@@ -22549,7 +22549,22 @@ export default function App() {
           }
           const requestedQuantity = parseDecimal(line.requestedQuantity) ?? 0
           const requiredYield = requestedQuantity * Math.max(getStockCenterBaseQuantity(sheet), 1)
-          return buildManualProductionShortageLines(producerCenter, sheet, requiredYield, { availableByAggregationKey }).shortageLines
+          const aggregationKey = buildInventoryAggregationKey({
+            kind: 'PREPARO',
+            technicalSheetId: sheet.id,
+            productId: '',
+            serviceItemId: '',
+          })
+          const availableQuantity = availableByAggregationKey.get(aggregationKey) ?? 0
+          const consumedQuantity = Math.min(availableQuantity, requiredYield)
+          if (consumedQuantity > 0) {
+            availableByAggregationKey.set(aggregationKey, availableQuantity - consumedQuantity)
+          }
+          const productionYield = Math.max(requiredYield - availableQuantity, 0)
+          if (productionYield <= 0) {
+            return [] as RequisitionLineRecord[]
+          }
+          return buildManualProductionShortageLines(producerCenter, sheet, productionYield, { availableByAggregationKey }).shortageLines
         })
 
         const mergedShortageLines = mergeRequisitionLines(shortageLines).filter(
@@ -22694,7 +22709,19 @@ export default function App() {
         }
 
         const requestedQuantity = parseDecimal(line.requestedQuantity) ?? 0
-        const desiredYield = requestedQuantity * Math.max(getStockCenterBaseQuantity(sheet), 1)
+        const requiredYield = requestedQuantity * Math.max(getStockCenterBaseQuantity(sheet), 1)
+        const aggregationKey = buildInventoryAggregationKey({
+          kind: 'PREPARO',
+          technicalSheetId: sheet.id,
+          productId: '',
+          serviceItemId: '',
+        })
+        const availableQuantity = availableByAggregationKey.get(aggregationKey) ?? 0
+        const consumedQuantity = Math.min(availableQuantity, requiredYield)
+        if (consumedQuantity > 0) {
+          availableByAggregationKey.set(aggregationKey, availableQuantity - consumedQuantity)
+        }
+        const desiredYield = Math.max(requiredYield - availableQuantity, 0)
         if (desiredYield <= 0) {
           return [] as ManualProductionRequestRecord[]
         }
