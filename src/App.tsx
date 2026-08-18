@@ -22182,7 +22182,7 @@ export default function App() {
 
   function buildSplitRequisitionsForSending(
     record: RequisitionRecord,
-    options: { reservedIds?: number[]; sentAt?: string } = {},
+    options: { reservedIds?: number[]; sentAt?: string; baseRequisitions?: RequisitionRecord[] } = {},
   ) {
     const productionLines = record.lines.filter((line) => line.destinationType === 'PRODUCOES')
     const supplyLines = record.lines.filter((line) => line.destinationType === 'SUPRIMENTOS')
@@ -22223,9 +22223,10 @@ export default function App() {
     })
 
     const now = options.sentAt ?? new Date().toISOString()
+    const baseRequisitions = options.baseRequisitions ?? requisitions
     const nextSplitRequisitionId = getNextPersistedIntId([
-      ...requisitions.map((item) => item.id),
-      ...requisitions.map((item) => item.requisitionGroupId),
+      ...baseRequisitions.map((item) => item.id),
+      ...baseRequisitions.map((item) => item.requisitionGroupId),
       ...(options.reservedIds ?? []),
     ])
     const splitRequisitions = Array.from(linesByDestination.entries()).map(([centerId, lines], index) => {
@@ -22518,14 +22519,15 @@ export default function App() {
     productionRequisitions: RequisitionRecord[],
     sentAt: string,
     reservedIds: number[] = [],
+    baseRequisitions: RequisitionRecord[] = requisitions,
   ) {
     if (productionRequisitions.length === 0) {
       return [] as RequisitionRecord[]
     }
 
     const usedIds = new Set([
-      ...requisitions.map((record) => record.id),
-      ...requisitions.map((record) => record.requisitionGroupId),
+      ...baseRequisitions.map((record) => record.id),
+      ...baseRequisitions.map((record) => record.requisitionGroupId),
       ...productionRequisitions.map((record) => record.id),
       ...productionRequisitions.map((record) => record.requisitionGroupId),
       ...reservedIds,
@@ -22646,6 +22648,7 @@ export default function App() {
         const splitResult = buildSplitRequisitionsForSending(downstreamDraft, {
           reservedIds: Array.from(usedIds),
           sentAt,
+          baseRequisitions,
         })
         if (splitResult.error) {
           return
@@ -22938,12 +22941,42 @@ export default function App() {
 
     const now = new Date().toISOString()
     const reservedIds: number[] = []
+    const selectedApprovedRequisitionIds = new Set(selectedApprovedRequisitions.map((record) => record.id))
+    let latestRequisitions: RequisitionRecord[]
+    try {
+      latestRequisitions = await loadLatestRequisitionsForMutation()
+    } catch (error) {
+      console.error(error)
+      setSaveFeedback({
+        status: 'error',
+        title: 'Falha ao atualizar requisicoes',
+        message: error instanceof Error ? error.message : 'Nao foi possivel carregar as requisicoes mais recentes do servidor.',
+      })
+      return
+    }
+    const latestSelectedApprovedRequisitions = latestRequisitions.filter(
+      (record) => selectedApprovedRequisitionIds.has(record.id) && record.status === 'APPROVED' && canSendRequisition(record),
+    )
+
+    if (latestSelectedApprovedRequisitions.length === 0) {
+      setSaveFeedback({
+        status: 'error',
+        title: 'Nenhuma requisicao aprovada atualizada',
+        message: 'As requisicoes selecionadas nao estao mais aprovadas no servidor. Atualize a tela e confira o historico.',
+      })
+      return
+    }
+
     const targetIds = new Set<number>()
     const nextSentRecords: RequisitionRecord[] = []
     const errors: string[] = []
 
-    selectedApprovedRequisitions.forEach((targetRequisition) => {
-      const splitResult = buildSplitRequisitionsForSending(targetRequisition, { reservedIds, sentAt: now })
+    latestSelectedApprovedRequisitions.forEach((targetRequisition) => {
+      const splitResult = buildSplitRequisitionsForSending(targetRequisition, {
+        reservedIds,
+        sentAt: now,
+        baseRequisitions: latestRequisitions,
+      })
       if (splitResult.error) {
         errors.push(`${targetRequisition.stockCenterName}: ${splitResult.error}`)
         return
@@ -22994,6 +23027,7 @@ export default function App() {
       nextSentRecords.filter((record) => record.lines.some((line) => line.destinationType === 'PRODUCOES')),
       now,
       reservedIds,
+      latestRequisitions,
     )
     const productionRequests = buildManualProductionRequestsForSentProductionRequisitions(
       nextSentRecords.filter((record) => record.lines.some((line) => line.destinationType === 'PRODUCOES')),
@@ -23019,7 +23053,7 @@ export default function App() {
       return
     }
 
-    const nextRequisitions = [...nextRecords, ...requisitions.filter((record) => !targetIds.has(record.id))]
+    const nextRequisitions = [...nextRecords, ...latestRequisitions.filter((record) => !targetIds.has(record.id))]
     setRequisitions(nextRequisitions)
     syncedRequisitionRecordMapRef.current = buildEntitySignatureMap(nextRequisitions, (record) => record.id)
     if (productionRequests.length > 0) {
@@ -23166,12 +23200,25 @@ export default function App() {
     }
     const targetId = requisitionIdOverride
 
-    const targetRequisition = requisitions.find((record) => record.id === targetId) ?? null
+    let latestRequisitions: RequisitionRecord[]
+    try {
+      latestRequisitions = await loadLatestRequisitionsForMutation()
+    } catch (error) {
+      console.error(error)
+      setSaveFeedback({
+        status: 'error',
+        title: 'Falha ao atualizar requisicao',
+        message: error instanceof Error ? error.message : 'Nao foi possivel carregar a requisicao mais recente do servidor.',
+      })
+      return
+    }
+
+    const targetRequisition = latestRequisitions.find((record) => record.id === targetId) ?? null
     if (!targetRequisition || targetRequisition.status !== 'APPROVED' || !canSendRequisition(targetRequisition)) {
       return
     }
 
-    const splitResult = buildSplitRequisitionsForSending(targetRequisition)
+    const splitResult = buildSplitRequisitionsForSending(targetRequisition, { baseRequisitions: latestRequisitions })
     if (splitResult.error) {
       setSaveFeedback({
         status: 'error',
@@ -23185,6 +23232,8 @@ export default function App() {
     const downstreamProductionRequisitions = buildProductionSupplyRequisitionsForSentProductionRequisitions(
       splitResult.requisitions.filter((record) => record.lines.some((line) => line.destinationType === 'PRODUCOES')),
       now,
+      [],
+      latestRequisitions,
     )
     const productionRequests = buildManualProductionRequestsForSentProductionRequisitions(
       splitResult.requisitions.filter((record) => record.lines.some((line) => line.destinationType === 'PRODUCOES')),
@@ -23234,11 +23283,8 @@ export default function App() {
       return
     }
 
-    const nextRequisitions = [...nextRecords, ...requisitions.filter((record) => record.id !== targetRequisition.id)]
-    setRequisitions((current) => {
-      const remainingRecords = current.filter((record) => record.id !== targetRequisition.id)
-      return [...nextRecords, ...remainingRecords]
-    })
+    const nextRequisitions = [...nextRecords, ...latestRequisitions.filter((record) => record.id !== targetRequisition.id)]
+    setRequisitions(nextRequisitions)
     syncedRequisitionRecordMapRef.current = buildEntitySignatureMap(nextRequisitions, (record) => record.id)
     if (productionRequests.length > 0) {
       const nextManualProductionRequestsById = new Map(
