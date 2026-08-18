@@ -22531,6 +22531,7 @@ export default function App() {
           return
         }
 
+        const availableByAggregationKey = buildAvailableInventoryByAggregationKeyForCenter(producerCenter.id)
         const shortageLines = productionRequisition.lines.flatMap((line) => {
           if (line.destinationType !== 'PRODUCOES' || line.kind !== 'PREPARO' || typeof line.technicalSheetId !== 'number') {
             return [] as RequisitionLineRecord[]
@@ -22548,7 +22549,7 @@ export default function App() {
           }
           const requestedQuantity = parseDecimal(line.requestedQuantity) ?? 0
           const requiredYield = requestedQuantity * Math.max(getStockCenterBaseQuantity(sheet), 1)
-          return buildManualProductionShortageLines(producerCenter, sheet, requiredYield).shortageLines
+          return buildManualProductionShortageLines(producerCenter, sheet, requiredYield, { availableByAggregationKey }).shortageLines
         })
 
         const mergedShortageLines = mergeRequisitionLines(shortageLines).filter(
@@ -22673,7 +22674,9 @@ export default function App() {
         return [] as ManualProductionRequestRecord[]
       }
 
-      return productionRequisition.lines.flatMap((line) => {
+      const availableByAggregationKey = buildAvailableInventoryByAggregationKeyForCenter(producerCenter.id)
+      const dependencyRequestsByKey = new Map<string, ManualProductionRequestRecord>()
+      const directRequests = productionRequisition.lines.flatMap((line) => {
         if (line.destinationType !== 'PRODUCOES' || line.kind !== 'PREPARO' || typeof line.technicalSheetId !== 'number') {
           return [] as ManualProductionRequestRecord[]
         }
@@ -22697,6 +22700,48 @@ export default function App() {
         }
 
         const requestId = reserveNextId()
+        const shortagePlan = buildManualProductionShortageLines(producerCenter, sheet, desiredYield, { availableByAggregationKey })
+        shortagePlan.dependencyRequests.forEach((dependencyRequest) => {
+          const dependencySheet = technicalSheets.find((item) => item.id === dependencyRequest.sheetId) ?? null
+          const dependencyCenter = stockCenters.find((item) => item.id === dependencyRequest.centerId) ?? null
+          if (!dependencySheet || !dependencyCenter) {
+            return
+          }
+
+          const dependencyKey = `${dependencyRequest.centerId}:${dependencyRequest.sheetId}`
+          const existingDependency = dependencyRequestsByKey.get(dependencyKey) ?? null
+          if (existingDependency) {
+            const nextDesiredYield =
+              (parseDecimal(existingDependency.desiredYield) ?? 0) + dependencyRequest.desiredYield
+            dependencyRequestsByKey.set(dependencyKey, {
+              ...existingDependency,
+              desiredYield: formatDecimal(nextDesiredYield),
+            })
+            return
+          }
+
+          const dependencyId = reserveNextId()
+          dependencyRequestsByKey.set(dependencyKey, {
+            id: dependencyId,
+            companyId: dependencyCenter.companyId,
+            centerId: dependencyCenter.id,
+            sheetId: dependencySheet.id,
+            desiredYield: formatDecimal(dependencyRequest.desiredYield),
+            createdAt,
+            createdByUserId: currentAppUser?.id ?? null,
+            createdByUserName: currentAppUser?.fullName ?? 'Administrador do sistema',
+            rootRequestId: requestId,
+            parentRequestId: requestId,
+            isDependencyRequest: true,
+            planningSourceKind: 'PREPARO',
+            planningSourceCenterId: producerCenter.id,
+            planningSourceCenterName: producerCenter.name,
+            planningSourceSheetId: sheet.id,
+            planningSourceSheetName: sheet.name,
+            planningSourceQuantityLabel: `${line.requestedQuantity} ${line.requestUnitLabel}`,
+          })
+        })
+
         return [{
           id: requestId,
           companyId: producerCenter.companyId,
@@ -22717,6 +22762,8 @@ export default function App() {
           planningSourceQuantityLabel: `${line.requestedQuantity} ${line.requestUnitLabel}`,
         } satisfies ManualProductionRequestRecord]
       })
+
+      return [...directRequests, ...dependencyRequestsByKey.values()]
     })
   }
 
@@ -25043,17 +25090,24 @@ export default function App() {
     )
   }
 
+  function buildAvailableInventoryByAggregationKeyForCenter(stockCenterId: number) {
+    const availableByAggregationKey = new Map<string, number>()
+    latestInventoryQuantityByCenterAndAggregation.forEach((value, centerAggregationKey) => {
+      if (centerAggregationKey.startsWith(`${stockCenterId}:`)) {
+        availableByAggregationKey.set(centerAggregationKey.slice(String(stockCenterId).length + 1), value)
+      }
+    })
+    return availableByAggregationKey
+  }
+
   function buildManualProductionShortageLines(
     stockCenter: StockCenterRecord,
     targetSheet: TechnicalSheetRecord,
     desiredYield: number,
+    options: { availableByAggregationKey?: Map<string, number> } = {},
   ) {
-    const availableByAggregationKey = new Map<string, number>()
-    latestInventoryQuantityByCenterAndAggregation.forEach((value, centerAggregationKey) => {
-      if (centerAggregationKey.startsWith(`${stockCenter.id}:`)) {
-        availableByAggregationKey.set(centerAggregationKey.slice(String(stockCenter.id).length + 1), value)
-      }
-    })
+    const availableByAggregationKey =
+      options.availableByAggregationKey ?? buildAvailableInventoryByAggregationKeyForCenter(stockCenter.id)
 
     const lineMap = new Map<string, RequisitionLineRecord>()
     const plannedProductionRequests = new Map<string, { centerId: number; sheetId: number; desiredYield: number }>()
