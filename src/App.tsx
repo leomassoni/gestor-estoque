@@ -1062,7 +1062,13 @@ const stockReportAllowedColumnsByTab: Record<StockReportTab, StockReportColumnKe
   COMPROMETIDO: ['main', 'date', 'center', 'internalId', 'companyId', 'packageId', 'kind', 'family', 'status', 'quantity', 'unit', 'position', 'unitCost', 'totalCost'],
 }
 
-const defaultSectionAccessByRole = (role: CompanyUserRole): UserSectionAccess => {
+const complexoVilaAnaliaCompanyIds = new Set([2, 5, 6, 7, 8, 9, 10, 11, 12])
+
+function shouldDefaultWasteAccessForCompany(companyId: number | null = null) {
+  return companyId !== null && !complexoVilaAnaliaCompanyIds.has(companyId)
+}
+
+const defaultSectionAccessByRole = (role: CompanyUserRole, companyId: number | null = null): UserSectionAccess => {
   if (role === 'Administrativo') {
     return {
       Produtos: true,
@@ -1116,7 +1122,7 @@ const defaultSectionAccessByRole = (role: CompanyUserRole): UserSectionAccess =>
     Configuracoes: false,
     CentrosEstoque: false,
     Inventario: false,
-    Desperdicio: false,
+    Desperdicio: shouldDefaultWasteAccessForCompany(companyId),
     ConfiguracoesEstoque: false,
     Requisicoes: false,
     Suprimentos: false,
@@ -1298,7 +1304,7 @@ const buildDefaultAccessProfiles = (companyId: number | null): AccessProfileReco
       companyId,
       name: 'ADMINISTRATIVO',
       role: 'Administrativo',
-      sectionAccess: defaultSectionAccessByRole('Administrativo'),
+      sectionAccess: defaultSectionAccessByRole('Administrativo', companyId),
       catalogAccess: defaultCatalogAccessByRole('Administrativo'),
       recipePanelAccess: defaultRecipePanelAccess(),
       isActive: true,
@@ -1308,7 +1314,7 @@ const buildDefaultAccessProfiles = (companyId: number | null): AccessProfileReco
       companyId,
       name: 'GESTOR',
       role: 'Gestor',
-      sectionAccess: defaultSectionAccessByRole('Gestor'),
+      sectionAccess: defaultSectionAccessByRole('Gestor', companyId),
       catalogAccess: defaultCatalogAccessByRole('Gestor'),
       recipePanelAccess: defaultRecipePanelAccess(),
       isActive: true,
@@ -1318,7 +1324,7 @@ const buildDefaultAccessProfiles = (companyId: number | null): AccessProfileReco
       companyId,
       name: 'COLABORADOR',
       role: 'Colaborador',
-      sectionAccess: defaultSectionAccessByRole('Colaborador'),
+      sectionAccess: defaultSectionAccessByRole('Colaborador', companyId),
       catalogAccess: defaultCatalogAccessByRole('Colaborador'),
       recipePanelAccess: defaultRecipePanelAccess(),
       isActive: true,
@@ -3908,7 +3914,7 @@ export default function App() {
         ...membership,
         accessProfileId: fallbackProfile?.id ?? null,
         role: fallbackProfile?.role ?? membership.role,
-        sectionAccess: fallbackProfile?.sectionAccess ?? defaultSectionAccessByRole(membership.role),
+        sectionAccess: fallbackProfile?.sectionAccess ?? defaultSectionAccessByRole(membership.role, membership.companyId),
         catalogAccess: fallbackProfile?.catalogAccess ?? defaultCatalogAccessByRole(membership.role),
         recipePanelAccess: fallbackProfile?.recipePanelAccess ?? defaultRecipePanelAccess(),
       }
@@ -17449,7 +17455,7 @@ export default function App() {
             ...membership,
             accessProfileId: fallbackProfile?.id ?? null,
             role: fallbackProfile?.role ?? membership.role,
-            sectionAccess: fallbackProfile?.sectionAccess ?? defaultSectionAccessByRole(membership.role),
+            sectionAccess: fallbackProfile?.sectionAccess ?? defaultSectionAccessByRole(membership.role, membership.companyId),
             catalogAccess: fallbackProfile?.catalogAccess ?? defaultCatalogAccessByRole(membership.role),
             recipePanelAccess: fallbackProfile?.recipePanelAccess ?? defaultRecipePanelAccess(),
           }
@@ -28677,7 +28683,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
               : current.accessProfileId,
           sectionAccess:
             primaryCompanyId !== null && visibleCompanyIds.has(primaryCompanyId)
-              ? fallbackProfile?.sectionAccess ?? defaultSectionAccessByRole(current.role)
+              ? fallbackProfile?.sectionAccess ?? defaultSectionAccessByRole(current.role, primaryCompanyId)
               : current.sectionAccess,
           catalogAccess:
             primaryCompanyId !== null && visibleCompanyIds.has(primaryCompanyId)
@@ -28693,7 +28699,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                   ...membership,
                   accessProfileId: fallbackProfile ? String(fallbackProfile.id) : '',
                   role: fallbackProfile?.role ?? membership.role,
-                  sectionAccess: fallbackProfile?.sectionAccess ?? defaultSectionAccessByRole(membership.role),
+                  sectionAccess: fallbackProfile?.sectionAccess ?? defaultSectionAccessByRole(membership.role, membership.companyId),
                   catalogAccess: fallbackProfile?.catalogAccess ?? defaultCatalogAccessByRole(membership.role),
                   recipePanelAccess: fallbackProfile?.recipePanelAccess ?? defaultRecipePanelAccess(),
                 }
@@ -28780,7 +28786,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
               : current.accessProfileId,
           sectionAccess:
             primaryCompanyId !== null && visibleCompanyIds.has(primaryCompanyId)
-              ? fallbackProfile?.sectionAccess ?? defaultSectionAccessByRole(current.role)
+              ? fallbackProfile?.sectionAccess ?? defaultSectionAccessByRole(current.role, primaryCompanyId)
               : current.sectionAccess,
           catalogAccess:
             primaryCompanyId !== null && visibleCompanyIds.has(primaryCompanyId)
@@ -28796,7 +28802,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                   ...membership,
                   accessProfileId: fallbackProfile ? String(fallbackProfile.id) : '',
                   role: fallbackProfile?.role ?? membership.role,
-                  sectionAccess: fallbackProfile?.sectionAccess ?? defaultSectionAccessByRole(membership.role),
+                  sectionAccess: fallbackProfile?.sectionAccess ?? defaultSectionAccessByRole(membership.role, membership.companyId),
                   catalogAccess: fallbackProfile?.catalogAccess ?? defaultCatalogAccessByRole(membership.role),
                   recipePanelAccess: fallbackProfile?.recipePanelAccess ?? defaultRecipePanelAccess(),
                 }
@@ -29033,7 +29039,9 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
               : String(membership.accessProfileId),
           role: membership?.role ?? (index === 0 ? targetUser.role : 'Colaborador'),
           sectors: membership?.sectors ?? (index === 0 ? targetUser.sectors : []),
-          sectionAccess: membership?.sectionAccess ?? (index === 0 ? targetUser.sectionAccess : defaultSectionAccessByRole('Colaborador')),
+          sectionAccess:
+            membership?.sectionAccess ??
+            (index === 0 ? targetUser.sectionAccess : defaultSectionAccessByRole('Colaborador', companyId)),
           catalogAccess: membership?.catalogAccess ?? (index === 0 ? targetUser.catalogAccess : defaultCatalogAccessByRole('Colaborador')),
           recipePanelAccess: membership?.recipePanelAccess ?? (index === 0 ? targetUser.recipePanelAccess : defaultRecipePanelAccess()),
           isActive: membership?.isActive ?? true,
@@ -55481,7 +55489,8 @@ function normalizeSessionUser(value: unknown): AppUserRecord | null {
   }
 
   const baseRole: CompanyUserRole = user.role
-  const defaultBaseSectionAccess = defaultSectionAccessByRole(baseRole)
+  const baseCompanyId = typeof user.companyId === 'number' ? user.companyId : null
+  const defaultBaseSectionAccess = defaultSectionAccessByRole(baseRole, baseCompanyId)
   const normalizedSectionAccess =
     user.sectionAccess && typeof user.sectionAccess === 'object'
         ? {
@@ -55493,7 +55502,10 @@ function normalizeSessionUser(value: unknown): AppUserRecord | null {
             Configuracoes: user.sectionAccess.Configuracoes === true,
             CentrosEstoque: user.sectionAccess.CentrosEstoque === true,
             Inventario: user.sectionAccess.Inventario === true,
-            Desperdicio: user.sectionAccess.Desperdicio === true,
+            Desperdicio:
+              typeof user.sectionAccess.Desperdicio === 'boolean'
+                ? user.sectionAccess.Desperdicio
+                : defaultBaseSectionAccess.Desperdicio,
             ConfiguracoesEstoque: user.sectionAccess.ConfiguracoesEstoque === true,
             Requisicoes: user.sectionAccess.Requisicoes === true,
             Suprimentos: user.sectionAccess.Suprimentos === true,
@@ -55506,7 +55518,7 @@ function normalizeSessionUser(value: unknown): AppUserRecord | null {
             Empresa: user.sectionAccess.Empresa === true,
             Usuarios: user.sectionAccess.Usuarios === true,
           }
-      : defaultSectionAccessByRole(baseRole)
+      : defaultBaseSectionAccess
   const normalizedRecipePanelAccess = normalizeRecipePanelAccess(user.recipePanelAccess)
   const normalizedCatalogAccess =
     user.catalogAccess && typeof user.catalogAccess === 'object'
@@ -55535,13 +55547,16 @@ function normalizeSessionUser(value: unknown): AppUserRecord | null {
           if (!membership || typeof membership !== 'object' || typeof membership.companyId !== 'number') {
             return null
           }
+          const membershipRole: CompanyUserRole =
+            membership.role === 'Administrativo' || membership.role === 'Gestor' || membership.role === 'Colaborador'
+              ? membership.role
+              : baseRole
+          const defaultMembershipSectionAccess = defaultSectionAccessByRole(membershipRole, membership.companyId)
+
           return {
             id: typeof membership.id === 'number' ? membership.id : membership.companyId,
             companyId: membership.companyId,
-            role:
-              membership.role === 'Administrativo' || membership.role === 'Gestor' || membership.role === 'Colaborador'
-                ? membership.role
-                : baseRole,
+            role: membershipRole,
             sectors: Array.isArray(membership.sectors)
               ? membership.sectors
                   .filter((item): item is string => typeof item === 'string')
@@ -55559,18 +55574,17 @@ function normalizeSessionUser(value: unknown): AppUserRecord | null {
                     Configuracoes: membership.sectionAccess.Configuracoes === true,
                     CentrosEstoque: membership.sectionAccess.CentrosEstoque === true,
                     Inventario: membership.sectionAccess.Inventario === true,
-                    Desperdicio: membership.sectionAccess.Desperdicio === true,
+                    Desperdicio:
+                      typeof membership.sectionAccess.Desperdicio === 'boolean'
+                        ? membership.sectionAccess.Desperdicio
+                        : defaultMembershipSectionAccess.Desperdicio,
                     ConfiguracoesEstoque: membership.sectionAccess.ConfiguracoesEstoque === true,
                     Requisicoes: membership.sectionAccess.Requisicoes === true,
                     Suprimentos: membership.sectionAccess.Suprimentos === true,
                     Compras:
                       typeof membership.sectionAccess.Compras === 'boolean'
                         ? membership.sectionAccess.Compras
-                        : defaultSectionAccessByRole(
-                            membership.role === 'Administrativo' || membership.role === 'Gestor' || membership.role === 'Colaborador'
-                              ? membership.role
-                              : baseRole,
-                          ).Compras,
+                        : defaultMembershipSectionAccess.Compras,
                     EntradaProducoes: membership.sectionAccess.EntradaProducoes === true,
                     RelatoriosEstoque: membership.sectionAccess.RelatoriosEstoque === true,
                     Empresa: membership.sectionAccess.Empresa === true,
@@ -55644,6 +55658,8 @@ function normalizeAccessProfileRecord(value: unknown): AccessProfileRecord | nul
     return null
   }
 
+  const defaultSectionAccess = defaultSectionAccessByRole(profile.role, profile.companyId)
+
   return {
     id: profile.id,
     companyId: profile.companyId,
@@ -55660,20 +55676,23 @@ function normalizeAccessProfileRecord(value: unknown): AccessProfileRecord | nul
             Configuracoes: profile.sectionAccess.Configuracoes === true,
             CentrosEstoque: profile.sectionAccess.CentrosEstoque === true,
             Inventario: profile.sectionAccess.Inventario === true,
-            Desperdicio: profile.sectionAccess.Desperdicio === true,
+            Desperdicio:
+              typeof profile.sectionAccess.Desperdicio === 'boolean'
+                ? profile.sectionAccess.Desperdicio
+                : defaultSectionAccess.Desperdicio,
             ConfiguracoesEstoque: profile.sectionAccess.ConfiguracoesEstoque === true,
             Requisicoes: profile.sectionAccess.Requisicoes === true,
             Suprimentos: profile.sectionAccess.Suprimentos === true,
             Compras:
               typeof profile.sectionAccess.Compras === 'boolean'
                 ? profile.sectionAccess.Compras
-                : defaultSectionAccessByRole(profile.role).Compras,
+                : defaultSectionAccess.Compras,
             EntradaProducoes: profile.sectionAccess.EntradaProducoes === true,
             RelatoriosEstoque: profile.sectionAccess.RelatoriosEstoque === true,
             Empresa: profile.sectionAccess.Empresa === true,
             Usuarios: profile.sectionAccess.Usuarios === true,
           }
-        : defaultSectionAccessByRole(profile.role),
+        : defaultSectionAccess,
     catalogAccess:
       profile.catalogAccess && typeof profile.catalogAccess === 'object'
         ? {
