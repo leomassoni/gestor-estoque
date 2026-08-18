@@ -227,6 +227,10 @@ export function isSafePersistedIntId(value: number | null | undefined): value is
   return typeof value === 'number' && Number.isInteger(value) && value > 0 && value <= maxPersistedIntId
 }
 
+export function isSafePackageId(value: number | null | undefined): value is number {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value > 0
+}
+
 export function getNextPersistedIntId(values: Array<number | null | undefined>) {
   const currentMax = values.reduce<number>(
     (highest, value) => (isSafePersistedIntId(value) && value > highest ? value : highest),

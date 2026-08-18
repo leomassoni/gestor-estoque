@@ -358,6 +358,7 @@ import {
   getNextPersistedIntId,
   getMinutesBetweenTimestamps,
   getTodayDateInputValue,
+  isSafePackageId,
   isSafePersistedIntId,
   normalizeFreeText,
   normalizeRegistrationText,
@@ -20094,11 +20095,11 @@ export default function App() {
       : [nextRecord, ...inventoryCounts]
 
     setIsSavingInventoryCount(true)
+    let wasSavedLocally = false
     try {
-      await upsertInventoryCountOnApi(nextRecord)
-      syncedInventoryCountMapRef.current = buildEntitySignatureMap(nextInventoryCounts, (record) => record.id)
       setInventoryCounts(nextInventoryCounts)
       saveInventoryCountsState(nextInventoryCounts)
+      wasSavedLocally = true
       setInventoryStorageLocations((current) => {
         const existingIndex = current.findIndex(
           (location) => location.companyId === currentCompanyId && location.name === normalizedLocation,
@@ -20134,6 +20135,8 @@ export default function App() {
         )
       }
       setInventoryErrors({})
+      await upsertInventoryCountOnApi(nextRecord)
+      syncedInventoryCountMapRef.current = buildEntitySignatureMap(nextInventoryCounts, (record) => record.id)
       setSaveFeedback({
         status: 'success',
         title: !isEditingCount ? 'Contagem registrada com sucesso' : 'Contagem atualizada com sucesso',
@@ -20146,8 +20149,12 @@ export default function App() {
       console.error(error)
       setSaveFeedback({
         status: 'error',
-        title: 'Falha ao salvar item da contagem',
-        message: error instanceof Error ? error.message : 'Nao foi possivel salvar o item da contagem no servidor.',
+        title: wasSavedLocally ? 'Item salvo no aparelho' : 'Falha ao salvar item da contagem',
+        message: wasSavedLocally
+          ? 'O item ficou preservado nesta contagem e sera reenviado ao servidor automaticamente. Nao feche o inventario antes da sincronizacao concluir.'
+          : error instanceof Error
+            ? error.message
+            : 'Nao foi possivel salvar o item da contagem no servidor.',
       })
     } finally {
       setIsSavingInventoryCount(false)
@@ -55780,7 +55787,7 @@ function normalizeStockCenterRecord(value: unknown): StockCenterRecord | null {
         technicalSheetId: isSafePersistedIntId(item.technicalSheetId) ? item.technicalSheetId : null,
         productId: typeof item.productId === 'string' ? normalizeRegistrationText(item.productId) : '',
         serviceItemId: typeof item.serviceItemId === 'string' ? normalizeRegistrationText(item.serviceItemId) : '',
-        packageId: isSafePersistedIntId(item.packageId) ? item.packageId : null,
+        packageId: isSafePackageId(item.packageId) ? item.packageId : null,
         minimumQuantity: item.minimumQuantity.trim(),
         suggestedMinimumQuantity:
           typeof item.suggestedMinimumQuantity === 'string' ? item.suggestedMinimumQuantity.trim() : undefined,
@@ -55873,7 +55880,7 @@ function normalizeRequisitionRecord(value: unknown): RequisitionRecord | null {
       technicalSheetId: isSafePersistedIntId(line.technicalSheetId) ? line.technicalSheetId : null,
       productId: typeof line.productId === 'string' ? normalizeRegistrationText(line.productId) : '',
       serviceItemId: typeof line.serviceItemId === 'string' ? normalizeRegistrationText(line.serviceItemId) : '',
-      packageId: isSafePersistedIntId(line.packageId) ? line.packageId : null,
+      packageId: isSafePackageId(line.packageId) ? line.packageId : null,
       itemName: normalizeRegistrationText(line.itemName),
       itemTypeLabel: normalizeRegistrationText(line.itemTypeLabel),
       family: normalizeRegistrationText(line.family),
@@ -56357,7 +56364,7 @@ function normalizeInventoryCountRecord(value: unknown): InventoryCountRecord | n
     technicalSheetId: isSafePersistedIntId(record.technicalSheetId) ? record.technicalSheetId : null,
     productId: typeof record.productId === 'string' ? normalizeRegistrationText(record.productId) : '',
     serviceItemId: typeof record.serviceItemId === 'string' ? normalizeRegistrationText(record.serviceItemId) : '',
-    packageId: isSafePersistedIntId(record.packageId) ? record.packageId : null,
+    packageId: isSafePackageId(record.packageId) ? record.packageId : null,
     technicalSheetName: normalizeRegistrationText(record.technicalSheetName),
     technicalSheetKind: record.technicalSheetKind,
     recipientItemId: normalizeRegistrationText(record.recipientItemId),
@@ -56458,7 +56465,7 @@ function normalizeWasteRecord(value: unknown): WasteRecord | null {
     technicalSheetId: isSafePersistedIntId(record.technicalSheetId) ? record.technicalSheetId : null,
     productId: typeof record.productId === 'string' ? normalizeRegistrationText(record.productId) : '',
     serviceItemId: typeof record.serviceItemId === 'string' ? normalizeRegistrationText(record.serviceItemId) : '',
-    packageId: isSafePersistedIntId(record.packageId) ? record.packageId : null,
+    packageId: isSafePackageId(record.packageId) ? record.packageId : null,
     technicalSheetName: normalizeRegistrationText(record.technicalSheetName),
     technicalSheetKind: record.technicalSheetKind as StockCountableKind,
     recipientItemId: normalizeRegistrationText(record.recipientItemId),

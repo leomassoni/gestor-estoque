@@ -1445,7 +1445,7 @@ app.get('/api/inventory-counts', async (request, response) => {
     where: companyId === null ? undefined : { companyId },
     orderBy: [{ countedAt: 'desc' }, { id: 'desc' }],
   })
-  response.json({ inventoryCounts: counts })
+  response.json({ inventoryCounts: serializeBigIntForJson(counts) })
 })
 
 app.put('/api/inventory-counts/:id', async (request, response) => {
@@ -1477,7 +1477,7 @@ app.put('/api/inventory-counts/:id', async (request, response) => {
     create: count,
     update: count,
   })
-  response.json({ inventoryCount: saved })
+  response.json({ inventoryCount: serializeBigIntForJson(saved) })
 })
 
 app.delete('/api/inventory-counts/:id', async (request, response) => {
@@ -1533,7 +1533,7 @@ app.get('/api/waste-records', async (request, response) => {
     where: companyId === null ? undefined : { companyId },
     orderBy: [{ countedAt: 'desc' }, { id: 'desc' }],
   })
-  response.json({ wasteRecords: records })
+  response.json({ wasteRecords: serializeBigIntForJson(records) })
 })
 
 app.put('/api/waste-records/:id', async (request, response) => {
@@ -1549,7 +1549,7 @@ app.put('/api/waste-records/:id', async (request, response) => {
     create: record,
     update: record,
   })
-  response.json({ wasteRecord: saved })
+  response.json({ wasteRecord: serializeBigIntForJson(saved) })
 })
 
 app.delete('/api/waste-records/:id', async (request, response) => {
@@ -1916,6 +1916,38 @@ function parseIntegerParam(value) {
   const resolved = Array.isArray(value) ? value[0] : value
   const parsed = Number.parseInt(String(resolved ?? ''), 10)
   return Number.isFinite(parsed) ? parsed : null
+}
+
+function parseBigIntParam(value) {
+  const resolved = Array.isArray(value) ? value[0] : value
+  if (resolved === null || resolved === undefined || resolved === '') {
+    return null
+  }
+  try {
+    const parsed = BigInt(String(resolved))
+    return parsed > 0n ? parsed : null
+  } catch {
+    return null
+  }
+}
+
+function serializeBigIntForJson(value) {
+  if (typeof value === 'bigint') {
+    const asNumber = Number(value)
+    return Number.isSafeInteger(asNumber) ? asNumber : value.toString()
+  }
+  if (value instanceof Date) {
+    return value.toISOString()
+  }
+  if (Array.isArray(value)) {
+    return value.map(serializeBigIntForJson)
+  }
+  if (value && typeof value === 'object') {
+    return Object.fromEntries(
+      Object.entries(value).map(([key, entryValue]) => [key, serializeBigIntForJson(entryValue)]),
+    )
+  }
+  return value
 }
 
 function isSafeInt32Id(value) {
@@ -3943,7 +3975,7 @@ function normalizeInventoryCountPayload(value) {
   const companyId = parseIntegerParam(record.companyId)
   const stockCenterId = parseIntegerParam(record.stockCenterId)
   const technicalSheetId = record.technicalSheetId === null ? null : parseIntegerParam(record.technicalSheetId)
-  const packageId = record.packageId === null ? null : parseIntegerParam(record.packageId)
+  const packageId = record.packageId === null ? null : parseBigIntParam(record.packageId)
 
   if (
     id === null ||
@@ -4055,7 +4087,7 @@ function normalizeWasteRecordPayload(value) {
   const companyId = parseIntegerParam(record.companyId)
   const stockCenterId = parseIntegerParam(record.stockCenterId)
   const technicalSheetId = record.technicalSheetId === null ? null : parseIntegerParam(record.technicalSheetId)
-  const packageId = record.packageId === null ? null : parseIntegerParam(record.packageId)
+  const packageId = record.packageId === null ? null : parseBigIntParam(record.packageId)
 
   if (
     id === null ||

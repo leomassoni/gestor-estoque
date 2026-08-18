@@ -751,7 +751,7 @@ model AppInventoryCountRecord {
   technicalSheetId          Int?
   productId                 String
   serviceItemId             String
-  packageId                 Int?
+  packageId                 BigInt?
   technicalSheetName        String
   technicalSheetKind        String
   recipientItemId           String
@@ -809,7 +809,7 @@ model AppWasteRecord {
   technicalSheetId          Int?
   productId                 String
   serviceItemId             String
-  packageId                 Int?
+  packageId                 BigInt?
   technicalSheetName        String
   technicalSheetKind        String
   recipientItemId           String
