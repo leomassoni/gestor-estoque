@@ -3648,7 +3648,7 @@ async function saveRequisitionWithCancellationGuard(requisitionId, requisition) 
   const [existing, deletedRecord] = await Promise.all([
     prisma.appRequisitionRecord.findUnique({
       where: { id: requisitionId },
-      select: { id: true, status: true, stockCenterName: true },
+      select: { id: true, requisitionGroupId: true, stockCenterId: true, createdAt: true, status: true, stockCenterName: true },
     }),
     prisma.appDeletedRequisitionRecord.findUnique({
       where: { id: requisitionId },
@@ -3658,6 +3658,17 @@ async function saveRequisitionWithCancellationGuard(requisitionId, requisition) 
 
   if (!existing && deletedRecord) {
     const error = new Error(`A requisicao #${requisitionId} foi excluida e nao pode ser recriada por sincronizacao antiga.`)
+    error.statusCode = 409
+    throw error
+  }
+
+  if (
+    existing &&
+    (existing.requisitionGroupId !== requisition.requisitionGroupId ||
+      existing.stockCenterId !== requisition.stockCenterId ||
+      existing.createdAt !== requisition.createdAt)
+  ) {
+    const error = new Error(`A requisicao #${existing.id} ja existe para outro fluxo e nao pode ser sobrescrita por uma sincronizacao desatualizada.`)
     error.statusCode = 409
     throw error
   }

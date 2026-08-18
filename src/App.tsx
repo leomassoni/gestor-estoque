@@ -5476,25 +5476,66 @@ export default function App() {
     }
   }
 
-  async function refreshAppRequisitionRecordsFromApi() {
-    const [requisitionsResponse, notificationsResponse] = await Promise.all([
-      fetch('/api/requisitions'),
-      fetch('/api/requisition-notifications'),
-    ])
-    if (!requisitionsResponse.ok || !notificationsResponse.ok) {
-      throw new Error('Falha ao carregar requisicoes e notificacoes pelo backend.')
+  async function fetchRequisitionRecordsFromApi() {
+    const requisitionsResponse = await fetch('/api/requisitions')
+    if (!requisitionsResponse.ok) {
+      throw new Error('Falha ao carregar requisicoes pelo backend.')
     }
 
-    const [requisitionsData, notificationsData] = await Promise.all([
-      requisitionsResponse.json(),
-      notificationsResponse.json(),
-    ])
-
-    const nextRequisitions = Array.isArray(requisitionsData?.requisitions)
+    const requisitionsData = await requisitionsResponse.json()
+    return Array.isArray(requisitionsData?.requisitions)
       ? (requisitionsData.requisitions as unknown[])
           .map(normalizeRequisitionRecord)
           .filter((item): item is RequisitionRecord => item !== null)
       : []
+  }
+
+  function mergeRemoteRequisitionsWithUnsyncedLocalRecords(remoteRequisitions: RequisitionRecord[], localRequisitions: RequisitionRecord[]) {
+    const recordsById = new Map(remoteRequisitions.map((record) => [record.id, record] as const))
+    const syncedById = syncedRequisitionRecordMapRef.current
+    const preservedLocalRecords: RequisitionRecord[] = []
+
+    localRequisitions.forEach((record) => {
+      if (recordsById.has(record.id)) {
+        return
+      }
+
+      const localSignature = JSON.stringify(record)
+      if (syncedById.get(record.id) === localSignature) {
+        return
+      }
+
+      recordsById.set(record.id, record)
+      preservedLocalRecords.push(record)
+    })
+
+    return {
+      requisitions: Array.from(recordsById.values()).sort((left, right) => right.createdAt.localeCompare(left.createdAt)),
+      preservedLocalRecords,
+    }
+  }
+
+  async function loadLatestRequisitionsForMutation() {
+    const remoteRequisitions = await fetchRequisitionRecordsFromApi()
+    return mergeRemoteRequisitionsWithUnsyncedLocalRecords(remoteRequisitions, requisitions).requisitions
+  }
+
+  function getChangedRequisitionRecords(previousRequisitions: RequisitionRecord[], nextRequisitions: RequisitionRecord[]) {
+    const previousById = buildEntitySignatureMap(previousRequisitions, (record) => record.id)
+    return nextRequisitions.filter((record) => previousById.get(record.id) !== JSON.stringify(record))
+  }
+
+  async function refreshAppRequisitionRecordsFromApi() {
+    const [nextRequisitions, notificationsResponse] = await Promise.all([
+      fetchRequisitionRecordsFromApi(),
+      fetch('/api/requisition-notifications'),
+    ])
+    if (!notificationsResponse.ok) {
+      throw new Error('Falha ao carregar notificacoes de requisicao pelo backend.')
+    }
+
+    const notificationsData = await notificationsResponse.json()
+
     const nextNotifications = Array.isArray(notificationsData?.notifications)
       ? (notificationsData.notifications as unknown[])
           .map(normalizeRequisitionNotificationRecord)
@@ -5531,13 +5572,18 @@ export default function App() {
       logRemoteAppStateMessage('As requisicoes deste navegador foram usadas para restaurar dados ausentes no servidor.')
       return
     }
-    const nextRequisitionsById = buildEntitySignatureMap(nextRequisitions, (record) => record.id)
+    const mergedRequisitionResult = mergeRemoteRequisitionsWithUnsyncedLocalRecords(nextRequisitions, requisitions)
+    if (mergedRequisitionResult.preservedLocalRecords.length > 0) {
+      await Promise.all(mergedRequisitionResult.preservedLocalRecords.map((record) => upsertRequisitionRecordOnApi(record)))
+    }
+
+    const nextRequisitionsById = buildEntitySignatureMap(mergedRequisitionResult.requisitions, (record) => record.id)
     const currentRequisitionsById = buildEntitySignatureMap(requisitions, (record) => record.id)
     const nextNotificationsById = buildEntitySignatureMap(nextNotifications, (record) => record.id)
     const currentNotificationsById = buildEntitySignatureMap(requisitionNotifications, (record) => record.id)
 
     if (!areEntitySignatureMapsEqual(nextRequisitionsById, currentRequisitionsById)) {
-      setRequisitions(nextRequisitions)
+      setRequisitions(mergedRequisitionResult.requisitions)
     }
     if (!areEntitySignatureMapsEqual(nextNotificationsById, currentNotificationsById)) {
       setRequisitionNotifications(nextNotifications)
@@ -15869,21 +15915,21 @@ export default function App() {
     const currentById = new Map(requisitions.map((record) => [record.id, JSON.stringify(record)] as const))
     const previousById = syncedRequisitionRecordMapRef.current
     const changedRecords = requisitions.filter((record) => previousById.get(record.id) !== currentById.get(record.id))
-    const removedIds = Array.from(previousById.keys()).filter((id) => !currentById.has(id))
 
-    if (changedRecords.length === 0 && removedIds.length === 0) {
+    if (changedRecords.length === 0) {
       return
     }
 
     let isCancelled = false
     ;(async () => {
       try {
-        await Promise.all([
-          ...changedRecords.map((record) => upsertRequisitionRecordOnApi(record)),
-          ...removedIds.map((id) => deleteRequisitionRecordOnApi(id)),
-        ])
+        await Promise.all(changedRecords.map((record) => upsertRequisitionRecordOnApi(record)))
         if (!isCancelled) {
-          syncedRequisitionRecordMapRef.current = currentById
+          const nextSyncedById = new Map(previousById)
+          changedRecords.forEach((record) => {
+            nextSyncedById.set(record.id, JSON.stringify(record))
+          })
+          syncedRequisitionRecordMapRef.current = nextSyncedById
         }
       } catch (error) {
         console.error(error)
@@ -21675,7 +21721,7 @@ export default function App() {
     setRequisitionTab('new')
   }
 
-  function saveRequisitionDraft() {
+  async function saveRequisitionDraft() {
     if (currentCompanyId === null || !selectedRequisitionStockCenter) {
       setSaveFeedback({
         status: 'error',
@@ -21695,12 +21741,25 @@ export default function App() {
       return
     }
 
+    let baseRequisitions: RequisitionRecord[]
+    try {
+      baseRequisitions = await loadLatestRequisitionsForMutation()
+    } catch (error) {
+      console.error(error)
+      setSaveFeedback({
+        status: 'error',
+        title: 'Falha ao carregar requisicoes',
+        message: error instanceof Error ? error.message : 'Nao foi possivel confirmar a lista atual no servidor.',
+      })
+      return
+    }
+
     const requisitionReferenceDate = selectedRequisitionLatestInventoryDate || getTodayDateInputValue()
     const now = new Date().toISOString()
     if (editingRequisitionId === null) {
       const nextRequisitionId = getNextPersistedIntId([
-        ...requisitions.map((record) => record.id),
-        ...requisitions.map((record) => record.requisitionGroupId),
+        ...baseRequisitions.map((record) => record.id),
+        ...baseRequisitions.map((record) => record.requisitionGroupId),
       ])
       const nextRequisition: RequisitionRecord = {
         id: nextRequisitionId,
@@ -21736,7 +21795,7 @@ export default function App() {
         lastUpdatedByUserId: currentAppUser?.id ?? null,
         lastUpdatedByUserName: currentAppUser?.fullName ?? 'Administrador do sistema',
       }
-      const splitDraftResult = buildSplitRequisitionsForDraft(nextRequisition)
+      const splitDraftResult = buildSplitRequisitionsForDraft(nextRequisition, baseRequisitions)
       if (splitDraftResult.error) {
         setSaveFeedback({
           status: 'error',
@@ -21755,8 +21814,22 @@ export default function App() {
         return
       }
 
-      const consolidationResult = consolidatePendingRequisitions(requisitions, splitDraftResult.requisitions, now)
+      const consolidationResult = consolidatePendingRequisitions(baseRequisitions, splitDraftResult.requisitions, now)
+      const changedRequisitions = getChangedRequisitionRecords(baseRequisitions, consolidationResult.requisitions)
+      try {
+        await Promise.all(changedRequisitions.map((record) => upsertRequisitionRecordOnApi(record)))
+      } catch (error) {
+        console.error(error)
+        setSaveFeedback({
+          status: 'error',
+          title: 'Falha ao salvar requisicao',
+          message: error instanceof Error ? error.message : 'Nao foi possivel gravar a requisicao no servidor.',
+        })
+        return
+      }
+
       setRequisitions(consolidationResult.requisitions)
+      syncedRequisitionRecordMapRef.current = buildEntitySignatureMap(consolidationResult.requisitions, (record) => record.id)
       registerAuditEvent({
         companyId: nextRequisition.companyId,
         module: 'REQUISICOES',
@@ -21796,7 +21869,7 @@ export default function App() {
               : `${splitDraftResult.requisitions.length} requisicoes foram criadas, uma para cada destino operacional, e agora aguardam aprovacao.`,
       })
     } else {
-      const currentRecord = requisitions.find((record) => record.id === editingRequisitionId) ?? null
+      const currentRecord = baseRequisitions.find((record) => record.id === editingRequisitionId) ?? null
       if (!currentRecord) {
         return
       }
@@ -21806,9 +21879,8 @@ export default function App() {
         currentRecord.createdByUserId !== currentAppUser.id &&
         canApproveRequisition(currentRecord)
 
-      setRequisitions((current) =>
-        current.map((record) =>
-          record.id === editingRequisitionId
+      const nextRequisitions = baseRequisitions.map((record) =>
+        record.id === editingRequisitionId
           ? {
               ...record,
               lines: linesToSave,
@@ -21818,9 +21890,27 @@ export default function App() {
               lastUpdatedByUserId: currentAppUser?.id ?? null,
               lastUpdatedByUserName: currentAppUser?.fullName ?? 'Administrador do sistema',
               }
-            : record,
-        ),
+          : record,
       )
+      const updatedRequisition = nextRequisitions.find((record) => record.id === editingRequisitionId) ?? null
+      if (!updatedRequisition) {
+        return
+      }
+
+      try {
+        await upsertRequisitionRecordOnApi(updatedRequisition)
+      } catch (error) {
+        console.error(error)
+        setSaveFeedback({
+          status: 'error',
+          title: 'Falha ao atualizar requisicao',
+          message: error instanceof Error ? error.message : 'Nao foi possivel gravar a requisicao no servidor.',
+        })
+        return
+      }
+
+      setRequisitions(nextRequisitions)
+      syncedRequisitionRecordMapRef.current = buildEntitySignatureMap(nextRequisitions, (record) => record.id)
 
       if (editedByResponsible) {
         notifyRequisitionStakeholders(
@@ -22118,7 +22208,7 @@ export default function App() {
     }
   }
 
-  function buildSplitRequisitionsForDraft(record: RequisitionRecord) {
+  function buildSplitRequisitionsForDraft(record: RequisitionRecord, baseRequisitions: RequisitionRecord[] = requisitions) {
     const productionLines = record.lines.filter((line) => line.destinationType === 'PRODUCOES')
     const supplyLines = record.lines.filter((line) => line.destinationType === 'SUPRIMENTOS')
     const purchaseLines = record.lines.filter((line) => line.destinationType === 'COMPRAS')
@@ -22145,8 +22235,8 @@ export default function App() {
 
     const now = new Date().toISOString()
     const nextSplitRequisitionId = getNextPersistedIntId([
-      ...requisitions.map((item) => item.id),
-      ...requisitions.map((item) => item.requisitionGroupId),
+      ...baseRequisitions.map((item) => item.id),
+      ...baseRequisitions.map((item) => item.requisitionGroupId),
       record.id,
       record.requisitionGroupId,
     ])
