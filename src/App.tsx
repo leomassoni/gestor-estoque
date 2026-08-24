@@ -734,7 +734,7 @@ type PurchaseOrderGroup = {
 type PurchasePanelTab = 'demand' | 'supplies'
 function formatPurchaseDemandQuantity(quantity: number, row: PurchaseDemandRow) {
   if (row.packageBaseQuantity !== null && row.packageBaseQuantity > 0 && row.packageLabel) {
-    return formatDecimal(quantity / row.packageBaseQuantity)
+    return formatOperationalPackageQuantity(quantity / row.packageBaseQuantity)
   }
 
   return `${formatDecimal(quantity)} ${row.unitLabel}`
@@ -744,6 +744,23 @@ function formatPurchaseDemandPackageLabel(row: PurchaseDemandRow) {
 }
 function roundOperationalPackageQuantity(quantity: number) {
   return Math.max(Math.round(quantity), 0)
+}
+function formatOperationalPackageQuantity(quantity: number) {
+  return formatEditableDecimal(roundOperationalPackageQuantity(quantity))
+}
+function parseOperationalPackageQuantity(value: string) {
+  const normalizedValue = value.trim()
+  if (!normalizedValue) {
+    return 0
+  }
+  if (normalizedValue.includes('.') && !normalizedValue.includes(',')) {
+    const parsedDotDecimal = Number(normalizedValue)
+    if (Number.isFinite(parsedDotDecimal)) {
+      return parsedDotDecimal
+    }
+  }
+
+  return parseDecimal(normalizedValue) ?? 0
 }
 function buildPurchaseOrderOperationalCode(record: Pick<RequisitionRecord, 'id' | 'companyId' | 'stockCenterId'>) {
   return `PC-C${record.companyId}-CE${record.stockCenterId}-REQ${String(record.id).padStart(4, '0')}`
@@ -21612,14 +21629,31 @@ export default function App() {
               })
             : null
         const effectiveMinimumStock = minimumStock ?? productUnitMinimumStock
-        const unitMinimumMultiplier =
-          minimumStock === null && productUnitMinimumStock !== null && row.baseQuantity > 0
-            ? 1 / row.baseQuantity
-            : 1
-        const manualUseMinimum = getMinimumUseQuantityValue(effectiveMinimumStock) * unitMinimumMultiplier
-        const suggestedRealMinimum =
-          ((parseDecimal(effectiveMinimumStock?.suggestedMinimumQuantity ?? '') ?? 0) * unitMinimumMultiplier)
-        const requiredBaseQuantity = (manualUseMinimum + suggestedRealMinimum) * row.baseQuantity
+        const isProductPackageRow = row.kind === 'PRODUTO' && row.packageId !== null && row.baseQuantity > 0
+        const getProductPackageMinimumQuantity = (entry: StockCenterMinimumStock | null, rawQuantity: string) => {
+          if (!entry || !rawQuantity.trim()) {
+            return 0
+          }
+          if (entry.packageId !== null) {
+            return parseOperationalPackageQuantity(rawQuantity)
+          }
+          return (parseDecimal(rawQuantity) ?? 0) / row.baseQuantity
+        }
+        const manualUseMinimum = isProductPackageRow
+          ? getProductPackageMinimumQuantity(
+              effectiveMinimumStock,
+              effectiveMinimumStock && effectiveMinimumStock.minimumSource !== 'SUGERIDO_VENDAS'
+                ? effectiveMinimumStock.minimumQuantity
+                : '',
+            )
+          : getMinimumUseQuantityValue(effectiveMinimumStock)
+        const suggestedRealMinimum = isProductPackageRow
+          ? getProductPackageMinimumQuantity(effectiveMinimumStock, getRealMinimumQuantityText(effectiveMinimumStock))
+          : (parseDecimal(effectiveMinimumStock?.suggestedMinimumQuantity ?? '') ?? 0)
+        const targetRowQuantity = isProductPackageRow
+          ? roundOperationalPackageQuantity(manualUseMinimum + suggestedRealMinimum)
+          : manualUseMinimum + suggestedRealMinimum
+        const requiredBaseQuantity = targetRowQuantity * row.baseQuantity
         const currentBaseQuantity =
           selectedRequisitionCurrentQuantityByKey.get(
             buildInventoryAggregationKey({
@@ -21630,8 +21664,12 @@ export default function App() {
             }),
           ) ?? 0
         const currentRowQuantity = row.baseQuantity > 0 ? currentBaseQuantity / row.baseQuantity : currentBaseQuantity
-        const shortageBaseQuantity = Math.max(requiredBaseQuantity - currentBaseQuantity, 0)
-        const suggestedQuantity = row.baseQuantity > 0 ? shortageBaseQuantity / row.baseQuantity : 0
+        const suggestedQuantity = isProductPackageRow
+          ? roundOperationalPackageQuantity(Math.max(targetRowQuantity - currentRowQuantity, 0))
+          : row.baseQuantity > 0
+            ? Math.max(requiredBaseQuantity - currentBaseQuantity, 0) / row.baseQuantity
+            : 0
+        const packageUnitLabel = `${formatDecimal(row.baseQuantity)} ${formatControlUnitShort(row.baseUnit)}`
         const distributorCenter = findDistributorCenterForRequisitionLine(center, {
           kind: row.kind,
           productId: row.productId,
@@ -21681,28 +21719,35 @@ export default function App() {
           itemName: row.name,
           itemTypeLabel: row.typeLabel,
           family: row.family,
-          suggestedQuantity: formatDecimal(suggestedQuantity),
-          requestedQuantity: formatDecimal(suggestedQuantity),
+          suggestedQuantity: isProductPackageRow ? formatOperationalPackageQuantity(suggestedQuantity) : formatDecimal(suggestedQuantity),
+          requestedQuantity: isProductPackageRow ? formatOperationalPackageQuantity(suggestedQuantity) : formatDecimal(suggestedQuantity),
           requestUnitLabel: getRequisitionRequestUnitLabel(row),
-          currentQuantity: formatDecimal(currentRowQuantity),
-          currentUnitLabel: row.kind === 'PREPARO' ? getRequisitionRequestUnitLabel(row) : formatControlUnitShort(row.baseUnit),
+          currentQuantity: isProductPackageRow ? formatEditableDecimal(currentRowQuantity) : formatDecimal(currentRowQuantity),
+          currentUnitLabel:
+            row.kind === 'PREPARO'
+              ? getRequisitionRequestUnitLabel(row)
+              : isProductPackageRow
+                ? packageUnitLabel
+                : formatControlUnitShort(row.baseUnit),
           minimumDefinitionLabel:
-            [
-              manualUseMinimum > 0
-                ? `Uso ${formatStockCenterMinimumDefinition(formatDecimal(manualUseMinimum), row, {
-                    baseQuantity: row.baseQuantity,
-                    baseUnit: row.baseUnit,
-                  })}`
-                : '',
-              suggestedRealMinimum > 0
-                ? formatStockCenterMinimumDefinition(formatDecimal(suggestedRealMinimum), row, {
-                    baseQuantity: row.baseQuantity,
-                    baseUnit: row.baseUnit,
-                  })
-                : '',
-            ]
-              .filter(Boolean)
-              .join(' • ') || '-',
+            isProductPackageRow
+              ? `${formatOperationalPackageQuantity(targetRowQuantity)} x ${packageUnitLabel}`
+              : [
+                  manualUseMinimum > 0
+                    ? `Uso ${formatStockCenterMinimumDefinition(formatDecimal(manualUseMinimum), row, {
+                        baseQuantity: row.baseQuantity,
+                        baseUnit: row.baseUnit,
+                      })}`
+                    : '',
+                  suggestedRealMinimum > 0
+                    ? formatStockCenterMinimumDefinition(formatDecimal(suggestedRealMinimum), row, {
+                        baseQuantity: row.baseQuantity,
+                        baseUnit: row.baseUnit,
+                      })
+                    : '',
+                ]
+                  .filter(Boolean)
+                  .join(' • ') || '-',
           destinationType,
           destinationCenterId,
           destinationCenterName,
@@ -25336,8 +25381,7 @@ export default function App() {
       return value
     }
 
-    const quantity = parseDecimal(value)
-    return quantity === null ? value : formatDecimal(roundOperationalPackageQuantity(quantity))
+    return formatOperationalPackageQuantity(parseOperationalPackageQuantity(value))
   }
 
   function normalizeProductPackageRequisitionLine<T extends RequisitionLineRecord>(line: T): T {
@@ -53586,7 +53630,7 @@ function formatRequisitionDraftColumnQuantity(
   if (line.kind === 'PRODUTO') {
     return line.packageId === null
       ? `${formatDecimal(quantity)} ${unitLabel}`
-      : `${formatDecimal(quantity)} x ${unitLabel}`
+      : `${formatOperationalPackageQuantity(quantity)} x ${unitLabel}`
   }
   if (line.kind === 'PREPARO') {
     return `${formatDecimal(quantity)} x ${unitLabel}`
