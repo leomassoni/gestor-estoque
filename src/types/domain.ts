@@ -1085,6 +1085,9 @@ export type TechnicalSheetExportState = {
   format: 'pdf' | 'xlsx'
   scope: 'current' | 'all'
   technicalSheetId: number | null
+  statusFilter: 'active' | 'inactive' | 'all'
+  familyFilter: string
+  subfamilyFilter: string
 }
 
 export type RequisitionExportState = {

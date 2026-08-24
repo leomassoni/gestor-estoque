@@ -15046,6 +15046,50 @@ export default function App() {
         : [],
     [exportableTechnicalSheetsByKind, technicalSheetExportState],
   )
+  const technicalSheetExportAllCandidateSheets = useMemo(() => {
+    if (!technicalSheetExportState || technicalSheetExportState.scope !== 'all') {
+      return [] as TechnicalSheetRecord[]
+    }
+
+    return exportableTechnicalSheetsByKind[technicalSheetExportState.kind].filter((sheet) => {
+      if (technicalSheetExportState.statusFilter === 'active' && !sheet.isActive) {
+        return false
+      }
+      if (technicalSheetExportState.statusFilter === 'inactive' && sheet.isActive) {
+        return false
+      }
+      return true
+    })
+  }, [exportableTechnicalSheetsByKind, technicalSheetExportState])
+  const technicalSheetExportFamilyOptions = useMemo(
+    () =>
+      sortDistinctValues(
+        Array.from(
+          new Set(
+            technicalSheetExportAllCandidateSheets
+              .map((sheet) => sheet.family.trim())
+              .filter(Boolean),
+          ),
+        ),
+        false,
+      ),
+    [technicalSheetExportAllCandidateSheets],
+  )
+  const technicalSheetExportSubfamilyOptions = useMemo(
+    () =>
+      sortDistinctValues(
+        Array.from(
+          new Set(
+            technicalSheetExportAllCandidateSheets
+              .filter((sheet) => technicalSheetExportState?.familyFilter ? sheet.family === technicalSheetExportState.familyFilter : true)
+              .map((sheet) => sheet.subfamily.trim())
+              .filter(Boolean),
+          ),
+        ),
+        false,
+      ),
+    [technicalSheetExportAllCandidateSheets, technicalSheetExportState?.familyFilter],
+  )
   useEffect(() => {
     if (!technicalSheetExportState || technicalSheetExportState.scope !== 'current') {
       setTechnicalSheetExportSearch('')
@@ -32805,6 +32849,9 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
       format: 'pdf',
       scope: 'current',
       technicalSheetId: firstSheetId,
+      statusFilter: 'active',
+      familyFilter: '',
+      subfamilyFilter: '',
     })
   }
 
@@ -35809,13 +35856,28 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
     kind: TechnicalSheetKind,
     scope: TechnicalSheetExportState['scope'],
     technicalSheetId: number | null,
+    filters: Pick<TechnicalSheetExportState, 'statusFilter' | 'familyFilter' | 'subfamilyFilter'>,
   ) {
     const scopedSheets =
       scope === 'current'
         ? technicalSheetId === null
           ? []
           : exportableTechnicalSheetsByKind[kind].filter((sheet) => sheet.id === technicalSheetId)
-        : exportableTechnicalSheetsByKind[kind]
+        : exportableTechnicalSheetsByKind[kind].filter((sheet) => {
+            if (filters.statusFilter === 'active' && !sheet.isActive) {
+              return false
+            }
+            if (filters.statusFilter === 'inactive' && sheet.isActive) {
+              return false
+            }
+            if (filters.familyFilter && sheet.family !== filters.familyFilter) {
+              return false
+            }
+            if (filters.subfamilyFilter && sheet.subfamily !== filters.subfamilyFilter) {
+              return false
+            }
+            return true
+          })
 
     if (scopedSheets.length === 0) {
       return []
@@ -35846,6 +35908,11 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
       technicalSheetExportState.kind,
       technicalSheetExportState.scope,
       technicalSheetExportState.technicalSheetId,
+      {
+        statusFilter: technicalSheetExportState.statusFilter,
+        familyFilter: technicalSheetExportState.familyFilter,
+        subfamilyFilter: technicalSheetExportState.subfamilyFilter,
+      },
     )
     if (exportedSheets.length === 0) {
       setTechnicalSheetExportState(null)
@@ -52539,6 +52606,8 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                             ...current,
                             kind: nextKind,
                             technicalSheetId: nextSheetId,
+                            familyFilter: '',
+                            subfamilyFilter: '',
                           }
                         : current,
                     )
@@ -52567,6 +52636,8 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                             ...current,
                             scope: nextScope,
                             technicalSheetId: nextSheetId,
+                            familyFilter: nextScope === 'all' ? current.familyFilter : '',
+                            subfamilyFilter: nextScope === 'all' ? current.subfamilyFilter : '',
                           }
                         : current,
                     )
@@ -52576,6 +52647,82 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                   <option value="all">Todas as fichas do tipo</option>
                 </select>
               </label>
+
+              {technicalSheetExportState.scope === 'all' ? (
+                <>
+                  <label className="field">
+                    <span>Status</span>
+                    <select
+                      value={technicalSheetExportState.statusFilter}
+                      onChange={(event) =>
+                        setTechnicalSheetExportState((current) =>
+                          current
+                            ? {
+                                ...current,
+                                statusFilter: event.target.value as TechnicalSheetExportState['statusFilter'],
+                                familyFilter: '',
+                                subfamilyFilter: '',
+                              }
+                            : current,
+                        )
+                      }
+                    >
+                      <option value="active">Ativas</option>
+                      <option value="inactive">Inativas</option>
+                      <option value="all">Ativas e inativas</option>
+                    </select>
+                  </label>
+
+                  <label className="field">
+                    <span>Familia</span>
+                    <select
+                      value={technicalSheetExportState.familyFilter}
+                      onChange={(event) =>
+                        setTechnicalSheetExportState((current) =>
+                          current
+                            ? {
+                                ...current,
+                                familyFilter: event.target.value,
+                                subfamilyFilter: '',
+                              }
+                            : current,
+                        )
+                      }
+                    >
+                      <option value="">Todas as familias</option>
+                      {technicalSheetExportFamilyOptions.map((family) => (
+                        <option key={family} value={family}>
+                          {family}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+
+                  <label className="field">
+                    <span>Subfamilia</span>
+                    <select
+                      value={technicalSheetExportState.subfamilyFilter}
+                      onChange={(event) =>
+                        setTechnicalSheetExportState((current) =>
+                          current
+                            ? {
+                                ...current,
+                                subfamilyFilter: event.target.value,
+                              }
+                            : current,
+                        )
+                      }
+                    >
+                      <option value="">Todas as subfamilias</option>
+                      {technicalSheetExportSubfamilyOptions.map((subfamily) => (
+                        <option key={subfamily} value={subfamily}>
+                          {subfamily}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                </>
+              ) : null}
 
               {technicalSheetExportState.scope === 'current' ? (
                 <label className="field">
