@@ -23112,6 +23112,7 @@ export default function App() {
       await Promise.all(cancelledRequisitions.map((record) => upsertRequisitionRecordOnApi(record)))
       setManualProductionRequests(nextManualProductionRequests)
       syncedManualProductionRequestMapRef.current = buildEntitySignatureMap(nextManualProductionRequests, (record) => record.id)
+      await refreshAppProductionRecordsFromApi()
     } catch (error) {
       console.error(error)
       setSaveFeedback({
@@ -23168,6 +23169,7 @@ export default function App() {
       await Promise.all(Array.from(targetIds).map((id) => deleteRequisitionRecordOnApi(id)))
       setManualProductionRequests(nextManualProductionRequests)
       syncedManualProductionRequestMapRef.current = buildEntitySignatureMap(nextManualProductionRequests, (record) => record.id)
+      await refreshAppProductionRecordsFromApi()
     } catch (error) {
       console.error(error)
       setSaveFeedback({
@@ -23450,6 +23452,7 @@ export default function App() {
 
     try {
       await upsertRequisitionRecordOnApi(cancelledRequisition)
+      await refreshAppProductionRecordsFromApi()
     } catch (error) {
       console.error(error)
       setSaveFeedback({
@@ -27074,6 +27077,7 @@ export default function App() {
         await upsertRequisitionRecordOnApi(cancelledRequisition)
         setManualProductionRequests(nextManualProductionRequests)
         syncedManualProductionRequestMapRef.current = buildEntitySignatureMap(nextManualProductionRequests, (record) => record.id)
+        await refreshAppProductionRecordsFromApi()
       } catch (error) {
         console.error(error)
         setSaveFeedback({
@@ -27103,6 +27107,7 @@ export default function App() {
       await deleteRequisitionRecordOnApi(requisitionId)
       setManualProductionRequests(nextManualProductionRequests)
       syncedManualProductionRequestMapRef.current = buildEntitySignatureMap(nextManualProductionRequests, (record) => record.id)
+      await refreshAppProductionRecordsFromApi()
     } catch (error) {
       console.error(error)
       setSaveFeedback({
@@ -27134,6 +27139,7 @@ export default function App() {
       await deleteRequisitionRecordOnApi(requisitionId)
       setManualProductionRequests(nextManualProductionRequests)
       syncedManualProductionRequestMapRef.current = buildEntitySignatureMap(nextManualProductionRequests, (record) => record.id)
+      await refreshAppProductionRecordsFromApi()
     } catch (error) {
       console.error(error)
       setSaveFeedback({

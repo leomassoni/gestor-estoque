@@ -1042,7 +1042,11 @@ app.delete('/api/requisitions/:id', async (request, response) => {
   await prisma.$transaction(async (transaction) => {
     const existing = await transaction.appRequisitionRecord.findUnique({
       where: { id: requisitionId },
-      select: { companyId: true, stockCenterId: true, stockCenterName: true },
+      select: { companyId: true, requisitionGroupId: true, stockCenterId: true, stockCenterName: true },
+    })
+    await deleteManualProductionRequestsLinkedToRequisition(transaction, {
+      id: requisitionId,
+      requisitionGroupId: existing?.requisitionGroupId ?? null,
     })
     await transaction.appDeletedRequisitionRecord.upsert({
       where: { id: requisitionId },
@@ -3695,10 +3699,34 @@ async function saveRequisitionWithCancellationGuard(requisitionId, requisition) 
     throw error
   }
 
-  return prisma.appRequisitionRecord.upsert({
-    where: { id: requisitionId },
-    create: requisition,
-    update: requisition,
+  return prisma.$transaction(async (transaction) => {
+    const saved = await transaction.appRequisitionRecord.upsert({
+      where: { id: requisitionId },
+      create: requisition,
+      update: requisition,
+    })
+
+    if (requisition.status === 'CANCELLED') {
+      await deleteManualProductionRequestsLinkedToRequisition(transaction, {
+        id: requisitionId,
+        requisitionGroupId: requisition.requisitionGroupId,
+      })
+    }
+
+    return saved
+  })
+}
+
+async function deleteManualProductionRequestsLinkedToRequisition(transaction, requisition) {
+  const sourceFilters = [{ sourceRequisitionId: requisition.id }]
+  if (typeof requisition.requisitionGroupId === 'number') {
+    sourceFilters.push({ sourceRequisitionGroupId: requisition.requisitionGroupId })
+  }
+
+  await transaction.appManualProductionRequestRecord.deleteMany({
+    where: {
+      OR: sourceFilters,
+    },
   })
 }
 
