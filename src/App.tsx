@@ -742,6 +742,9 @@ function formatPurchaseDemandQuantity(quantity: number, row: PurchaseDemandRow) 
 function formatPurchaseDemandPackageLabel(row: PurchaseDemandRow) {
   return row.packageBaseQuantity !== null && row.packageBaseQuantity > 0 && row.packageLabel ? row.packageLabel : '-'
 }
+function roundOperationalPackageQuantity(quantity: number) {
+  return Math.max(Math.round(quantity), 0)
+}
 function buildPurchaseOrderOperationalCode(record: Pick<RequisitionRecord, 'id' | 'companyId' | 'stockCenterId'>) {
   return `PC-C${record.companyId}-CE${record.stockCenterId}-REQ${String(record.id).padStart(4, '0')}`
 }
@@ -7585,6 +7588,14 @@ export default function App() {
         : quantity
     }
 
+    const roundBaseQuantityToOperationalPackage = (quantity: number, packageBaseQuantity: number | null) => {
+      if (packageBaseQuantity === null || packageBaseQuantity <= 0) {
+        return quantity
+      }
+
+      return roundOperationalPackageQuantity(quantity / packageBaseQuantity) * packageBaseQuantity
+    }
+
     const getLinePurchasePackageInfo = (line: RequisitionLineRecord, product: ProductRecord | null) => {
       const packageForm = resolveLinePackage(line, product)
       if (!product || !packageForm) {
@@ -7953,9 +7964,13 @@ export default function App() {
 
     return Array.from(groups.values())
       .map((group) => {
-        const purchaseQuantity = group.shouldSubtractCurrentStock
-          ? Math.max(group.requestedQuantity - group.currentQuantity, 0)
-          : group.requestedQuantity
+        const requestedQuantity = roundBaseQuantityToOperationalPackage(group.requestedQuantity, group.packageBaseQuantity)
+        const purchaseQuantity = roundBaseQuantityToOperationalPackage(
+          group.shouldSubtractCurrentStock
+            ? Math.max(requestedQuantity - group.currentQuantity, 0)
+            : requestedQuantity,
+          group.packageBaseQuantity,
+        )
         const originDetails = Array.from(group.originDetails.values()).sort((left, right) => left.requisitionId - right.requisitionId)
         return {
           key: `${group.center.id}:${group.productId}:${Array.from(group.sourceLabels).join('|')}`,
@@ -7973,7 +7988,7 @@ export default function App() {
           unitLabel: group.product ? formatControlUnitShort(group.product.controlUnit) : 'UN',
           packageBaseQuantity: group.packageBaseQuantity,
           packageLabel: group.packageLabel,
-          requestedQuantity: group.requestedQuantity,
+          requestedQuantity,
           currentQuantity: group.currentQuantity,
           purchaseQuantity,
           originCount: group.requisitionIds.size,
@@ -21747,7 +21762,9 @@ export default function App() {
       })
     })
 
-    return Array.from(mergedByKey.values()).sort((a, b) => a.itemName.localeCompare(b.itemName, 'pt-BR'))
+    return normalizeProductPackageRequisitionLines(Array.from(mergedByKey.values()))
+      .filter((line) => (parseDecimal(line.requestedQuantity) ?? 0) > 0)
+      .sort((a, b) => a.itemName.localeCompare(b.itemName, 'pt-BR'))
   }
 
   function generateRequisitionDraft() {
@@ -21787,7 +21804,8 @@ export default function App() {
       return
     }
 
-    const linesToSave = requisitionDraftLines.filter((line) => (parseDecimal(line.requestedQuantity) ?? 0) > 0)
+    const linesToSave = normalizeProductPackageRequisitionLines(requisitionDraftLines)
+      .filter((line) => (parseDecimal(line.requestedQuantity) ?? 0) > 0)
     if (linesToSave.length === 0) {
       setSaveFeedback({
         status: 'error',
@@ -22273,10 +22291,15 @@ export default function App() {
       ...baseRequisitions.map((item) => item.requisitionGroupId),
       ...(options.reservedIds ?? []),
     ])
-    const splitRequisitions = Array.from(linesByDestination.entries()).map(([centerId, lines], index) => {
+    const splitRequisitions = Array.from(linesByDestination.entries()).flatMap(([centerId, lines], index) => {
+      const normalizedLines = normalizeProductPackageRequisitionLines(lines)
+        .filter((line) => (parseDecimal(line.requestedQuantity) ?? 0) > 0)
+      if (normalizedLines.length === 0) {
+        return [] as RequisitionRecord[]
+      }
       const center = stockCenters.find((item) => item.id === centerId) ?? null
       const shouldReuseOriginalRecord = linesByDestination.size === 1 && purchaseLines.length === 0
-      return {
+      return [{
         ...record,
         id: shouldReuseOriginalRecord ? record.id : nextSplitRequisitionId + index,
         supplyCenterId: centerId,
@@ -22292,13 +22315,14 @@ export default function App() {
         lastUpdatedAt: now,
         lastUpdatedByUserId: currentAppUser?.id ?? null,
         lastUpdatedByUserName: currentAppUser?.fullName ?? 'Administrador do sistema',
-      } satisfies RequisitionRecord
+      } satisfies RequisitionRecord]
     })
 
     return {
       error: '',
       requisitions: splitRequisitions,
-      remainingPurchaseLines: purchaseLines,
+      remainingPurchaseLines: normalizeProductPackageRequisitionLines(purchaseLines)
+        .filter((line) => (parseDecimal(line.requestedQuantity) ?? 0) > 0),
     }
   }
 
@@ -22344,7 +22368,9 @@ export default function App() {
       supplyCompanyName: string,
       lines: RequisitionLineRecord[],
     ) => {
-      if (lines.length === 0) {
+      const normalizedLines = normalizeProductPackageRequisitionLines(lines)
+        .filter((line) => (parseDecimal(line.requestedQuantity) ?? 0) > 0)
+      if (normalizedLines.length === 0) {
         return
       }
 
@@ -22358,7 +22384,7 @@ export default function App() {
         supplyCompanyName,
         status: 'PENDING_APPROVAL',
         editScope: 'LINES_ONLY',
-        lines,
+        lines: normalizedLines,
         approvedAt: '',
         approvedByUserId: null,
         approvedByUserName: '',
@@ -22639,7 +22665,7 @@ export default function App() {
           return buildManualProductionShortageLines(producerCenter, sheet, productionYield, { availableByAggregationKey }).shortageLines
         })
 
-        const mergedShortageLines = mergeRequisitionLines(shortageLines).filter(
+        const mergedShortageLines = normalizeProductPackageRequisitionLines(mergeRequisitionLines(shortageLines)).filter(
           (line) => (parseDecimal(line.requestedQuantity) ?? 0) > 0,
         )
         if (mergedShortageLines.length === 0) {
@@ -23442,7 +23468,8 @@ export default function App() {
       return
     }
 
-    const linesToSave = supplyDraftLines.filter((line) => (parseDecimal(line.requestedQuantity) ?? 0) > 0)
+    const linesToSave = normalizeProductPackageRequisitionLines(supplyDraftLines)
+      .filter((line) => (parseDecimal(line.requestedQuantity) ?? 0) > 0)
     const now = new Date().toISOString()
     setRequisitions((current) =>
       current.map((record) =>
@@ -23763,11 +23790,13 @@ export default function App() {
         return
       }
 
-      const sentQuantity = parseDecimal(draftLine.requestedQuantity) ?? 0
-      const originalQuantity = parseDecimal(line.requestedQuantity) ?? 0
+      const normalizedDraftLine = normalizeProductPackageRequisitionLine(draftLine)
+      const normalizedOriginalLine = normalizeProductPackageRequisitionLine(line)
+      const sentQuantity = parseDecimal(normalizedDraftLine.requestedQuantity) ?? 0
+      const originalQuantity = parseDecimal(normalizedOriginalLine.requestedQuantity) ?? 0
       if (sentQuantity > 0) {
         sentLines.push({
-          ...draftLine,
+          ...normalizedDraftLine,
           destinationType: 'COMPRAS',
           destinationCenterId: null,
           destinationCenterName: '',
@@ -23787,7 +23816,7 @@ export default function App() {
       const remainingQuantity = originalQuantity - sentQuantity
       if (remainingQuantity > 0) {
         remainingLines.push({
-          ...line,
+          ...normalizedOriginalLine,
           requestedQuantity: formatEditableDecimal(remainingQuantity),
         })
       }
@@ -25287,6 +25316,46 @@ export default function App() {
     return availableByAggregationKey
   }
 
+  function isProductPackageRequisitionLine(line: Pick<RequisitionLineRecord, 'kind' | 'productId' | 'packageId' | 'requestUnitLabel'>) {
+    if (line.kind !== 'PRODUTO') {
+      return false
+    }
+    if (line.packageId !== null) {
+      return true
+    }
+
+    const product = products.find((item) => item.id === line.productId) ?? null
+    return Boolean(product?.packages.some((item) => item.isActive)) && normalizeFreeText(line.requestUnitLabel) === 'EMBALAGENS'
+  }
+
+  function roundProductPackageRequisitionQuantity(line: RequisitionLineRecord, value: string) {
+    if (!isProductPackageRequisitionLine(line)) {
+      return value
+    }
+    if (value.trim() === '') {
+      return value
+    }
+
+    const quantity = parseDecimal(value)
+    return quantity === null ? value : formatDecimal(roundOperationalPackageQuantity(quantity))
+  }
+
+  function normalizeProductPackageRequisitionLine<T extends RequisitionLineRecord>(line: T): T {
+    if (!isProductPackageRequisitionLine(line)) {
+      return line
+    }
+
+    return {
+      ...line,
+      suggestedQuantity: roundProductPackageRequisitionQuantity(line, line.suggestedQuantity),
+      requestedQuantity: roundProductPackageRequisitionQuantity(line, line.requestedQuantity),
+    }
+  }
+
+  function normalizeProductPackageRequisitionLines<T extends RequisitionLineRecord>(lines: T[]) {
+    return lines.map((line) => normalizeProductPackageRequisitionLine(line))
+  }
+
   function buildManualProductionShortageLines(
     stockCenter: StockCenterRecord,
     targetSheet: TechnicalSheetRecord,
@@ -25543,7 +25612,8 @@ export default function App() {
 
     consumeOrRegisterShortage(targetSheet, desiredYield, stockCenter.id)
     return {
-      shortageLines: Array.from(lineMap.values()),
+      shortageLines: normalizeProductPackageRequisitionLines(Array.from(lineMap.values()))
+        .filter((line) => (parseDecimal(line.requestedQuantity) ?? 0) > 0),
       dependencyRequests: Array.from(plannedProductionRequests.values()),
     }
   }
@@ -25598,7 +25668,8 @@ export default function App() {
                 companyName: getCompanyTradeName(stockCenter.companyId),
                 centerId: stockCenter.id,
                 centerName: stockCenter.name,
-                lines: mergeRequisitionLines(shortageLines),
+                lines: normalizeProductPackageRequisitionLines(mergeRequisitionLines(shortageLines))
+                  .filter((line) => (parseDecimal(line.requestedQuantity) ?? 0) > 0),
               },
             ]
           : [],
@@ -25787,11 +25858,13 @@ export default function App() {
           companyName,
           centerId,
           centerName,
-          lines: mergeRequisitionLines(lines),
+          lines: normalizeProductPackageRequisitionLines(mergeRequisitionLines(lines))
+            .filter((line) => (parseDecimal(line.requestedQuantity) ?? 0) > 0),
         })
         return
       }
-      existingGroup.lines = mergeRequisitionLines([...existingGroup.lines, ...lines])
+      existingGroup.lines = normalizeProductPackageRequisitionLines(mergeRequisitionLines([...existingGroup.lines, ...lines]))
+        .filter((line) => (parseDecimal(line.requestedQuantity) ?? 0) > 0)
     }
 
     appendShortageGroupLines(
@@ -26133,7 +26206,11 @@ export default function App() {
           return accumulator
         }
 
-        const requestedQuantity = getManualSupplyStoredQuantityValue(selectedOption.line, draftLine.quantity).trim()
+        const roundedLine = normalizeProductPackageRequisitionLine({
+          ...selectedOption.line,
+          requestedQuantity: getManualSupplyStoredQuantityValue(selectedOption.line, draftLine.quantity).trim(),
+        })
+        const requestedQuantity = roundedLine.requestedQuantity
         const requestedQuantityNumber = parseDecimal(requestedQuantity) ?? 0
         const availableQuantityNumber = parseDecimal(selectedOption.line.currentQuantity) ?? 0
         if (requestedQuantityNumber <= 0 || requestedQuantityNumber > availableQuantityNumber) {
@@ -26141,8 +26218,7 @@ export default function App() {
         }
 
         accumulator.push({
-          ...selectedOption.line,
-          requestedQuantity,
+          ...roundedLine,
           destinationCenterId: manualSupplyTargetCenter.id,
           destinationCenterName: manualSupplyTargetCenter.name,
           destinationLabel: manualSupplyTargetCenter.name,
