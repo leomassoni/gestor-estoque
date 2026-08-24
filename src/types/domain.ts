@@ -562,6 +562,19 @@ export type RequisitionHistoryColumnKey =
   | 'updatedBy'
   | 'destinations'
 export type ReceiveReviewColumnKey = 'item' | 'type' | 'sent' | 'unit' | 'destination' | 'actions'
+export type PurchaseDemandColumnKey =
+  | 'order'
+  | 'product'
+  | 'center'
+  | 'family'
+  | 'subfamily'
+  | 'package'
+  | 'current'
+  | 'demand'
+  | 'purchase'
+  | 'origins'
+  | 'requisitions'
+  | 'type'
 export type ProductionColumnKey = 'sheet' | 'priority' | 'current' | 'useMinimum' | 'realMinimum' | 'suggestion' | 'status'
 
 export type StockCenterRecord = {

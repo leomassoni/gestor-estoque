@@ -5,10 +5,8 @@ import {
   useMemo,
   useRef,
   useState,
-  type Dispatch,
   type FormEvent,
   type KeyboardEvent,
-  type SetStateAction,
 } from 'react'
 import { ExecutionPlanningList } from './components/ExecutionPlanningList'
 import { PreparationModeInput } from './components/PreparationModeInput'
@@ -28,10 +26,12 @@ import {
   SingleValueAutocomplete,
 } from './components/common'
 import {
+  renderClosedInventoryColumnHeader,
   renderColumnHeader,
   renderInventoryReviewColumnHeader,
   renderInventorySummaryColumnHeader,
   renderItemColumnHeader,
+  renderPurchaseDemandColumnHeader,
   renderReceiveReviewColumnHeader,
   renderRequisitionDraftColumnHeader,
   renderRequisitionFlowColumnHeader,
@@ -39,6 +39,7 @@ import {
   renderStockCenterMinimumColumnHeader,
   renderStockReportColumnHeader,
   renderTechnicalSheetColumnHeader,
+  tableColumnFilterNoneValue,
 } from './components/tableColumnHeaders'
 import {
   adminPollingSections,
@@ -241,6 +242,7 @@ import type {
   RequisitionFlowColumnKey,
   RequisitionHistoryColumnKey,
   ReceiveReviewColumnKey,
+  PurchaseDemandColumnKey,
   ProductionColumnKey,
   StockCenterRecord,
   StockCenterFormState,
@@ -674,6 +676,35 @@ const defaultRequisitionFlowColumnVisibility: Record<RequisitionFlowColumnKey, b
   createdBy: true,
 }
 const defaultRequisitionFlowColumnFilters: Partial<Record<RequisitionFlowColumnKey, string[]>> = {}
+const purchaseDemandColumnOptions: Array<[PurchaseDemandColumnKey, string]> = [
+  ['order', 'Pedido'],
+  ['product', 'Produto'],
+  ['center', 'Centro a abastecer'],
+  ['family', 'Familia'],
+  ['subfamily', 'Subfamilia'],
+  ['package', 'Embalagem'],
+  ['current', 'Estoque atual'],
+  ['demand', 'Demanda interna'],
+  ['purchase', 'Comprar'],
+  ['origins', 'Origens'],
+  ['requisitions', 'Requisicoes'],
+  ['type', 'Tipo'],
+]
+const defaultPurchaseDemandColumnVisibility: Record<PurchaseDemandColumnKey, boolean> = {
+  order: true,
+  product: true,
+  center: true,
+  family: true,
+  subfamily: true,
+  package: true,
+  current: true,
+  demand: true,
+  purchase: true,
+  origins: true,
+  requisitions: true,
+  type: true,
+}
+const defaultPurchaseDemandColumnFilters: Partial<Record<PurchaseDemandColumnKey, string[]>> = {}
 type PurchaseDemandRow = {
   key: string
   purchaseOrderCode: string
@@ -741,6 +772,55 @@ function formatPurchaseDemandQuantity(quantity: number, row: PurchaseDemandRow) 
 }
 function formatPurchaseDemandPackageLabel(row: PurchaseDemandRow) {
   return row.packageBaseQuantity !== null && row.packageBaseQuantity > 0 && row.packageLabel ? row.packageLabel : '-'
+}
+function getPurchaseDemandColumnValue(row: PurchaseDemandRow, key: PurchaseDemandColumnKey) {
+  switch (key) {
+    case 'order':
+      return row.purchaseOrderCode
+    case 'product':
+      return `${row.productName} ${row.internalId}`.trim()
+    case 'center':
+      return row.stockCenterName
+    case 'family':
+      return row.family
+    case 'subfamily':
+      return row.subfamily
+    case 'package':
+      return formatPurchaseDemandPackageLabel(row)
+    case 'current':
+      return formatPurchaseDemandQuantity(row.currentQuantity, row)
+    case 'demand':
+      return formatPurchaseDemandQuantity(row.requestedQuantity, row)
+    case 'purchase':
+      return formatPurchaseDemandQuantity(row.purchaseQuantity, row)
+    case 'origins':
+      return row.requesterCenters.join(', ')
+    case 'requisitions':
+      return row.requisitionIds.map((id) => `#${id}`).join(', ')
+    case 'type':
+      return row.sourceLabel
+  }
+}
+function getPurchaseDemandColumnSortableValue(row: PurchaseDemandRow, key: PurchaseDemandColumnKey) {
+  if (key === 'current') {
+    return row.packageBaseQuantity !== null && row.packageBaseQuantity > 0
+      ? row.currentQuantity / row.packageBaseQuantity
+      : row.currentQuantity
+  }
+  if (key === 'demand') {
+    return row.packageBaseQuantity !== null && row.packageBaseQuantity > 0
+      ? row.requestedQuantity / row.packageBaseQuantity
+      : row.requestedQuantity
+  }
+  if (key === 'purchase') {
+    return row.packageBaseQuantity !== null && row.packageBaseQuantity > 0
+      ? row.purchaseQuantity / row.packageBaseQuantity
+      : row.purchaseQuantity
+  }
+  return getPurchaseDemandColumnValue(row, key)
+}
+function isNumericPurchaseDemandColumn(key: PurchaseDemandColumnKey) {
+  return key === 'current' || key === 'demand' || key === 'purchase'
 }
 function roundOperationalPackageQuantity(quantity: number) {
   if (quantity <= 0) {
@@ -2602,6 +2682,13 @@ export default function App() {
   const [supplyScrollTop, setSupplyScrollTop] = useState(0)
   const [purchasePanelTab, setPurchasePanelTab] = useState<PurchasePanelTab>('demand')
   const [purchaseSearch, setPurchaseSearch] = useState('')
+  const [openPurchaseDemandColumnMenu, setOpenPurchaseDemandColumnMenu] = useState<PurchaseDemandColumnKey | null>(null)
+  const [purchaseDemandColumnVisibility, setPurchaseDemandColumnVisibility] =
+    useState<Record<PurchaseDemandColumnKey, boolean>>(defaultPurchaseDemandColumnVisibility)
+  const [purchaseDemandColumnFilters, setPurchaseDemandColumnFilters] =
+    useState<Partial<Record<PurchaseDemandColumnKey, string[]>>>(defaultPurchaseDemandColumnFilters)
+  const [purchaseDemandColumnSort, setPurchaseDemandColumnSort] =
+    useState<ColumnSort<PurchaseDemandColumnKey> | null>(null)
   const [showCancelledPurchaseOrders, setShowCancelledPurchaseOrders] = useState(false)
   const [selectedPurchaseOrderKey, setSelectedPurchaseOrderKey] = useState<string | null>(null)
   const [purchaseSupplySearch, setPurchaseSupplySearch] = useState('')
@@ -8047,24 +8134,54 @@ export default function App() {
   ])
   const visiblePurchaseDemandRows = useMemo(() => {
     const search = normalizeFreeText(purchaseSearch)
-    if (!search) {
-      return purchaseDemandRows
-    }
-    return purchaseDemandRows.filter((row) =>
-      [
-        row.stockCenterName,
-        row.productName,
-        row.internalId,
-        row.family,
-        row.subfamily,
-        row.purchaseOrderCode,
-        row.sourceLabel,
-        row.requesterCenters.join(', '),
-        row.requisitionIds.map((id) => `#${id}`).join(', '),
-        row.originDetails.map((origin) => origin.purchaseOrderCode).join(', '),
-      ].some((value) => normalizeFreeText(value).includes(search)),
+    return sortRecordsByColumn(
+      purchaseDemandRows.filter((row) => {
+        const matchesSearch =
+          search === '' ||
+          [
+            row.stockCenterName,
+            row.productName,
+            row.internalId,
+            row.family,
+            row.subfamily,
+            row.purchaseOrderCode,
+            row.sourceLabel,
+            row.requesterCenters.join(', '),
+            row.requisitionIds.map((id) => `#${id}`).join(', '),
+            row.originDetails.map((origin) => origin.purchaseOrderCode).join(', '),
+          ].some((value) => normalizeFreeText(value).includes(search))
+
+        const matchesFilters = Object.entries(purchaseDemandColumnFilters).every(([rawKey, selectedValues]) => {
+          if (!selectedValues || selectedValues.length === 0) {
+            return true
+          }
+          const key = rawKey as PurchaseDemandColumnKey
+          return selectedValues.includes(getPurchaseDemandColumnValue(row, key))
+        })
+
+        return matchesSearch && matchesFilters
+      }),
+      purchaseDemandColumnSort,
+      (row, key) => getPurchaseDemandColumnSortableValue(row, key),
     )
-  }, [purchaseDemandRows, purchaseSearch])
+  }, [purchaseDemandColumnFilters, purchaseDemandColumnSort, purchaseDemandRows, purchaseSearch])
+  const distinctPurchaseDemandColumnValues = useMemo(
+    () =>
+      Object.fromEntries(
+        purchaseDemandColumnOptions.map(([key]) => [
+          key,
+          sortDistinctValues(
+            Array.from(new Set(purchaseDemandRows.map((row) => getPurchaseDemandColumnValue(row, key)))),
+            isNumericPurchaseDemandColumn(key),
+          ),
+        ]),
+      ) as Record<PurchaseDemandColumnKey, string[]>,
+    [purchaseDemandRows],
+  )
+  const hiddenPurchaseDemandColumns = useMemo(
+    () => purchaseDemandColumnOptions.filter(([key]) => !purchaseDemandColumnVisibility[key]),
+    [purchaseDemandColumnVisibility],
+  )
   const purchaseDemandSummary = useMemo(
     () => ({
       productCount: visiblePurchaseDemandRows.length,
@@ -15110,7 +15227,9 @@ export default function App() {
 
           const key = rawKey as TechnicalSheetColumnKey
           const availableValues = new Set(distinctTechnicalSheetColumnValues[key] ?? [])
-          const nextSelectedValues = selectedValues.filter((value) => availableValues.has(value))
+          const nextSelectedValues = selectedValues.filter(
+            (value) => value === tableColumnFilterNoneValue || availableValues.has(value),
+          )
 
           if (nextSelectedValues.length !== selectedValues.length) {
             hasChanges = true
@@ -47064,48 +47183,81 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                   </section>
                 ) : null}
 
-                {visiblePurchaseDemandRows.length > 0 ? (
-                  <div className="table-wrap">
-                    <table className="product-table">
-                      <thead>
-                        <tr>
-                          <th>Pedido</th>
-                          <th className="sticky-product">Produto</th>
-                          <th>Centro a abastecer</th>
-                          <th>Familia</th>
-                          <th>Subfamilia</th>
-                          <th>Embalagem</th>
-                          <th>Estoque atual</th>
-                          <th>Demanda interna</th>
-                          <th>Comprar</th>
-                          <th>Origens</th>
-                          <th>Requisicoes</th>
-                          <th>Tipo</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {visiblePurchaseDemandRows.map((row) => (
-                          <tr key={row.key}>
-                            <td>{row.purchaseOrderCode}</td>
-                            <td className="sticky-product-cell">
-                              <strong>{row.productName}</strong>
-                              <div className="table-cell-support">{row.internalId}</div>
-                            </td>
-                            <td>{row.stockCenterName}</td>
-                            <td>{row.family}</td>
-                            <td>{row.subfamily}</td>
-                            <td>{formatPurchaseDemandPackageLabel(row)}</td>
-                            <td>{formatPurchaseDemandQuantity(row.currentQuantity, row)}</td>
-                            <td>{formatPurchaseDemandQuantity(row.requestedQuantity, row)}</td>
-                            <td><strong>{formatPurchaseDemandQuantity(row.purchaseQuantity, row)}</strong></td>
-                            <td>{row.requesterCenters.join(', ')}</td>
-                            <td>{row.requisitionIds.map((id) => `#${id}`).join(', ')}</td>
-                            <td>{row.sourceLabel}</td>
+                {purchaseDemandRows.length > 0 ? (
+                  <>
+                    {hiddenPurchaseDemandColumns.length > 0 ? (
+                      <div className="hidden-columns">
+                        <strong>Colunas ocultas</strong>
+                        <div className="hidden-columns-list">
+                          {hiddenPurchaseDemandColumns.map(([key, label]) => (
+                            <button
+                              key={key}
+                              type="button"
+                              className="ghost-button hidden-column-chip"
+                              onClick={() => setPurchaseDemandColumnVisibility((current) => ({ ...current, [key]: true }))}
+                            >
+                              {label}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    ) : null}
+                    <div className="table-wrap">
+                      <table className="product-table">
+                        <thead>
+                          <tr>
+                            {purchaseDemandColumnOptions.map(([key, label]) =>
+                              purchaseDemandColumnVisibility[key]
+                                ? renderPurchaseDemandColumnHeader(
+                                    key,
+                                    label,
+                                    openPurchaseDemandColumnMenu,
+                                    setOpenPurchaseDemandColumnMenu,
+                                    purchaseDemandColumnFilters,
+                                    distinctPurchaseDemandColumnValues,
+                                    setPurchaseDemandColumnFilters,
+                                    setPurchaseDemandColumnVisibility,
+                                    purchaseDemandColumnSort,
+                                    setPurchaseDemandColumnSort,
+                                  )
+                                : null,
+                            )}
                           </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
+                        </thead>
+                        <tbody>
+                          {visiblePurchaseDemandRows.map((row) => (
+                            <tr key={row.key}>
+                              {purchaseDemandColumnVisibility.order ? <td>{row.purchaseOrderCode}</td> : null}
+                              {purchaseDemandColumnVisibility.product ? (
+                                <td className="sticky-product-cell">
+                                  <strong>{row.productName}</strong>
+                                  <div className="table-cell-support">{row.internalId}</div>
+                                </td>
+                              ) : null}
+                              {purchaseDemandColumnVisibility.center ? <td>{row.stockCenterName}</td> : null}
+                              {purchaseDemandColumnVisibility.family ? <td>{row.family}</td> : null}
+                              {purchaseDemandColumnVisibility.subfamily ? <td>{row.subfamily}</td> : null}
+                              {purchaseDemandColumnVisibility.package ? <td>{formatPurchaseDemandPackageLabel(row)}</td> : null}
+                              {purchaseDemandColumnVisibility.current ? <td>{formatPurchaseDemandQuantity(row.currentQuantity, row)}</td> : null}
+                              {purchaseDemandColumnVisibility.demand ? <td>{formatPurchaseDemandQuantity(row.requestedQuantity, row)}</td> : null}
+                              {purchaseDemandColumnVisibility.purchase ? (
+                                <td><strong>{formatPurchaseDemandQuantity(row.purchaseQuantity, row)}</strong></td>
+                              ) : null}
+                              {purchaseDemandColumnVisibility.origins ? <td>{row.requesterCenters.join(', ')}</td> : null}
+                              {purchaseDemandColumnVisibility.requisitions ? <td>{row.requisitionIds.map((id) => `#${id}`).join(', ')}</td> : null}
+                              {purchaseDemandColumnVisibility.type ? <td>{row.sourceLabel}</td> : null}
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                    {visiblePurchaseDemandRows.length === 0 ? (
+                      <div className="empty-state empty-state-inline">
+                        <strong>Nenhuma compra encontrada.</strong>
+                        <p>Ajuste a busca ou os filtros da lista.</p>
+                      </div>
+                    ) : null}
+                  </>
                 ) : (
                   <div className="empty-state">
                     <strong>Nenhuma compra consolidada.</strong>
@@ -53559,12 +53711,6 @@ function isNumericItemColumn(key: ItemColumnKey) {
   return key === 'sizeCapacity' || key === 'packages'
 }
 
-function getSortLabels(isNumeric: boolean) {
-  return isNumeric
-    ? { asc: '0-9', desc: '9-0' }
-    : { asc: 'A-Z', desc: 'Z-A' }
-}
-
 function isNumericInventoryReviewColumn(key: InventoryReviewColumnKey) {
   return key === 'total'
 }
@@ -53715,107 +53861,6 @@ function getClosedInventoryColumnSortableValue(
     return inventoryRecord.closedAt || ''
   }
   return getClosedInventoryColumnValue(inventoryRecord, key, inventoryStockCenterNameById)
-}
-
-function renderClosedInventoryColumnHeader(
-  key: ClosedInventoryColumnKey,
-  label: string,
-  openColumnMenu: ClosedInventoryColumnKey | null,
-  setOpenColumnMenu: Dispatch<SetStateAction<ClosedInventoryColumnKey | null>>,
-  columnFilters: Partial<Record<ClosedInventoryColumnKey, string[]>>,
-  distinctColumnValues: Record<ClosedInventoryColumnKey, string[]>,
-  setColumnFilters: Dispatch<SetStateAction<Partial<Record<ClosedInventoryColumnKey, string[]>>>>,
-  setColumnVisibility: Dispatch<SetStateAction<Record<ClosedInventoryColumnKey, boolean>>>,
-  columnSort: ColumnSort<ClosedInventoryColumnKey> | null,
-  setColumnSort: Dispatch<SetStateAction<ColumnSort<ClosedInventoryColumnKey> | null>>,
-) {
-  const activeFilters = columnFilters[key] ?? []
-  const sortDirection = columnSort?.key === key ? columnSort.direction : null
-  const sortLabels = getSortLabels(false)
-
-  return (
-    <th key={key} className={openColumnMenu === key ? 'menu-open' : ''}>
-      <div className="header-cell">
-        <span>
-          {label}
-          {sortDirection === 'asc' ? ' ↑' : sortDirection === 'desc' ? ' ↓' : ''}
-        </span>
-        <div className="header-tools">
-          {activeFilters.length > 0 ? <span className="header-filter-count">{activeFilters.length}</span> : null}
-          <button
-            className="header-tool-button"
-            type="button"
-            onClick={() => setOpenColumnMenu((current) => (current === key ? null : key))}
-            aria-label={`Filtrar coluna ${label}`}
-            title={`Filtrar coluna ${label}`}
-          >
-            ▼
-          </button>
-          {openColumnMenu === key ? (
-            <div
-              className="header-menu"
-              onClick={(event) => event.stopPropagation()}
-              onMouseDown={(event) => event.stopPropagation()}
-            >
-              <div className="header-menu-actions">
-                <button type="button" className="ghost-button" onClick={() => setColumnSort({ key, direction: 'asc' })}>
-                  {sortLabels.asc}
-                </button>
-                <button type="button" className="ghost-button" onClick={() => setColumnSort({ key, direction: 'desc' })}>
-                  {sortLabels.desc}
-                </button>
-                <button
-                  type="button"
-                  className="ghost-button header-menu-icon-action"
-                  onClick={() => {
-                    setColumnSort((current) => (current?.key === key ? null : current))
-                    setColumnFilters((current) => ({ ...current, [key]: [] }))
-                  }}
-                  aria-label={`Limpar filtros da coluna ${label}`}
-                  title={`Limpar filtros da coluna ${label}`}
-                >
-                  🧹
-                </button>
-                <button
-                  type="button"
-                  className="ghost-button header-menu-icon-action"
-                  onClick={() => {
-                    setColumnVisibility((current) => ({ ...current, [key]: false }))
-                    setOpenColumnMenu(null)
-                  }}
-                  aria-label={`Ocultar coluna ${label}`}
-                  title={`Ocultar coluna ${label}`}
-                >
-                  👁
-                </button>
-              </div>
-              <div className="header-menu-list">
-                {distinctColumnValues[key].map((value) => {
-                  const checked = activeFilters.includes(value)
-                  return (
-                    <label key={`${key}-${value}`} className="header-menu-option">
-                      <span>{value || '(vazio)'}</span>
-                      <input
-                        type="checkbox"
-                        checked={checked}
-                        onChange={() =>
-                          setColumnFilters((current) => {
-                            const values = current[key] ?? []
-                            const nextValues = checked ? values.filter((item) => item !== value) : [...values, value]
-                            return { ...current, [key]: nextValues }
-                          })
-                        }
-                      />
-                    </label>
-                  )
-                })}
-              </div>
-            </div>
-          ) : null}
-        </div>
-      </div>
-    </th>
-  )
 }
 
 function isNumericRequisitionDraftColumn(key: RequisitionDraftColumnKey) {

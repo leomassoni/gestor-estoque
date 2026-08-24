@@ -1400,6 +1400,19 @@ h3 {
   white-space: nowrap;
 }
 
+.header-menu-filter-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+  margin-bottom: 10px;
+}
+
+.header-menu-filter-actions .ghost-button {
+  min-height: 30px;
+  padding: 6px 8px;
+  font-size: 0.72rem;
+}
+
 .header-menu-icon-action {
   min-width: 32px;
   padding: 6px 8px;
