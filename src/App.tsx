@@ -25,6 +25,7 @@ import {
   MultiSelectChips,
   SingleValueAutocomplete,
 } from './components/common'
+import { NormalizedTextInput, NormalizedTextarea } from './components/NormalizedTextField'
 import {
   renderClosedInventoryColumnHeader,
   renderColumnHeader,
@@ -2258,6 +2259,14 @@ function buildProductDiscardSnapshot(state: {
 
 function buildNormalizedRegistrationNameKey(value: string) {
   return normalizeRegistrationText(value).replace(/\s+/g, ' ').trim()
+}
+
+function normalizeDecimalDraftText(value: string) {
+  return value
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^0-9,.-]/g, '')
+    .trimStart()
 }
 
 function buildServiceItemDiscardSnapshot(state: {
@@ -27659,9 +27668,10 @@ export default function App() {
           </div>
           <label className="field search-field">
             <span>Buscar item na requisicao</span>
-            <input
+            <NormalizedTextInput
               value={requisitionDraftSearch}
-              onChange={(event) => setRequisitionDraftSearch(event.target.value.toLocaleUpperCase('pt-BR'))}
+              onChange={setRequisitionDraftSearch}
+              commitMode="debounce"
               placeholder="Digite nome, tipo, familia ou destino"
             />
           </label>
@@ -28087,9 +28097,10 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
           </div>
           <label className="field search-field">
             <span>Buscar item em suprimentos</span>
-            <input
+            <NormalizedTextInput
               value={supplyDraftSearch}
-              onChange={(event) => setSupplyDraftSearch(event.target.value.toLocaleUpperCase('pt-BR'))}
+              onChange={setSupplyDraftSearch}
+              commitMode="debounce"
               placeholder="Digite nome, tipo, familia ou destino"
             />
           </label>
@@ -28240,9 +28251,10 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
         </div>
         <label className="field search-field">
           <span>Buscar item da conferencia</span>
-          <input
+          <NormalizedTextInput
             value={receiveReviewSearch}
-            onChange={(event) => setReceiveReviewSearch(event.target.value.toLocaleUpperCase('pt-BR'))}
+            onChange={setReceiveReviewSearch}
+            commitMode="debounce"
             placeholder="Digite item, tipo, quantidade, unidade ou destino"
           />
         </label>
@@ -28745,10 +28757,11 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
         <div className="list-toolbar">
           <label className="field search-field">
             <span>Pesquisar item</span>
-            <input
+            <NormalizedTextInput
               list={stockCenterMinimumListId}
               value={stockCenterMinimumSearch}
-              onChange={(event) => setStockCenterMinimumSearch(event.target.value)}
+              onChange={setStockCenterMinimumSearch}
+              commitMode="debounce"
               placeholder="Busque por nome, familia, tipo ou apresentacao"
             />
             <datalist id={stockCenterMinimumListId}>
@@ -38762,9 +38775,10 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
       {isTechnicalSheetFieldVisible('PREPARO', 'companyProductId') ? (
         <label className="field">
           <span>ID empresa{isTechnicalSheetFieldRequired('PREPARO', 'companyProductId') ? ' *' : ''}</span>
-          <input
+          <NormalizedTextInput
             value={technicalSheetForm.companyProductId}
-            onChange={(event) => updateTechnicalSheetForm('companyProductId', event.target.value)}
+            onChange={(value) => updateTechnicalSheetForm('companyProductId', value)}
+            commitMode="blur"
             placeholder="OPCIONAL"
           />
         </label>
@@ -38788,9 +38802,10 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
       {isTechnicalSheetFieldVisible('PREPARO', 'name') ? (
         <label className="field field-wide">
           <span>Nome do item montado{isTechnicalSheetFieldRequired('PREPARO', 'name') ? ' *' : ''}</span>
-          <input
+          <NormalizedTextInput
             value={technicalSheetForm.name}
-            onChange={(event) => updateTechnicalSheetForm('name', event.target.value)}
+            onChange={(value) => updateTechnicalSheetForm('name', value)}
+            commitMode="blur"
             placeholder="EX.: XAROPE DE GENGIBRE"
           />
         </label>
@@ -38824,9 +38839,11 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
       {isTechnicalSheetFieldVisible('PREPARO', 'outputQuantity') ? (
         <label className="field">
           <span>Rendimento final{isTechnicalSheetFieldRequired('PREPARO', 'outputQuantity') ? ' *' : ''}</span>
-          <input
+          <NormalizedTextInput
             value={technicalSheetForm.outputQuantity}
-            onChange={(event) => updateTechnicalSheetForm('outputQuantity', event.target.value)}
+            onChange={(value) => updateTechnicalSheetForm('outputQuantity', value)}
+            commitMode="blur"
+            normalize={normalizeDecimalDraftText}
             placeholder={formatDecimal(technicalSheetTotals.suggestedYield)}
           />
           <p className="helper-text">
@@ -38854,9 +38871,11 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
             Tempo de preparo (dias)
             {isTechnicalSheetFieldRequired('PREPARO', 'preparationLeadTimeDays') ? ' *' : ''}
           </span>
-          <input
+          <NormalizedTextInput
             value={technicalSheetForm.preparationLeadTimeDays}
-            onChange={(event) => updateTechnicalSheetForm('preparationLeadTimeDays', event.target.value)}
+            onChange={(value) => updateTechnicalSheetForm('preparationLeadTimeDays', value)}
+            commitMode="blur"
+            normalize={normalizeDecimalDraftText}
             placeholder="EX.: 15"
           />
           <p className="helper-text">Se deixar em branco, o sistema considera 1 dia no calculo de estoque minimo sugerido.</p>
@@ -38865,9 +38884,11 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
       {isTechnicalSheetFieldVisible('PREPARO', 'portionSize') ? (
         <label className="field">
           <span>Porcao base{isTechnicalSheetFieldRequired('PREPARO', 'portionSize') ? ' *' : ''}</span>
-          <input
+          <NormalizedTextInput
             value={technicalSheetForm.portionSize}
-            onChange={(event) => updateTechnicalSheetForm('portionSize', event.target.value)}
+            onChange={(value) => updateTechnicalSheetForm('portionSize', value)}
+            commitMode="blur"
+            normalize={normalizeDecimalDraftText}
             placeholder="EX.: 1000"
           />
         </label>
@@ -39494,9 +39515,11 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
           {isTechnicalSheetFieldVisible('PREPARO', 'densitySampleVolume') ? (
             <label className="field">
               <span>Volume da amostra{isTechnicalSheetFieldRequired('PREPARO', 'densitySampleVolume') ? ' *' : ''}</span>
-              <input
+              <NormalizedTextInput
                 value={technicalSheetForm.densitySampleVolume}
-                onChange={(event) => updateTechnicalSheetForm('densitySampleVolume', event.target.value)}
+                onChange={(value) => updateTechnicalSheetForm('densitySampleVolume', value)}
+                commitMode="blur"
+                normalize={normalizeDecimalDraftText}
                 placeholder="Ex.: 100"
               />
             </label>
@@ -39504,9 +39527,11 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
           {isTechnicalSheetFieldVisible('PREPARO', 'densitySampleWeight') ? (
             <label className="field">
               <span>Peso da amostra{isTechnicalSheetFieldRequired('PREPARO', 'densitySampleWeight') ? ' *' : ''}</span>
-              <input
+              <NormalizedTextInput
                 value={technicalSheetForm.densitySampleWeight}
-                onChange={(event) => updateTechnicalSheetForm('densitySampleWeight', event.target.value)}
+                onChange={(value) => updateTechnicalSheetForm('densitySampleWeight', value)}
+                commitMode="blur"
+                normalize={normalizeDecimalDraftText}
                 placeholder="Ex.: 110"
               />
             </label>
@@ -39641,9 +39666,10 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
             <>
               <label className="field field-wide">
                 <span>Nome do subproduto</span>
-                <input
+                <NormalizedTextInput
                   value={technicalSheetForm.yieldDifferenceByproductName}
-                  onChange={(event) => updateTechnicalSheetForm('yieldDifferenceByproductName', event.target.value)}
+                  onChange={(value) => updateTechnicalSheetForm('yieldDifferenceByproductName', value)}
+                  commitMode="blur"
                   placeholder="EX.: OLEO AROMATIZADO RESIDUAL"
                 />
               </label>
@@ -39707,9 +39733,10 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
           {isTechnicalSheetFieldVisible('PREPARO', 'shelfLifeRoom') ? (
             <label className="field">
               <span>Validade in natura{isTechnicalSheetFieldRequired('PREPARO', 'shelfLifeRoom') ? ' *' : ''}</span>
-              <input
+              <NormalizedTextInput
                 value={technicalSheetForm.shelfLifeRoom}
-                onChange={(event) => updateTechnicalSheetForm('shelfLifeRoom', event.target.value)}
+                onChange={(value) => updateTechnicalSheetForm('shelfLifeRoom', value)}
+                commitMode="blur"
                 placeholder="EX.: 24 HORAS"
               />
             </label>
@@ -39717,9 +39744,10 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
           {isTechnicalSheetFieldVisible('PREPARO', 'shelfLifeRefrigerated') ? (
             <label className="field">
               <span>Validade refrigerado{isTechnicalSheetFieldRequired('PREPARO', 'shelfLifeRefrigerated') ? ' *' : ''}</span>
-              <input
+              <NormalizedTextInput
                 value={technicalSheetForm.shelfLifeRefrigerated}
-                onChange={(event) => updateTechnicalSheetForm('shelfLifeRefrigerated', event.target.value)}
+                onChange={(value) => updateTechnicalSheetForm('shelfLifeRefrigerated', value)}
+                commitMode="blur"
                 placeholder="EX.: 5 DIAS"
               />
             </label>
@@ -39727,9 +39755,10 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
           {isTechnicalSheetFieldVisible('PREPARO', 'shelfLifeFrozen') ? (
             <label className="field">
               <span>Validade congelado{isTechnicalSheetFieldRequired('PREPARO', 'shelfLifeFrozen') ? ' *' : ''}</span>
-              <input
+              <NormalizedTextInput
                 value={technicalSheetForm.shelfLifeFrozen}
-                onChange={(event) => updateTechnicalSheetForm('shelfLifeFrozen', event.target.value)}
+                onChange={(value) => updateTechnicalSheetForm('shelfLifeFrozen', value)}
+                commitMode="blur"
                 placeholder="EX.: 30 DIAS"
               />
             </label>
@@ -39929,10 +39958,11 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
           <div className="list-toolbar">
             <label className="field search-field">
               <span>Pesquisar produto</span>
-              <input
+              <NormalizedTextInput
                 list={productListId}
                 value={productSearch}
-                onChange={(event) => setProductSearch(event.target.value)}
+                onChange={setProductSearch}
+                commitMode="debounce"
                 placeholder="Busque por nome, ID interno ou ID da empresa"
               />
               <datalist id={productListId}>
@@ -40374,9 +40404,10 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
 
               <label className="field">
                 <span>ID empresa</span>
-              <input
+              <NormalizedTextInput
                 value={productForm.companyProductId}
-                onChange={(event) => updateProductForm('companyProductId', event.target.value)}
+                onChange={(value) => updateProductForm('companyProductId', value)}
+                commitMode="blur"
                   placeholder="Ex.: BEB-001"
                 />
               </label>
@@ -40397,10 +40428,11 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
 
               <label className="field field-wide">
                 <span>Nome do produto *</span>
-                <input
+                <NormalizedTextInput
                   list={productListId}
                   value={productForm.name}
-                  onChange={(event) => updateProductForm('name', event.target.value)}
+                  onChange={(value) => updateProductForm('name', value)}
+                  commitMode="blur"
                   placeholder="Ex.: Coca-Cola"
                 />
                 <datalist id={productListId}>
@@ -40452,9 +40484,11 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
 
               <label className="field">
                 <span>% de alcool</span>
-                <input
+                <NormalizedTextInput
                   value={productForm.alcoholPercentage}
-                  onChange={(event) => updateProductForm('alcoholPercentage', event.target.value)}
+                  onChange={(value) => updateProductForm('alcoholPercentage', value)}
+                  commitMode="blur"
+                  normalize={normalizeDecimalDraftText}
                   placeholder="Opcional"
                 />
               </label>
@@ -40489,18 +40523,22 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
             <div className="form-grid density-grid">
               <label className="field">
                 <span>Volume da amostra</span>
-                <input
+                <NormalizedTextInput
                   value={productForm.densitySampleVolume}
-                  onChange={(event) => updateProductForm('densitySampleVolume', event.target.value)}
+                  onChange={(value) => updateProductForm('densitySampleVolume', value)}
+                  commitMode="blur"
+                  normalize={normalizeDecimalDraftText}
                   placeholder="Ex.: 100"
                 />
               </label>
 
               <label className="field">
                 <span>Peso da amostra</span>
-                <input
+                <NormalizedTextInput
                   value={productForm.densitySampleWeight}
-                  onChange={(event) => updateProductForm('densitySampleWeight', event.target.value)}
+                  onChange={(value) => updateProductForm('densitySampleWeight', value)}
+                  commitMode="blur"
+                  normalize={normalizeDecimalDraftText}
                   placeholder="Ex.: 110"
                 />
               </label>
@@ -40679,10 +40717,11 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
           <div className="list-toolbar">
             <label className="field search-field">
               <span>Pesquisar item</span>
-              <input
+              <NormalizedTextInput
                 list={serviceItemListId}
                 value={serviceItemSearch}
-                onChange={(event) => setServiceItemSearch(event.target.value)}
+                onChange={setServiceItemSearch}
+                commitMode="debounce"
                 placeholder="Busque por nome, ID interno, ID empresa ou cod. fabricante"
               />
               <datalist id={serviceItemListId}>
@@ -40845,7 +40884,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
               </label>
               <label className="field">
                 <span>ID empresa</span>
-                <input value={serviceItemForm.companyProductId} onChange={(event) => updateServiceItemForm('companyProductId', event.target.value)} />
+                <NormalizedTextInput value={serviceItemForm.companyProductId} onChange={(value) => updateServiceItemForm('companyProductId', value)} commitMode="blur" />
               </label>
               <div className="field field-wide">
                 <span>Setores *</span>
@@ -40862,7 +40901,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
               </div>
               <label className="field">
                 <span>Codigo do item (fabricante)</span>
-                <input value={serviceItemForm.manufacturerCode} onChange={(event) => updateServiceItemForm('manufacturerCode', event.target.value)} />
+                <NormalizedTextInput value={serviceItemForm.manufacturerCode} onChange={(value) => updateServiceItemForm('manufacturerCode', value)} commitMode="blur" />
               </label>
               <label className="field field-wide">
                 <span>Setor *</span>
@@ -40900,11 +40939,11 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
               </label>
               <label className="field field-wide">
                 <span>Nome do item *</span>
-                <input value={serviceItemForm.name} onChange={(event) => updateServiceItemForm('name', event.target.value)} />
+                <NormalizedTextInput value={serviceItemForm.name} onChange={(value) => updateServiceItemForm('name', value)} commitMode="blur" />
               </label>
               <label className="field">
                 <span>Valor</span>
-                <input value={serviceItemForm.sizeValue} onChange={(event) => updateServiceItemForm('sizeValue', event.target.value)} placeholder="Ex.: 350" />
+                <NormalizedTextInput value={serviceItemForm.sizeValue} onChange={(value) => updateServiceItemForm('sizeValue', value)} commitMode="blur" normalize={normalizeDecimalDraftText} placeholder="Ex.: 350" />
               </label>
               <label className="field">
                 <span>Unidade de medida</span>
@@ -40920,7 +40959,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
               </label>
               <label className="field">
                 <span>Peso do recipiente vazio</span>
-                <input value={serviceItemForm.emptyWeight} onChange={(event) => updateServiceItemForm('emptyWeight', event.target.value)} placeholder="Ex.: 180" />
+                <NormalizedTextInput value={serviceItemForm.emptyWeight} onChange={(value) => updateServiceItemForm('emptyWeight', value)} commitMode="blur" normalize={normalizeDecimalDraftText} placeholder="Ex.: 180" />
               </label>
               <div className="field field-wide field-image-upload-wrapper">
                 <div className="technical-sheet-image-field">
@@ -41249,10 +41288,11 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
             <div className="list-toolbar technical-sheet-list-toolbar">
               <label className="field search-field">
                 <span>Pesquisar ficha tecnica</span>
-                <input
+                <NormalizedTextInput
                   list={technicalSheetListId}
                   value={technicalSheetSearch}
-                  onChange={(event) => setTechnicalSheetSearch(event.target.value)}
+                  onChange={setTechnicalSheetSearch}
+                  commitMode="debounce"
                   placeholder="Busque por nome, ID interno ou ID da empresa"
                 />
                 <datalist id={technicalSheetListId}>
@@ -41263,10 +41303,11 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
               </label>
               <label className="field search-field">
                 <span>Buscar por insumo</span>
-                <input
+                <NormalizedTextInput
                   list={technicalSheetIngredientListId}
                   value={technicalSheetIngredientSearch}
-                  onChange={(event) => setTechnicalSheetIngredientSearch(event.target.value)}
+                  onChange={setTechnicalSheetIngredientSearch}
+                  commitMode="debounce"
                   placeholder="Busque um ingrediente ou pre-preparo usado"
                 />
                 <datalist id={technicalSheetIngredientListId}>
@@ -41547,9 +41588,10 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
 	                    {isTechnicalSheetFieldVisible(technicalSheetForm.kind, 'companyProductId') ? (
 	                      <label className="field">
 	                        <span>ID empresa{isTechnicalSheetFieldRequired(technicalSheetForm.kind, 'companyProductId') ? ' *' : ''}</span>
-	                        <input
+	                        <NormalizedTextInput
 	                          value={technicalSheetForm.companyProductId}
-	                          onChange={(event) => updateTechnicalSheetForm('companyProductId', event.target.value)}
+	                          onChange={(value) => updateTechnicalSheetForm('companyProductId', value)}
+	                          commitMode="blur"
 	                          placeholder="OPCIONAL"
 	                        />
 	                      </label>
@@ -41573,9 +41615,10 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
 	                    {isTechnicalSheetFieldVisible(technicalSheetForm.kind, 'name') ? (
 	                      <label className="field field-wide">
 	                        <span>Nome do item montado{isTechnicalSheetFieldRequired(technicalSheetForm.kind, 'name') ? ' *' : ''}</span>
-	                        <input
+	                        <NormalizedTextInput
 	                          value={technicalSheetForm.name}
-	                          onChange={(event) => updateTechnicalSheetForm('name', event.target.value)}
+	                          onChange={(value) => updateTechnicalSheetForm('name', value)}
+	                          commitMode="blur"
 	                          placeholder="EX.: XAROPE DE GENGIBRE"
 	                        />
 	                      </label>
@@ -41634,9 +41677,11 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                             Tempo de preparo (dias)
                             {isTechnicalSheetFieldRequired('PREPARO', 'preparationLeadTimeDays') ? ' *' : ''}
                           </span>
-	                        <input
+	                        <NormalizedTextInput
 	                          value={technicalSheetForm.preparationLeadTimeDays}
-	                          onChange={(event) => updateTechnicalSheetForm('preparationLeadTimeDays', event.target.value)}
+	                          onChange={(value) => updateTechnicalSheetForm('preparationLeadTimeDays', value)}
+	                          commitMode="blur"
+	                          normalize={normalizeDecimalDraftText}
 	                          placeholder="EX.: 15"
 	                        />
 	                        <p className="helper-text">Se deixar em branco, o sistema considera 1 dia no calculo de estoque minimo sugerido.</p>
@@ -41648,9 +41693,11 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                             Rendimento final
                             {technicalSheetForm.kind === 'PREPARO' && isTechnicalSheetFieldRequired('PREPARO', 'outputQuantity') ? ' *' : ''}
                           </span>
-	                        <input
+	                        <NormalizedTextInput
 	                          value={technicalSheetForm.outputQuantity}
-	                          onChange={(event) => updateTechnicalSheetForm('outputQuantity', event.target.value)}
+	                          onChange={(value) => updateTechnicalSheetForm('outputQuantity', value)}
+	                          commitMode="blur"
+	                          normalize={normalizeDecimalDraftText}
 	                          placeholder={formatDecimal(technicalSheetTotals.suggestedYield)}
 	                        />
 	                      </label>
@@ -41658,9 +41705,11 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
 	                    {isTechnicalSheetFieldVisible(technicalSheetForm.kind, 'portionSize') ? (
 	                      <label className="field">
 	                        <span>Porcao base{isTechnicalSheetFieldRequired(technicalSheetForm.kind, 'portionSize') ? ' *' : ''}</span>
-	                        <input
+	                        <NormalizedTextInput
 	                          value={technicalSheetForm.portionSize}
-	                          onChange={(event) => updateTechnicalSheetForm('portionSize', event.target.value)}
+	                          onChange={(value) => updateTechnicalSheetForm('portionSize', value)}
+	                          commitMode="blur"
+	                          normalize={normalizeDecimalDraftText}
 	                          placeholder="EX.: 1000"
 	                          disabled={isCommercialTechnicalSheetKind(technicalSheetForm.kind)}
 	                        />
@@ -41672,9 +41721,11 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
 	                isTechnicalSheetFieldVisible(technicalSheetForm.kind, 'desiredCmvPercentage') ? (
 	                  <label className="field">
 	                    <span>CMV desejado (%) {isTechnicalSheetFieldRequired(technicalSheetForm.kind, 'desiredCmvPercentage') ? '*' : ''}</span>
-	                    <input
+	                    <NormalizedTextInput
 	                      value={technicalSheetForm.desiredCmvPercentage}
-	                      onChange={(event) => updateTechnicalSheetForm('desiredCmvPercentage', event.target.value)}
+	                      onChange={(value) => updateTechnicalSheetForm('desiredCmvPercentage', value)}
+	                      commitMode="blur"
+	                      normalize={normalizeDecimalDraftText}
 	                      placeholder="EX.: 25"
 	                    />
 	                  </label>
@@ -41683,9 +41734,11 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
 	                isTechnicalSheetFieldVisible(technicalSheetForm.kind, 'dilutionRatePercentage') ? (
 	                  <label className="field">
 	                    <span>Taxa de diluicao (%) {isTechnicalSheetFieldRequired(technicalSheetForm.kind, 'dilutionRatePercentage') ? '*' : ''}</span>
-	                    <input
+	                    <NormalizedTextInput
 	                      value={technicalSheetForm.dilutionRatePercentage}
-	                      onChange={(event) => updateTechnicalSheetForm('dilutionRatePercentage', event.target.value)}
+	                      onChange={(value) => updateTechnicalSheetForm('dilutionRatePercentage', value)}
+	                      commitMode="blur"
+	                      normalize={normalizeDecimalDraftText}
 	                      placeholder="EX.: 10"
 	                    />
 	                  </label>
@@ -42497,10 +42550,11 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
               <div className="form-grid">
                 <label className="field field-span-all">
 	                  <span>Harmonizacao</span>
-                  <textarea
+                  <NormalizedTextarea
                     className="recipe-textarea"
                     value={technicalSheetForm.harmonization}
-                    onChange={(event) => updateTechnicalSheetForm('harmonization', event.target.value)}
+                    onChange={(value) => updateTechnicalSheetForm('harmonization', value)}
+                    commitMode="blur"
                     placeholder="SUGIRA COMIDAS, PERFIS DE SABOR OU MOMENTOS QUE COMBINEM COM ESTE ITEM"
                   />
                 </label>
@@ -42610,10 +42664,11 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
               <div className="form-grid">
                 <label className="field field-span-all">
 	                  <span>Argumentos de venda</span>
-                  <textarea
+                  <NormalizedTextarea
                     className="recipe-textarea"
                     value={technicalSheetForm.salesArguments}
-                    onChange={(event) => updateTechnicalSheetForm('salesArguments', event.target.value)}
+                    onChange={(value) => updateTechnicalSheetForm('salesArguments', value)}
+                    commitMode="blur"
                     placeholder="DESTAQUE BENEFICIOS, OCASIOES DE CONSUMO E COMO APRESENTAR O ITEM AO CLIENTE"
                   />
                 </label>
@@ -42633,10 +42688,11 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
               <div className="form-grid">
                 <label className="field field-span-all">
 	                  <span>Storytelling{isTechnicalSheetFieldRequired(technicalSheetForm.kind, 'storytelling') ? ' *' : ''}</span>
-                  <textarea
+                  <NormalizedTextarea
                     className="recipe-textarea"
                     value={technicalSheetForm.storytelling}
-                    onChange={(event) => updateTechnicalSheetForm('storytelling', event.target.value)}
+                    onChange={(value) => updateTechnicalSheetForm('storytelling', value)}
+                    commitMode="blur"
                     placeholder="DESCREVA A HISTORIA, CONTEXTO OU ARGUMENTO DE VENDA"
                   />
                 </label>
@@ -42747,10 +42803,11 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
               <div className="form-grid receituario-search-grid">
                 <label className="field search-field field-span-all">
                   <span>Buscar receita</span>
-                  <input
+                  <NormalizedTextInput
                     list={recipePanelListId}
                     value={recipePanelSearch[recipePanelTab]}
-                    onChange={(event) => handleRecipePanelSearchChange(recipePanelTab, event.target.value)}
+                    onChange={(value) => handleRecipePanelSearchChange(recipePanelTab, value)}
+                    commitMode="debounce"
                     placeholder={
                       recipePanelTab === 'PREPARO'
                         ? 'Digite o nome do pre-preparo'
@@ -43557,10 +43614,11 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                 <div className="list-toolbar">
                   <label className="field search-field">
                     <span>Buscar centro de estoque</span>
-                    <input
+                    <NormalizedTextInput
                       list={stockCenterListId}
                       value={stockCenterSearch}
-                      onChange={(event) => setStockCenterSearch(event.target.value)}
+                      onChange={setStockCenterSearch}
+                      commitMode="debounce"
                       placeholder="Busque por nome, codigo ou setor"
                     />
                     <datalist id={stockCenterListId}>
@@ -44252,9 +44310,10 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                   <div className="list-toolbar">
                     <label className="field search-field">
                       <span>Buscar inventario fechado</span>
-                      <input
+                      <NormalizedTextInput
                         value={closedInventorySearch}
-                        onChange={(event) => setClosedInventorySearch(event.target.value)}
+                        onChange={setClosedInventorySearch}
+                        commitMode="debounce"
                         placeholder="Busque por ID, data, centro, aberto por ou fechado por"
                       />
                     </label>
@@ -44397,9 +44456,10 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                 <div className="list-toolbar">
                   <label className="field search-field">
                     <span>Buscar no resumo do inventario</span>
-                    <input
+                    <NormalizedTextInput
                       value={inventorySummarySearch}
-                      onChange={(event) => setInventorySummarySearch(event.target.value)}
+                      onChange={setInventorySummarySearch}
+                      commitMode="debounce"
                       placeholder="Busque por item, local, embalagem/recipiente, tipo ou usuario"
                     />
                   </label>
@@ -46592,9 +46652,10 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                   <>
                     <label className="field search-field">
                       <span>Buscar requisicao</span>
-                      <input
+                      <NormalizedTextInput
                         value={requisitionHistorySearch}
-                        onChange={(event) => setRequisitionHistorySearch(event.target.value.toLocaleUpperCase('pt-BR'))}
+                        onChange={setRequisitionHistorySearch}
+                        commitMode="debounce"
                         placeholder="Digite centro, status, setor, usuario ou destino"
                       />
                     </label>
@@ -46802,9 +46863,10 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                   <>
                     <label className="field search-field">
                       <span>Buscar requisicao para receber</span>
-                      <input
+                      <NormalizedTextInput
                         value={requisitionReceiveSearch}
-                        onChange={(event) => setRequisitionReceiveSearch(event.target.value.toLocaleUpperCase('pt-BR'))}
+                        onChange={setRequisitionReceiveSearch}
+                        commitMode="debounce"
                         placeholder="Digite centro, suprimentos ou usuario"
                       />
                     </label>
@@ -46910,9 +46972,10 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
               <>
                 <label className="field search-field">
                   <span>Buscar requisicao em suprimentos</span>
-                  <input
+                  <NormalizedTextInput
                     value={supplySearch}
-                    onChange={(event) => setSupplySearch(event.target.value.toLocaleUpperCase('pt-BR'))}
+                    onChange={setSupplySearch}
+                    commitMode="debounce"
                     placeholder="Digite centro, suprimentos, setor ou usuario"
                   />
                 </label>
@@ -47066,9 +47129,10 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
 
                 <label className="field search-field">
                   <span>Buscar compra</span>
-                  <input
+                  <NormalizedTextInput
                     value={purchaseSearch}
-                    onChange={(event) => setPurchaseSearch(event.target.value.toLocaleUpperCase('pt-BR'))}
+                    onChange={setPurchaseSearch}
+                    commitMode="debounce"
                     placeholder="Digite centro, produto, familia, origem ou requisicao"
                   />
                 </label>
@@ -47301,9 +47365,10 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
 
                 <label className="field search-field">
                   <span>Buscar suprimento de compras</span>
-                  <input
+                  <NormalizedTextInput
                     value={purchaseSupplySearch}
-                    onChange={(event) => setPurchaseSupplySearch(event.target.value.toLocaleUpperCase('pt-BR'))}
+                    onChange={setPurchaseSupplySearch}
+                    commitMode="debounce"
                     placeholder="Digite centro, distribuidor, produto, usuario ou requisicao"
                   />
                 </label>
@@ -47414,9 +47479,10 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                   </label>
                   <label className="field company-field-wide">
                     <span>Buscar producao</span>
-                    <input
+                    <NormalizedTextInput
                       value={productionSearch}
-                      onChange={(event) => setProductionSearch(event.target.value.toLocaleUpperCase('pt-BR'))}
+                      onChange={setProductionSearch}
+                      commitMode="debounce"
                       placeholder="Digite nome, ID, familia ou status"
                     />
                   </label>
@@ -47650,9 +47716,10 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
               ) : null}
               <label className="field search-field report-search-field">
                 <span>Buscar no relatorio</span>
-                <input
+                <NormalizedTextInput
                   value={stockReportSearch}
-                  onChange={(event) => setStockReportSearch(event.target.value.toLocaleUpperCase('pt-BR'))}
+                  onChange={setStockReportSearch}
+                  commitMode="debounce"
                   placeholder="Digite item, centro, familia, status ou usuario"
                 />
               </label>
@@ -47943,9 +48010,10 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
             <div className="report-search-row">
               <label className="field search-field report-search-field">
                 <span>Buscar</span>
-                <input
+                <NormalizedTextInput
                   value={auditLogSearch}
-                  onChange={(event) => setAuditLogSearch(event.target.value.toLocaleUpperCase('pt-BR'))}
+                  onChange={setAuditLogSearch}
+                  commitMode="debounce"
                   placeholder="Busque usuario, modulo, acao, alvo ou resumo"
                 />
               </label>
@@ -50050,9 +50118,10 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
 
                   <label className="field search-field">
                     <span>Buscar item</span>
-                    <input
+                    <NormalizedTextInput
                       value={purchaseSupplyDraftSearch}
-                      onChange={(event) => setPurchaseSupplyDraftSearch(event.target.value.toLocaleUpperCase('pt-BR'))}
+                      onChange={setPurchaseSupplyDraftSearch}
+                      commitMode="debounce"
                       placeholder="Digite item, tipo, familia ou quantidade"
                     />
                   </label>
@@ -52572,9 +52641,10 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
             <div className="list-toolbar">
               <label className="field search-field">
                 <span>Buscar no resumo do inventario</span>
-                <input
+                <NormalizedTextInput
                   value={inventorySummarySearch}
-                  onChange={(event) => setInventorySummarySearch(event.target.value)}
+                  onChange={setInventorySummarySearch}
+                  commitMode="debounce"
                   placeholder="Busque por item, local, embalagem/recipiente, tipo ou usuario"
                 />
               </label>
@@ -52848,9 +52918,10 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
             <div className="list-toolbar">
               <label className="field search-field">
                 <span>Buscar produto</span>
-                <input
+                <NormalizedTextInput
                   value={inventoryReviewSearch}
-                  onChange={(event) => setInventoryReviewSearch(event.target.value)}
+                  onChange={setInventoryReviewSearch}
+                  commitMode="debounce"
                   placeholder="Busque por produto, IDs, familia, tipo ou status"
                 />
               </label>

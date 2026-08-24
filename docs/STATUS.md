@@ -262,6 +262,29 @@ Registrar em que pe o sistema esta hoje, por area, para consulta rapida antes de
   - criar `UserCompanyMembership`
   - guardar `accessProfileId` por empresa
   - guardar `sectors` por empresa
+## 2026-08-24
+
+- Nova rodada estrutural de performance iniciada por causa de lentidao persistente em digitacao, buscas e formularios.
+- Tentativa de correcoes locais em inputs foi descartada: nao houve melhora perceptivel e o ponteiro de digitacao continuou indo para o fim do texto.
+- Codigo voltou ao baseline anterior; a tentativa descartada ficou arquivada em `backups/refactor-input-buffer-attempt-20260824/failed-input-buffer-attempt.patch`.
+- Backup completo online concluido antes de mexer no `App.tsx`:
+  - `backups/full-server-backup-20260824T205650Z`
+  - `backups/full-server-backup-20260824T205650Z/manifest.json`
+- Mapa funcional/regressao criado:
+  - `docs/STRUCTURAL_MAP_2026-08-24.md`
+- Estado de decisao:
+  - seguir com modularizacao do `App.tsx`;
+  - nao alterar backend, APIs, persistencia, sincronizacao ou modelo de dados nesta rodada;
+  - validar offline antes de qualquer deploy online.
+- Primeira subfase concluida:
+  - `src/components/NormalizedTextField.tsx` extraido;
+  - buscas principais usam commit com debounce;
+  - campos centrais de Produto, Item e Ficha Tecnica usam estado local e commit em `blur`/Enter;
+  - `npm run build` aprovado.
+- Proximo passo recomendado:
+  - testar digitacao no offline;
+  - se ainda houver lentidao perceptivel, extrair paineis inteiros de cadastro/tabela para reduzir a arvore renderizada pelo `App.tsx`.
+
   - manter login unico e escolha de empresa apos o login
   - carregar permissoes efetivas a partir da empresa ativa, nao do usuario global
 - Implementar compartilhamento simplificado de cadastro entre empresas vinculadas:

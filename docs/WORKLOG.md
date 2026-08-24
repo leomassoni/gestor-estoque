@@ -1,10 +1,47 @@
 # Worklog
 
- Ultima atualizacao: 2026-08-17
+ Ultima atualizacao: 2026-08-24
 
 ## Objetivo deste arquivo
 
 Registrar um historico resumido do que foi feito, do que falhou e do que ficou pendente.
+
+## 2026-08-24
+
+### Preparacao para nova quebra do App.tsx
+
+- Criado backup completo do servidor antes da nova rodada estrutural:
+  - [`backups/full-server-backup-20260824T205650Z`](/home/leomassoni/Documentos/Igarapé/Projetos/TCC-SP/gestor-estoque/backups/full-server-backup-20260824T205650Z)
+  - manifesto em [`backups/full-server-backup-20260824T205650Z/manifest.json`](/home/leomassoni/Documentos/Igarapé/Projetos/TCC-SP/gestor-estoque/backups/full-server-backup-20260824T205650Z/manifest.json)
+- Criado mapa funcional de risco para a modularizacao:
+  - [`docs/STRUCTURAL_MAP_2026-08-24.md`](/home/leomassoni/Documentos/Igarapé/Projetos/TCC-SP/gestor-estoque/docs/STRUCTURAL_MAP_2026-08-24.md)
+- A tentativa de resolver a lentidao apenas com buffer/caret em campos de texto nao melhorou a experiencia reportada pelo usuario.
+- A tentativa foi revertida do codigo e preservada apenas como patch de referencia:
+  - [`backups/refactor-input-buffer-attempt-20260824/failed-input-buffer-attempt.patch`](/home/leomassoni/Documentos/Igarapé/Projetos/TCC-SP/gestor-estoque/backups/refactor-input-buffer-attempt-20260824/failed-input-buffer-attempt.patch)
+- Diagnostico atual:
+  - o gargalo principal continua sendo estrutural;
+  - o `App.tsx` grande demais causa re-render caro em digitacao, busca e formularios;
+  - o servidor local confirmou aviso do Babel para `src/App.tsx` acima de 500KB.
+- Decisao operacional:
+  - nao subir deploy online durante esta refatoracao;
+  - manter o online como esta ate validar offline os fluxos do mapa;
+  - iniciar a quebra por componentes/telas com menor risco, sem alterar persistencia, endpoints, sincronizacao ou modelo de dados.
+
+### Primeira extracao de input normalizado
+
+- Criado componente isolado [`src/components/NormalizedTextField.tsx`](/home/leomassoni/Documentos/Igarapé/Projetos/TCC-SP/gestor-estoque/src/components/NormalizedTextField.tsx).
+- O componente mantem rascunho local durante a digitacao, preserva a selecao/cursor apos normalizar texto e permite tres modos de commit:
+  - imediato;
+  - debounce para buscas;
+  - `blur`/Enter para campos de cadastro.
+- Aplicado nos principais campos de busca de listas/tabelas e em campos centrais de Produto, Item e Ficha Tecnica.
+- Campos decimais usam normalizador proprio para preservar virgula, ponto e sinal.
+- Textareas de ficha tecnica usam normalizacao de texto livre para preservar pontuacao e quebras de linha.
+- Validacao executada:
+  - `npm run build`
+- Resultado:
+  - build aprovado;
+  - chunk principal ainda grande, entao a rodada deve continuar com extracao de telas/paineis e calculos pesados.
 
 ## 2026-08-17
 

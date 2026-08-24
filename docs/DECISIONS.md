@@ -502,6 +502,23 @@ Registrar o que foi decidido, o que foi adiado e o que foi descartado, com foco 
 ### Correcao operacional precisa ser validada na tela do fluxo
 
 - Problema: build e simulacao de dados nao bastam para provar que um fluxo operacional foi corrigido para o usuario.
+## 2026-08-24
+
+### Lentidao de digitacao deve ser tratada por modularizacao estrutural
+
+- Decisao: nao insistir em correcoes pontuais de input enquanto `App.tsx` continuar concentrando a maior parte da tela, filtros, formularios e calculos derivados.
+- Motivo:
+  - a tentativa com buffer/caret nao melhorou a experiencia de digitacao;
+  - o ponteiro continuou sendo jogado para o fim do texto;
+  - o custo de re-render do componente raiz segue alto;
+  - o Babel confirmou desotimizacao por tamanho de `src/App.tsx` acima de 500KB.
+- Regra para a rodada:
+  - usar `backups/full-server-backup-20260824T205650Z` como ponto seguro de dados;
+  - usar `docs/STRUCTURAL_MAP_2026-08-24.md` como checklist de regressao;
+  - nao mexer em persistencia, endpoints, sync ou modelo de dados;
+  - extrair telas/componentes/hooks em blocos pequenos, validando build entre blocos;
+  - manter o online sem deploy ate teste offline dos fluxos criticos.
+
 - Regra extraida:
   - validar pelo menos um caso real no navegador quando a mudanca afetar tela operacional;
   - para `Entrada de producoes`, validar centro produtor, resumo da fila, paginacao, item dependente acessivel na pagina correta ou por busca e dados carregados de producoes/requisicoes;
