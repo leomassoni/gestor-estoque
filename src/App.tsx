@@ -1628,6 +1628,8 @@ const defaultColumnFilters: Partial<Record<ColumnKey, string[]>> = {
   status: ['Ativo'],
 }
 
+type TechnicalSheetIngredientSearchMode = 'direct' | 'expanded'
+
 const technicalSheetColumnOptions: Array<[TechnicalSheetColumnKey, string]> = [
   ['product', 'Produto'],
   ['internalId', 'ID interno'],
@@ -2310,6 +2312,7 @@ export default function App() {
   const productListId = useId()
   const serviceItemListId = useId()
   const technicalSheetListId = useId()
+  const technicalSheetIngredientListId = useId()
   const recipePanelListId = useId()
   const technicalSheetProductListId = useId()
   const technicalSheetServiceItemListId = useId()
@@ -2433,6 +2436,9 @@ export default function App() {
   const [recipePanelFullSheet, setRecipePanelFullSheet] = useState<TechnicalSheetRecord | null>(null)
   const [technicalSheetFlavorProfileInput, setTechnicalSheetFlavorProfileInput] = useState('')
   const [technicalSheetSearch, setTechnicalSheetSearch] = useState('')
+  const [technicalSheetIngredientSearch, setTechnicalSheetIngredientSearch] = useState('')
+  const [technicalSheetIngredientSearchMode, setTechnicalSheetIngredientSearchMode] =
+    useState<TechnicalSheetIngredientSearchMode>('expanded')
   const [stockCenters, setStockCenters] = useState<StockCenterRecord[]>(() => loadStockCentersState())
   const [requisitions, setRequisitions] = useState<RequisitionRecord[]>(() => loadRequisitionsState())
   const [requisitionNotifications, setRequisitionNotifications] = useState<RequisitionNotificationRecord[]>(
@@ -14842,7 +14848,7 @@ export default function App() {
     () => itemColumnOptions.filter(([key]) => !itemColumnVisibility[key]),
     [itemColumnVisibility],
   )
-  const visibleTechnicalSheets = useMemo(
+  const technicalSheetScopeSheets = useMemo(
     () =>
       technicalSheets.filter((sheet) => {
         if (!isTechnicalSheetVisibleForCompany(sheet, currentCompanyId)) {
@@ -14852,6 +14858,13 @@ export default function App() {
           return false
         }
 
+        return true
+      }),
+    [currentCompanyId, currentUserSectorScope, isTechnicalSheetVisibleForCompany, shouldFilterByUserSectors, technicalSheets],
+  )
+  const visibleTechnicalSheets = useMemo(
+    () =>
+      technicalSheetScopeSheets.filter((sheet) => {
         if (technicalSheetSearch.trim() === '') {
           return true
         }
@@ -14863,28 +14876,144 @@ export default function App() {
           getTechnicalSheetCompanyProductId(sheet, currentCompanyId).toLowerCase().includes(search)
         )
       }),
-    [currentCompanyId, currentUserSectorScope, isTechnicalSheetVisibleForCompany, shouldFilterByUserSectors, technicalSheetSearch, technicalSheets],
+    [currentCompanyId, technicalSheetScopeSheets, technicalSheetSearch],
   )
   const technicalSheetSuggestions = useMemo(
     () =>
       Array.from(
         new Set(
-          technicalSheets
-            .filter(
-              (sheet) =>
-                isTechnicalSheetVisibleForCompany(sheet, currentCompanyId) &&
-                (!shouldFilterByUserSectors || hasSectorOverlap(sheet.sectors, currentUserSectorScope)),
-            )
-            .map((sheet) => sheet.name),
+          technicalSheetScopeSheets.map((sheet) => sheet.name),
         ),
       ).sort((a, b) => a.localeCompare(b, 'pt-BR')),
-    [currentCompanyId, currentUserSectorScope, isTechnicalSheetVisibleForCompany, shouldFilterByUserSectors, technicalSheets],
+    [technicalSheetScopeSheets],
   )
+  const technicalSheetIngredientSuggestions = useMemo(() => {
+    const ingredientProductIds = new Set<string>()
+    const labels: string[] = []
+
+    technicalSheetScopeSheets.forEach((sheet) => {
+      ;[...sheet.ingredients, ...sheet.garnishIngredients]
+        .filter((ingredient) => ingredient.isActive && ingredient.productId.trim() !== '')
+        .forEach((ingredient) => {
+          ingredientProductIds.add(ingredient.productId)
+          labels.push(ingredient.productLabel)
+        })
+    })
+
+    products
+      .filter((product) => ingredientProductIds.has(product.id) && isProductVisibleForCompany(product, currentCompanyId))
+      .forEach((product) => {
+        labels.push(product.name, product.id, product.companyProductId)
+      })
+
+    technicalSheetScopeSheets
+      .filter((sheet) => ingredientProductIds.has(sheet.productId))
+      .forEach((sheet) => {
+        labels.push(sheet.name, sheet.productId, getTechnicalSheetCompanyProductId(sheet, currentCompanyId))
+      })
+
+    return normalizeSuggestionSet(labels)
+  }, [currentCompanyId, isProductVisibleForCompany, products, technicalSheetScopeSheets])
+  const technicalSheetIngredientMatchPaths = useMemo(() => {
+    const search = normalizeFreeText(technicalSheetIngredientSearch)
+    const matches = new Map<number, string>()
+    if (search.trim() === '') {
+      return matches
+    }
+
+    const productsById = new Map(products.map((product) => [product.id, product] as const))
+    const sheetsByProductId = new Map<string, TechnicalSheetRecord[]>()
+    technicalSheetScopeSheets.forEach((sheet) => {
+      if (sheet.productId.trim() === '') {
+        return
+      }
+      const current = sheetsByProductId.get(sheet.productId) ?? []
+      sheetsByProductId.set(sheet.productId, [...current, sheet])
+    })
+
+    const getIngredientDisplayLabel = (ingredient: TechnicalSheetIngredient) => {
+      const linkedProduct = productsById.get(ingredient.productId) ?? null
+      const linkedSheet = sheetsByProductId.get(ingredient.productId)?.[0] ?? null
+      return ingredient.productLabel || linkedProduct?.name || linkedSheet?.name || ingredient.productId
+    }
+    const ingredientMatchesSearch = (ingredient: TechnicalSheetIngredient) => {
+      const linkedProduct = productsById.get(ingredient.productId) ?? null
+      const linkedSheets = sheetsByProductId.get(ingredient.productId) ?? []
+      const values = [
+        ingredient.productLabel,
+        ingredient.productId,
+        linkedProduct?.name ?? '',
+        linkedProduct?.id ?? '',
+        linkedProduct?.companyProductId ?? '',
+        ...linkedSheets.flatMap((sheet) => [
+          sheet.name,
+          sheet.productId,
+          getTechnicalSheetCompanyProductId(sheet, currentCompanyId),
+        ]),
+      ]
+
+      return values.some((value) => normalizeFreeText(value).includes(search))
+    }
+    const findIngredientPath = (sheet: TechnicalSheetRecord, visitedSheetIds: Set<number>): string | null => {
+      if (visitedSheetIds.has(sheet.id)) {
+        return null
+      }
+      visitedSheetIds.add(sheet.id)
+
+      const ingredients = [...sheet.ingredients, ...sheet.garnishIngredients].filter((ingredient) => ingredient.isActive)
+      for (const ingredient of ingredients) {
+        const displayLabel = getIngredientDisplayLabel(ingredient)
+        if (ingredientMatchesSearch(ingredient)) {
+          return displayLabel
+        }
+        if (technicalSheetIngredientSearchMode !== 'expanded') {
+          continue
+        }
+
+        const dependencySheets = sheetsByProductId.get(ingredient.productId) ?? []
+        for (const dependencySheet of dependencySheets) {
+          const dependencyPath = findIngredientPath(dependencySheet, new Set(visitedSheetIds))
+          if (dependencyPath) {
+            return `${displayLabel} > ${dependencyPath}`
+          }
+        }
+      }
+
+      return null
+    }
+
+    technicalSheetScopeSheets.forEach((sheet) => {
+      const path = findIngredientPath(sheet, new Set<number>())
+      if (path) {
+        matches.set(sheet.id, path)
+      }
+    })
+
+    return matches
+  }, [
+    currentCompanyId,
+    products,
+    technicalSheetIngredientSearch,
+    technicalSheetIngredientSearchMode,
+    technicalSheetScopeSheets,
+  ])
+  const hasTechnicalSheetIngredientSearch = normalizeFreeText(technicalSheetIngredientSearch).trim() !== ''
+  const technicalSheetIngredientSearchResultCount = hasTechnicalSheetIngredientSearch
+    ? visibleTechnicalSheets.filter((sheet) => technicalSheetIngredientMatchPaths.has(sheet.id)).length
+    : visibleTechnicalSheets.length
+  const technicalSheetIngredientSearchSummary =
+    hasTechnicalSheetIngredientSearch
+      ? `${technicalSheetIngredientSearchResultCount} ficha(s) encontradas por insumo`
+      : ''
   const visibleTechnicalSheetsFiltered = useMemo(
     () =>
       sortRecordsByColumn(
-        visibleTechnicalSheets.filter((sheet) =>
-          Object.entries(technicalSheetColumnFilters).every(([rawKey, selectedValues]) => {
+        visibleTechnicalSheets.filter((sheet) => {
+          if (hasTechnicalSheetIngredientSearch && !technicalSheetIngredientMatchPaths.has(sheet.id)) {
+            return false
+          }
+
+          return Object.entries(technicalSheetColumnFilters).every(([rawKey, selectedValues]) => {
             if (!selectedValues || selectedValues.length === 0) {
               return true
             }
@@ -14904,8 +15033,8 @@ export default function App() {
                 currentCompanyCostContext,
               ),
             )
-          }),
-        ),
+          })
+        }),
         technicalSheetColumnSort,
         (sheet, key) =>
           getTechnicalSheetSortValue(
@@ -14922,11 +15051,13 @@ export default function App() {
     [
       companies,
       currentCompanyCostContext,
+      hasTechnicalSheetIngredientSearch,
       products,
       serviceItems,
       stockCenters,
       technicalSheetColumnFilters,
       technicalSheetColumnSort,
+      technicalSheetIngredientMatchPaths,
       technicalSheets,
       visibleTechnicalSheets,
     ],
@@ -15910,6 +16041,8 @@ export default function App() {
   useEffect(() => {
     const state = loadTechnicalSheetListViewState()
     setTechnicalSheetSearch(state.search)
+    setTechnicalSheetIngredientSearch(state.ingredientSearch)
+    setTechnicalSheetIngredientSearchMode(state.ingredientSearchMode)
     setTechnicalSheetColumnVisibility(state.columnVisibility)
     setTechnicalSheetColumnFilters(state.columnFilters)
     setTechnicalSheetColumnSort(state.columnSort)
@@ -15937,12 +16070,22 @@ export default function App() {
   useEffect(() => {
     saveTechnicalSheetListViewState({
       search: technicalSheetSearch,
+      ingredientSearch: technicalSheetIngredientSearch,
+      ingredientSearchMode: technicalSheetIngredientSearchMode,
       columnVisibility: technicalSheetColumnVisibility,
       columnFilters: technicalSheetColumnFilters,
       columnSort: technicalSheetColumnSort,
       columnOrder: technicalSheetColumnOrder,
     })
-  }, [technicalSheetColumnFilters, technicalSheetColumnOrder, technicalSheetColumnSort, technicalSheetColumnVisibility, technicalSheetSearch])
+  }, [
+    technicalSheetColumnFilters,
+    technicalSheetColumnOrder,
+    technicalSheetColumnSort,
+    technicalSheetColumnVisibility,
+    technicalSheetIngredientSearch,
+    technicalSheetIngredientSearchMode,
+    technicalSheetSearch,
+  ])
 
   useEffect(() => {
     saveAuthState({
@@ -40957,7 +41100,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
               </div>
             </div>
 
-            <div className="list-toolbar">
+            <div className="list-toolbar technical-sheet-list-toolbar">
               <label className="field search-field">
                 <span>Pesquisar ficha tecnica</span>
                 <input
@@ -40972,7 +41115,38 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                   ))}
                 </datalist>
               </label>
+              <label className="field search-field">
+                <span>Buscar por insumo</span>
+                <input
+                  list={technicalSheetIngredientListId}
+                  value={technicalSheetIngredientSearch}
+                  onChange={(event) => setTechnicalSheetIngredientSearch(event.target.value)}
+                  placeholder="Busque um ingrediente ou pre-preparo usado"
+                />
+                <datalist id={technicalSheetIngredientListId}>
+                  {technicalSheetIngredientSuggestions.map((item) => (
+                    <option key={item} value={item} />
+                  ))}
+                </datalist>
+              </label>
+              <label className="field technical-sheet-ingredient-search-mode">
+                <span>Alcance do insumo</span>
+                <select
+                  value={technicalSheetIngredientSearchMode}
+                  onChange={(event) =>
+                    setTechnicalSheetIngredientSearchMode(event.target.value as TechnicalSheetIngredientSearchMode)
+                  }
+                >
+                  <option value="expanded">Inclui subfichas</option>
+                  <option value="direct">Somente direto</option>
+                </select>
+              </label>
             </div>
+            {technicalSheetIngredientSearchSummary ? (
+              <div className="list-summary-row">
+                <span>{technicalSheetIngredientSearchSummary}</span>
+              </div>
+            ) : null}
 
             {hiddenTechnicalSheetColumns.length > 0 ? (
               <div className="hidden-columns">
@@ -41070,9 +41244,15 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                         <tr key={sheet.id}>
                           {orderedVisibleTechnicalSheetColumns.map((key) => {
                             if (key === 'product') {
+                              const ingredientMatchPath = technicalSheetIngredientMatchPaths.get(sheet.id) ?? ''
                               return (
                                 <td key={`${sheet.id}-${key}`} className="sticky-product-cell">
                                   <strong>{sheet.name}</strong>
+                                  {hasTechnicalSheetIngredientSearch && ingredientMatchPath ? (
+                                    <span className="technical-sheet-ingredient-match">
+                                      Insumo: {ingredientMatchPath}
+                                    </span>
+                                  ) : null}
                                 </td>
                               )
                             }
@@ -54542,6 +54722,8 @@ function loadItemListViewState(): {
 
 function loadTechnicalSheetListViewState(): {
   search: string
+  ingredientSearch: string
+  ingredientSearchMode: TechnicalSheetIngredientSearchMode
   columnVisibility: Record<TechnicalSheetColumnKey, boolean>
   columnFilters: Partial<Record<TechnicalSheetColumnKey, string[]>>
   columnSort: ColumnSort<TechnicalSheetColumnKey> | null
@@ -54550,6 +54732,8 @@ function loadTechnicalSheetListViewState(): {
   if (typeof window === 'undefined') {
     return {
       search: '',
+      ingredientSearch: '',
+      ingredientSearchMode: 'expanded',
       columnVisibility: defaultTechnicalSheetColumnVisibility,
       columnFilters: defaultTechnicalSheetColumnFilters,
       columnSort: null,
@@ -54562,6 +54746,8 @@ function loadTechnicalSheetListViewState(): {
     if (!raw) {
       return {
         search: '',
+        ingredientSearch: '',
+        ingredientSearchMode: 'expanded',
         columnVisibility: defaultTechnicalSheetColumnVisibility,
         columnFilters: defaultTechnicalSheetColumnFilters,
         columnSort: null,
@@ -54571,6 +54757,8 @@ function loadTechnicalSheetListViewState(): {
 
     const parsed = JSON.parse(raw) as Partial<{
       search: unknown
+      ingredientSearch: unknown
+      ingredientSearchMode: unknown
       columnVisibility: Partial<Record<TechnicalSheetColumnKey, unknown>>
       columnFilters: Partial<Record<TechnicalSheetColumnKey, unknown>>
       columnSort: Partial<Record<'key' | 'direction', unknown>>
@@ -54579,6 +54767,8 @@ function loadTechnicalSheetListViewState(): {
 
     return {
       search: typeof parsed.search === 'string' ? parsed.search : '',
+      ingredientSearch: typeof parsed.ingredientSearch === 'string' ? parsed.ingredientSearch : '',
+      ingredientSearchMode: sanitizeTechnicalSheetIngredientSearchMode(parsed.ingredientSearchMode),
       columnVisibility: sanitizeTechnicalSheetColumnVisibility(parsed.columnVisibility),
       columnFilters: sanitizeTechnicalSheetColumnFilters(parsed.columnFilters),
       columnSort: sanitizeTechnicalSheetColumnSort(parsed.columnSort),
@@ -54587,6 +54777,8 @@ function loadTechnicalSheetListViewState(): {
   } catch {
     return {
       search: '',
+      ingredientSearch: '',
+      ingredientSearchMode: 'expanded',
       columnVisibility: defaultTechnicalSheetColumnVisibility,
       columnFilters: defaultTechnicalSheetColumnFilters,
       columnSort: null,
@@ -54631,6 +54823,8 @@ function saveItemListViewState(state: {
 
 function saveTechnicalSheetListViewState(state: {
   search: string
+  ingredientSearch: string
+  ingredientSearchMode: TechnicalSheetIngredientSearchMode
   columnVisibility: Record<TechnicalSheetColumnKey, boolean>
   columnFilters: Partial<Record<TechnicalSheetColumnKey, string[]>>
   columnSort: ColumnSort<TechnicalSheetColumnKey> | null
@@ -54645,6 +54839,10 @@ function saveTechnicalSheetListViewState(state: {
   } catch {
     return
   }
+}
+
+function sanitizeTechnicalSheetIngredientSearchMode(value: unknown): TechnicalSheetIngredientSearchMode {
+  return value === 'direct' ? 'direct' : 'expanded'
 }
 
 function sanitizeTechnicalSheetColumnOrder(value: unknown): TechnicalSheetColumnKey[] {

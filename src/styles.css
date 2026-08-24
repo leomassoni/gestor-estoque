@@ -799,8 +799,28 @@ h3 {
   margin-top: 20px;
 }
 
+.technical-sheet-list-toolbar {
+  display: grid;
+  grid-template-columns: minmax(220px, 520px) minmax(220px, 520px) minmax(160px, 220px);
+  gap: 16px;
+  align-items: end;
+}
+
 .search-field {
   max-width: 520px;
+}
+
+.technical-sheet-ingredient-search-mode {
+  max-width: 220px;
+}
+
+.technical-sheet-ingredient-match {
+  display: block;
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 500;
+  line-height: 1.3;
 }
 
 .report-filter-grid {
@@ -3475,6 +3495,10 @@ h3 {
   }
 
   .report-filter-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .technical-sheet-list-toolbar {
     grid-template-columns: 1fr;
   }
 
