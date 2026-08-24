@@ -743,7 +743,13 @@ function formatPurchaseDemandPackageLabel(row: PurchaseDemandRow) {
   return row.packageBaseQuantity !== null && row.packageBaseQuantity > 0 && row.packageLabel ? row.packageLabel : '-'
 }
 function roundOperationalPackageQuantity(quantity: number) {
-  return Math.max(Math.round(quantity), 0)
+  if (quantity <= 0) {
+    return 0
+  }
+
+  const floorQuantity = Math.floor(quantity)
+  const fraction = quantity - floorQuantity
+  return floorQuantity + (fraction > 0.4 ? 1 : 0)
 }
 function formatOperationalPackageQuantity(quantity: number) {
   return formatEditableDecimal(roundOperationalPackageQuantity(quantity))
@@ -21629,7 +21635,9 @@ export default function App() {
               })
             : null
         const effectiveMinimumStock = minimumStock ?? productUnitMinimumStock
-        const isProductPackageRow = row.kind === 'PRODUTO' && row.packageId !== null && row.baseQuantity > 0
+        const shouldRoundOperationalRow =
+          (row.kind === 'PRODUTO' && row.packageId !== null && row.baseQuantity > 0) ||
+          (row.kind === 'PREPARO' && row.baseQuantity > 0)
         const getProductPackageMinimumQuantity = (entry: StockCenterMinimumStock | null, rawQuantity: string) => {
           if (!entry || !rawQuantity.trim()) {
             return 0
@@ -21639,7 +21647,7 @@ export default function App() {
           }
           return (parseDecimal(rawQuantity) ?? 0) / row.baseQuantity
         }
-        const manualUseMinimum = isProductPackageRow
+        const manualUseMinimum = row.kind === 'PRODUTO' && row.packageId !== null
           ? getProductPackageMinimumQuantity(
               effectiveMinimumStock,
               effectiveMinimumStock && effectiveMinimumStock.minimumSource !== 'SUGERIDO_VENDAS'
@@ -21647,10 +21655,10 @@ export default function App() {
                 : '',
             )
           : getMinimumUseQuantityValue(effectiveMinimumStock)
-        const suggestedRealMinimum = isProductPackageRow
+        const suggestedRealMinimum = row.kind === 'PRODUTO' && row.packageId !== null
           ? getProductPackageMinimumQuantity(effectiveMinimumStock, getRealMinimumQuantityText(effectiveMinimumStock))
           : (parseDecimal(effectiveMinimumStock?.suggestedMinimumQuantity ?? '') ?? 0)
-        const targetRowQuantity = isProductPackageRow
+        const targetRowQuantity = shouldRoundOperationalRow
           ? roundOperationalPackageQuantity(manualUseMinimum + suggestedRealMinimum)
           : manualUseMinimum + suggestedRealMinimum
         const requiredBaseQuantity = targetRowQuantity * row.baseQuantity
@@ -21664,7 +21672,7 @@ export default function App() {
             }),
           ) ?? 0
         const currentRowQuantity = row.baseQuantity > 0 ? currentBaseQuantity / row.baseQuantity : currentBaseQuantity
-        const suggestedQuantity = isProductPackageRow
+        const suggestedQuantity = shouldRoundOperationalRow
           ? roundOperationalPackageQuantity(Math.max(targetRowQuantity - currentRowQuantity, 0))
           : row.baseQuantity > 0
             ? Math.max(requiredBaseQuantity - currentBaseQuantity, 0) / row.baseQuantity
@@ -21719,18 +21727,18 @@ export default function App() {
           itemName: row.name,
           itemTypeLabel: row.typeLabel,
           family: row.family,
-          suggestedQuantity: isProductPackageRow ? formatOperationalPackageQuantity(suggestedQuantity) : formatDecimal(suggestedQuantity),
-          requestedQuantity: isProductPackageRow ? formatOperationalPackageQuantity(suggestedQuantity) : formatDecimal(suggestedQuantity),
+          suggestedQuantity: shouldRoundOperationalRow ? formatOperationalPackageQuantity(suggestedQuantity) : formatDecimal(suggestedQuantity),
+          requestedQuantity: shouldRoundOperationalRow ? formatOperationalPackageQuantity(suggestedQuantity) : formatDecimal(suggestedQuantity),
           requestUnitLabel: getRequisitionRequestUnitLabel(row),
-          currentQuantity: isProductPackageRow ? formatEditableDecimal(currentRowQuantity) : formatDecimal(currentRowQuantity),
+          currentQuantity: shouldRoundOperationalRow ? formatEditableDecimal(currentRowQuantity) : formatDecimal(currentRowQuantity),
           currentUnitLabel:
             row.kind === 'PREPARO'
               ? getRequisitionRequestUnitLabel(row)
-              : isProductPackageRow
+              : shouldRoundOperationalRow
                 ? packageUnitLabel
                 : formatControlUnitShort(row.baseUnit),
           minimumDefinitionLabel:
-            isProductPackageRow
+            shouldRoundOperationalRow
               ? `${formatOperationalPackageQuantity(targetRowQuantity)} x ${packageUnitLabel}`
               : [
                   manualUseMinimum > 0
@@ -25361,7 +25369,10 @@ export default function App() {
     return availableByAggregationKey
   }
 
-  function isProductPackageRequisitionLine(line: Pick<RequisitionLineRecord, 'kind' | 'productId' | 'packageId' | 'requestUnitLabel'>) {
+  function isRoundedOperationalRequisitionLine(line: Pick<RequisitionLineRecord, 'kind' | 'productId' | 'packageId' | 'requestUnitLabel'>) {
+    if (line.kind === 'PREPARO') {
+      return true
+    }
     if (line.kind !== 'PRODUTO') {
       return false
     }
@@ -25373,8 +25384,8 @@ export default function App() {
     return Boolean(product?.packages.some((item) => item.isActive)) && normalizeFreeText(line.requestUnitLabel) === 'EMBALAGENS'
   }
 
-  function roundProductPackageRequisitionQuantity(line: RequisitionLineRecord, value: string) {
-    if (!isProductPackageRequisitionLine(line)) {
+  function roundOperationalRequisitionQuantity(line: RequisitionLineRecord, value: string) {
+    if (!isRoundedOperationalRequisitionLine(line)) {
       return value
     }
     if (value.trim() === '') {
@@ -25385,14 +25396,14 @@ export default function App() {
   }
 
   function normalizeProductPackageRequisitionLine<T extends RequisitionLineRecord>(line: T): T {
-    if (!isProductPackageRequisitionLine(line)) {
+    if (!isRoundedOperationalRequisitionLine(line)) {
       return line
     }
 
     return {
       ...line,
-      suggestedQuantity: roundProductPackageRequisitionQuantity(line, line.suggestedQuantity),
-      requestedQuantity: roundProductPackageRequisitionQuantity(line, line.requestedQuantity),
+      suggestedQuantity: roundOperationalRequisitionQuantity(line, line.suggestedQuantity),
+      requestedQuantity: roundOperationalRequisitionQuantity(line, line.requestedQuantity),
     }
   }
 
@@ -53633,7 +53644,7 @@ function formatRequisitionDraftColumnQuantity(
       : `${formatOperationalPackageQuantity(quantity)} x ${unitLabel}`
   }
   if (line.kind === 'PREPARO') {
-    return `${formatDecimal(quantity)} x ${unitLabel}`
+    return `${formatOperationalPackageQuantity(quantity)} x ${unitLabel}`
   }
   return `${formatDecimal(quantity)} ${unitLabel}`
 }
