@@ -41171,76 +41171,76 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
               </div>
             ) : null}
 
-            {visibleTechnicalSheetsFiltered.length > 0 ? (
-              <div className="table-wrap">
-                <table className="product-table">
-                  <thead>
-                    <tr>
-                      {orderedVisibleTechnicalSheetColumns.map((key) =>
-                        renderTechnicalSheetColumnHeader(
-                          key,
-                          technicalSheetColumnOptions.find(([optionKey]) => optionKey === key)?.[1] ?? key,
-                          openTechnicalSheetColumnMenu,
-                          setOpenTechnicalSheetColumnMenu,
-                          technicalSheetColumnFilters,
-                          distinctTechnicalSheetColumnValues,
-                          setTechnicalSheetColumnFilters,
-                          setTechnicalSheetColumnVisibility,
-                          technicalSheetColumnSort,
-                          setTechnicalSheetColumnSort,
-                          {
-                            draggable: key !== 'product',
-                            isDragging: draggedTechnicalSheetColumn === key,
-                            isDropTarget: technicalSheetColumnDropTarget === key,
-                            onDragStart: () => {
-                              if (key !== 'product') {
-                                setDraggedTechnicalSheetColumn(key)
-                                setTechnicalSheetColumnDropTarget(null)
-                              }
-                            },
-                            onDragEnd: () => {
-                              setDraggedTechnicalSheetColumn(null)
+            <div className="table-wrap">
+              <table className="product-table">
+                <thead>
+                  <tr>
+                    {orderedVisibleTechnicalSheetColumns.map((key) =>
+                      renderTechnicalSheetColumnHeader(
+                        key,
+                        technicalSheetColumnOptions.find(([optionKey]) => optionKey === key)?.[1] ?? key,
+                        openTechnicalSheetColumnMenu,
+                        setOpenTechnicalSheetColumnMenu,
+                        technicalSheetColumnFilters,
+                        distinctTechnicalSheetColumnValues,
+                        setTechnicalSheetColumnFilters,
+                        setTechnicalSheetColumnVisibility,
+                        technicalSheetColumnSort,
+                        setTechnicalSheetColumnSort,
+                        {
+                          draggable: key !== 'product',
+                          isDragging: draggedTechnicalSheetColumn === key,
+                          isDropTarget: technicalSheetColumnDropTarget === key,
+                          onDragStart: () => {
+                            if (key !== 'product') {
+                              setDraggedTechnicalSheetColumn(key)
                               setTechnicalSheetColumnDropTarget(null)
-                            },
-                            onDragOver: (event) => {
-                              if (key !== 'product' && draggedTechnicalSheetColumn && draggedTechnicalSheetColumn !== key) {
-                                event.preventDefault()
-                                setTechnicalSheetColumnDropTarget(key)
-                              }
-                            },
-                            onDragLeave: () => {
-                              if (technicalSheetColumnDropTarget === key) {
-                                setTechnicalSheetColumnDropTarget(null)
-                              }
-                            },
-                            onDrop: (event) => {
-                              event.preventDefault()
-                              if (!draggedTechnicalSheetColumn || draggedTechnicalSheetColumn === key || key === 'product') {
-                                setDraggedTechnicalSheetColumn(null)
-                                setTechnicalSheetColumnDropTarget(null)
-                                return
-                              }
-
-                              setTechnicalSheetColumnOrder((current) => {
-                                const next = current.filter((columnKey) => columnKey !== draggedTechnicalSheetColumn)
-                                const targetIndex = next.indexOf(key)
-                                if (targetIndex < 0) {
-                                  return current
-                                }
-                                next.splice(targetIndex, 0, draggedTechnicalSheetColumn)
-                                return next
-                              })
-                              setDraggedTechnicalSheetColumn(null)
-                              setTechnicalSheetColumnDropTarget(null)
-                            },
+                            }
                           },
-                        ),
-                      )}
-                      <th className="sticky-actions">Acoes</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {visibleTechnicalSheetsFiltered.map((sheet) => (
+                          onDragEnd: () => {
+                            setDraggedTechnicalSheetColumn(null)
+                            setTechnicalSheetColumnDropTarget(null)
+                          },
+                          onDragOver: (event) => {
+                            if (key !== 'product' && draggedTechnicalSheetColumn && draggedTechnicalSheetColumn !== key) {
+                              event.preventDefault()
+                              setTechnicalSheetColumnDropTarget(key)
+                            }
+                          },
+                          onDragLeave: () => {
+                            if (technicalSheetColumnDropTarget === key) {
+                              setTechnicalSheetColumnDropTarget(null)
+                            }
+                          },
+                          onDrop: (event) => {
+                            event.preventDefault()
+                            if (!draggedTechnicalSheetColumn || draggedTechnicalSheetColumn === key || key === 'product') {
+                              setDraggedTechnicalSheetColumn(null)
+                              setTechnicalSheetColumnDropTarget(null)
+                              return
+                            }
+
+                            setTechnicalSheetColumnOrder((current) => {
+                              const next = current.filter((columnKey) => columnKey !== draggedTechnicalSheetColumn)
+                              const targetIndex = next.indexOf(key)
+                              if (targetIndex < 0) {
+                                return current
+                              }
+                              next.splice(targetIndex, 0, draggedTechnicalSheetColumn)
+                              return next
+                            })
+                            setDraggedTechnicalSheetColumn(null)
+                            setTechnicalSheetColumnDropTarget(null)
+                          },
+                        },
+                      ),
+                    )}
+                    <th className="sticky-actions">Acoes</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {visibleTechnicalSheetsFiltered.length > 0 ? (
+                    visibleTechnicalSheetsFiltered.map((sheet) => (
                         <tr key={sheet.id}>
                           {orderedVisibleTechnicalSheetColumns.map((key) => {
                             if (key === 'product') {
@@ -41344,16 +41344,17 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                             </div>
                           </td>
                         </tr>
-                      ))}
-                  </tbody>
-                </table>
-              </div>
-            ) : (
-              <div className="empty-state">
-                <strong>Nenhuma ficha tecnica cadastrada.</strong>
-                <p>Cadastre o primeiro pre-preparo para gerar um novo insumo na lista de produtos.</p>
-              </div>
-            )}
+                      ))
+                  ) : (
+                    <tr>
+                      <td colSpan={orderedVisibleTechnicalSheetColumns.length + 1}>
+                        Nenhuma ficha tecnica encontrada com os filtros atuais.
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
           </section>
         ) : (
           <div className={getTechnicalSheetWorkspaceClassName(technicalSheetForm.kind)}>
@@ -44136,40 +44137,40 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                     </div>
                   ) : null}
 
-                  {visibleFilteredClosedInventoryRecords.length > 0 ? (
-                    <div
-                      className="table-wrap"
-                      onScroll={(event) => setRequisitionHistoryScrollTop(event.currentTarget.scrollTop)}
-                    >
-                      <table className="product-table">
-                        <thead>
-                          <tr>
-                            {closedInventoryColumnVisibility.id
-                              ? renderClosedInventoryColumnHeader('id', 'ID do inventario', openClosedInventoryColumnMenu, setOpenClosedInventoryColumnMenu, closedInventoryColumnFilters, distinctClosedInventoryColumnValues, setClosedInventoryColumnFilters, setClosedInventoryColumnVisibility, closedInventoryColumnSort, setClosedInventoryColumnSort)
-                              : null}
-                            {closedInventoryColumnVisibility.center
-                              ? renderClosedInventoryColumnHeader('center', 'Centro de estoque', openClosedInventoryColumnMenu, setOpenClosedInventoryColumnMenu, closedInventoryColumnFilters, distinctClosedInventoryColumnValues, setClosedInventoryColumnFilters, setClosedInventoryColumnVisibility, closedInventoryColumnSort, setClosedInventoryColumnSort)
-                              : null}
-                            {closedInventoryColumnVisibility.date
-                              ? renderClosedInventoryColumnHeader('date', 'Data', openClosedInventoryColumnMenu, setOpenClosedInventoryColumnMenu, closedInventoryColumnFilters, distinctClosedInventoryColumnValues, setClosedInventoryColumnFilters, setClosedInventoryColumnVisibility, closedInventoryColumnSort, setClosedInventoryColumnSort)
-                              : null}
-                            {closedInventoryColumnVisibility.startedBy
-                              ? renderClosedInventoryColumnHeader('startedBy', 'Aberto por', openClosedInventoryColumnMenu, setOpenClosedInventoryColumnMenu, closedInventoryColumnFilters, distinctClosedInventoryColumnValues, setClosedInventoryColumnFilters, setClosedInventoryColumnVisibility, closedInventoryColumnSort, setClosedInventoryColumnSort)
-                              : null}
-                            {closedInventoryColumnVisibility.closedBy
-                              ? renderClosedInventoryColumnHeader('closedBy', 'Fechado por', openClosedInventoryColumnMenu, setOpenClosedInventoryColumnMenu, closedInventoryColumnFilters, distinctClosedInventoryColumnValues, setClosedInventoryColumnFilters, setClosedInventoryColumnVisibility, closedInventoryColumnSort, setClosedInventoryColumnSort)
-                              : null}
-                            {closedInventoryColumnVisibility.startedAt
-                              ? renderClosedInventoryColumnHeader('startedAt', 'Inicio', openClosedInventoryColumnMenu, setOpenClosedInventoryColumnMenu, closedInventoryColumnFilters, distinctClosedInventoryColumnValues, setClosedInventoryColumnFilters, setClosedInventoryColumnVisibility, closedInventoryColumnSort, setClosedInventoryColumnSort)
-                              : null}
-                            {closedInventoryColumnVisibility.closedAt
-                              ? renderClosedInventoryColumnHeader('closedAt', 'Fechamento', openClosedInventoryColumnMenu, setOpenClosedInventoryColumnMenu, closedInventoryColumnFilters, distinctClosedInventoryColumnValues, setClosedInventoryColumnFilters, setClosedInventoryColumnVisibility, closedInventoryColumnSort, setClosedInventoryColumnSort)
-                              : null}
-                            <th className="sticky-actions">Acoes</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {visibleFilteredClosedInventoryRecords.map((inventoryRecord) => (
+                  <div
+                    className="table-wrap"
+                    onScroll={(event) => setRequisitionHistoryScrollTop(event.currentTarget.scrollTop)}
+                  >
+                    <table className="product-table">
+                      <thead>
+                        <tr>
+                          {closedInventoryColumnVisibility.id
+                            ? renderClosedInventoryColumnHeader('id', 'ID do inventario', openClosedInventoryColumnMenu, setOpenClosedInventoryColumnMenu, closedInventoryColumnFilters, distinctClosedInventoryColumnValues, setClosedInventoryColumnFilters, setClosedInventoryColumnVisibility, closedInventoryColumnSort, setClosedInventoryColumnSort)
+                            : null}
+                          {closedInventoryColumnVisibility.center
+                            ? renderClosedInventoryColumnHeader('center', 'Centro de estoque', openClosedInventoryColumnMenu, setOpenClosedInventoryColumnMenu, closedInventoryColumnFilters, distinctClosedInventoryColumnValues, setClosedInventoryColumnFilters, setClosedInventoryColumnVisibility, closedInventoryColumnSort, setClosedInventoryColumnSort)
+                            : null}
+                          {closedInventoryColumnVisibility.date
+                            ? renderClosedInventoryColumnHeader('date', 'Data', openClosedInventoryColumnMenu, setOpenClosedInventoryColumnMenu, closedInventoryColumnFilters, distinctClosedInventoryColumnValues, setClosedInventoryColumnFilters, setClosedInventoryColumnVisibility, closedInventoryColumnSort, setClosedInventoryColumnSort)
+                            : null}
+                          {closedInventoryColumnVisibility.startedBy
+                            ? renderClosedInventoryColumnHeader('startedBy', 'Aberto por', openClosedInventoryColumnMenu, setOpenClosedInventoryColumnMenu, closedInventoryColumnFilters, distinctClosedInventoryColumnValues, setClosedInventoryColumnFilters, setClosedInventoryColumnVisibility, closedInventoryColumnSort, setClosedInventoryColumnSort)
+                            : null}
+                          {closedInventoryColumnVisibility.closedBy
+                            ? renderClosedInventoryColumnHeader('closedBy', 'Fechado por', openClosedInventoryColumnMenu, setOpenClosedInventoryColumnMenu, closedInventoryColumnFilters, distinctClosedInventoryColumnValues, setClosedInventoryColumnFilters, setClosedInventoryColumnVisibility, closedInventoryColumnSort, setClosedInventoryColumnSort)
+                            : null}
+                          {closedInventoryColumnVisibility.startedAt
+                            ? renderClosedInventoryColumnHeader('startedAt', 'Inicio', openClosedInventoryColumnMenu, setOpenClosedInventoryColumnMenu, closedInventoryColumnFilters, distinctClosedInventoryColumnValues, setClosedInventoryColumnFilters, setClosedInventoryColumnVisibility, closedInventoryColumnSort, setClosedInventoryColumnSort)
+                            : null}
+                          {closedInventoryColumnVisibility.closedAt
+                            ? renderClosedInventoryColumnHeader('closedAt', 'Fechamento', openClosedInventoryColumnMenu, setOpenClosedInventoryColumnMenu, closedInventoryColumnFilters, distinctClosedInventoryColumnValues, setClosedInventoryColumnFilters, setClosedInventoryColumnVisibility, closedInventoryColumnSort, setClosedInventoryColumnSort)
+                            : null}
+                          <th className="sticky-actions">Acoes</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {visibleFilteredClosedInventoryRecords.length > 0 ? (
+                          visibleFilteredClosedInventoryRecords.map((inventoryRecord) => (
                             <tr key={`closed-inventory-${inventoryRecord.id}`}>
                               {closedInventoryColumnVisibility.id ? <td>{formatInventoryRecordCode(inventoryRecord.id)}</td> : null}
                               {closedInventoryColumnVisibility.center ? <td>{inventoryStockCenterNameById.get(inventoryRecord.stockCenterId) ?? `CENTRO ${inventoryRecord.stockCenterId}`}</td> : null}
@@ -44220,16 +44221,17 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                                 </div>
                               </td>
                             </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  ) : (
-                    <div className="empty-state empty-state-inline">
-                      <strong>Nenhum inventario encontrado para esse filtro.</strong>
-                      <p>Ajuste a busca ou os filtros para localizar o inventario fechado desejado.</p>
-                    </div>
-                  )}
+                          ))
+                        ) : (
+                          <tr>
+                            <td colSpan={Object.values(closedInventoryColumnVisibility).filter(Boolean).length + 1}>
+                              Nenhum inventario encontrado para esse filtro.
+                            </td>
+                          </tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
                 </>
               ) : (
                 <div className="empty-state">
@@ -44280,7 +44282,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                   </div>
                 ) : null}
 
-                {visibleInventorySummaryCounts.length > 0 ? (
+                {inventorySummaryCounts.length > 0 ? (
                   <div className="table-wrap">
                     <table className="product-table">
                       <thead>
@@ -44298,7 +44300,8 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                         </tr>
                       </thead>
                       <tbody>
-                        {visibleInventorySummaryCounts.map((record) => {
+                        {visibleInventorySummaryCounts.length > 0 ? (
+                          visibleInventorySummaryCounts.map((record) => {
                           const rowKey = `record-${record.id}`
                           const isEditingRow = inventorySummaryEditingRowKey === rowKey
                           const draft = inventorySummaryDrafts[rowKey] ?? {
@@ -44477,7 +44480,14 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                               </td>
                             </tr>
                           )
-                        })}
+                          })
+                        ) : (
+                          <tr>
+                            <td colSpan={Object.values(inventorySummaryColumnVisibility).filter(Boolean).length + 1}>
+                              Nenhum item encontrado com os filtros atuais.
+                            </td>
+                          </tr>
+                        )}
                       </tbody>
                     </table>
                   </div>
