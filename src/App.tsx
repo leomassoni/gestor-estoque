@@ -749,7 +749,7 @@ function roundOperationalPackageQuantity(quantity: number) {
 
   const floorQuantity = Math.floor(quantity)
   const fraction = quantity - floorQuantity
-  return floorQuantity + (fraction > 0.4 ? 1 : 0)
+  return floorQuantity + (fraction >= 0.5 ? 1 : 0)
 }
 function formatOperationalPackageQuantity(quantity: number) {
   return formatEditableDecimal(roundOperationalPackageQuantity(quantity))
