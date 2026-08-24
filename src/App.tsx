@@ -22897,7 +22897,7 @@ export default function App() {
       return
     }
 
-    confirmSendRequisition(requisitionId)
+    void confirmSendRequisition(requisitionId)
   }
 
   function buildProductionSupplyRequisitionsForSentProductionRequisitions(
@@ -23214,33 +23214,13 @@ export default function App() {
     })
   }
 
-  function approveRequisition(requisitionId: number) {
+  async function approveRequisition(requisitionId: number) {
     const targetRequisition = requisitions.find((record) => record.id === requisitionId) ?? null
-    if (!targetRequisition || !canApproveRequisition(targetRequisition)) {
+    if (!targetRequisition || targetRequisition.status !== 'PENDING_APPROVAL' || !canApproveRequisition(targetRequisition)) {
       return
     }
 
-    setRequisitions((current) =>
-      current.map((record) =>
-        record.id === requisitionId && record.status === 'PENDING_APPROVAL'
-          ? {
-              ...record,
-              status: 'APPROVED',
-              approvedAt: new Date().toISOString(),
-              approvedByUserId: currentAppUser?.id ?? null,
-              approvedByUserName: currentAppUser?.fullName ?? 'Administrador do sistema',
-              lastUpdatedAt: new Date().toISOString(),
-              lastUpdatedByUserId: currentAppUser?.id ?? null,
-              lastUpdatedByUserName: currentAppUser?.fullName ?? 'Administrador do sistema',
-            }
-          : record,
-      ),
-    )
-    setSaveFeedback({
-      status: 'success',
-      title: 'Requisicao aprovada',
-      message: 'A requisicao foi aprovada e pode ser exportada ou enviada para suprimentos.',
-    })
+    await confirmSendRequisition(requisitionId, { allowPendingApproval: true })
   }
 
   function toggleRequisitionSelection(requisitionId: number, isSelected: boolean) {
@@ -23274,59 +23254,57 @@ export default function App() {
     })
   }
 
-  function approveSelectedRequisitions() {
+  async function approveSelectedRequisitions() {
     if (selectedPendingApprovalRequisitions.length === 0) {
       setSaveFeedback({
         status: 'error',
         title: 'Nenhuma requisicao selecionada',
-        message: 'Selecione ao menos uma requisicao pendente de aprovacao para aprovar em lote.',
+        message: 'Selecione ao menos uma requisicao pendente de aprovacao para aprovar e enviar em lote.',
       })
       return
     }
 
-    const now = new Date().toISOString()
     const selectedIds = new Set(selectedPendingApprovalRequisitions.map((record) => record.id))
-    setRequisitions((current) =>
-      current.map((record) =>
-        selectedIds.has(record.id) && record.status === 'PENDING_APPROVAL' && canApproveRequisition(record)
-          ? {
-              ...record,
-              status: 'APPROVED',
-              approvedAt: now,
-              approvedByUserId: currentAppUser?.id ?? null,
-              approvedByUserName: currentAppUser?.fullName ?? 'Administrador do sistema',
-              lastUpdatedAt: now,
-              lastUpdatedByUserId: currentAppUser?.id ?? null,
-              lastUpdatedByUserName: currentAppUser?.fullName ?? 'Administrador do sistema',
-            }
-          : record,
-      ),
-    )
-    setSelectedRequisitionIds((current) => {
-      const next = new Set(current)
-      selectedIds.forEach((id) => next.delete(id))
-      return next
-    })
-    setSaveFeedback({
-      status: 'success',
-      title: 'Requisicoes aprovadas',
-      message: `${selectedPendingApprovalRequisitions.length} requisicao(oes) foram aprovadas.`,
+    await sendSelectedRequisitions({
+      sourceStatus: 'PENDING_APPROVAL',
+      selectedIds,
+      emptyTitle: 'Nenhuma requisicao selecionada',
+      emptyMessage: 'Selecione ao menos uma requisicao pendente de aprovacao para aprovar e enviar em lote.',
+      staleTitle: 'Nenhuma requisicao pendente atualizada',
+      staleMessage: 'As requisicoes selecionadas nao estao mais pendentes no servidor. Atualize a tela e confira o historico.',
+      interruptedTitle: 'Aprovacao em lote interrompida',
+      failureTitle: 'Falha ao aprovar e enviar selecionadas',
+      successTitle: 'Requisicoes aprovadas e enviadas',
+      successVerb: 'aprovadas e enviadas',
     })
   }
 
-  async function sendSelectedRequisitions() {
-    if (selectedApprovedRequisitions.length === 0) {
+  async function sendSelectedRequisitions(options?: {
+    sourceStatus?: 'APPROVED' | 'PENDING_APPROVAL'
+    selectedIds?: Set<number>
+    emptyTitle?: string
+    emptyMessage?: string
+    staleTitle?: string
+    staleMessage?: string
+    interruptedTitle?: string
+    failureTitle?: string
+    successTitle?: string
+    successVerb?: string
+  }) {
+    const sourceStatus = options?.sourceStatus ?? 'APPROVED'
+    const sourceSelection = sourceStatus === 'PENDING_APPROVAL' ? selectedPendingApprovalRequisitions : selectedApprovedRequisitions
+    const selectedSourceRequisitionIds = options?.selectedIds ?? new Set(sourceSelection.map((record) => record.id))
+    if (selectedSourceRequisitionIds.size === 0) {
       setSaveFeedback({
         status: 'error',
-        title: 'Nenhuma requisicao selecionada',
-        message: 'Selecione ao menos uma requisicao aprovada para enviar em lote.',
+        title: options?.emptyTitle ?? 'Nenhuma requisicao selecionada',
+        message: options?.emptyMessage ?? 'Selecione ao menos uma requisicao aprovada para enviar em lote.',
       })
       return
     }
 
     const now = new Date().toISOString()
     const reservedIds: number[] = []
-    const selectedApprovedRequisitionIds = new Set(selectedApprovedRequisitions.map((record) => record.id))
     let latestRequisitions: RequisitionRecord[]
     try {
       latestRequisitions = await loadLatestRequisitionsForMutation()
@@ -23339,15 +23317,18 @@ export default function App() {
       })
       return
     }
-    const latestSelectedApprovedRequisitions = latestRequisitions.filter(
-      (record) => selectedApprovedRequisitionIds.has(record.id) && record.status === 'APPROVED' && canSendRequisition(record),
+    const latestSelectedRequisitions = latestRequisitions.filter(
+      (record) =>
+        selectedSourceRequisitionIds.has(record.id) &&
+        record.status === sourceStatus &&
+        (sourceStatus === 'PENDING_APPROVAL' ? canApproveRequisition(record) : canSendRequisition(record)),
     )
 
-    if (latestSelectedApprovedRequisitions.length === 0) {
+    if (latestSelectedRequisitions.length === 0) {
       setSaveFeedback({
         status: 'error',
-        title: 'Nenhuma requisicao aprovada atualizada',
-        message: 'As requisicoes selecionadas nao estao mais aprovadas no servidor. Atualize a tela e confira o historico.',
+        title: options?.staleTitle ?? 'Nenhuma requisicao aprovada atualizada',
+        message: options?.staleMessage ?? 'As requisicoes selecionadas nao estao mais aprovadas no servidor. Atualize a tela e confira o historico.',
       })
       return
     }
@@ -23356,8 +23337,21 @@ export default function App() {
     const nextSentRecords: RequisitionRecord[] = []
     const errors: string[] = []
 
-    latestSelectedApprovedRequisitions.forEach((targetRequisition) => {
-      const splitResult = buildSplitRequisitionsForSending(targetRequisition, {
+    latestSelectedRequisitions.forEach((targetRequisition) => {
+      const targetForSending =
+        sourceStatus === 'PENDING_APPROVAL'
+          ? {
+              ...targetRequisition,
+              status: 'APPROVED' as const,
+              approvedAt: now,
+              approvedByUserId: currentAppUser?.id ?? null,
+              approvedByUserName: currentAppUser?.fullName ?? 'Administrador do sistema',
+              lastUpdatedAt: now,
+              lastUpdatedByUserId: currentAppUser?.id ?? null,
+              lastUpdatedByUserName: currentAppUser?.fullName ?? 'Administrador do sistema',
+            }
+          : targetRequisition
+      const splitResult = buildSplitRequisitionsForSending(targetForSending, {
         reservedIds,
         sentAt: now,
         baseRequisitions: latestRequisitions,
@@ -23378,7 +23372,7 @@ export default function App() {
 
       if (splitResult.remainingPurchaseLines.length > 0) {
         nextSentRecords.push({
-          ...targetRequisition,
+          ...targetForSending,
           lines: splitResult.remainingPurchaseLines,
           status: 'READY_TO_RECEIVE',
           editScope: 'LINES_ONLY',
@@ -23402,7 +23396,7 @@ export default function App() {
     if (errors.length > 0) {
       setSaveFeedback({
         status: 'error',
-        title: 'Envio em lote interrompido',
+        title: options?.interruptedTitle ?? 'Envio em lote interrompido',
         message: errors.slice(0, 3).join(' | '),
       })
       return
@@ -23432,7 +23426,7 @@ export default function App() {
       console.error(error)
       setSaveFeedback({
         status: 'error',
-        title: 'Falha ao enviar selecionadas',
+        title: options?.failureTitle ?? 'Falha ao enviar selecionadas',
         message: error instanceof Error ? error.message : 'Nao foi possivel enviar as requisicoes e criar a cadeia de producao.',
       })
       return
@@ -23456,11 +23450,11 @@ export default function App() {
     })
     setSaveFeedback({
       status: 'success',
-      title: 'Requisicoes enviadas',
+      title: options?.successTitle ?? 'Requisicoes enviadas',
       message:
         productionRequests.length > 0 || downstreamProductionRequisitions.length > 0
-          ? `${targetIds.size} requisicao(oes) foram enviadas em lote, ${productionRequests.length} entrada(s) de producao foram criada(s) e ${downstreamProductionRequisitions.length} requisicao(oes) de insumos foram criadas automaticamente para producao.`
-          : `${targetIds.size} requisicao(oes) foram enviadas em lote.`,
+          ? `${targetIds.size} requisicao(oes) foram ${options?.successVerb ?? 'enviadas'} em lote, ${productionRequests.length} entrada(s) de producao foram criada(s) e ${downstreamProductionRequisitions.length} requisicao(oes) de insumos foram criadas automaticamente para producao.`
+          : `${targetIds.size} requisicao(oes) foram ${options?.successVerb ?? 'enviadas'} em lote.`,
     })
   }
 
@@ -23581,7 +23575,10 @@ export default function App() {
     })
   }
 
-  async function confirmSendRequisition(requisitionIdOverride?: number) {
+  async function confirmSendRequisition(
+    requisitionIdOverride?: number,
+    options: { allowPendingApproval?: boolean } = {},
+  ) {
     if (typeof requisitionIdOverride !== 'number') {
       return
     }
@@ -23601,11 +23598,34 @@ export default function App() {
     }
 
     const targetRequisition = latestRequisitions.find((record) => record.id === targetId) ?? null
-    if (!targetRequisition || targetRequisition.status !== 'APPROVED' || !canSendRequisition(targetRequisition)) {
+    const canSendApprovedRequisition =
+      targetRequisition?.status === 'APPROVED' && canSendRequisition(targetRequisition)
+    const canApproveAndSendPendingRequisition =
+      options.allowPendingApproval === true &&
+      targetRequisition?.status === 'PENDING_APPROVAL' &&
+      canApproveRequisition(targetRequisition)
+    if (!targetRequisition || (!canSendApprovedRequisition && !canApproveAndSendPendingRequisition)) {
       return
     }
 
-    const splitResult = buildSplitRequisitionsForSending(targetRequisition, { baseRequisitions: latestRequisitions })
+    const now = new Date().toISOString()
+    const targetForSending = canApproveAndSendPendingRequisition
+      ? {
+          ...targetRequisition,
+          status: 'APPROVED' as const,
+          approvedAt: now,
+          approvedByUserId: currentAppUser?.id ?? null,
+          approvedByUserName: currentAppUser?.fullName ?? 'Administrador do sistema',
+          lastUpdatedAt: now,
+          lastUpdatedByUserId: currentAppUser?.id ?? null,
+          lastUpdatedByUserName: currentAppUser?.fullName ?? 'Administrador do sistema',
+        }
+      : targetRequisition
+
+    const splitResult = buildSplitRequisitionsForSending(targetForSending, {
+      baseRequisitions: latestRequisitions,
+      sentAt: now,
+    })
     if (splitResult.error) {
       setSaveFeedback({
         status: 'error',
@@ -23615,7 +23635,6 @@ export default function App() {
       return
     }
 
-    const now = new Date().toISOString()
     const downstreamProductionRequisitions = buildProductionSupplyRequisitionsForSentProductionRequisitions(
       splitResult.requisitions.filter((record) => record.lines.some((line) => line.destinationType === 'PRODUCOES')),
       now,
@@ -23630,7 +23649,7 @@ export default function App() {
 
     if (splitResult.remainingPurchaseLines.length > 0) {
       nextRecords.push({
-        ...targetRequisition,
+        ...targetForSending,
         lines: splitResult.remainingPurchaseLines,
         status: 'READY_TO_RECEIVE',
         editScope: 'LINES_ONLY',
@@ -23686,12 +23705,20 @@ export default function App() {
       status: 'success',
       title:
         productionRequests.length > 0 || downstreamProductionRequisitions.length > 0
-          ? 'Requisicao enviada com cadeia de producao'
+          ? canApproveAndSendPendingRequisition
+            ? 'Requisicao aprovada e enviada com cadeia de producao'
+            : 'Requisicao enviada com cadeia de producao'
           : splitResult.requisitions.length > 0 && splitResult.remainingPurchaseLines.length > 0
-          ? 'Requisicao desdobrada e enviada'
+          ? canApproveAndSendPendingRequisition
+            ? 'Requisicao aprovada, desdobrada e enviada'
+            : 'Requisicao desdobrada e enviada'
           : splitResult.requisitions.length > 0
-            ? 'Requisicao enviada'
-            : 'Requisicao enviada para receber',
+            ? canApproveAndSendPendingRequisition
+              ? 'Requisicao aprovada e enviada'
+              : 'Requisicao enviada'
+            : canApproveAndSendPendingRequisition
+              ? 'Requisicao aprovada e enviada para receber'
+              : 'Requisicao enviada para receber',
       message:
         productionRequests.length > 0 || downstreamProductionRequisitions.length > 0
           ? `Os pre-preparos foram enviados ao centro produtor, ${productionRequests.length} entrada(s) de producao foram criada(s) e ${downstreamProductionRequisitions.length} requisicao(oes) de insumos foram criadas automaticamente para abastecer a producao.`
@@ -46575,19 +46602,20 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                       <button
                         type="button"
                         className="primary-button"
-                        onClick={approveSelectedRequisitions}
+                        onClick={() => void approveSelectedRequisitions()}
                         disabled={selectedPendingApprovalRequisitions.length === 0}
                       >
-                        Aprovar selecionadas ({selectedPendingApprovalRequisitions.length})
+                        Aprovar e enviar selecionadas ({selectedPendingApprovalRequisitions.length})
                       </button>
-                      <button
-                        type="button"
-                        className="warning-button"
-                        onClick={sendSelectedRequisitions}
-                        disabled={selectedApprovedRequisitions.length === 0}
-                      >
-                        Enviar selecionadas ({selectedApprovedRequisitions.length})
-                      </button>
+                      {selectedApprovedRequisitions.length > 0 ? (
+                        <button
+                          type="button"
+                          className="warning-button"
+                          onClick={() => void sendSelectedRequisitions()}
+                        >
+                          Enviar selecionadas legadas ({selectedApprovedRequisitions.length})
+                        </button>
+                      ) : null}
                       <button
                         type="button"
                         className="danger-button"
@@ -46689,8 +46717,8 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                               <td className="sticky-actions-cell">
                                 <div className="table-actions requisition-history-actions">
                                   {record.status === 'PENDING_APPROVAL' && canApproveRequisition(record) ? (
-                                    <button type="button" className="primary-button" onClick={() => approveRequisition(record.id)}>
-                                      Aprovar
+                                    <button type="button" className="primary-button" onClick={() => void approveRequisition(record.id)}>
+                                      Aprovar e enviar
                                     </button>
                                   ) : null}
                                   <button
@@ -46726,18 +46754,16 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                                   <button type="button" className="ghost-button" onClick={() => requestRequisitionExport(record)} disabled={record.status === 'CANCELLED'}>
                                     Exportar
                                   </button>
-                                  <button
-                                    type="button"
-                                    className="warning-button"
-                                    onClick={() => startSendRequisition(record.id)}
-                                    disabled={record.status !== 'APPROVED' || !canSendRequisition(record)}
-                                  >
-                                    {record.status === 'SENT_TO_SUPPLIES' ||
-                                    record.status === 'READY_TO_RECEIVE' ||
-                                    record.status === 'RECEIVED'
-                                      ? 'Enviado'
-                                      : 'Enviar'}
-                                  </button>
+                                  {record.status === 'APPROVED' ? (
+                                    <button
+                                      type="button"
+                                      className="warning-button"
+                                      onClick={() => void startSendRequisition(record.id)}
+                                      disabled={!canSendRequisition(record)}
+                                    >
+                                      Enviar legado
+                                    </button>
+                                  ) : null}
                                 </div>
                               </td>
                             </tr>
