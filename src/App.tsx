@@ -1350,6 +1350,8 @@ function normalizeRecipePanelAccess(value: unknown): RecipePanelAccess {
 const defaultCatalogAccessByRole = (role: CompanyUserRole): UserCatalogAccess => {
   if (role === 'Administrativo') {
     return {
+      productsDelete: true,
+      technicalSheetsDelete: true,
       sectorsCreate: true,
       sectorsDelete: true,
       familiesCreate: true,
@@ -1366,6 +1368,8 @@ const defaultCatalogAccessByRole = (role: CompanyUserRole): UserCatalogAccess =>
   }
   if (role === 'Gestor') {
     return {
+      productsDelete: false,
+      technicalSheetsDelete: false,
       sectorsCreate: true,
       sectorsDelete: true,
       familiesCreate: true,
@@ -1381,6 +1385,8 @@ const defaultCatalogAccessByRole = (role: CompanyUserRole): UserCatalogAccess =>
     }
   }
   return {
+    productsDelete: false,
+    technicalSheetsDelete: false,
     sectorsCreate: false,
     sectorsDelete: false,
     familiesCreate: false,
@@ -1530,6 +1536,8 @@ const emptyAccessProfileForm = (): AccessProfileFormState => ({
     Usuarios: false,
   },
   catalogAccess: {
+    productsDelete: false,
+    technicalSheetsDelete: false,
     sectorsCreate: false,
     sectorsDelete: false,
     familiesCreate: false,
@@ -3009,6 +3017,8 @@ export default function App() {
   const effectiveRecipePanelAccess =
     isSystemAdmin ? defaultRecipePanelAccess() : effectiveSessionAppUser?.recipePanelAccess ?? defaultRecipePanelAccess()
   const canCreateSectors = isSystemAdmin || userCatalogAccess.sectorsCreate
+  const canDeleteProducts = isSystemAdmin || userCatalogAccess.productsDelete
+  const canDeleteTechnicalSheets = isSystemAdmin || userCatalogAccess.technicalSheetsDelete
   const canDeleteSectors = isSystemAdmin || userCatalogAccess.sectorsDelete
   const canCreateFamilies = isSystemAdmin || userCatalogAccess.familiesCreate
   const canDeleteFamilies = isSystemAdmin || userCatalogAccess.familiesDelete
@@ -4369,6 +4379,14 @@ export default function App() {
     })
   }
   function openProductDisableImpact(productId: string, action: Exclude<ProductAction, 'enable'> = 'disable') {
+    if (action === 'delete' && !canDeleteProducts) {
+      setSaveFeedback({
+        status: 'error',
+        title: 'Permissao insuficiente',
+        message: 'Seu perfil nao permite excluir produtos.',
+      })
+      return
+    }
     const product = products.find((item) => item.id === productId) ?? null
     if (!product) {
       return
@@ -4406,6 +4424,14 @@ export default function App() {
     technicalSheetId: number,
     action: Exclude<ProductAction, 'enable'> = 'disable',
   ) {
+    if (action === 'delete' && !canDeleteTechnicalSheets) {
+      setSaveFeedback({
+        status: 'error',
+        title: 'Permissao insuficiente',
+        message: 'Seu perfil nao permite excluir fichas tecnicas.',
+      })
+      return
+    }
     const sheet = technicalSheets.find((item) => item.id === technicalSheetId) ?? null
     if (!sheet) {
       return
@@ -38160,6 +38186,14 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
     if (!productDisableImpactState) {
       return
     }
+    if (productDisableImpactState.action === 'delete' && !canDeleteProducts) {
+      setSaveFeedback({
+        status: 'error',
+        title: 'Permissao insuficiente',
+        message: 'Seu perfil nao permite excluir produtos.',
+      })
+      return
+    }
 
     const targetProduct = products.find((product) => product.id === productDisableImpactState.productId) ?? null
     if (!targetProduct) {
@@ -38351,6 +38385,14 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
 
   async function runTechnicalSheetDisableImpactAction() {
     if (!technicalSheetDisableImpactState) {
+      return
+    }
+    if (technicalSheetDisableImpactState.action === 'delete' && !canDeleteTechnicalSheets) {
+      setSaveFeedback({
+        status: 'error',
+        title: 'Permissao insuficiente',
+        message: 'Seu perfil nao permite excluir fichas tecnicas.',
+      })
       return
     }
 
@@ -40328,7 +40370,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                               >
                                 <span aria-hidden="true">{product.isActive ? '◐' : '◑'}</span>
                               </button>
-                              {canDeleteRecords ? (
+                              {canDeleteProducts ? (
                                 <button
                                   className="icon-button icon-delete"
                                   type="button"
@@ -41518,7 +41560,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                               >
                                 <span aria-hidden="true">{sheet.isActive ? '◐' : '◑'}</span>
                               </button>
-                              {canDeleteRecords ? (
+                              {canDeleteTechnicalSheets ? (
                                 <button
                                   className="icon-button icon-delete"
                                   type="button"
@@ -48794,6 +48836,38 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                     <div className="settings-field-list access-menu-list">
                       <article className="settings-field-row access-menu-item profile-permission-row">
                         <div className="settings-field-copy">
+                          <strong>Produtos</strong>
+                        </div>
+                        <div className="settings-field-control catalog-access-actions">
+                          <label className="checkbox-row">
+                            <input
+                              type="checkbox"
+                              checked={accessProfileForm.catalogAccess.productsDelete}
+                              onChange={(event) => updateAccessProfileCatalogAccess('productsDelete', event.target.checked)}
+                            />
+                            <span>Excluir</span>
+                          </label>
+                        </div>
+                      </article>
+                      <article className="settings-field-row access-menu-item profile-permission-row">
+                        <div className="settings-field-copy">
+                          <strong>Fichas tecnicas</strong>
+                        </div>
+                        <div className="settings-field-control catalog-access-actions">
+                          <label className="checkbox-row">
+                            <input
+                              type="checkbox"
+                              checked={accessProfileForm.catalogAccess.technicalSheetsDelete}
+                              onChange={(event) =>
+                                updateAccessProfileCatalogAccess('technicalSheetsDelete', event.target.checked)
+                              }
+                            />
+                            <span>Excluir</span>
+                          </label>
+                        </div>
+                      </article>
+                      <article className="settings-field-row access-menu-item profile-permission-row">
+                        <div className="settings-field-copy">
                           <strong>Setores</strong>
                         </div>
                         <div className="settings-field-control catalog-access-actions">
@@ -49104,6 +49178,8 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                       <span>
                         <strong className="meta-label">Opcoes de cadastro:</strong>{' '}
                         {[
+                          profile.catalogAccess.productsDelete ? 'Excluir produtos' : null,
+                          profile.catalogAccess.technicalSheetsDelete ? 'Excluir fichas tecnicas' : null,
                           profile.catalogAccess.sectorsCreate ? 'Cadastrar setores' : null,
                           profile.catalogAccess.sectorsDelete ? 'Excluir setores' : null,
                           profile.catalogAccess.familiesCreate ? 'Cadastrar familias' : null,
@@ -56595,6 +56671,14 @@ function normalizeSessionUser(value: unknown): AppUserRecord | null {
   const normalizedCatalogAccess =
     user.catalogAccess && typeof user.catalogAccess === 'object'
       ? {
+          productsDelete:
+            typeof user.catalogAccess.productsDelete === 'boolean'
+              ? user.catalogAccess.productsDelete
+              : defaultCatalogAccessByRole(baseRole).productsDelete,
+          technicalSheetsDelete:
+            typeof user.catalogAccess.technicalSheetsDelete === 'boolean'
+              ? user.catalogAccess.technicalSheetsDelete
+              : defaultCatalogAccessByRole(baseRole).technicalSheetsDelete,
           sectorsCreate: user.catalogAccess.sectorsCreate === true,
           sectorsDelete: user.catalogAccess.sectorsDelete === true,
           familiesCreate: user.catalogAccess.familiesCreate === true,
@@ -56666,6 +56750,14 @@ function normalizeSessionUser(value: unknown): AppUserRecord | null {
             catalogAccess:
               membership.catalogAccess && typeof membership.catalogAccess === 'object'
                 ? {
+                    productsDelete:
+                      typeof membership.catalogAccess.productsDelete === 'boolean'
+                        ? membership.catalogAccess.productsDelete
+                        : defaultCatalogAccessByRole(membershipRole).productsDelete,
+                    technicalSheetsDelete:
+                      typeof membership.catalogAccess.technicalSheetsDelete === 'boolean'
+                        ? membership.catalogAccess.technicalSheetsDelete
+                        : defaultCatalogAccessByRole(membershipRole).technicalSheetsDelete,
                     sectorsCreate: membership.catalogAccess.sectorsCreate === true,
                     sectorsDelete: membership.catalogAccess.sectorsDelete === true,
                     familiesCreate: membership.catalogAccess.familiesCreate === true,
@@ -56768,6 +56860,14 @@ function normalizeAccessProfileRecord(value: unknown): AccessProfileRecord | nul
     catalogAccess:
       profile.catalogAccess && typeof profile.catalogAccess === 'object'
         ? {
+            productsDelete:
+              typeof profile.catalogAccess.productsDelete === 'boolean'
+                ? profile.catalogAccess.productsDelete
+                : defaultCatalogAccessByRole(profile.role).productsDelete,
+            technicalSheetsDelete:
+              typeof profile.catalogAccess.technicalSheetsDelete === 'boolean'
+                ? profile.catalogAccess.technicalSheetsDelete
+                : defaultCatalogAccessByRole(profile.role).technicalSheetsDelete,
             sectorsCreate: profile.catalogAccess.sectorsCreate === true,
             sectorsDelete: profile.catalogAccess.sectorsDelete === true,
             familiesCreate: profile.catalogAccess.familiesCreate === true,

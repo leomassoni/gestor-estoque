@@ -78,6 +78,8 @@ export type RecipePanelAccess = {
   executionServiceItemColumns: Record<RecipeExecutionServiceItemColumnKey, boolean>
 }
 export type UserCatalogAccess = {
+  productsDelete: boolean
+  technicalSheetsDelete: boolean
   sectorsCreate: boolean
   sectorsDelete: boolean
   familiesCreate: boolean

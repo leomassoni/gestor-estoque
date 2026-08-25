@@ -1,10 +1,23 @@
 # Worklog
 
- Ultima atualizacao: 2026-08-24
+ Ultima atualizacao: 2026-08-25
 
 ## Objetivo deste arquivo
 
 Registrar um historico resumido do que foi feito, do que falhou e do que ficou pendente.
+
+## 2026-08-25
+
+### Exclusao configuravel de produtos e fichas tecnicas
+
+- Adicionadas permissoes especificas em perfis de acesso para excluir `Produtos` e `Fichas tecnicas`.
+- O comportamento antigo foi preservado como fallback:
+  - `MASTER` continua podendo excluir;
+  - perfis antigos de `Administrativo` herdam permissao ativa;
+  - perfis antigos de `Gestor` e `Colaborador` herdam permissao desativada;
+- Os botoes e a confirmacao de exclusao de produto/ficha passaram a validar essas permissoes especificas, sem alterar a regra de inativacao.
+- Validacao executada:
+  - `npm run build`
 
 ## 2026-08-24
 
