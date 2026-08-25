@@ -7853,263 +7853,12 @@ export default function App() {
       groups.set(groupKey, group)
     }
 
-    const availableBaseQuantityByCenterAndAggregation = new Map<string, number>()
-    latestInventoryQuantityByCenterAndAggregation.forEach((quantity, key) => {
-      availableBaseQuantityByCenterAndAggregation.set(key, quantity)
-    })
-
-    const consumeAvailableBaseQuantity = (centerId: number, aggregationKey: string, requiredQuantity: number) => {
-      const key = `${centerId}:${aggregationKey}`
-      const availableQuantity = availableBaseQuantityByCenterAndAggregation.get(key) ?? 0
-      const consumedQuantity = Math.min(availableQuantity, requiredQuantity)
-      if (consumedQuantity > 0) {
-        availableBaseQuantityByCenterAndAggregation.set(key, availableQuantity - consumedQuantity)
-      }
-      return Math.max(requiredQuantity - availableQuantity, 0)
-    }
-
-    const buildProductShortageLine = (
-      product: ProductRecord,
-      shortageQuantity: number,
-      lineKey: string,
-    ): RequisitionLineRecord => {
-      const selectedPackage = product.packages.find((item) => item.isActive) ?? null
-      const packageQuantity =
-        selectedPackage ? calculateNormalizedPackageQuantity(selectedPackage, product.controlUnit) : 1
-      const requestedQuantity = packageQuantity > 0 ? shortageQuantity / packageQuantity : shortageQuantity
-      return {
-        key: lineKey,
-        kind: 'PRODUTO',
-        technicalSheetId: null,
-        productId: product.id,
-        serviceItemId: '',
-        packageId: selectedPackage?.id ?? null,
-        itemName: product.name,
-        itemTypeLabel: 'PRODUTO',
-        family: product.family,
-        suggestedQuantity: formatDecimal(requestedQuantity),
-        requestedQuantity: formatDecimal(requestedQuantity),
-        requestUnitLabel: selectedPackage ? 'EMBALAGENS' : formatControlUnitShort(product.controlUnit),
-        currentQuantity: '0',
-        currentUnitLabel: selectedPackage
-          ? `${formatDecimal(parseDecimal(selectedPackage.packageQuantity) ?? 0)} ${formatUnit(selectedPackage.packageUnit)}`
-          : formatControlUnitShort(product.controlUnit),
-        minimumDefinitionLabel: '-',
-        destinationType: 'COMPRAS',
-        destinationCenterId: null,
-        destinationCenterName: '',
-        destinationLabel: 'COMPRAS',
-        supplierCenterId: null,
-        supplierCenterName: '',
-        supplierCompanyId: null,
-        supplierCompanyName: '',
-        receiptStatus: 'PENDING',
-      }
-    }
-
-    const resolveProducerCenterForPreparation = (
-      sheet: TechnicalSheetRecord,
-      preferredCenter: StockCenterRecord,
-    ) => {
-      if (doesCenterProduceTechnicalSheet(preferredCenter, sheet)) {
-        return preferredCenter
-      }
-      const supplyResolution = resolveTechnicalSheetSupplyRoute(sheet, preferredCenter)
-      return supplyResolution.status === 'resolved' ? supplyResolution.supplierCenter : null
-    }
-
-    const explodePreparationDemandForPurchase = (
-      center: StockCenterRecord,
-      sheet: TechnicalSheetRecord,
-      requiredYield: number,
-      record: RequisitionRecord,
-      sourceTrail: string[],
-      visiting = new Set<string>(),
-    ) => {
-      if (requiredYield <= 0 || !sheet.isActive || sheet.kind !== 'PREPARO') {
-        return
-      }
-      const visitKey = `${center.id}:${sheet.id}`
-      if (visiting.has(visitKey)) {
-        return
-      }
-      const nextVisiting = new Set(visiting)
-      nextVisiting.add(visitKey)
-
-      const preparationAggregationKey = buildInventoryAggregationKey({
-        kind: 'PREPARO',
-        technicalSheetId: sheet.id,
-        productId: '',
-        serviceItemId: '',
-      })
-      const shortageYield = consumeAvailableBaseQuantity(center.id, preparationAggregationKey, requiredYield)
-      if (shortageYield <= 0) {
-        return
-      }
-
-      const baseYield = getTechnicalSheetBaseYield(sheet)
-      if (baseYield <= 0) {
-        return
-      }
-      const recipeData = buildRecipePanelDataForSheet(sheet, shortageYield, shortageYield / baseYield)
-      ;[...recipeData.ingredientMetrics, ...recipeData.garnishMetrics]
-        .filter((ingredient) => ingredient.productId.trim() !== '' && ingredient.scaledInputQuantity > 0)
-        .forEach((ingredient) => {
-          const dependencySheet = resolvePreparationSheetForCenterByProductId(ingredient.productId, center)
-          if (dependencySheet) {
-            const byproductSourceSheet = resolveByproductSourceSheetForCenter(dependencySheet.id, center)
-            if (byproductSourceSheet && doesCenterProduceTechnicalSheet(center, byproductSourceSheet)) {
-              const byproductBaseYield = getTechnicalSheetByproductBaseYield(byproductSourceSheet, dependencySheet)
-              const sourceBaseYield = getTechnicalSheetBaseYield(byproductSourceSheet)
-              if (byproductBaseYield > 0 && sourceBaseYield > 0) {
-                explodePreparationDemandForPurchase(
-                  center,
-                  byproductSourceSheet,
-                  ingredient.scaledInputQuantity * (sourceBaseYield / byproductBaseYield),
-                  record,
-                  [...sourceTrail, byproductSourceSheet.name],
-                  nextVisiting,
-                )
-              }
-              return
-            }
-
-            const producerCenter = resolveProducerCenterForPreparation(dependencySheet, center)
-            if (!producerCenter) {
-              return
-            }
-            explodePreparationDemandForPurchase(
-              producerCenter,
-              dependencySheet,
-              ingredient.scaledInputQuantity,
-              record,
-              [...sourceTrail, dependencySheet.name],
-              nextVisiting,
-            )
-            return
-          }
-
-          const linkedProduct = productById.get(ingredient.productId) ?? null
-          if (!linkedProduct || !linkedProduct.isActive || !isProductStockTracked(linkedProduct)) {
-            return
-          }
-
-          const productAggregationKey = buildInventoryAggregationKey({
-            kind: 'PRODUTO',
-            technicalSheetId: null,
-            productId: linkedProduct.id,
-            serviceItemId: '',
-          })
-          const productShortageQuantity = consumeAvailableBaseQuantity(
-            center.id,
-            productAggregationKey,
-            ingredient.scaledInputQuantity,
-          )
-          if (productShortageQuantity <= 0) {
-            return
-          }
-
-          const distributorCenter = findDistributorCenterForRequisitionLine(center, {
-            kind: 'PRODUTO',
-            productId: linkedProduct.id,
-          })
-          const shortageLine = buildProductShortageLine(
-            linkedProduct,
-            productShortageQuantity,
-            `PRODUCTION-PURCHASE:${record.id}:${center.id}:${sheet.id}:${linkedProduct.id}:${groups.size}`,
-          )
-          const sourceLabel = `Insumo para producao: ${sourceTrail.join(' > ')}`
-          upsertGroup({
-            center: distributorCenter ?? center,
-            line: distributorCenter
-              ? {
-                  ...shortageLine,
-                  destinationType: 'SUPRIMENTOS',
-                  destinationLabel: `CENTRO DISTRIBUIDOR: ${distributorCenter.name}`,
-                  supplierCenterId: distributorCenter.id,
-                  supplierCenterName: distributorCenter.name,
-                  supplierCompanyId: distributorCenter.companyId,
-                  supplierCompanyName: getCompanyTradeName(distributorCenter.companyId),
-                }
-              : shortageLine,
-            record,
-            sourceLabel,
-            shouldSubtractCurrentStock: Boolean(distributorCenter),
-            requesterCenterName:
-              record.stockCenterId === center.id
-                ? center.name
-                : `${record.stockCenterName} -> ${center.name}`,
-          })
-        })
-    }
-
     requisitions
       .filter(
         (record) =>
           record.companyId === currentCompanyId &&
           isPurchaseDemandEligibleRequisition(record) &&
-          record.status === 'SENT_TO_SUPPLIES' &&
-          record.supplyCenterId !== null &&
-          record.lines.some((line) => line.destinationType === 'SUPRIMENTOS'),
-      )
-      .forEach((record) => {
-        const supplierCenter = stockCenterById.get(record.supplyCenterId as number) ?? null
-        if (!supplierCenter || !supplierCenter.isDistributor) {
-          return
-        }
-        record.lines
-          .filter((line) => line.destinationType === 'SUPRIMENTOS')
-          .forEach((line) =>
-            upsertGroup({
-              center: supplierCenter,
-              line,
-              record,
-              sourceLabel: 'Falta em suprimento interno',
-              shouldSubtractCurrentStock: true,
-            }),
-          )
-      })
-
-    requisitions
-      .filter(
-        (record) =>
-          record.companyId === currentCompanyId &&
-          isPurchaseDemandEligibleRequisition(record) &&
-          record.status === 'SENT_TO_SUPPLIES' &&
-          record.supplyCenterId !== null &&
-          record.lines.some((line) => line.destinationType === 'PRODUCOES'),
-      )
-      .forEach((record) => {
-        const producerCenter = stockCenterById.get(record.supplyCenterId as number) ?? null
-        if (!producerCenter || !producerCenter.isProducer) {
-          return
-        }
-        record.lines
-          .filter((line) => line.destinationType === 'PRODUCOES' && line.kind === 'PREPARO' && typeof line.technicalSheetId === 'number')
-          .forEach((line) => {
-            const sheet =
-              technicalSheets.find(
-                (item) =>
-                  item.id === line.technicalSheetId &&
-                  item.kind === 'PREPARO' &&
-                  item.isActive &&
-                  isTechnicalSheetVisibleForCompany(item, producerCenter.companyId),
-              ) ?? null
-            if (!sheet) {
-              return
-            }
-            const requestedQuantity = parseDecimal(line.requestedQuantity) ?? 0
-            const requiredYield = requestedQuantity * Math.max(getStockCenterBaseQuantity(sheet), 1)
-            explodePreparationDemandForPurchase(producerCenter, sheet, requiredYield, record, [sheet.name])
-          })
-      })
-
-    requisitions
-      .filter(
-        (record) =>
-          record.companyId === currentCompanyId &&
-          isPurchaseDemandEligibleRequisition(record) &&
-          isDirectPurchaseReadyToReceiveRequisition(record) &&
+          isDirectPurchaseSentToPurchasingRequisition(record) &&
           record.lines.some((line) => line.destinationType === 'COMPRAS'),
       )
       .forEach((record) => {
@@ -8124,7 +7873,7 @@ export default function App() {
               center: requestingCenter,
               line,
               record,
-              sourceLabel: 'Compra direta do centro distribuidor',
+              sourceLabel: 'Abastecimento do centro distribuidor',
               shouldSubtractCurrentStock: false,
             }),
           )
@@ -8175,14 +7924,11 @@ export default function App() {
           left.productName.localeCompare(right.productName, 'pt-BR'),
       )
   }, [
-    currentCompanyCostContext,
     currentCompanyId,
     latestInventoryQuantityByCenterAndAggregation,
     products,
     requisitions,
-    serviceItems,
     stockCenters,
-    technicalSheets,
   ])
   const visiblePurchaseDemandRows = useMemo(() => {
     const search = normalizeFreeText(purchaseSearch)
@@ -8372,7 +8118,7 @@ export default function App() {
         if (currentCompanyId === null || record.companyId !== currentCompanyId) {
           return false
         }
-        if (!isPurchaseDemandEligibleRequisition(record) || record.status !== 'SENT_TO_SUPPLIES' || record.supplyCenterId === null) {
+        if (!isPurchaseDemandEligibleRequisition(record) || !isDirectPurchaseSentToPurchasingRequisition(record)) {
           return false
         }
         const productKeys = purchaseSupplyProductKeysByRequisitionId.get(record.id)
@@ -8384,7 +8130,7 @@ export default function App() {
         }
         return [
           record.stockCenterName,
-          record.supplyCenterName,
+          getRequisitionSupplyDisplayLabel(record),
           record.createdByUserName,
           record.lines.map((line) => line.itemName).join(', '),
           `#${record.id}`,
@@ -8401,7 +8147,7 @@ export default function App() {
     () => ({
       requisitionCount: visiblePurchaseSupplyRequisitions.length,
       centerCount: new Set(visiblePurchaseSupplyRequisitions.map((record) => record.stockCenterId)).size,
-      supplyCenterCount: new Set(visiblePurchaseSupplyRequisitions.map((record) => record.supplyCenterId)).size,
+      supplyCenterCount: new Set(visiblePurchaseSupplyRequisitions.map((record) => record.supplyCenterId ?? record.stockCenterId)).size,
     }),
     [visiblePurchaseSupplyRequisitions],
   )
@@ -21996,10 +21742,10 @@ export default function App() {
             ? Math.max(requiredBaseQuantity - currentBaseQuantity, 0) / row.baseQuantity
             : 0
         const packageUnitLabel = `${formatDecimal(row.baseQuantity)} ${formatControlUnitShort(row.baseUnit)}`
-        const distributorCenter = findDistributorCenterForRequisitionLine(center, {
-          kind: row.kind,
-          productId: row.productId,
-        })
+        const productDemandDestination =
+          row.kind === 'PRODUTO'
+            ? resolveProductDemandDestination(center, row.productId)
+            : null
         const targetPreparationSheet =
           row.kind === 'PREPARO' && row.technicalSheetId !== null
             ? technicalSheets.find((sheet) => sheet.id === row.technicalSheetId && sheet.kind === 'PREPARO') ?? null
@@ -22011,9 +21757,7 @@ export default function App() {
         const destinationType =
           row.kind === 'PREPARO'
             ? 'PRODUCOES'
-            : distributorCenter
-              ? 'SUPRIMENTOS'
-              : 'COMPRAS'
+            : productDemandDestination?.destinationType ?? 'COMPRAS'
         const producerCandidates = preparationSupplyResolution?.producerCandidates ?? []
         const producerCenters = producerCandidates.map(
           (candidateCenter) => `${candidateCenter.name} • ${getCompanyTradeName(candidateCenter.companyId)}`,
@@ -22024,11 +21768,11 @@ export default function App() {
             : null
         const destinationCenterId = destinationType === 'PRODUCOES' ? resolvedProducerCenter?.id ?? null : null
         const destinationCenterName = destinationType === 'PRODUCOES' ? resolvedProducerCenter?.name ?? '' : ''
-        const supplierCenterId = destinationType === 'SUPRIMENTOS' ? distributorCenter?.id ?? null : null
-        const supplierCenterName = destinationType === 'SUPRIMENTOS' ? distributorCenter?.name ?? '' : ''
+        const supplierCenterId = destinationType === 'SUPRIMENTOS' ? productDemandDestination?.supplierCenterId ?? null : null
+        const supplierCenterName = destinationType === 'SUPRIMENTOS' ? productDemandDestination?.supplierCenterName ?? '' : ''
         const supplierCompanyId =
           destinationType === 'SUPRIMENTOS'
-            ? distributorCenter?.companyId ?? null
+            ? productDemandDestination?.supplierCompanyId ?? null
             : destinationType === 'PRODUCOES'
               ? resolvedProducerCenter?.companyId ?? null
               : null
@@ -22090,17 +21834,17 @@ export default function App() {
                   : producerCenters.length > 0
                     ? `CENTRO(S) PRODUTOR(ES): ${producerCenters.join(', ')}`
                     : 'CENTRO PRODUTOR NAO DEFINIDO'
-              : destinationType === 'SUPRIMENTOS'
-                ? supplierCenterName
-                  ? `CENTRO DISTRIBUIDOR: ${supplierCenterName}`
-                  : 'CENTRO DISTRIBUIDOR NAO DEFINIDO'
-                : 'COMPRAS',
+              : productDemandDestination?.destinationLabel ?? 'COMPRAS',
           receiptStatus: 'PENDING',
         } satisfies RequisitionDraftLine
       })
 
+    const distributorPurchaseDemandLines = buildDistributorPurchaseDemandDraftLines(center)
+
     if (!center.isProducer) {
-      return baseLines.sort((a, b) => a.itemName.localeCompare(b.itemName, 'pt-BR'))
+      return normalizeProductPackageRequisitionLines(mergeRequisitionLines([...baseLines, ...distributorPurchaseDemandLines]))
+        .filter((line) => (parseDecimal(line.requestedQuantity) ?? 0) > 0)
+        .sort((a, b) => a.itemName.localeCompare(b.itemName, 'pt-BR'))
     }
 
     const demandContext = buildPreparationDemandContext(center, center.companyId)
@@ -22117,7 +21861,7 @@ export default function App() {
     })
 
     const mergedByKey = new Map<string, RequisitionDraftLine>()
-    ;[...baseLines, ...productionShortageLines].forEach((line) => {
+    ;[...baseLines, ...distributorPurchaseDemandLines, ...productionShortageLines].forEach((line) => {
       const semanticKey = buildRequisitionLineSemanticKey(line)
       const existing = mergedByKey.get(semanticKey) ?? null
       if (!existing) {
@@ -22489,23 +22233,24 @@ export default function App() {
   function canManagePurchaseSupplyRequisition(record: RequisitionRecord) {
     return (
       record.companyId === currentCompanyId &&
-      record.status === 'SENT_TO_SUPPLIES' &&
+      isDirectPurchaseSentToPurchasingRequisition(record) &&
       (isSystemAdmin || currentAppUser?.sectionAccess.Compras === true)
     )
   }
 
   function getPurchaseSupplyCandidateLines(record: RequisitionRecord) {
     const productKeys = purchaseSupplyProductKeysByRequisitionId.get(record.id)
-    if (!productKeys || record.supplyCenterId === null) {
+    if (!productKeys) {
       return [] as RequisitionLineRecord[]
     }
+    const purchaseCenterId = record.supplyCenterId ?? record.stockCenterId
 
     return record.lines.filter(
       (line) =>
-        line.destinationType === 'SUPRIMENTOS' &&
+        line.destinationType === 'COMPRAS' &&
         line.kind === 'PRODUTO' &&
         line.productId &&
-        productKeys.has(`${record.supplyCenterId}:${line.productId}`),
+        productKeys.has(`${purchaseCenterId}:${line.productId}`),
     )
   }
 
@@ -22611,6 +22356,196 @@ export default function App() {
         )
         .sort((a, b) => a.name.localeCompare(b.name, 'pt-BR'))[0] ?? null
     )
+  }
+
+  function resolveProductDemandDestination(requesterCenter: StockCenterRecord, productId: string) {
+    const distributorCenter = findDistributorCenterForRequisitionLine(requesterCenter, {
+      kind: 'PRODUTO',
+      productId,
+    })
+
+    if (distributorCenter) {
+      return {
+        destinationType: 'SUPRIMENTOS' as const,
+        destinationLabel: `CENTRO DISTRIBUIDOR: ${distributorCenter.name}`,
+        supplierCenterId: distributorCenter.id,
+        supplierCenterName: distributorCenter.name,
+        supplierCompanyId: distributorCenter.companyId,
+        supplierCompanyName: getCompanyTradeName(distributorCenter.companyId),
+      }
+    }
+
+    if (requesterCenter.isDistributor) {
+      return {
+        destinationType: 'COMPRAS' as const,
+        destinationLabel: 'COMPRAS',
+        supplierCenterId: null,
+        supplierCenterName: '',
+        supplierCompanyId: null,
+        supplierCompanyName: '',
+      }
+    }
+
+    return {
+      destinationType: 'SUPRIMENTOS' as const,
+      destinationLabel: 'CENTRO DISTRIBUIDOR NAO DEFINIDO',
+      supplierCenterId: null,
+      supplierCenterName: '',
+      supplierCompanyId: null,
+      supplierCompanyName: '',
+    }
+  }
+
+  function buildDistributorPurchaseDemandDraftLines(center: StockCenterRecord) {
+    if (!center.isDistributor || currentCompanyId === null) {
+      return [] as RequisitionDraftLine[]
+    }
+
+    const productById = new Map(
+      products
+        .filter((product) => isProductManagedByCompany(product, center.companyId) && product.isActive && isProductStockTracked(product))
+        .map((product) => [product.id, product] as const),
+    )
+    const demandByProductId = new Map<
+      string,
+      {
+        product: ProductRecord
+        requiredBaseQuantity: number
+        requesterCenters: Set<string>
+        requisitionIds: Set<number>
+      }
+    >()
+    const committedPurchaseBaseQuantityByProductId = new Map<string, number>()
+
+    requisitions
+      .filter(
+        (record) =>
+          record.companyId === center.companyId &&
+          isPurchaseDemandEligibleRequisition(record) &&
+          record.status === 'SENT_TO_SUPPLIES' &&
+          record.supplyCenterId === center.id,
+      )
+      .forEach((record) => {
+        record.lines
+          .filter((line) => line.destinationType === 'SUPRIMENTOS' && line.kind === 'PRODUTO' && line.productId)
+          .forEach((line) => {
+            const product = productById.get(line.productId) ?? null
+            if (!product) {
+              return
+            }
+
+            const requestedQuantity = parseDecimal(line.requestedQuantity) ?? 0
+            const movementConfig = getRequisitionStockMovementConfig(line)
+            const requiredBaseQuantity = requestedQuantity * movementConfig.multiplier
+            if (requiredBaseQuantity <= 0) {
+              return
+            }
+
+            const currentDemand = demandByProductId.get(product.id) ?? {
+              product,
+              requiredBaseQuantity: 0,
+              requesterCenters: new Set<string>(),
+              requisitionIds: new Set<number>(),
+            }
+            currentDemand.requiredBaseQuantity += requiredBaseQuantity
+            currentDemand.requesterCenters.add(record.stockCenterName)
+            currentDemand.requisitionIds.add(record.id)
+            demandByProductId.set(product.id, currentDemand)
+          })
+      })
+
+    requisitions
+      .filter(
+        (record) =>
+          record.companyId === center.companyId &&
+          record.stockCenterId === center.id &&
+          record.supplyCenterId === null &&
+          record.status !== 'CANCELLED' &&
+          record.status !== 'RECEIVED' &&
+          record.lines.some((line) => line.destinationType === 'COMPRAS'),
+      )
+      .forEach((record) => {
+        record.lines
+          .filter((line) => line.destinationType === 'COMPRAS' && line.kind === 'PRODUTO' && line.productId)
+          .forEach((line) => {
+            const product = productById.get(line.productId) ?? null
+            if (!product) {
+              return
+            }
+            const requestedQuantity = parseDecimal(line.requestedQuantity) ?? 0
+            const movementConfig = getRequisitionStockMovementConfig(line)
+            const committedBaseQuantity = requestedQuantity * movementConfig.multiplier
+            if (committedBaseQuantity <= 0) {
+              return
+            }
+            committedPurchaseBaseQuantityByProductId.set(
+              product.id,
+              (committedPurchaseBaseQuantityByProductId.get(product.id) ?? 0) + committedBaseQuantity,
+            )
+          })
+      })
+
+    return Array.from(demandByProductId.values()).flatMap((demand) => {
+      const aggregationKey = buildInventoryAggregationKey({
+        kind: 'PRODUTO',
+        technicalSheetId: null,
+        productId: demand.product.id,
+        serviceItemId: '',
+      })
+      const currentBaseQuantity = latestInventoryQuantityByCenterAndAggregation.get(`${center.id}:${aggregationKey}`) ?? 0
+      const committedPurchaseBaseQuantity = committedPurchaseBaseQuantityByProductId.get(demand.product.id) ?? 0
+      const shortageBaseQuantity = Math.max(
+        demand.requiredBaseQuantity - currentBaseQuantity - committedPurchaseBaseQuantity,
+        0,
+      )
+      if (shortageBaseQuantity <= 0) {
+        return [] as RequisitionDraftLine[]
+      }
+
+      const selectedPackage = demand.product.packages.find((item) => item.isActive) ?? null
+      const packageBaseQuantity =
+        selectedPackage ? calculateNormalizedPackageQuantity(selectedPackage, demand.product.controlUnit) : 1
+      const requestedQuantity = packageBaseQuantity > 0 ? shortageBaseQuantity / packageBaseQuantity : shortageBaseQuantity
+      const currentQuantity = packageBaseQuantity > 0 ? currentBaseQuantity / packageBaseQuantity : currentBaseQuantity
+      const packageLabel = selectedPackage
+        ? `${formatDecimal(parseDecimal(selectedPackage.packageQuantity) ?? 0)} ${formatUnit(selectedPackage.packageUnit)}`
+        : formatControlUnitShort(demand.product.controlUnit)
+      const requiredQuantity = packageBaseQuantity > 0 ? demand.requiredBaseQuantity / packageBaseQuantity : demand.requiredBaseQuantity
+      const requesterLabel = Array.from(demand.requesterCenters)
+        .sort((left, right) => left.localeCompare(right, 'pt-BR'))
+        .join(', ')
+      const requisitionLabel = Array.from(demand.requisitionIds)
+        .sort((left, right) => left - right)
+        .map((id) => `#${id}`)
+        .join(', ')
+
+      return [{
+        key: `DISTRIBUTOR-PURCHASE:${center.id}:${demand.product.id}`,
+        kind: 'PRODUTO',
+        technicalSheetId: null,
+        productId: demand.product.id,
+        serviceItemId: '',
+        packageId: selectedPackage?.id ?? null,
+        itemName: demand.product.name,
+        itemTypeLabel: 'PRODUTO',
+        family: demand.product.family,
+        suggestedQuantity: formatDecimal(requestedQuantity),
+        requestedQuantity: formatDecimal(requestedQuantity),
+        requestUnitLabel: selectedPackage ? 'EMBALAGENS' : formatControlUnitShort(demand.product.controlUnit),
+        currentQuantity: formatDecimal(currentQuantity),
+        currentUnitLabel: packageLabel,
+        minimumDefinitionLabel: `Demanda de suprimentos ${formatDecimal(requiredQuantity)} x ${packageLabel} • ${requesterLabel} • ${requisitionLabel}`,
+        destinationType: 'COMPRAS',
+        destinationCenterId: null,
+        destinationCenterName: '',
+        destinationLabel: 'COMPRAS',
+        supplierCenterId: null,
+        supplierCenterName: '',
+        supplierCompanyId: null,
+        supplierCompanyName: '',
+        receiptStatus: 'PENDING',
+      } satisfies RequisitionDraftLine]
+    })
   }
 
   function buildSplitRequisitionsForSending(
@@ -23103,17 +23038,17 @@ export default function App() {
             ...downstreamDraft,
             id: purchaseRecordId,
             lines: splitResult.remainingPurchaseLines,
-            status: 'READY_TO_RECEIVE',
+            status: 'SENT_TO_SUPPLIES',
             supplyCenterId: null,
-            supplyCenterName: '',
+            supplyCenterName: 'COMPRAS',
             supplyCompanyId: null,
             supplyCompanyName: '',
             sentAt,
             sentByUserId: currentAppUser?.id ?? null,
             sentByUserName: currentAppUser?.fullName ?? 'Administrador do sistema',
-            preparedAt: sentAt,
-            preparedByUserId: currentAppUser?.id ?? null,
-            preparedByUserName: currentAppUser?.fullName ?? 'Administrador do sistema',
+            preparedAt: '',
+            preparedByUserId: null,
+            preparedByUserName: '',
             lastUpdatedAt: sentAt,
             lastUpdatedByUserId: currentAppUser?.id ?? null,
             lastUpdatedByUserName: currentAppUser?.fullName ?? 'Administrador do sistema',
@@ -23430,18 +23365,18 @@ export default function App() {
         nextSentRecords.push({
           ...targetForSending,
           lines: splitResult.remainingPurchaseLines,
-          status: 'READY_TO_RECEIVE',
+          status: 'SENT_TO_SUPPLIES',
           editScope: 'LINES_ONLY',
           supplyCenterId: null,
-          supplyCenterName: '',
+          supplyCenterName: 'COMPRAS',
           supplyCompanyId: null,
           supplyCompanyName: '',
           sentAt: now,
           sentByUserId: currentAppUser?.id ?? null,
           sentByUserName: currentAppUser?.fullName ?? 'Administrador do sistema',
-          preparedAt: now,
-          preparedByUserId: currentAppUser?.id ?? null,
-          preparedByUserName: currentAppUser?.fullName ?? 'Administrador do sistema',
+          preparedAt: '',
+          preparedByUserId: null,
+          preparedByUserName: '',
           lastUpdatedAt: now,
           lastUpdatedByUserId: currentAppUser?.id ?? null,
           lastUpdatedByUserName: currentAppUser?.fullName ?? 'Administrador do sistema',
@@ -23707,18 +23642,18 @@ export default function App() {
       nextRecords.push({
         ...targetForSending,
         lines: splitResult.remainingPurchaseLines,
-        status: 'READY_TO_RECEIVE',
+        status: 'SENT_TO_SUPPLIES',
         editScope: 'LINES_ONLY',
         supplyCenterId: null,
-        supplyCenterName: '',
+        supplyCenterName: 'COMPRAS',
         supplyCompanyId: null,
         supplyCompanyName: '',
         sentAt: now,
         sentByUserId: currentAppUser?.id ?? null,
         sentByUserName: currentAppUser?.fullName ?? 'Administrador do sistema',
-        preparedAt: now,
-        preparedByUserId: currentAppUser?.id ?? null,
-        preparedByUserName: currentAppUser?.fullName ?? 'Administrador do sistema',
+        preparedAt: '',
+        preparedByUserId: null,
+        preparedByUserName: '',
         lastUpdatedAt: now,
         lastUpdatedByUserId: currentAppUser?.id ?? null,
         lastUpdatedByUserName: currentAppUser?.fullName ?? 'Administrador do sistema',
@@ -25830,11 +25765,7 @@ export default function App() {
       existingLine: RequisitionLineRecord | null,
       lineKey: string,
     ) => {
-      const requesterCenter = stockCenters.find((center) => center.id === stockCenter.id) ?? null
-      const distributorCenter =
-        requesterCenter
-          ? findDistributorCenterForRequisitionLine(requesterCenter, { kind: 'PRODUTO', productId: linkedProduct.id })
-          : null
+      const productDemandDestination = resolveProductDemandDestination(stockCenter, linkedProduct.id)
       const selectedPackage = linkedProduct.packages.find((item) => item.isActive) ?? null
       const packageQuantity =
         selectedPackage ? calculateNormalizedPackageQuantity(selectedPackage, linkedProduct.controlUnit) : 1
@@ -25860,14 +25791,14 @@ export default function App() {
           ? `${formatDecimal(parseDecimal(selectedPackage.packageQuantity) ?? 0)} ${formatUnit(selectedPackage.packageUnit)}`
           : formatControlUnitShort(linkedProduct.controlUnit),
         minimumDefinitionLabel: '-',
-        destinationType: distributorCenter ? 'SUPRIMENTOS' : 'COMPRAS',
+        destinationType: productDemandDestination.destinationType,
         destinationCenterId: null,
         destinationCenterName: '',
-        destinationLabel: distributorCenter ? `CENTRO DISTRIBUIDOR: ${distributorCenter.name}` : 'COMPRAS',
-        supplierCenterId: distributorCenter?.id ?? null,
-        supplierCenterName: distributorCenter?.name ?? '',
-        supplierCompanyId: distributorCenter?.companyId ?? null,
-        supplierCompanyName: distributorCenter ? getCompanyTradeName(distributorCenter.companyId) : '',
+        destinationLabel: productDemandDestination.destinationLabel,
+        supplierCenterId: productDemandDestination.supplierCenterId,
+        supplierCenterName: productDemandDestination.supplierCenterName,
+        supplierCompanyId: productDemandDestination.supplierCompanyId,
+        supplierCompanyName: productDemandDestination.supplierCompanyName,
         receiptStatus: 'PENDING',
       })
     }
@@ -26199,11 +26130,7 @@ export default function App() {
         return
       }
 
-      const requesterCenter = stockCenters.find((center) => center.id === consumerCenter.id) ?? null
-      const distributorCenter =
-        requesterCenter
-          ? findDistributorCenterForRequisitionLine(requesterCenter, { kind: 'PRODUTO', productId: linkedProduct.id })
-          : null
+      const productDemandDestination = resolveProductDemandDestination(consumerCenter, linkedProduct.id)
       const selectedPackage = linkedProduct.packages.find((item) => item.isActive) ?? null
       const packageQuantity =
         selectedPackage ? calculateNormalizedPackageQuantity(selectedPackage, linkedProduct.controlUnit) : 1
@@ -26226,14 +26153,14 @@ export default function App() {
           ? `${formatDecimal(parseDecimal(selectedPackage.packageQuantity) ?? 0)} ${formatUnit(selectedPackage.packageUnit)}`
           : formatControlUnitShort(linkedProduct.controlUnit),
         minimumDefinitionLabel: '-',
-        destinationType: distributorCenter ? 'SUPRIMENTOS' : 'COMPRAS',
+        destinationType: productDemandDestination.destinationType,
         destinationCenterId: null,
         destinationCenterName: '',
-        destinationLabel: distributorCenter ? `CENTRO DISTRIBUIDOR: ${distributorCenter.name}` : 'COMPRAS',
-        supplierCenterId: distributorCenter?.id ?? null,
-        supplierCenterName: distributorCenter?.name ?? '',
-        supplierCompanyId: distributorCenter?.companyId ?? null,
-        supplierCompanyName: distributorCenter ? getCompanyTradeName(distributorCenter.companyId) : '',
+        destinationLabel: productDemandDestination.destinationLabel,
+        supplierCenterId: productDemandDestination.supplierCenterId,
+        supplierCenterName: productDemandDestination.supplierCenterName,
+        supplierCompanyId: productDemandDestination.supplierCompanyId,
+        supplierCompanyName: productDemandDestination.supplierCompanyName,
         receiptStatus: 'PENDING',
       })
     })
@@ -28598,8 +28525,8 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                   ) : null}
                   <div className="field field-span-all">
                     <p className="helper-text">
-                      Produtos sem centro distribuidor configurado seguem automaticamente para Compras e continuam indo
-                      direto para a aba Receber.
+                      Produtos sem centro distribuidor configurado ficam bloqueados para centros consumidores. Somente centros
+                      distribuidores podem requisitar abastecimento para Compras.
                     </p>
                   </div>
                 </>
@@ -47084,7 +47011,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                 ) : (
                   <div className="empty-state">
                     <strong>Nenhuma requisicao pronta para receber.</strong>
-                    <p>Quando suprimentos mover uma requisicao ou um pedido seguir direto para Compras, ele aparecera aqui.</p>
+                    <p>Quando suprimentos ou compras enviarem uma requisicao, ela aparecera aqui.</p>
                   </div>
                 )}
               </>
@@ -47238,7 +47165,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
               </div>
             </div>
             <p className="context-copy">
-              Consolida as faltas dos centros distribuidores que precisam ser abastecidos antes de atender requisicoes internas.
+              Consolida as requisicoes de compra abertas pelos centros distribuidores antes do abastecimento interno.
             </p>
           </section>
 
@@ -47494,7 +47421,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                 ) : (
                   <div className="empty-state">
                     <strong>Nenhuma compra consolidada.</strong>
-                    <p>Quando um centro distribuidor nao tiver saldo para atender suprimentos internos, a falta aparecera aqui.</p>
+                    <p>Quando um centro distribuidor aprovar uma requisicao para Compras, o pedido aparecera aqui.</p>
                   </div>
                 )}
               </>
@@ -47562,7 +47489,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                 ) : (
                   <div className="empty-state">
                     <strong>Nenhum suprimento pendente em compras.</strong>
-                    <p>Quando compras tiver demanda vinculada a requisicoes de suprimento interno, os envios aparecerao aqui.</p>
+                    <p>Quando houver requisicoes de compra enviadas pelos centros distribuidores, os envios aparecerao aqui.</p>
                   </div>
                 )}
               </>
@@ -54761,6 +54688,16 @@ function buildGlobalStockReportRows(tab: StockReportTab, rows: StockReportRow[])
 
 function isRequisitionApprovedAndSent(requisition: RequisitionRecord) {
   return requisition.approvedAt.trim() !== '' && requisition.sentAt.trim() !== ''
+}
+
+function isDirectPurchaseSentToPurchasingRequisition(requisition: RequisitionRecord) {
+  return (
+    requisition.status === 'SENT_TO_SUPPLIES' &&
+    requisition.supplyCenterId === null &&
+    requisition.lines.length > 0 &&
+    requisition.lines.every((line) => line.destinationType === 'COMPRAS') &&
+    requisition.lines.every((line) => line.receiptStatus === undefined || line.receiptStatus === 'PENDING')
+  )
 }
 
 function isDirectPurchaseReadyToReceiveRequisition(requisition: RequisitionRecord) {
