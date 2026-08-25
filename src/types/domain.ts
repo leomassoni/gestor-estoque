@@ -292,6 +292,7 @@ export type TechnicalSheetRecord = {
   dilutionRatePercentage: string
   imageDataUrl: string
   finalSalePrice: string
+  finalSalePricesByCompanyId: Record<string, string>
   flavorProfileRatings: TechnicalSheetFlavorProfileRating[]
   flavorSweet: string
   flavorSour: string
@@ -338,6 +339,7 @@ export type TechnicalSheetFormState = {
   dilutionRatePercentage: string
   imageDataUrl: string
   finalSalePrice: string
+  finalSalePricesByCompanyId: Record<string, string>
   flavorProfileRatings: TechnicalSheetFlavorProfileRating[]
   flavorSweet: string
   flavorSour: string

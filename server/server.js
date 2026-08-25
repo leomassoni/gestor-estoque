@@ -60,6 +60,7 @@ const technicalSheetListSelect = {
   desiredCmvPercentage: true,
   dilutionRatePercentage: true,
   finalSalePrice: true,
+  finalSalePricesByCompanyId: true,
   flavorProfileRatings: true,
   flavorSweet: true,
   flavorSour: true,
@@ -2407,6 +2408,26 @@ function normalizeTechnicalSheetCompanyProductIdsByCompanyId(value, ownerCompany
   return normalized
 }
 
+function normalizeTechnicalSheetFinalSalePricesByCompanyId(value, ownerCompanyId, legacyFinalSalePrice = '') {
+  const normalized = {}
+  if (value && typeof value === 'object' && !Array.isArray(value)) {
+    Object.entries(value).forEach(([companyId, finalSalePrice]) => {
+      const parsedCompanyId = parseIntegerParam(companyId)
+      const normalizedFinalSalePrice = typeof finalSalePrice === 'string' ? finalSalePrice.trim() : ''
+      if (parsedCompanyId !== null && parsedCompanyId > 0 && normalizedFinalSalePrice !== '') {
+        normalized[String(parsedCompanyId)] = normalizedFinalSalePrice
+      }
+    })
+  }
+
+  const normalizedLegacyFinalSalePrice = typeof legacyFinalSalePrice === 'string' ? legacyFinalSalePrice.trim() : ''
+  if (!normalized[String(ownerCompanyId)] && normalizedLegacyFinalSalePrice !== '') {
+    normalized[String(ownerCompanyId)] = normalizedLegacyFinalSalePrice
+  }
+
+  return normalized
+}
+
 function getTechnicalSheetCompanyProductId(sheet, companyId) {
   if (companyId === null || companyId === undefined) {
     return ''
@@ -4546,6 +4567,11 @@ function normalizeTechnicalSheetPayload(value) {
     ownerCompanyId,
     sheet.companyProductId,
   )
+  const finalSalePricesByCompanyId = normalizeTechnicalSheetFinalSalePricesByCompanyId(
+    sheet.finalSalePricesByCompanyId,
+    ownerCompanyId,
+    sheet.finalSalePrice,
+  )
 
   return {
     id: sheet.id,
@@ -4577,6 +4603,7 @@ function normalizeTechnicalSheetPayload(value) {
     dilutionRatePercentage: sheet.dilutionRatePercentage,
     imageDataUrl: sheet.imageDataUrl,
     finalSalePrice: sheet.finalSalePrice,
+    finalSalePricesByCompanyId,
     flavorProfileRatings: normalizedFlavorProfileRatings,
     flavorSweet: sheet.flavorSweet,
     flavorSour: sheet.flavorSour,

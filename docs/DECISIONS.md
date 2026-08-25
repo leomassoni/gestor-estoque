@@ -31,6 +31,22 @@ Registrar o que foi decidido, o que foi adiado e o que foi descartado, com foco 
   - preserva o mesmo caminho operacional das fichas comerciais;
   - permite que importacao de vendas, consumo analitico, estoque minimo e compras usem uma unica regra.
 
+### Fichas comerciais compartilhadas podem ter preco por empresa
+
+- Decisao: produtos podem continuar compartilhados entre empresas vinculadas, e fichas `VENDA`/`EXECUCAO` tambem podem ser compartilhadas quando a composicao e a operacao forem iguais.
+- Regra:
+  - `finalSalePrice` permanece como preco padrao/fallback da ficha;
+  - `finalSalePricesByCompanyId` guarda precos especificos por empresa quando o valor de venda variar;
+  - calculos de CMV, listagem e receituario devem usar o preco da empresa ativa quando existir;
+  - se a composicao, volume de servico, execucao, preparo, garnish ou logica operacional mudar, a ficha deve ser duplicada por origem comercial em vez de usar apenas preco por empresa.
+- Regra Macaxeira:
+  - fichas `PREPARO` destinadas ao laboratorio continuam podendo ter origem em `COMPLEXO VILA ANALIA` e ser compartilhadas com os Macaxeiras que usam esse pre-preparo;
+  - fichas comerciais Macaxeira podem ser compartilhadas entre `MACAXEIRA POIS POIS`, `FAZENDA MACAXEIRA` e `BOTECO MACAXEIRA` quando a receita for a mesma, preenchendo preco por empresa quando necessario.
+- Motivo:
+  - o produto compartilhado representa o insumo;
+  - a ficha `PREPARO` representa producao e centro produtor;
+  - a ficha comercial representa composicao/executabilidade; preco pode variar por empresa sem exigir duplicidade da receita.
+
 ### Catalogo compartilhado deve seguir empresas vinculadas, nao grupo + produto mestre
 
 - Decisao: o compartilhamento de `Produtos` e `Fichas tecnicas` deve seguir um modelo simplificado de `empresas vinculadas`.

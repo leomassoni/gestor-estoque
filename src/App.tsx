@@ -1889,6 +1889,7 @@ const emptyTechnicalSheetForm = (): TechnicalSheetFormState => ({
   dilutionRatePercentage: '',
   imageDataUrl: '',
   finalSalePrice: '',
+  finalSalePricesByCompanyId: {},
   flavorProfileRatings: [],
   flavorSweet: '0',
   flavorSour: '0',
@@ -4584,6 +4585,22 @@ export default function App() {
         ] as const),
       ),
     [technicalSheetShareableCompanies],
+  )
+  const technicalSheetFinalSalePriceCompanies = useMemo(
+    () =>
+      [technicalSheetOwnerCompanyId, ...technicalSheetForm.sharedCompanyIds]
+        .filter((companyId): companyId is number => typeof companyId === 'number' && companyId > 0)
+        .filter((companyId, index, companyIds) => companyIds.indexOf(companyId) === index)
+        .map((companyId) => companies.find((company) => company.id === companyId) ?? null)
+        .filter((company): company is CompanyRecord => company !== null)
+        .sort((left, right) =>
+          left.id === technicalSheetOwnerCompanyId
+            ? -1
+            : right.id === technicalSheetOwnerCompanyId
+              ? 1
+              : left.tradeName.localeCompare(right.tradeName, 'pt-BR'),
+        ),
+    [companies, technicalSheetForm.sharedCompanyIds, technicalSheetOwnerCompanyId],
   )
   const selectedTechnicalSheetSharedCompanyLabels = useMemo(
     () =>
@@ -14828,9 +14845,11 @@ export default function App() {
       isCommercialTechnicalSheetKind(technicalSheetForm.kind) && desiredCmvPercentage > 0
         ? totalRecipeCost / (desiredCmvPercentage / 100)
         : 0
+    const currentCompanyFinalSalePrice =
+      currentCompanyId === null ? '' : technicalSheetForm.finalSalePricesByCompanyId[String(currentCompanyId)] ?? ''
     const finalSalePrice =
       isCommercialTechnicalSheetKind(technicalSheetForm.kind)
-        ? parseDecimal(technicalSheetForm.finalSalePrice) ?? suggestedSalePrice
+        ? parseDecimal(currentCompanyFinalSalePrice || technicalSheetForm.finalSalePrice) ?? suggestedSalePrice
         : 0
     const finalCmvPercentage =
       isCommercialTechnicalSheetKind(technicalSheetForm.kind) && finalSalePrice > 0
@@ -14857,6 +14876,7 @@ export default function App() {
     technicalSheetForm.desiredCmvPercentage,
     technicalSheetForm.dilutionRatePercentage,
     technicalSheetForm.finalSalePrice,
+    technicalSheetForm.finalSalePricesByCompanyId,
     technicalSheetForm.kind,
     technicalSheetForm.outputQuantity,
     technicalSheetForm.outputUnit,
@@ -15585,7 +15605,8 @@ export default function App() {
         : 0
     const finalSalePrice =
       isCommercialTechnicalSheetKind(sheet.kind)
-        ? parseDecimal(sheet.finalSalePrice) ?? suggestedSalePrice
+        ? parseDecimal(getTechnicalSheetFinalSalePriceForCompany(sheet, currentCompanyCostContext.consumerCompanyId)) ??
+          suggestedSalePrice
         : 0
     const finalCmvPercentage =
       isCommercialTechnicalSheetKind(sheet.kind) && finalSalePrice > 0
@@ -30942,6 +30963,11 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
       dilutionRatePercentage: technicalSheet.dilutionRatePercentage || '',
       imageDataUrl: technicalSheet.imageDataUrl || '',
       finalSalePrice: technicalSheet.finalSalePrice || '',
+      finalSalePricesByCompanyId: normalizeTechnicalSheetFinalSalePricesByCompanyId(
+        technicalSheet.finalSalePricesByCompanyId,
+        getTechnicalSheetOwnerCompanyId(technicalSheet),
+        technicalSheet.finalSalePrice,
+      ),
       flavorProfileRatings: [...technicalSheet.flavorProfileRatings],
       flavorSweet: technicalSheet.flavorSweet || '0',
       flavorSour: technicalSheet.flavorSour || '0',
@@ -31161,6 +31187,11 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
       dilutionRatePercentage: sourceSheet.dilutionRatePercentage || '',
       imageDataUrl: sourceSheet.imageDataUrl || '',
       finalSalePrice: sourceSheet.finalSalePrice || '',
+      finalSalePricesByCompanyId: normalizeTechnicalSheetFinalSalePricesByCompanyId(
+        sourceSheet.finalSalePricesByCompanyId,
+        getTechnicalSheetOwnerCompanyId(sourceSheet),
+        sourceSheet.finalSalePrice,
+      ),
       flavorProfileRatings: [...sourceSheet.flavorProfileRatings],
       flavorSweet: sourceSheet.flavorSweet || '0',
       flavorSour: sourceSheet.flavorSour || '0',
@@ -31577,6 +31608,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
         dilutionRatePercentage: nextKind === 'EXECUCAO' ? current.dilutionRatePercentage : '',
         imageDataUrl: nextKind === 'EXECUCAO' ? current.imageDataUrl : '',
         finalSalePrice: isCommercialTechnicalSheetKind(nextKind) ? current.finalSalePrice : '',
+        finalSalePricesByCompanyId: isCommercialTechnicalSheetKind(nextKind) ? current.finalSalePricesByCompanyId : {},
         flavorProfileRatings: nextKind === 'EXECUCAO' ? current.flavorProfileRatings : [],
         flavorSweet: nextKind === 'EXECUCAO' ? current.flavorSweet : '0',
         flavorSour: nextKind === 'EXECUCAO' ? current.flavorSour : '0',
@@ -31674,6 +31706,16 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
     }
 
     setTechnicalSheetForm((current) => ({ ...current, [field]: value }))
+  }
+
+  function updateTechnicalSheetFinalSalePriceForCompany(companyId: number, value: string) {
+    setTechnicalSheetForm((current) => ({
+      ...current,
+      finalSalePricesByCompanyId: {
+        ...current.finalSalePricesByCompanyId,
+        [String(companyId)]: value,
+      },
+    }))
   }
 
   async function ensureCompanyFlavorProfile(name: string) {
@@ -32548,6 +32590,22 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
     const removedSharedCompanyIds = previousSharedCompanyIds.filter(
       (companyId) => companyId !== technicalSheetOwnerCompanyId && !technicalSheetSharedCompanyIds.includes(companyId),
     )
+    const technicalSheetFinalSalePricesByCompanyId = (() => {
+      if (!isCommercialTechnicalSheetKind(technicalSheetForm.kind)) {
+        return {}
+      }
+      const allowedCompanyIds = new Set([technicalSheetOwnerCompanyId, ...technicalSheetSharedCompanyIds])
+      return Object.fromEntries(
+        Object.entries(
+          buildTechnicalSheetFinalSalePricesByCompanyId(
+            previousTechnicalSheet,
+            technicalSheetOwnerCompanyId,
+            technicalSheetForm.finalSalePricesByCompanyId,
+            technicalSheetForm.finalSalePrice,
+          ),
+        ).filter(([companyId, finalSalePrice]) => allowedCompanyIds.has(Number.parseInt(companyId, 10)) && finalSalePrice.trim() !== ''),
+      )
+    })()
     const shareCascadeAnalysis = collectTechnicalSheetDependencies(
       technicalSheetSharedCompanyIds,
       normalizedIngredients,
@@ -32707,6 +32765,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
         isCommercialTechnicalSheetKind(technicalSheetForm.kind)
           ? technicalSheetForm.finalSalePrice.trim()
           : '',
+      finalSalePricesByCompanyId: technicalSheetFinalSalePricesByCompanyId,
       flavorProfileRatings: normalizedFlavorProfileRatings,
       flavorSweet: technicalSheetForm.kind === 'EXECUCAO' ? legacyFlavorValues.flavorSweet : '0',
       flavorSour: technicalSheetForm.kind === 'EXECUCAO' ? legacyFlavorValues.flavorSour : '0',
@@ -42492,7 +42551,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                     </div>
 	                    {isTechnicalSheetFieldVisible(technicalSheetForm.kind, 'finalSalePrice') ? (
 	                    <label className="field">
-	                      <span>Valor de venda final{isTechnicalSheetFieldRequired(technicalSheetForm.kind, 'finalSalePrice') ? ' *' : ''}</span>
+	                      <span>Valor de venda final padrao{isTechnicalSheetFieldRequired(technicalSheetForm.kind, 'finalSalePrice') ? ' *' : ''}</span>
 	                      <input
 	                        value={technicalSheetForm.finalSalePrice}
 	                        onChange={(event) => updateTechnicalSheetForm('finalSalePrice', event.target.value)}
@@ -42500,6 +42559,48 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
 	                      />
 	                    </label>
 	                    ) : null}
+                    {isTechnicalSheetFieldVisible(technicalSheetForm.kind, 'finalSalePrice') &&
+                    technicalSheetFinalSalePriceCompanies.length > 1 ? (
+                      <div className="field field-span-all">
+                        <div className="section-heading section-heading-inline">
+                          <div>
+                            <p className="kicker">Preco por empresa</p>
+                            <h2>Valores de venda da ficha compartilhada</h2>
+                          </div>
+                        </div>
+                        <div className="form-grid">
+                          {technicalSheetFinalSalePriceCompanies.map((company) => {
+                            const isOwnerCompany = company.id === technicalSheetOwnerCompanyId
+                            const companyKey = String(company.id)
+                            return (
+                              <label className="field" key={`technical-sheet-sale-price-company-${company.id}`}>
+                                <span>
+                                  {company.tradeName}
+                                  {isOwnerCompany ? ' (origem/padrao)' : ''}
+                                </span>
+                                <input
+                                  value={
+                                    isOwnerCompany
+                                      ? technicalSheetForm.finalSalePrice
+                                      : technicalSheetForm.finalSalePricesByCompanyId[companyKey] ?? ''
+                                  }
+                                  onChange={(event) =>
+                                    isOwnerCompany
+                                      ? updateTechnicalSheetForm('finalSalePrice', event.target.value)
+                                      : updateTechnicalSheetFinalSalePriceForCompany(company.id, event.target.value)
+                                  }
+                                  placeholder={
+                                    isOwnerCompany
+                                      ? formatMoney(technicalSheetTotals.suggestedSalePrice)
+                                      : technicalSheetForm.finalSalePrice || formatMoney(technicalSheetTotals.suggestedSalePrice)
+                                  }
+                                />
+                              </label>
+                            )
+                          })}
+                        </div>
+                      </div>
+                    ) : null}
 	                  </>
                 ) : (
                   <>
@@ -53735,7 +53836,8 @@ function calculateTechnicalSheetFinalCmvPercentage(
 
   const totalCost = calculateTechnicalSheetCost(sheet, technicalSheets, products, new Set<number>(), serviceItems, costContext)
   const desiredCmvPercentage = parseDecimal(sheet.desiredCmvPercentage) ?? 0
-  const savedFinalSalePrice = parseDecimal(sheet.finalSalePrice) ?? 0
+  const savedFinalSalePrice =
+    parseDecimal(getTechnicalSheetFinalSalePriceForCompany(sheet, costContext.consumerCompanyId)) ?? 0
   const suggestedSalePrice =
     desiredCmvPercentage > 0 && totalCost > 0 ? totalCost / (desiredCmvPercentage / 100) : 0
   const finalSalePrice = savedFinalSalePrice > 0 ? savedFinalSalePrice : suggestedSalePrice
@@ -53780,7 +53882,9 @@ function getTechnicalSheetColumnValue(
       return finalCmvPercentage === null ? '-' : `${formatDecimal(finalCmvPercentage)}%`
     }
     case 'finalSalePrice':
-      return sheet.finalSalePrice.trim() ? `R$ ${formatMoney(parseDecimal(sheet.finalSalePrice) ?? 0)}` : '-'
+      return getTechnicalSheetFinalSalePriceForCompany(sheet, costContext.consumerCompanyId).trim()
+        ? `R$ ${formatMoney(parseDecimal(getTechnicalSheetFinalSalePriceForCompany(sheet, costContext.consumerCompanyId)) ?? 0)}`
+        : '-'
     case 'linkedCompanies':
       return (Array.isArray(sheet.sharedCompanyIds) ? sheet.sharedCompanyIds : [])
         .filter((companyId): companyId is number => typeof companyId === 'number' && companyId > 0 && companyId !== (sheet.ownerCompanyId ?? sheet.companyId))
@@ -53844,7 +53948,7 @@ function getTechnicalSheetSortValue(
     case 'finalCmvPercentage':
       return calculateTechnicalSheetFinalCmvPercentage(sheet, technicalSheets, products, serviceItems, costContext) ?? 0
     case 'finalSalePrice':
-      return parseDecimal(sheet.finalSalePrice) ?? 0
+      return parseDecimal(getTechnicalSheetFinalSalePriceForCompany(sheet, costContext.consumerCompanyId)) ?? 0
     case 'yield':
       return calculateTechnicalSheetEffectiveYield(sheet)
     case 'ingredients':
@@ -56458,6 +56562,7 @@ function recoverTechnicalSheetsFromProductsStorage() {
         dilutionRatePercentage: '',
         imageDataUrl: '',
         finalSalePrice: '',
+        finalSalePricesByCompanyId: {},
         flavorProfileRatings: [],
         flavorSweet: '0',
         flavorSour: '0',
@@ -57854,6 +57959,12 @@ function normalizeTechnicalSheetRecord(value: unknown): TechnicalSheetRecord | n
     normalizedOwnerCompanyId,
     normalizedCompanyProductId,
   )
+  const normalizedFinalSalePrice = typeof item.finalSalePrice === 'string' ? item.finalSalePrice : ''
+  const normalizedFinalSalePricesByCompanyId = normalizeTechnicalSheetFinalSalePricesByCompanyId(
+    (item as { finalSalePricesByCompanyId?: unknown }).finalSalePricesByCompanyId,
+    normalizedOwnerCompanyId,
+    normalizedFinalSalePrice,
+  )
   const normalizedIngredients = item.ingredients
     .filter((ingredient): ingredient is TechnicalSheetIngredient => {
       return (
@@ -57979,7 +58090,8 @@ function normalizeTechnicalSheetRecord(value: unknown): TechnicalSheetRecord | n
     desiredCmvPercentage: typeof item.desiredCmvPercentage === 'string' ? item.desiredCmvPercentage : '',
     dilutionRatePercentage: typeof item.dilutionRatePercentage === 'string' ? item.dilutionRatePercentage : '',
     imageDataUrl: typeof item.imageDataUrl === 'string' ? item.imageDataUrl : '',
-    finalSalePrice: typeof item.finalSalePrice === 'string' ? item.finalSalePrice : '',
+    finalSalePrice: normalizedFinalSalePrice,
+    finalSalePricesByCompanyId: normalizedFinalSalePricesByCompanyId,
     flavorProfileRatings: normalizedFlavorProfileRatings,
     flavorSweet: typeof item.flavorSweet === 'string' ? item.flavorSweet : '0',
     flavorSour: typeof item.flavorSour === 'string' ? item.flavorSour : '0',
@@ -58168,6 +58280,72 @@ function getTechnicalSheetCompanyProductId(sheet: TechnicalSheetRecord, companyI
     return companyProductId
   }
   return companyId === getTechnicalSheetOwnerCompanyIdValue(sheet) ? sheet.companyProductId : ''
+}
+
+function normalizeTechnicalSheetFinalSalePricesByCompanyId(
+  value: unknown,
+  ownerCompanyId: number,
+  legacyFinalSalePrice = '',
+) {
+  const entries = value && typeof value === 'object' && !Array.isArray(value) ? Object.entries(value) : []
+  const normalized = Object.fromEntries(
+    entries
+      .map(([companyId, finalSalePrice]) => [
+        String(Number.parseInt(companyId, 10)),
+        typeof finalSalePrice === 'string' ? finalSalePrice.trim() : '',
+      ] as const)
+      .filter(([companyId, finalSalePrice]) => companyId !== 'NaN' && finalSalePrice !== ''),
+  )
+  const ownerKey = String(ownerCompanyId)
+  const normalizedLegacyFinalSalePrice = legacyFinalSalePrice.trim()
+  if (!normalized[ownerKey] && normalizedLegacyFinalSalePrice !== '') {
+    normalized[ownerKey] = normalizedLegacyFinalSalePrice
+  }
+  return normalized
+}
+
+function getTechnicalSheetFinalSalePriceForCompany(
+  sheet: TechnicalSheetRecord,
+  companyId: number | null | undefined,
+) {
+  if (companyId === null || companyId === undefined) {
+    return sheet.finalSalePrice
+  }
+  return sheet.finalSalePricesByCompanyId[String(companyId)] || sheet.finalSalePrice
+}
+
+function buildTechnicalSheetFinalSalePricesByCompanyId(
+  sheet: TechnicalSheetRecord | null,
+  ownerCompanyId: number,
+  finalSalePricesByCompanyId: Record<string, string>,
+  fallbackFinalSalePrice: string,
+) {
+  const normalized = normalizeTechnicalSheetFinalSalePricesByCompanyId(
+    sheet?.finalSalePricesByCompanyId,
+    ownerCompanyId,
+    sheet?.finalSalePrice ?? '',
+  )
+  Object.entries(finalSalePricesByCompanyId).forEach(([rawCompanyId, rawFinalSalePrice]) => {
+    const companyId = Number.parseInt(rawCompanyId, 10)
+    if (!Number.isFinite(companyId) || companyId <= 0) {
+      return
+    }
+    const key = String(companyId)
+    const finalSalePrice = rawFinalSalePrice.trim()
+    if (finalSalePrice) {
+      normalized[key] = finalSalePrice
+    } else {
+      delete normalized[key]
+    }
+  })
+  const ownerKey = String(ownerCompanyId)
+  const normalizedFallbackFinalSalePrice = fallbackFinalSalePrice.trim()
+  if (normalizedFallbackFinalSalePrice) {
+    normalized[ownerKey] = normalizedFallbackFinalSalePrice
+  } else {
+    delete normalized[ownerKey]
+  }
+  return normalized
 }
 
 function buildTechnicalSheetCompanyProductIdsByCompanyId(

@@ -8,6 +8,19 @@ Registrar um historico resumido do que foi feito, do que falhou e do que ficou p
 
 ## 2026-08-25
 
+### Preco de venda por empresa em fichas compartilhadas
+
+- Criado backup dos endpoints publicados antes da mudanca:
+  - [`backups/online-before-company-sale-prices-20260825T181853Z`](/home/leomassoni/Documentos/Igarapé/Projetos/TCC-SP/gestor-estoque/backups/online-before-company-sale-prices-20260825T181853Z)
+- Adicionado campo `finalSalePricesByCompanyId` nas fichas tecnicas, mantendo `finalSalePrice` como preco padrao/fallback.
+- Fichas `EXECUCAO` e `VENDA` compartilhadas podem ter valores de venda especificos por empresa sem duplicar a composicao.
+- O formulario de ficha comercial passa a exibir `Valores de venda da ficha compartilhada` quando houver empresas compartilhadas.
+- Calculo de CMV, coluna de valor final e ordenacao usam o preco da empresa ativa quando preenchido.
+- Validacao executada:
+  - `npm run build`
+  - `npm run build:server`
+  - `npm --prefix server run prisma:generate`
+
 ### Exclusao configuravel de produtos e fichas tecnicas
 
 - Adicionadas permissoes especificas em perfis de acesso para excluir `Produtos` e `Fichas tecnicas`.

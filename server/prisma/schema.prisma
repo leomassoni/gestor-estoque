@@ -935,6 +935,7 @@ model AppTechnicalSheetRecord {
   dilutionRatePercentage String
   imageDataUrl          String
   finalSalePrice        String
+  finalSalePricesByCompanyId Json @default("{}")
   flavorProfileRatings  Json
   flavorSweet           String
   flavorSour            String
