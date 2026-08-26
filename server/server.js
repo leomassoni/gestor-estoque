@@ -3559,6 +3559,11 @@ function normalizeStockCenterPayload(value) {
             record.salesImportSettings.productionSupplyRequestAutomation === 'APPROVE_AND_SEND'
               ? record.salesImportSettings.productionSupplyRequestAutomation
               : 'MANUAL',
+          distributorPurchaseRequestAutomation:
+            record.salesImportSettings.distributorPurchaseRequestAutomation === 'CREATE_PENDING' ||
+            record.salesImportSettings.distributorPurchaseRequestAutomation === 'APPROVE_AND_SEND'
+              ? record.salesImportSettings.distributorPurchaseRequestAutomation
+              : 'MANUAL',
         }
       : {
           historyMode: 'ROLLING_MONTHS',
@@ -3574,6 +3579,7 @@ function normalizeStockCenterPayload(value) {
           unmatchedRowPolicy: 'BLOCK',
           duplicateRowPolicy: 'BLOCK',
           productionSupplyRequestAutomation: 'MANUAL',
+          distributorPurchaseRequestAutomation: 'MANUAL',
         }
 
   if (

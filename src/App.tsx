@@ -1586,6 +1586,7 @@ const emptyStockCenterForm = (): StockCenterFormState => ({
     unmatchedRowPolicy: 'BLOCK',
     duplicateRowPolicy: 'BLOCK',
     productionSupplyRequestAutomation: 'MANUAL',
+    distributorPurchaseRequestAutomation: 'MANUAL',
   },
 })
 
@@ -2122,6 +2123,11 @@ function normalizeStockCenterSalesImportSettings(value: unknown): StockCenterSal
       record.productionSupplyRequestAutomation === 'CREATE_PENDING' ||
       record.productionSupplyRequestAutomation === 'APPROVE_AND_SEND'
         ? record.productionSupplyRequestAutomation
+        : 'MANUAL',
+    distributorPurchaseRequestAutomation:
+      record.distributorPurchaseRequestAutomation === 'CREATE_PENDING' ||
+      record.distributorPurchaseRequestAutomation === 'APPROVE_AND_SEND'
+        ? record.distributorPurchaseRequestAutomation
         : 'MANUAL',
   }
 }
@@ -21301,6 +21307,9 @@ export default function App() {
         productionSupplyRequestAutomation: stockCenterForm.isProducer
           ? stockCenterForm.salesImportSettings.productionSupplyRequestAutomation
           : 'MANUAL',
+        distributorPurchaseRequestAutomation: stockCenterForm.isDistributor
+          ? stockCenterForm.salesImportSettings.distributorPurchaseRequestAutomation
+          : 'MANUAL',
       },
       isActive: existingCenter?.isActive ?? true,
     }
@@ -22430,7 +22439,10 @@ export default function App() {
     return `Usuario atual nao possui permissao para ${actionLabel} requisicoes${centerLabel}. Verifique se ele esta marcado como responsavel pelo centro de estoque.`
   }
 
-  function buildDistributorPurchaseDemandDraftLines(center: StockCenterRecord) {
+  function buildDistributorPurchaseDemandDraftLines(
+    center: StockCenterRecord,
+    baseRequisitions: RequisitionRecord[] = requisitions,
+  ) {
     if (!center.isDistributor || currentCompanyId === null) {
       return [] as RequisitionDraftLine[]
     }
@@ -22451,7 +22463,7 @@ export default function App() {
     >()
     const committedPurchaseBaseQuantityByProductId = new Map<string, number>()
 
-    requisitions
+    baseRequisitions
       .filter(
         (record) =>
           record.companyId === center.companyId &&
@@ -22488,7 +22500,7 @@ export default function App() {
           })
       })
 
-    requisitions
+    baseRequisitions
       .filter(
         (record) =>
           record.companyId === center.companyId &&
@@ -23103,6 +23115,115 @@ export default function App() {
     return downstreamRequisitions
   }
 
+  function buildDistributorPurchaseRequisitionsForSentSupplyRequisitions(
+    supplyRequisitions: RequisitionRecord[],
+    sentAt: string,
+    reservedIds: number[] = [],
+    baseRequisitions: RequisitionRecord[] = requisitions,
+  ) {
+    const supplyRequisitionsForDistributor = supplyRequisitions.filter(
+      (record) =>
+        record.status === 'SENT_TO_SUPPLIES' &&
+        record.supplyCenterId !== null &&
+        record.lines.some((line) => line.destinationType === 'SUPRIMENTOS'),
+    )
+    if (supplyRequisitionsForDistributor.length === 0) {
+      return [] as RequisitionRecord[]
+    }
+
+    const centersById = new Map(
+      stockCenters
+        .filter((center) => center.isActive && center.isDistributor)
+        .map((center) => [center.id, center] as const),
+    )
+    const distributorCenters = Array.from(
+      new Set(supplyRequisitionsForDistributor.map((record) => record.supplyCenterId).filter((id): id is number => id !== null)),
+    )
+      .map((centerId) => centersById.get(centerId) ?? null)
+      .filter((center): center is StockCenterRecord => Boolean(center))
+      .filter((center) => center.salesImportSettings.distributorPurchaseRequestAutomation !== 'MANUAL')
+      .sort((left, right) => left.id - right.id)
+
+    if (distributorCenters.length === 0) {
+      return [] as RequisitionRecord[]
+    }
+
+    const usedIds = new Set([
+      ...baseRequisitions.map((record) => record.id),
+      ...baseRequisitions.map((record) => record.requisitionGroupId),
+      ...supplyRequisitions.map((record) => record.id),
+      ...supplyRequisitions.map((record) => record.requisitionGroupId),
+      ...reservedIds,
+    ])
+    let nextIdCandidate = getNextPersistedIntId(Array.from(usedIds))
+    const reserveNextId = () => {
+      while (usedIds.has(nextIdCandidate)) {
+        nextIdCandidate += 1
+      }
+      const nextId = nextIdCandidate
+      usedIds.add(nextId)
+      nextIdCandidate += 1
+      return nextId
+    }
+
+    const requisitionsForDemand = [...baseRequisitions, ...supplyRequisitions]
+
+    return distributorCenters.flatMap((center) => {
+      const purchaseLines = buildDistributorPurchaseDemandDraftLines(center, requisitionsForDemand)
+        .filter((line) => line.destinationType === 'COMPRAS' && (parseDecimal(line.requestedQuantity) ?? 0) > 0)
+      if (purchaseLines.length === 0) {
+        return [] as RequisitionRecord[]
+      }
+
+      const automationMode = center.salesImportSettings.distributorPurchaseRequestAutomation
+      const isAutomaticSend = automationMode === 'APPROVE_AND_SEND'
+      const purchaseRecordId = reserveNextId()
+      const purchaseRecord: RequisitionRecord = {
+        id: purchaseRecordId,
+        companyId: center.companyId,
+        requisitionGroupId: purchaseRecordId,
+        planningRootRequestId: null,
+        planningSourceKind: '',
+        planningSourceCenterId: center.id,
+        planningSourceCenterName: center.name,
+        planningSourceSheetId: null,
+        planningSourceSheetName: 'Demanda de suprimentos',
+        planningSourceQuantityLabel: '',
+        stockCenterId: center.id,
+        stockCenterName: center.name,
+        supplyCenterId: null,
+        supplyCenterName: isAutomaticSend ? 'COMPRAS' : '',
+        supplyCompanyId: null,
+        supplyCompanyName: '',
+        sector: center.sector,
+        countedAt: getTodayDateInputValue(),
+        status: isAutomaticSend ? 'SENT_TO_SUPPLIES' : 'PENDING_APPROVAL',
+        editScope: 'LINES_ONLY',
+        lines: normalizeProductPackageRequisitionLines(purchaseLines),
+        createdAt: sentAt,
+        createdByUserId: currentAppUser?.id ?? null,
+        createdByUserName: currentAppUser?.fullName ?? 'Administrador do sistema',
+        approvedAt: isAutomaticSend ? sentAt : '',
+        approvedByUserId: isAutomaticSend ? currentAppUser?.id ?? null : null,
+        approvedByUserName: isAutomaticSend ? currentAppUser?.fullName ?? 'Administrador do sistema' : '',
+        sentAt: isAutomaticSend ? sentAt : '',
+        sentByUserId: isAutomaticSend ? currentAppUser?.id ?? null : null,
+        sentByUserName: isAutomaticSend ? currentAppUser?.fullName ?? 'Administrador do sistema' : '',
+        preparedAt: '',
+        preparedByUserId: null,
+        preparedByUserName: '',
+        receivedAt: '',
+        receivedByUserId: null,
+        receivedByUserName: '',
+        lastUpdatedAt: sentAt,
+        lastUpdatedByUserId: currentAppUser?.id ?? null,
+        lastUpdatedByUserName: currentAppUser?.fullName ?? 'Administrador do sistema',
+      }
+
+      return [purchaseRecord]
+    })
+  }
+
   function buildManualProductionRequestsForSentProductionRequisitions(
     productionRequisitions: RequisitionRecord[],
     createdAt: string,
@@ -23464,7 +23585,13 @@ export default function App() {
       nextSentRecords.filter((record) => record.lines.some((line) => line.destinationType === 'PRODUCOES')),
       now,
     )
-    const nextRecords = [...downstreamProductionRequisitions, ...nextSentRecords]
+    const downstreamDistributorPurchaseRequisitions = buildDistributorPurchaseRequisitionsForSentSupplyRequisitions(
+      [...nextSentRecords, ...downstreamProductionRequisitions],
+      now,
+      reservedIds,
+      [...latestRequisitions, ...nextSentRecords, ...downstreamProductionRequisitions],
+    )
+    const nextRecords = [...downstreamDistributorPurchaseRequisitions, ...downstreamProductionRequisitions, ...nextSentRecords]
     const nextRecordIds = new Set(nextRecords.map((record) => record.id))
     const originalIdsToDelete = Array.from(targetIds).filter((id) => !nextRecordIds.has(id))
 
@@ -23502,17 +23629,26 @@ export default function App() {
     })
     const downstreamPendingCount = downstreamProductionRequisitions.filter((record) => record.status === 'PENDING_APPROVAL').length
     const downstreamSentCount = downstreamProductionRequisitions.filter((record) => record.status === 'SENT_TO_SUPPLIES').length
+    const distributorPurchasePendingCount = downstreamDistributorPurchaseRequisitions.filter((record) => record.status === 'PENDING_APPROVAL').length
+    const distributorPurchaseSentCount = downstreamDistributorPurchaseRequisitions.filter((record) => record.status === 'SENT_TO_SUPPLIES').length
     setSaveFeedback({
       status: 'success',
       title: options?.successTitle ?? 'Requisicoes enviadas',
       message:
-        productionRequests.length > 0 || downstreamProductionRequisitions.length > 0
+        productionRequests.length > 0 || downstreamProductionRequisitions.length > 0 || downstreamDistributorPurchaseRequisitions.length > 0
           ? [
-              `${targetIds.size} requisicao(oes) foram ${options?.successVerb ?? 'enviadas'} em lote e ${productionRequests.length} entrada(s) de producao foram criada(s).`,
-              downstreamProductionRequisitions.length > 0
-                ? `${downstreamPendingCount} requisicao(oes) de insumos ficaram pendentes para revisao e ${downstreamSentCount} foram enviadas automaticamente, conforme a configuracao dos centros produtores.`
-                : 'As requisicoes de insumos deverao ser montadas pelos centros produtores, conforme a configuracao manual.'
-            ].join(' ')
+              `${targetIds.size} requisicao(oes) foram ${options?.successVerb ?? 'enviadas'} em lote.`,
+              productionRequests.length > 0 || downstreamProductionRequisitions.length > 0
+                ? `${productionRequests.length} entrada(s) de producao foram criada(s). ${
+                    downstreamProductionRequisitions.length > 0
+                      ? `${downstreamPendingCount} requisicao(oes) de insumos ficaram pendentes para revisao e ${downstreamSentCount} foram enviadas automaticamente, conforme a configuracao dos centros produtores.`
+                      : 'As requisicoes de insumos deverao ser montadas pelos centros produtores, conforme a configuracao manual.'
+                  }`
+                : '',
+              downstreamDistributorPurchaseRequisitions.length > 0
+                ? `${distributorPurchasePendingCount} pedido(s) de compra ficaram pendentes para revisao do distribuidor e ${distributorPurchaseSentCount} foram enviados automaticamente para Compras.`
+                : ''
+            ].filter(Boolean).join(' ')
           : `${targetIds.size} requisicao(oes) foram ${options?.successVerb ?? 'enviadas'} em lote.`,
     })
   }
@@ -23704,7 +23840,13 @@ export default function App() {
       splitResult.requisitions.filter((record) => record.lines.some((line) => line.destinationType === 'PRODUCOES')),
       now,
     )
-    const nextRecords = [...downstreamProductionRequisitions, ...splitResult.requisitions]
+    const downstreamDistributorPurchaseRequisitions = buildDistributorPurchaseRequisitionsForSentSupplyRequisitions(
+      [...splitResult.requisitions, ...downstreamProductionRequisitions],
+      now,
+      [],
+      [...latestRequisitions, ...splitResult.requisitions, ...downstreamProductionRequisitions],
+    )
+    const nextRecords = [...downstreamDistributorPurchaseRequisitions, ...downstreamProductionRequisitions, ...splitResult.requisitions]
 
     if (splitResult.remainingPurchaseLines.length > 0) {
       nextRecords.push({
@@ -23762,6 +23904,8 @@ export default function App() {
 
     const downstreamPendingCount = downstreamProductionRequisitions.filter((record) => record.status === 'PENDING_APPROVAL').length
     const downstreamSentCount = downstreamProductionRequisitions.filter((record) => record.status === 'SENT_TO_SUPPLIES').length
+    const distributorPurchasePendingCount = downstreamDistributorPurchaseRequisitions.filter((record) => record.status === 'PENDING_APPROVAL').length
+    const distributorPurchaseSentCount = downstreamDistributorPurchaseRequisitions.filter((record) => record.status === 'SENT_TO_SUPPLIES').length
     setSaveFeedback({
       status: 'success',
       title:
@@ -23769,6 +23913,10 @@ export default function App() {
           ? canApproveAndSendPendingRequisition
             ? 'Requisicao aprovada e enviada com cadeia de producao'
             : 'Requisicao enviada com cadeia de producao'
+          : downstreamDistributorPurchaseRequisitions.length > 0
+            ? canApproveAndSendPendingRequisition
+              ? 'Requisicao aprovada e enviada com automacao de compras'
+              : 'Requisicao enviada com automacao de compras'
           : splitResult.requisitions.length > 0 && splitResult.remainingPurchaseLines.length > 0
           ? canApproveAndSendPendingRequisition
             ? 'Requisicao aprovada, desdobrada e enviada'
@@ -23781,13 +23929,19 @@ export default function App() {
               ? 'Requisicao aprovada e enviada para receber'
               : 'Requisicao enviada para receber',
       message:
-        productionRequests.length > 0 || downstreamProductionRequisitions.length > 0
+        productionRequests.length > 0 || downstreamProductionRequisitions.length > 0 || downstreamDistributorPurchaseRequisitions.length > 0
           ? [
-              `Os pre-preparos foram enviados ao centro produtor e ${productionRequests.length} entrada(s) de producao foram criada(s).`,
-              downstreamProductionRequisitions.length > 0
-                ? `${downstreamPendingCount} requisicao(oes) de insumos ficaram pendentes para revisao e ${downstreamSentCount} foram enviadas automaticamente, conforme a configuracao dos centros produtores.`
-                : 'As requisicoes de insumos deverao ser montadas pelos centros produtores, conforme a configuracao manual.'
-            ].join(' ')
+              productionRequests.length > 0 || downstreamProductionRequisitions.length > 0
+                ? `Os pre-preparos foram enviados ao centro produtor e ${productionRequests.length} entrada(s) de producao foram criada(s). ${
+                    downstreamProductionRequisitions.length > 0
+                      ? `${downstreamPendingCount} requisicao(oes) de insumos ficaram pendentes para revisao e ${downstreamSentCount} foram enviadas automaticamente, conforme a configuracao dos centros produtores.`
+                      : 'As requisicoes de insumos deverao ser montadas pelos centros produtores, conforme a configuracao manual.'
+                  }`
+                : '',
+              downstreamDistributorPurchaseRequisitions.length > 0
+                ? `${distributorPurchasePendingCount} pedido(s) de compra ficaram pendentes para revisao do distribuidor e ${distributorPurchaseSentCount} foram enviados automaticamente para Compras.`
+                : ''
+            ].filter(Boolean).join(' ')
           : splitResult.requisitions.length > 0 && splitResult.remainingPurchaseLines.length > 0
           ? 'Os itens internos foram enviados aos centros de suprimentos ou producao e os itens de compras seguiram direto para receber.'
           : splitResult.requisitions.length > 0
@@ -28585,6 +28739,16 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                   <p className="field-helper field-span-all">
                     Manual e o fluxo padrao: quando outro centro pedir um pre-preparo, este centro recebe a demanda e a entrada de producao, mas um responsavel precisa montar a propria requisicao dos insumos faltantes. Criar pendente prepara essa requisicao para revisao. Aprovar e enviar automaticamente dispensa a revisao humana e encaminha os insumos ao centro distribuidor configurado.
                   </p>
+                  {stockCenterForm.salesImportSettings.productionSupplyRequestAutomation !== 'MANUAL' ? (
+                    <p className="field-helper field-span-all">
+                      Use esta automacao apenas quando o estoque deste centro produtor estiver contado ou operacionalmente confiavel. Se a requisicao do centro consumidor for aprovada antes da contagem do centro produtor, o sistema pode calcular insumos a maior ou a menor, pois usara o saldo disponivel no momento da aprovacao.
+                    </p>
+                  ) : null}
+                  {stockCenterForm.salesImportSettings.productionSupplyRequestAutomation === 'APPROVE_AND_SEND' ? (
+                    <p className="field-helper field-span-all">
+                      Este modo tambem aprova e envia a requisicao de insumos sem revisao humana. Se o estoque do centro produtor estiver desatualizado, a demanda enviada ao centro distribuidor pode ficar incorreta.
+                    </p>
+                  ) : null}
                 </>
               ) : null}
               <label className="checkbox-row field-span-all">
@@ -28598,6 +28762,12 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                       distributesAllProducts: event.target.checked ? current.distributesAllProducts : false,
                       distributedProductIds: event.target.checked ? current.distributedProductIds : [],
                       suppliedCenterIds: event.target.checked ? current.suppliedCenterIds : [],
+                      salesImportSettings: {
+                        ...current.salesImportSettings,
+                        distributorPurchaseRequestAutomation: event.target.checked
+                          ? current.salesImportSettings.distributorPurchaseRequestAutomation
+                          : 'MANUAL',
+                      },
                     }))
                   }
                 />
@@ -28666,6 +28836,35 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                       distribuidores podem requisitar abastecimento para Compras.
                     </p>
                   </div>
+                  <label className="field field-span-all">
+                    <span>Automacao de pedido de compra do distribuidor</span>
+                    <select
+                      value={stockCenterForm.salesImportSettings.distributorPurchaseRequestAutomation}
+                      onChange={(event) =>
+                        updateStockCenterSalesImportSettingsField(
+                          'distributorPurchaseRequestAutomation',
+                          event.target.value as StockCenterSalesImportSettings['distributorPurchaseRequestAutomation'],
+                        )
+                      }
+                    >
+                      <option value="MANUAL">Manual: revisar demanda antes de pedir compra</option>
+                      <option value="CREATE_PENDING">Criar pedido de compra pendente para revisao</option>
+                      <option value="APPROVE_AND_SEND">Enviar automaticamente a necessidade para Compras</option>
+                    </select>
+                  </label>
+                  <p className="field-helper field-span-all">
+                    Manual e o fluxo padrao: quando este distribuidor receber demandas de outros centros e nao tiver saldo suficiente, um responsavel monta a requisicao de compra depois de revisar estoque, prioridades e compras em transito. Criar pendente prepara essa demanda para revisao. Enviar automaticamente encaminha a falta ao painel de compras sem revisao humana.
+                  </p>
+                  {stockCenterForm.salesImportSettings.distributorPurchaseRequestAutomation !== 'MANUAL' ? (
+                    <p className="field-helper field-span-all">
+                      Use esta automacao apenas quando o estoque deste centro distribuidor estiver contado ou operacionalmente confiavel. Se houver saldo desatualizado, requisicoes abertas, compras em transito ou itens reservados, o sistema pode gerar pedido de compra a maior ou a menor.
+                    </p>
+                  ) : null}
+                  {stockCenterForm.salesImportSettings.distributorPurchaseRequestAutomation === 'APPROVE_AND_SEND' ? (
+                    <p className="field-helper field-span-all">
+                      Este modo envia a necessidade para Compras sem revisao humana do distribuidor. Se o estoque ou os compromissos do centro estiverem desatualizados, o pedido de compra pode ficar incorreto.
+                    </p>
+                  ) : null}
                 </>
               ) : null}
             </>

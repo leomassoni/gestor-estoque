@@ -504,6 +504,7 @@ export type SalesImportHistoryMode = 'ROLLING_MONTHS' | 'FULL_PERIOD' | 'SAME_PE
 export type SalesImportConsumptionMethod = 'SIMPLE_AVERAGE' | 'MEDIAN_DAILY'
 export type SalesImportCoverageMode = 'DAILY' | 'WEEKLY' | 'FORTNIGHTLY' | 'MONTHLY'
 export type ProductionSupplyRequestAutomationMode = 'MANUAL' | 'CREATE_PENDING' | 'APPROVE_AND_SEND'
+export type DistributorPurchaseRequestAutomationMode = 'MANUAL' | 'CREATE_PENDING' | 'APPROVE_AND_SEND'
 
 export type StockCenterSalesImportSettings = {
   historyMode: SalesImportHistoryMode
@@ -519,6 +520,7 @@ export type StockCenterSalesImportSettings = {
   unmatchedRowPolicy: 'BLOCK' | 'SKIP'
   duplicateRowPolicy: 'BLOCK' | 'SKIP'
   productionSupplyRequestAutomation: ProductionSupplyRequestAutomationMode
+  distributorPurchaseRequestAutomation: DistributorPurchaseRequestAutomationMode
 }
 
 export type StockCenterMinimumStock = {
