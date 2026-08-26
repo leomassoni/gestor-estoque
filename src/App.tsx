@@ -22396,6 +22396,25 @@ export default function App() {
     }
   }
 
+  function buildMissingDistributorMessage(lines: Pick<RequisitionLineRecord, 'itemName'>[]) {
+    const itemNames = Array.from(
+      new Set(lines.map((line) => line.itemName.trim()).filter(Boolean)),
+    ).sort((left, right) => left.localeCompare(right, 'pt-BR'))
+    const visibleItemNames = itemNames.slice(0, 8).join(', ')
+    const remainingLabel = itemNames.length > 8 ? ` e mais ${itemNames.length - 8} item(ns)` : ''
+
+    return `E necessario configurar um centro de estoque distribuidor para os seguintes produtos/materias-primas: ${visibleItemNames}${remainingLabel}. O distribuidor precisa abastecer o centro solicitante e distribuir estes produtos.`
+  }
+
+  function buildRequisitionPermissionMessage(actionLabel: string, records: RequisitionRecord[]) {
+    const centerNames = Array.from(new Set(records.map((record) => record.stockCenterName).filter(Boolean)))
+      .sort((left, right) => left.localeCompare(right, 'pt-BR'))
+      .join(', ')
+    const centerLabel = centerNames ? ` do(s) centro(s) ${centerNames}` : ''
+
+    return `Usuario atual nao possui permissao para ${actionLabel} requisicoes${centerLabel}. Verifique se ele esta marcado como responsavel pelo centro de estoque.`
+  }
+
   function buildDistributorPurchaseDemandDraftLines(center: StockCenterRecord) {
     if (!center.isDistributor || currentCompanyId === null) {
       return [] as RequisitionDraftLine[]
@@ -22570,9 +22589,7 @@ export default function App() {
 
     if (unresolvedSupplyLines.length > 0) {
       return {
-        error: `Existem produtos sem centro distribuidor valido: ${unresolvedSupplyLines
-          .map((line) => line.itemName)
-          .join(', ')}.`,
+        error: buildMissingDistributorMessage(unresolvedSupplyLines),
         requisitions: [] as RequisitionRecord[],
         remainingPurchaseLines: purchaseLines,
       }
@@ -22650,9 +22667,7 @@ export default function App() {
 
     if (unresolvedSupplyLines.length > 0) {
       return {
-        error: `Existem produtos sem centro distribuidor valido: ${unresolvedSupplyLines
-          .map((line) => line.itemName)
-          .join(', ')}.`,
+        error: buildMissingDistributorMessage(unresolvedSupplyLines),
         requisitions: [] as RequisitionRecord[],
       }
     }
@@ -23207,7 +23222,15 @@ export default function App() {
 
   async function approveRequisition(requisitionId: number) {
     const targetRequisition = requisitions.find((record) => record.id === requisitionId) ?? null
-    if (!targetRequisition || targetRequisition.status !== 'PENDING_APPROVAL' || !canApproveRequisition(targetRequisition)) {
+    if (!targetRequisition || targetRequisition.status !== 'PENDING_APPROVAL') {
+      return
+    }
+    if (!canApproveRequisition(targetRequisition)) {
+      setSaveFeedback({
+        status: 'error',
+        title: 'Permissao insuficiente',
+        message: buildRequisitionPermissionMessage('aprovar', [targetRequisition]),
+      })
       return
     }
 
@@ -23308,14 +23331,27 @@ export default function App() {
       })
       return
     }
-    const latestSelectedRequisitions = latestRequisitions.filter(
+    const latestSelectedInSourceStatus = latestRequisitions.filter(
       (record) =>
         selectedSourceRequisitionIds.has(record.id) &&
-        record.status === sourceStatus &&
-        (sourceStatus === 'PENDING_APPROVAL' ? canApproveRequisition(record) : canSendRequisition(record)),
+        record.status === sourceStatus,
+    )
+    const unauthorizedSelectedRequisitions = latestSelectedInSourceStatus.filter(
+      (record) => !(sourceStatus === 'PENDING_APPROVAL' ? canApproveRequisition(record) : canSendRequisition(record)),
+    )
+    const latestSelectedRequisitions = latestSelectedInSourceStatus.filter(
+      (record) => sourceStatus === 'PENDING_APPROVAL' ? canApproveRequisition(record) : canSendRequisition(record),
     )
 
     if (latestSelectedRequisitions.length === 0) {
+      if (unauthorizedSelectedRequisitions.length > 0) {
+        setSaveFeedback({
+          status: 'error',
+          title: 'Permissao insuficiente',
+          message: buildRequisitionPermissionMessage(sourceStatus === 'PENDING_APPROVAL' ? 'aprovar' : 'enviar', unauthorizedSelectedRequisitions),
+        })
+        return
+      }
       setSaveFeedback({
         status: 'error',
         title: options?.staleTitle ?? 'Nenhuma requisicao aprovada atualizada',
