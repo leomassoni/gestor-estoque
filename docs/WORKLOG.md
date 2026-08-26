@@ -1,10 +1,29 @@
 # Worklog
 
- Ultima atualizacao: 2026-08-25
+ Ultima atualizacao: 2026-08-26
 
 ## Objetivo deste arquivo
 
 Registrar um historico resumido do que foi feito, do que falhou e do que ficou pendente.
+
+## 2026-08-26
+
+### Requisicao do Laboratorio e minimo operacional
+
+- Retomada feita apos interrupcao da sessao anterior causada por desligamento do computador.
+- Corrigido diagnostico sobre ponto de milhar:
+  - o parser decimal global em [`src/utils/core.ts`](/home/leomassoni/Documentos/Igarapé/Projetos/TCC-SP/gestor-estoque/src/utils/core.ts) ja interpreta `1.000` como `1000`;
+  - o problema estava em um parser especifico de quantidade operacional em [`src/App.tsx`](/home/leomassoni/Documentos/Igarapé/Projetos/TCC-SP/gestor-estoque/src/App.tsx), usado para embalagens/preparos arredondados, que tratava `1.000` como decimal e retornava `1`;
+  - removida essa excecao para o fluxo usar a mesma regra decimal consolidada.
+- Corrigido calculo de demanda de produtor:
+  - `buildPreparationDemandContext` agora soma ao minimo efetivo a demanda operacional consolidada do centro produtor;
+  - essa demanda usa o maior valor entre cobertura potencial externa e requisicoes ja enviadas ao produtor, evitando ignorar demanda de centros consumidores e evitando duplicar o mesmo consumo quando ja existe requisicao enviada;
+  - a geracao de requisicao de centro produtor passa a calcular falta de insumos a partir desse minimo efetivo, mesmo quando o Laboratorio nao tem minimo manual proprio.
+- Ajustado relatorio de minimo real para exibir `Demanda operacional` separada de `Requisicoes` e `Dependencias`.
+- Validacao executada:
+  - `npm run build`
+- Validacao pendente/limitada:
+  - `npm run lint` e `NODE_OPTIONS=--max-old-space-size=4096 npx eslint src/App.tsx` falharam por estouro de memoria do Node/ESLint no arquivo monolitico, sem apontar erro de lint.
 
 ## 2026-08-25
 

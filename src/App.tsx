@@ -840,12 +840,6 @@ function parseOperationalPackageQuantity(value: string) {
   if (!normalizedValue) {
     return 0
   }
-  if (normalizedValue.includes('.') && !normalizedValue.includes(',')) {
-    const parsedDotDecimal = Number(normalizedValue)
-    if (Number.isFinite(parsedDotDecimal)) {
-      return parsedDotDecimal
-    }
-  }
 
   return parseDecimal(normalizedValue) ?? 0
 }
@@ -3747,9 +3741,19 @@ export default function App() {
           ) {
             return
           }
+          const sheet =
+            technicalSheets.find(
+              (item) =>
+                item.id === line.technicalSheetId &&
+                item.kind === 'PREPARO' &&
+                item.isActive &&
+                isTechnicalSheetVisibleForCompany(item, supplierCenter.companyId),
+            ) ?? null
+          const requestedQuantity = parseDecimal(line.requestedQuantity) ?? 0
+          const demandedYield = requestedQuantity * Math.max(sheet ? getStockCenterBaseQuantity(sheet) : 1, 1)
           pendingDemandBySheetId.set(
             line.technicalSheetId,
-            (pendingDemandBySheetId.get(line.technicalSheetId) ?? 0) + (parseDecimal(line.requestedQuantity) ?? 0),
+            (pendingDemandBySheetId.get(line.technicalSheetId) ?? 0) + demandedYield,
           )
         })
       })
@@ -3829,6 +3833,17 @@ export default function App() {
     })
 
     const pendingSupplyDemandBySheetId = buildPendingRequisitionDemandBySheetIdForSupplierCenter(center)
+    const operationalDemandBySheetId = new Map<number, number>()
+    producedSheets.forEach((sheet) => {
+      operationalDemandBySheetId.set(
+        sheet.id,
+        Math.max(
+          externalUseMinimumBySheetId.get(sheet.id) ?? 0,
+          pendingSupplyDemandBySheetId.get(sheet.id) ?? 0,
+        ),
+      )
+    })
+    const getOperationalDemandForSheetId = (sheetId: number) => operationalDemandBySheetId.get(sheetId) ?? 0
 
     const effectiveMinimumMemo = new Map<number, number>()
     const byproductSourceDemandMemo = new Map<number, number>()
@@ -3921,7 +3936,7 @@ export default function App() {
         return (
           (useMinimumBySheetId.get(sheetId) ?? 0) +
           (realMinimumBySheetId.get(sheetId) ?? 0) +
-          (pendingSupplyDemandBySheetId.get(sheetId) ?? 0)
+          getOperationalDemandForSheetId(sheetId)
         )
       }
 
@@ -3934,7 +3949,7 @@ export default function App() {
       nextVisiting.add(sheetId)
       const ownUseMinimum = useMinimumBySheetId.get(sheetId) ?? 0
       const ownRealMinimum = realMinimumBySheetId.get(sheetId) ?? 0
-      const operationalDemand = pendingSupplyDemandBySheetId.get(sheetId) ?? 0
+      const operationalDemand = getOperationalDemandForSheetId(sheetId)
 
       const productionContribution = producedSheets.reduce((sum, candidateSheet) => {
         if (candidateSheet.id === sheetId) {
@@ -4001,6 +4016,7 @@ export default function App() {
       realMinimumBySheetId,
       externalUseMinimumBySheetId,
       pendingSupplyDemandBySheetId,
+      operationalDemandBySheetId,
       computeEffectiveMinimum,
       computeByproductSourceDemand,
       computePriority,
@@ -11312,6 +11328,7 @@ export default function App() {
           const useMinimumQuantity = demandContext?.useMinimumBySheetId.get(sheet.id) ?? 0
           const externalUseMinimumQuantity = demandContext?.externalUseMinimumBySheetId.get(sheet.id) ?? 0
           const committedQuantity = demandContext?.pendingSupplyDemandBySheetId.get(sheet.id) ?? 0
+          const operationalDemandQuantity = demandContext?.operationalDemandBySheetId.get(sheet.id) ?? 0
           const realMinimumQuantity = demandContext?.computeEffectiveMinimum(sheet.id) ?? 0
           const suggestedProductionQuantity = Math.max(realMinimumQuantity - currentQuantity, 0)
           const priority = demandContext?.computePriority(sheet.id) ?? 0
@@ -11327,6 +11344,7 @@ export default function App() {
             useMinimumQuantity,
             externalUseMinimumQuantity,
             committedQuantity,
+            operationalDemandQuantity,
             realMinimumQuantity,
             suggestedProductionQuantity,
             unit: formatControlUnitShort(sheet.outputUnit),
@@ -13269,7 +13287,7 @@ export default function App() {
               status: row.suggestedProductionQuantity > 0 ? 'A produzir' : 'Coberto',
               recorded: formatDecimal(row.useMinimumQuantity),
               quantity: formatDecimal(row.realMinimumQuantity),
-              position: `Requisicoes ${formatDecimal(row.committedQuantity)} ${row.unit} • Dependencias ${formatDecimal(Math.max(row.realMinimumQuantity - row.useMinimumQuantity - row.committedQuantity, 0))} ${row.unit}`,
+              position: `Requisicoes ${formatDecimal(row.committedQuantity)} ${row.unit} • Demanda operacional ${formatDecimal(row.operationalDemandQuantity)} ${row.unit} • Dependencias ${formatDecimal(Math.max(row.realMinimumQuantity - row.useMinimumQuantity - row.operationalDemandQuantity, 0))} ${row.unit}`,
               minimum: formatDecimal(row.useMinimumQuantity),
               unitCost: formatCurrencyLabel(
                 stockUnitCostByAggregationKey.get(
@@ -21921,7 +21939,8 @@ export default function App() {
       setSaveFeedback({
         status: 'error',
         title: 'Requisicao sem itens',
-        message: 'Nao ha itens com estoque minimo configurado para este centro de estoque.',
+        message:
+          'Nao ha itens com estoque minimo ou demanda de producao com insumos faltantes para este centro de estoque.',
       })
       return
     }
