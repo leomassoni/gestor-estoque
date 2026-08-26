@@ -3554,6 +3554,11 @@ function normalizeStockCenterPayload(value) {
           allowManualMinimumOverride: record.salesImportSettings.allowManualMinimumOverride !== false,
           unmatchedRowPolicy: record.salesImportSettings.unmatchedRowPolicy === 'SKIP' ? 'SKIP' : 'BLOCK',
           duplicateRowPolicy: record.salesImportSettings.duplicateRowPolicy === 'SKIP' ? 'SKIP' : 'BLOCK',
+          productionSupplyRequestAutomation:
+            record.salesImportSettings.productionSupplyRequestAutomation === 'CREATE_PENDING' ||
+            record.salesImportSettings.productionSupplyRequestAutomation === 'APPROVE_AND_SEND'
+              ? record.salesImportSettings.productionSupplyRequestAutomation
+              : 'MANUAL',
         }
       : {
           historyMode: 'ROLLING_MONTHS',
@@ -3568,6 +3573,7 @@ function normalizeStockCenterPayload(value) {
           allowManualMinimumOverride: true,
           unmatchedRowPolicy: 'BLOCK',
           duplicateRowPolicy: 'BLOCK',
+          productionSupplyRequestAutomation: 'MANUAL',
         }
 
   if (

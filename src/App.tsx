@@ -1585,6 +1585,7 @@ const emptyStockCenterForm = (): StockCenterFormState => ({
     allowManualMinimumOverride: true,
     unmatchedRowPolicy: 'BLOCK',
     duplicateRowPolicy: 'BLOCK',
+    productionSupplyRequestAutomation: 'MANUAL',
   },
 })
 
@@ -2117,6 +2118,11 @@ function normalizeStockCenterSalesImportSettings(value: unknown): StockCenterSal
     allowManualMinimumOverride: record.allowManualMinimumOverride !== false,
     unmatchedRowPolicy: record.unmatchedRowPolicy === 'SKIP' ? 'SKIP' : 'BLOCK',
     duplicateRowPolicy: record.duplicateRowPolicy === 'SKIP' ? 'SKIP' : 'BLOCK',
+    productionSupplyRequestAutomation:
+      record.productionSupplyRequestAutomation === 'CREATE_PENDING' ||
+      record.productionSupplyRequestAutomation === 'APPROVE_AND_SEND'
+        ? record.productionSupplyRequestAutomation
+        : 'MANUAL',
   }
 }
 
@@ -21292,6 +21298,9 @@ export default function App() {
         historyMonths: Math.max(1, stockCenterForm.salesImportSettings.historyMonths),
         coverageDays: getSalesImportCoverageModeLegacyDays(stockCenterForm.salesImportSettings.coverageMode),
         safetyMarginPercent: stockCenterForm.salesImportSettings.safetyMarginPercent.trim() || '20',
+        productionSupplyRequestAutomation: stockCenterForm.isProducer
+          ? stockCenterForm.salesImportSettings.productionSupplyRequestAutomation
+          : 'MANUAL',
       },
       isActive: existingCenter?.isActive ?? true,
     }
@@ -22955,6 +22964,10 @@ export default function App() {
         if (!producerCenter || !producerCenter.isProducer) {
           return
         }
+        const automationMode = producerCenter.salesImportSettings.productionSupplyRequestAutomation
+        if (automationMode === 'MANUAL') {
+          return
+        }
 
         const availableByAggregationKey = buildAvailableInventoryByAggregationKeyForCenter(producerCenter.id)
         const shortageLines = productionRequisition.lines.flatMap((line) => {
@@ -23042,11 +23055,17 @@ export default function App() {
           lastUpdatedByUserName: currentAppUser?.fullName ?? 'Administrador do sistema',
         }
 
-        const splitResult = buildSplitRequisitionsForSending(downstreamDraft, {
-          reservedIds: Array.from(usedIds),
-          sentAt,
-          baseRequisitions,
-        })
+        const splitResult =
+          automationMode === 'CREATE_PENDING'
+            ? {
+                ...buildSplitRequisitionsForDraft(downstreamDraft, [...baseRequisitions, ...downstreamRequisitions]),
+                remainingPurchaseLines: [] as RequisitionLineRecord[],
+              }
+            : buildSplitRequisitionsForSending(downstreamDraft, {
+                reservedIds: Array.from(usedIds),
+                sentAt,
+                baseRequisitions,
+              })
         if (splitResult.error) {
           return
         }
@@ -23481,12 +23500,19 @@ export default function App() {
       targetIds.forEach((id) => next.delete(id))
       return next
     })
+    const downstreamPendingCount = downstreamProductionRequisitions.filter((record) => record.status === 'PENDING_APPROVAL').length
+    const downstreamSentCount = downstreamProductionRequisitions.filter((record) => record.status === 'SENT_TO_SUPPLIES').length
     setSaveFeedback({
       status: 'success',
       title: options?.successTitle ?? 'Requisicoes enviadas',
       message:
         productionRequests.length > 0 || downstreamProductionRequisitions.length > 0
-          ? `${targetIds.size} requisicao(oes) foram ${options?.successVerb ?? 'enviadas'} em lote, ${productionRequests.length} entrada(s) de producao foram criada(s) e ${downstreamProductionRequisitions.length} requisicao(oes) de insumos foram criadas automaticamente para producao.`
+          ? [
+              `${targetIds.size} requisicao(oes) foram ${options?.successVerb ?? 'enviadas'} em lote e ${productionRequests.length} entrada(s) de producao foram criada(s).`,
+              downstreamProductionRequisitions.length > 0
+                ? `${downstreamPendingCount} requisicao(oes) de insumos ficaram pendentes para revisao e ${downstreamSentCount} foram enviadas automaticamente, conforme a configuracao dos centros produtores.`
+                : 'As requisicoes de insumos deverao ser montadas pelos centros produtores, conforme a configuracao manual.'
+            ].join(' ')
           : `${targetIds.size} requisicao(oes) foram ${options?.successVerb ?? 'enviadas'} em lote.`,
     })
   }
@@ -23734,6 +23760,8 @@ export default function App() {
       syncedManualProductionRequestMapRef.current = buildEntitySignatureMap(nextManualProductionRequests, (record) => record.id)
     }
 
+    const downstreamPendingCount = downstreamProductionRequisitions.filter((record) => record.status === 'PENDING_APPROVAL').length
+    const downstreamSentCount = downstreamProductionRequisitions.filter((record) => record.status === 'SENT_TO_SUPPLIES').length
     setSaveFeedback({
       status: 'success',
       title:
@@ -23754,7 +23782,12 @@ export default function App() {
               : 'Requisicao enviada para receber',
       message:
         productionRequests.length > 0 || downstreamProductionRequisitions.length > 0
-          ? `Os pre-preparos foram enviados ao centro produtor, ${productionRequests.length} entrada(s) de producao foram criada(s) e ${downstreamProductionRequisitions.length} requisicao(oes) de insumos foram criadas automaticamente para abastecer a producao.`
+          ? [
+              `Os pre-preparos foram enviados ao centro produtor e ${productionRequests.length} entrada(s) de producao foram criada(s).`,
+              downstreamProductionRequisitions.length > 0
+                ? `${downstreamPendingCount} requisicao(oes) de insumos ficaram pendentes para revisao e ${downstreamSentCount} foram enviadas automaticamente, conforme a configuracao dos centros produtores.`
+                : 'As requisicoes de insumos deverao ser montadas pelos centros produtores, conforme a configuracao manual.'
+            ].join(' ')
           : splitResult.requisitions.length > 0 && splitResult.remainingPurchaseLines.length > 0
           ? 'Os itens internos foram enviados aos centros de suprimentos ou producao e os itens de compras seguiram direto para receber.'
           : splitResult.requisitions.length > 0
@@ -28500,32 +28533,59 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                       ...current,
                       isProducer: event.target.checked,
                       producedTechnicalSheetIds: event.target.checked ? current.producedTechnicalSheetIds : [],
+                      salesImportSettings: {
+                        ...current.salesImportSettings,
+                        productionSupplyRequestAutomation: event.target.checked
+                          ? current.salesImportSettings.productionSupplyRequestAutomation
+                          : 'MANUAL',
+                      },
                     }))
                   }
                 />
                 <span>PRODUTOR</span>
               </label>
               {stockCenterForm.isProducer ? (
-                <div className="field field-span-all">
-                  <span>Pre-preparos produzidos neste centro</span>
-                  <MultiSelectChips
-                    selectedValues={selectedProducedTechnicalSheetLabels}
-                    suggestions={producerTechnicalSheetSuggestions}
-                    inputValue={stockCenterProducedSheetInput}
-                    onInputChange={setStockCenterProducedSheetInput}
-                    onChange={(labels) =>
-                      setStockCenterForm((current) => ({
-                        ...current,
-                        producedTechnicalSheetIds: labels
-                          .map((label) => producerTechnicalSheetIdByLabel.get(normalizeRegistrationText(label)) ?? null)
-                          .filter((value): value is number => typeof value === 'number')
-                          .map((sheetId) => String(sheetId)),
-                      }))
-                    }
-                    placeholder="Busque e selecione os pre-preparos produzidos"
-                    allowCreate={false}
-                  />
-                </div>
+                <>
+                  <div className="field field-span-all">
+                    <span>Pre-preparos produzidos neste centro</span>
+                    <MultiSelectChips
+                      selectedValues={selectedProducedTechnicalSheetLabels}
+                      suggestions={producerTechnicalSheetSuggestions}
+                      inputValue={stockCenterProducedSheetInput}
+                      onInputChange={setStockCenterProducedSheetInput}
+                      onChange={(labels) =>
+                        setStockCenterForm((current) => ({
+                          ...current,
+                          producedTechnicalSheetIds: labels
+                            .map((label) => producerTechnicalSheetIdByLabel.get(normalizeRegistrationText(label)) ?? null)
+                            .filter((value): value is number => typeof value === 'number')
+                            .map((sheetId) => String(sheetId)),
+                        }))
+                      }
+                      placeholder="Busque e selecione os pre-preparos produzidos"
+                      allowCreate={false}
+                    />
+                  </div>
+                  <label className="field field-span-all">
+                    <span>Automacao de requisicao de insumos para producao</span>
+                    <select
+                      value={stockCenterForm.salesImportSettings.productionSupplyRequestAutomation}
+                      onChange={(event) =>
+                        updateStockCenterSalesImportSettingsField(
+                          'productionSupplyRequestAutomation',
+                          event.target.value as StockCenterSalesImportSettings['productionSupplyRequestAutomation'],
+                        )
+                      }
+                    >
+                      <option value="MANUAL">Manual: criar apenas entrada de producao</option>
+                      <option value="CREATE_PENDING">Criar requisicao pendente para o centro produtor revisar</option>
+                      <option value="APPROVE_AND_SEND">Aprovar e enviar automaticamente a requisicao de insumos</option>
+                    </select>
+                  </label>
+                  <p className="field-helper field-span-all">
+                    Manual e o fluxo padrao: quando outro centro pedir um pre-preparo, este centro recebe a demanda e a entrada de producao, mas um responsavel precisa montar a propria requisicao dos insumos faltantes. Criar pendente prepara essa requisicao para revisao. Aprovar e enviar automaticamente dispensa a revisao humana e encaminha os insumos ao centro distribuidor configurado.
+                  </p>
+                </>
               ) : null}
               <label className="checkbox-row field-span-all">
                 <input

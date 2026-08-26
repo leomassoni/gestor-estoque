@@ -503,6 +503,7 @@ export type WasteCountableKind = StockCountableKind | 'EXECUCAO'
 export type SalesImportHistoryMode = 'ROLLING_MONTHS' | 'FULL_PERIOD' | 'SAME_PERIOD_LAST_YEAR'
 export type SalesImportConsumptionMethod = 'SIMPLE_AVERAGE' | 'MEDIAN_DAILY'
 export type SalesImportCoverageMode = 'DAILY' | 'WEEKLY' | 'FORTNIGHTLY' | 'MONTHLY'
+export type ProductionSupplyRequestAutomationMode = 'MANUAL' | 'CREATE_PENDING' | 'APPROVE_AND_SEND'
 
 export type StockCenterSalesImportSettings = {
   historyMode: SalesImportHistoryMode
@@ -517,6 +518,7 @@ export type StockCenterSalesImportSettings = {
   allowManualMinimumOverride: boolean
   unmatchedRowPolicy: 'BLOCK' | 'SKIP'
   duplicateRowPolicy: 'BLOCK' | 'SKIP'
+  productionSupplyRequestAutomation: ProductionSupplyRequestAutomationMode
 }
 
 export type StockCenterMinimumStock = {
