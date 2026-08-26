@@ -24102,12 +24102,25 @@ export default function App() {
     )
   }
 
-  function confirmPurchaseSupplyShipment() {
+  async function confirmPurchaseSupplyShipment() {
     if (purchaseSupplyEditingRequisitionId === null || currentCompanyId === null) {
       return
     }
 
-    const targetRequisition = requisitions.find((record) => record.id === purchaseSupplyEditingRequisitionId) ?? null
+    let latestRequisitions: RequisitionRecord[]
+    try {
+      latestRequisitions = await loadLatestRequisitionsForMutation()
+    } catch (error) {
+      console.error(error)
+      setSaveFeedback({
+        status: 'error',
+        title: 'Falha ao atualizar compras',
+        message: error instanceof Error ? error.message : 'Nao foi possivel carregar a requisicao mais recente do servidor.',
+      })
+      return
+    }
+
+    const targetRequisition = latestRequisitions.find((record) => record.id === purchaseSupplyEditingRequisitionId) ?? null
     if (!targetRequisition || !canManagePurchaseSupplyRequisition(targetRequisition)) {
       return
     }
@@ -24168,8 +24181,8 @@ export default function App() {
     const nextReadyId =
       remainingLines.length > 0
         ? getNextPersistedIntId([
-            ...requisitions.map((record) => record.id),
-            ...requisitions.map((record) => record.requisitionGroupId),
+            ...latestRequisitions.map((record) => record.id),
+            ...latestRequisitions.map((record) => record.requisitionGroupId),
           ])
         : targetRequisition.id
     const readyRequisition: RequisitionRecord = {
@@ -24190,9 +24203,9 @@ export default function App() {
       lastUpdatedByUserName: currentAppUser?.fullName ?? 'Administrador do sistema',
     }
 
-    setRequisitions((current) => {
+    const nextRequisitions = (() => {
       if (remainingLines.length === 0) {
-        return current.map((record) => (record.id === targetRequisition.id ? readyRequisition : record))
+        return latestRequisitions.map((record) => (record.id === targetRequisition.id ? readyRequisition : record))
       }
 
       const residualRequisition: RequisitionRecord = {
@@ -24205,9 +24218,31 @@ export default function App() {
 
       return [
         readyRequisition,
-        ...current.map((record) => (record.id === targetRequisition.id ? residualRequisition : record)),
+        ...latestRequisitions.map((record) => (record.id === targetRequisition.id ? residualRequisition : record)),
       ]
-    })
+    })()
+
+    try {
+      await Promise.all(
+        remainingLines.length > 0
+          ? [
+              upsertRequisitionRecordOnApi(readyRequisition),
+              upsertRequisitionRecordOnApi(nextRequisitions.find((record) => record.id === targetRequisition.id) ?? targetRequisition),
+            ]
+          : [upsertRequisitionRecordOnApi(readyRequisition)],
+      )
+    } catch (error) {
+      console.error(error)
+      setSaveFeedback({
+        status: 'error',
+        title: 'Falha ao enviar suprimento de compras',
+        message: error instanceof Error ? error.message : 'Nao foi possivel gravar o envio de compras no servidor.',
+      })
+      return
+    }
+
+    setRequisitions(nextRequisitions)
+    syncedRequisitionRecordMapRef.current = buildEntitySignatureMap(nextRequisitions, (record) => record.id)
 
     notifyRequisitionStakeholders(
       targetRequisition,
