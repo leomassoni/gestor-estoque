@@ -986,6 +986,16 @@ app.get('/api/requisitions', async (request, response) => {
   response.json({ requisitions })
 })
 
+app.get('/api/deleted-requisitions', async (request, response) => {
+  await ensureAppRequisitionRecordsSeeded()
+  const companyId = parseIntegerParam(request.query.companyId)
+  const deletedRequisitions = await prisma.appDeletedRequisitionRecord.findMany({
+    where: companyId === null ? undefined : { companyId },
+    orderBy: [{ deletedAt: 'desc' }, { id: 'desc' }],
+  })
+  response.json({ deletedRequisitions })
+})
+
 app.get('/api/requisitions/next-id', async (_request, response) => {
   await ensureAppRequisitionRecordsSeeded()
   const [requisitionIdAggregate, requisitionGroupIdAggregate, deletedRequisitionIdAggregate] = await Promise.all([

@@ -5661,12 +5661,44 @@ export default function App() {
       : []
   }
 
-  function mergeRemoteRequisitionsWithUnsyncedLocalRecords(remoteRequisitions: RequisitionRecord[], localRequisitions: RequisitionRecord[]) {
+  async function fetchDeletedRequisitionIdsFromApi() {
+    const deletedRequisitionsResponse = await fetch('/api/deleted-requisitions')
+    if (!deletedRequisitionsResponse.ok) {
+      throw new Error('Falha ao carregar requisicoes excluidas pelo backend.')
+    }
+
+    const deletedRequisitionsData = await deletedRequisitionsResponse.json()
+    const deletedRequisitions = Array.isArray(deletedRequisitionsData?.deletedRequisitions)
+      ? deletedRequisitionsData.deletedRequisitions as unknown[]
+      : []
+
+    return new Set(
+      deletedRequisitions
+        .map((record) => {
+          if (!record || typeof record !== 'object') {
+            return null
+          }
+          const id = (record as { id?: unknown }).id
+          return typeof id === 'number' && Number.isSafeInteger(id) && id > 0 ? id : null
+        })
+        .filter((id): id is number => id !== null),
+    )
+  }
+
+  function mergeRemoteRequisitionsWithUnsyncedLocalRecords(
+    remoteRequisitions: RequisitionRecord[],
+    localRequisitions: RequisitionRecord[],
+    deletedRequisitionIds = new Set<number>(),
+  ) {
     const recordsById = new Map(remoteRequisitions.map((record) => [record.id, record] as const))
     const syncedById = syncedRequisitionRecordMapRef.current
     const preservedLocalRecords: RequisitionRecord[] = []
 
     localRequisitions.forEach((record) => {
+      if (deletedRequisitionIds.has(record.id)) {
+        return
+      }
+
       if (recordsById.has(record.id)) {
         return
       }
@@ -5687,8 +5719,11 @@ export default function App() {
   }
 
   async function loadLatestRequisitionsForMutation() {
-    const remoteRequisitions = await fetchRequisitionRecordsFromApi()
-    return mergeRemoteRequisitionsWithUnsyncedLocalRecords(remoteRequisitions, requisitions).requisitions
+    const [remoteRequisitions, deletedRequisitionIds] = await Promise.all([
+      fetchRequisitionRecordsFromApi(),
+      fetchDeletedRequisitionIdsFromApi(),
+    ])
+    return mergeRemoteRequisitionsWithUnsyncedLocalRecords(remoteRequisitions, requisitions, deletedRequisitionIds).requisitions
   }
 
   function getChangedRequisitionRecords(previousRequisitions: RequisitionRecord[], nextRequisitions: RequisitionRecord[]) {
@@ -5697,8 +5732,9 @@ export default function App() {
   }
 
   async function refreshAppRequisitionRecordsFromApi() {
-    const [nextRequisitions, notificationsResponse] = await Promise.all([
+    const [nextRequisitions, deletedRequisitionIds, notificationsResponse] = await Promise.all([
       fetchRequisitionRecordsFromApi(),
+      fetchDeletedRequisitionIdsFromApi(),
       fetch('/api/requisition-notifications'),
     ])
     if (!notificationsResponse.ok) {
@@ -5713,37 +5749,7 @@ export default function App() {
           .filter((item): item is RequisitionNotificationRecord => item !== null)
       : []
 
-    const localRequisitions = loadRequisitionsState()
-    const localNotifications = loadRequisitionNotificationsState()
-    const missingRequisitions = nextRequisitions.length === 0 && localRequisitions.length > 0
-    const missingNotifications = nextNotifications.length === 0 && localNotifications.length > 0
-
-    if (missingRequisitions || missingNotifications) {
-      await Promise.all([
-        ...(missingRequisitions ? localRequisitions.map((requisition) => upsertRequisitionRecordOnApi(requisition)) : []),
-        ...(missingNotifications ? localNotifications.map((notification) => upsertRequisitionNotificationRecordOnApi(notification)) : []),
-      ])
-
-      if (missingRequisitions) {
-        setRequisitions(localRequisitions)
-        syncedRequisitionRecordMapRef.current = new Map(localRequisitions.map((record) => [record.id, JSON.stringify(record)]))
-      } else {
-        setRequisitions(nextRequisitions)
-        syncedRequisitionRecordMapRef.current = new Map(nextRequisitions.map((record) => [record.id, JSON.stringify(record)]))
-      }
-
-      if (missingNotifications) {
-        setRequisitionNotifications(localNotifications)
-        syncedRequisitionNotificationMapRef.current = new Map(localNotifications.map((record) => [record.id, JSON.stringify(record)]))
-      } else {
-        setRequisitionNotifications(nextNotifications)
-        syncedRequisitionNotificationMapRef.current = new Map(nextNotifications.map((record) => [record.id, JSON.stringify(record)]))
-      }
-
-      logRemoteAppStateMessage('As requisicoes deste navegador foram usadas para restaurar dados ausentes no servidor.')
-      return
-    }
-    const mergedRequisitionResult = mergeRemoteRequisitionsWithUnsyncedLocalRecords(nextRequisitions, requisitions)
+    const mergedRequisitionResult = mergeRemoteRequisitionsWithUnsyncedLocalRecords(nextRequisitions, requisitions, deletedRequisitionIds)
     if (mergedRequisitionResult.preservedLocalRecords.length > 0) {
       await Promise.all(mergedRequisitionResult.preservedLocalRecords.map((record) => upsertRequisitionRecordOnApi(record)))
     }
