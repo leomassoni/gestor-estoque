@@ -1,6 +1,6 @@
 # Worklog
 
- Ultima atualizacao: 2026-08-26
+ Ultima atualizacao: 2026-08-27
 
 ## Objetivo deste arquivo
 
@@ -24,6 +24,31 @@ Registrar um historico resumido do que foi feito, do que falhou e do que ficou p
   - `npm run build`
 - Validacao pendente/limitada:
   - `npm run lint` e `NODE_OPTIONS=--max-old-space-size=4096 npx eslint src/App.tsx` falharam por estouro de memoria do Node/ESLint no arquivo monolitico, sem apontar erro de lint.
+
+### Requisicao manual e origem da fila de producao
+
+- A aba `Requisicao` passou a permitir incluir manualmente itens abasteciveis que nao apareceram como sugestao automatica.
+- A inclusao manual reaproveita o mesmo montador de linhas e as mesmas regras de destino operacional (`COMPRAS`, `SUPRIMENTOS`, `PRODUCOES`) usadas pela sugestao do sistema.
+- O fluxo de edicao de requisicao pendente tambem recebeu o mesmo bloco `Adicionar item abastecivel`.
+- A tabela `Entrada de producoes` ganhou colunas visiveis por padrao:
+  - `Origem`, com resumo como `Historico + 2 requisicoes` em linhas mistas;
+  - `Entrada`, com data/hora mais recente conhecida.
+- As duas novas colunas usam detalhes expansiveis para mostrar historico, requisicoes/pedidos, usuario responsavel e data/hora quando o dado existir.
+- Validacao executada:
+  - `npm run build`
+
+### Compras: detalhes de suprimentos e compra manual
+
+- A coluna `Itens em compra` do painel `Compras > Suprimentos` passou a exibir apenas a quantidade de itens, abrindo um modal com a lista detalhada quando acionada.
+- O modal `Enviar suprimento aos centros` passou a permitir adicionar produto comprado fora da lista original da requisicao, mantendo o envio para `Receber`.
+- Itens adicionados fora da lista original sao identificados como `Compra manual / extra` no rascunho de envio.
+- Criada a acao `Nova entrada manual de compra`, que gera uma requisicao avulsa em `READY_TO_RECEIVE` para conferencia antes de somar saldo ao estoque.
+- A entrada manual de compra registra usuario, data/hora e auditoria, sem lancamento direto no saldo.
+- Durante a validacao local, corrigida a migracao automatica de contagens para nao atribuir `inventoryId` a registros operacionais de `RECEBIMENTO DE REQUISICAO`, evitando retries 409 entre cache local e backend.
+- Validacao executada:
+  - `npm run build`
+  - `npm run build:server`
+  - teste local no navegador em `Compras > Suprimentos`, incluindo popup de `78 itens`, item extra no envio e compra manual avulsa em `READY_TO_RECEIVE`.
 
 ## 2026-08-25
 

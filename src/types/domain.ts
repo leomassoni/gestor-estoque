@@ -583,7 +583,16 @@ export type PurchaseDemandColumnKey =
   | 'origins'
   | 'requisitions'
   | 'type'
-export type ProductionColumnKey = 'sheet' | 'priority' | 'current' | 'useMinimum' | 'realMinimum' | 'suggestion' | 'status'
+export type ProductionColumnKey =
+  | 'sheet'
+  | 'priority'
+  | 'current'
+  | 'useMinimum'
+  | 'realMinimum'
+  | 'suggestion'
+  | 'source'
+  | 'requestedAt'
+  | 'status'
 
 export type StockCenterRecord = {
   id: number
@@ -945,6 +954,10 @@ export type ProductionRequestRow = {
   realMinimumLabel: string
   suggestedProductionQuantity: number
   suggestedProductionLabel: string
+  sourceLabel: string
+  sourceDetails: string[]
+  requestedAtLabel: string
+  requestedAtDetails: string[]
   baseUnitLabel: string
   priority: number
   statusLabel: string

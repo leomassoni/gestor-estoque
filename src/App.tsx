@@ -763,7 +763,18 @@ type PurchaseOrderGroup = {
   createdAt: string
   lines: PurchaseOrderGroupLine[]
 }
+type PurchaseProductOption = {
+  key: string
+  productId: string
+  packageId: number | null
+  label: string
+  productName: string
+  family: string
+  requestUnitLabel: string
+  currentUnitLabel: string
+}
 type PurchasePanelTab = 'demand' | 'supplies'
+type ApiMutationError = Error & { statusCode?: number }
 function formatPurchaseDemandQuantity(quantity: number, row: PurchaseDemandRow) {
   if (row.packageBaseQuantity !== null && row.packageBaseQuantity > 0 && row.packageLabel) {
     return formatOperationalPackageQuantity(quantity / row.packageBaseQuantity)
@@ -929,6 +940,8 @@ const productionColumnOptions: Array<[ProductionColumnKey, string]> = [
   ['useMinimum', 'Minimo de uso'],
   ['realMinimum', 'Demanda operacional'],
   ['suggestion', 'Sugestao'],
+  ['source', 'Origem'],
+  ['requestedAt', 'Entrada'],
   ['status', 'Status'],
 ]
 const defaultProductionColumnVisibility: Record<ProductionColumnKey, boolean> = {
@@ -938,6 +951,8 @@ const defaultProductionColumnVisibility: Record<ProductionColumnKey, boolean> = 
   useMinimum: true,
   realMinimum: true,
   suggestion: true,
+  source: true,
+  requestedAt: true,
   status: true,
 }
 const productionPageSize = 20
@@ -2680,6 +2695,8 @@ export default function App() {
   const [editingRequisitionId, setEditingRequisitionId] = useState<number | null>(null)
   const [requisitionDraftLines, setRequisitionDraftLines] = useState<RequisitionDraftLine[]>([])
   const [requisitionDraftSearch, setRequisitionDraftSearch] = useState('')
+  const [requisitionManualItemKey, setRequisitionManualItemKey] = useState('')
+  const [requisitionManualQuantity, setRequisitionManualQuantity] = useState('')
   const [requisitionHistorySearch, setRequisitionHistorySearch] = useState('')
   const [selectedRequisitionIds, setSelectedRequisitionIds] = useState<Set<number>>(() => new Set())
   const [requisitionHistoryScrollTop, setRequisitionHistoryScrollTop] = useState(0)
@@ -2716,9 +2733,15 @@ export default function App() {
   const [showCancelledPurchaseOrders, setShowCancelledPurchaseOrders] = useState(false)
   const [selectedPurchaseOrderKey, setSelectedPurchaseOrderKey] = useState<string | null>(null)
   const [purchaseSupplySearch, setPurchaseSupplySearch] = useState('')
+  const [purchaseSupplyDetailsRequisitionId, setPurchaseSupplyDetailsRequisitionId] = useState<number | null>(null)
   const [purchaseSupplyEditingRequisitionId, setPurchaseSupplyEditingRequisitionId] = useState<number | null>(null)
   const [purchaseSupplyDraftLines, setPurchaseSupplyDraftLines] = useState<RequisitionDraftLine[]>([])
   const [purchaseSupplyDraftSearch, setPurchaseSupplyDraftSearch] = useState('')
+  const [purchaseSupplyManualItemKey, setPurchaseSupplyManualItemKey] = useState('')
+  const [purchaseSupplyManualQuantity, setPurchaseSupplyManualQuantity] = useState('')
+  const [isManualPurchaseEntryModalOpen, setIsManualPurchaseEntryModalOpen] = useState(false)
+  const [manualPurchaseTargetCenterId, setManualPurchaseTargetCenterId] = useState('')
+  const [manualPurchaseDraftLines, setManualPurchaseDraftLines] = useState<ManualSupplyDraftLine[]>([])
   const [openSupplyColumnMenu, setOpenSupplyColumnMenu] = useState<RequisitionFlowColumnKey | null>(null)
   const [supplyColumnVisibility, setSupplyColumnVisibility] =
     useState<Record<RequisitionFlowColumnKey, boolean>>(defaultRequisitionFlowColumnVisibility)
@@ -4893,9 +4916,85 @@ export default function App() {
       const aggregationKey = centerAggregationKey.slice(String(selectedRequisitionStockCenter.id).length + 1)
       quantities.set(aggregationKey, value)
     })
-
     return quantities
   }, [latestInventoryDateByCenterId, latestInventoryQuantityByCenterAndAggregation, selectedRequisitionStockCenter])
+  function formatDateTimeForDisplay(value: string) {
+    if (!value) {
+      return '-'
+    }
+    const dateValue = value.slice(0, 10)
+    return /^\d{4}-\d{2}-\d{2}$/.test(dateValue)
+      ? `${formatDateForDisplay(dateValue)} ${formatTimeForDisplay(value)}`
+      : value
+  }
+
+  function getLatestTimestamp(values: string[]) {
+    return values.filter(Boolean).sort((left, right) => right.localeCompare(left))[0] ?? ''
+  }
+
+  function getProductionHistorySourceInfo(producerCenter: StockCenterRecord, targetSheet: TechnicalSheetRecord) {
+    const details: string[] = []
+    const timestamps: string[] = []
+    const addMinimumEntry = (center: StockCenterRecord, entry: StockCenterMinimumStock | null, prefix: string) => {
+      if (!entry) {
+        return
+      }
+      const minimumQuantity = parseDecimal(getRealMinimumQuantityText(entry)) ?? 0
+      const hasSalesHistorySource =
+        entry.minimumSource === 'SUGERIDO_VENDAS' ||
+        entry.realMinimumSource === 'SUGERIDO_VENDAS' ||
+        entry.suggestedContext === 'CONSUMO_PROPRIO' ||
+        Boolean(entry.suggestedAt)
+      if (minimumQuantity <= 0 || !hasSalesHistorySource) {
+        return
+      }
+      const timestamp = entry.suggestedAt || entry.overriddenAt || ''
+      if (timestamp) {
+        timestamps.push(timestamp)
+      }
+      details.push(
+        `${prefix}: ${center.name}${timestamp ? ` em ${formatDateTimeForDisplay(timestamp)}` : ''}`,
+      )
+    }
+
+    const targetEntry = findStockCenterMinimumEntry(producerCenter.minimumStocks, {
+      kind: 'PREPARO',
+      technicalSheetId: targetSheet.id,
+      productId: targetSheet.productId,
+      serviceItemId: '',
+      packageId: null,
+    })
+    addMinimumEntry(producerCenter, targetEntry, 'Historico do centro produtor')
+
+    stockCenters.forEach((consumerCenter) => {
+      if (!consumerCenter.isActive || consumerCenter.id === producerCenter.id) {
+        return
+      }
+      if (!isTechnicalSheetVisibleForCompany(targetSheet, consumerCenter.companyId)) {
+        return
+      }
+      if (doesCenterProduceTechnicalSheet(consumerCenter, targetSheet)) {
+        return
+      }
+      const supplyResolution = resolveTechnicalSheetSupplyRoute(targetSheet, consumerCenter)
+      if (supplyResolution.status !== 'resolved' || supplyResolution.supplierCenter?.id !== producerCenter.id) {
+        return
+      }
+      const consumerEntry = findStockCenterMinimumEntry(consumerCenter.minimumStocks, {
+        kind: 'PREPARO',
+        technicalSheetId: targetSheet.id,
+        productId: targetSheet.productId,
+        serviceItemId: '',
+        packageId: null,
+      })
+      addMinimumEntry(consumerCenter, consumerEntry, 'Historico de centro consumidor')
+    })
+
+    return {
+      details,
+      latestTimestamp: getLatestTimestamp(timestamps),
+    }
+  }
   const productionRequestRows = useMemo(() => {
     if (!selectedProductionCenter) {
       return [] as ProductionRequestRow[]
@@ -4927,9 +5026,11 @@ export default function App() {
     const manualRequestIdsBySheetId = new Map<number, number[]>()
     const cancellableManualRequestIdsBySheetId = new Map<number, number[]>()
     const manualRequestedQuantityBySheetId = new Map<number, number>()
+    const manualRequestsBySheetId = new Map<number, ManualProductionRequestRecord[]>()
     manualProductionRequests
       .filter((request) => request.companyId === currentCompanyId && request.centerId === selectedProductionCenter.id)
       .forEach((request) => {
+        manualRequestsBySheetId.set(request.sheetId, [...(manualRequestsBySheetId.get(request.sheetId) ?? []), request])
         manualRequestIdsBySheetId.set(request.sheetId, [...(manualRequestIdsBySheetId.get(request.sheetId) ?? []), request.id])
         if (!request.isDependencyRequest) {
           cancellableManualRequestIdsBySheetId.set(
@@ -4964,6 +5065,7 @@ export default function App() {
           Math.max(regularMinimumQuantity - currentQuantity, 0) + byproductSourceDemandQuantity
         const manualRequestedQuantity = manualRequestedQuantityBySheetId.get(sheet.id) ?? 0
         const manualRequestIds = manualRequestIdsBySheetId.get(sheet.id) ?? []
+        const manualRequestsForSheet = manualRequestsBySheetId.get(sheet.id) ?? []
         const cancellableManualRequestIds = cancellableManualRequestIdsBySheetId.get(sheet.id) ?? []
         const suggestedProductionQuantity = automaticSuggestedQuantity + manualRequestedQuantity
         const shortagePlan =
@@ -4976,7 +5078,52 @@ export default function App() {
         const priority = demandContext?.computePriority(sheet.id) ?? 0
         const inProgressDraft = productionInProgressDraftByKey.get(`${selectedProductionCenter.id}:${sheet.id}`) ?? null
         const hasManualRequests = manualRequestIds.length > 0
-
+        const historySourceInfo = getProductionHistorySourceInfo(selectedProductionCenter, sheet)
+        const sourceRequisitionIds = Array.from(
+          new Set(
+            manualRequestsForSheet
+              .map((request) => request.sourceRequisitionId)
+              .filter((id): id is number => typeof id === 'number' && id > 0),
+          ),
+        )
+        const manualOnlyRequests = manualRequestsForSheet.filter(
+          (request) => !(typeof request.sourceRequisitionId === 'number' && request.sourceRequisitionId > 0),
+        )
+        const sourceParts = [
+          automaticSuggestedQuantity > 0 ? 'Historico' : '',
+          sourceRequisitionIds.length > 0
+            ? `${formatDecimal(sourceRequisitionIds.length)} ${sourceRequisitionIds.length === 1 ? 'requisicao' : 'requisicoes'}`
+            : '',
+          manualOnlyRequests.length > 0
+            ? `${formatDecimal(manualOnlyRequests.length)} ${manualOnlyRequests.length === 1 ? 'pedido manual' : 'pedidos manuais'}`
+            : '',
+        ].filter(Boolean)
+        const manualSourceDetails = manualRequestsForSheet
+          .slice()
+          .sort((left, right) => right.createdAt.localeCompare(left.createdAt) || right.id - left.id)
+          .map((request) => {
+            const sourceLabel =
+              typeof request.sourceRequisitionId === 'number' && request.sourceRequisitionId > 0
+                ? `Requisicao #${request.sourceRequisitionId}`
+                : `Pedido manual #${request.rootRequestId}`
+            return `${sourceLabel}: ${request.createdByUserName} em ${formatDateTimeForDisplay(request.createdAt)}`
+          })
+        const sourceDetails = [
+          ...(automaticSuggestedQuantity > 0
+            ? historySourceInfo.details.length > 0
+              ? historySourceInfo.details
+              : ['Historico de venda / minimo operacional automatico']
+            : []),
+          ...manualSourceDetails,
+        ]
+        const latestManualTimestamp = getLatestTimestamp(manualRequestsForSheet.map((request) => request.createdAt))
+        const latestSourceTimestamp = getLatestTimestamp([historySourceInfo.latestTimestamp, latestManualTimestamp])
+        const requestedAtLabel = latestSourceTimestamp
+          ? formatDateTimeForDisplay(latestSourceTimestamp)
+          : automaticSuggestedQuantity > 0
+            ? 'Historico de venda'
+            : '-'
+        const requestedAtDetails = sourceDetails.length > 0 ? sourceDetails : ['Sem origem detalhada registrada']
         return {
           sheetId: sheet.id,
           centerId: selectedProductionCenter.id,
@@ -4992,6 +5139,10 @@ export default function App() {
           realMinimumLabel: `${formatDecimal(realMinimumQuantity)} ${formatControlUnitShort(sheet.outputUnit)}`,
           suggestedProductionQuantity,
           suggestedProductionLabel: `${formatDecimal(suggestedProductionQuantity)} ${formatControlUnitShort(sheet.outputUnit)}`,
+          sourceLabel: sourceParts.join(' + ') || '-',
+          sourceDetails,
+          requestedAtLabel,
+          requestedAtDetails,
           baseUnitLabel: formatControlUnitShort(sheet.outputUnit),
           priority,
           statusLabel: inProgressDraft ? 'Em producao' : hasManualRequests || suggestedProductionQuantity > 0 ? 'A produzir' : 'Produzido',
@@ -5010,10 +5161,18 @@ export default function App() {
       )
       .filter((row) => {
         const search = normalizeFreeText(productionSearch)
-        return search === '' || [row.sheetName, row.internalId, row.family, row.statusLabel].some((value) => normalizeFreeText(value).includes(search))
+        return search === '' || [
+          row.sheetName,
+          row.internalId,
+          row.family,
+          row.statusLabel,
+          row.sourceLabel,
+          row.requestedAtLabel,
+          row.sourceDetails.join(', '),
+        ].some((value) => normalizeFreeText(value).includes(search))
       })
       .sort((a, b) => a.priority - b.priority || a.sheetName.localeCompare(b.sheetName, 'pt-BR'))
-  }, [currentCompanyId, isTechnicalSheetVisibleForCompany, latestInventoryQuantityByCenterAndAggregation, manualProductionRequests, productionInProgressDraftByKey, productionInProgressDrafts, productionSearch, requisitions, selectedProductionCenter, technicalSheets])
+  }, [currentCompanyId, isTechnicalSheetVisibleForCompany, latestInventoryQuantityByCenterAndAggregation, manualProductionRequests, productionInProgressDraftByKey, productionInProgressDrafts, productionSearch, requisitions, selectedProductionCenter, stockCenters, technicalSheets])
   const executionProductionPlanningRows = useMemo(() => {
     if (currentCompanyId === null) {
       return [] as ExecutionProductionPlanningRow[]
@@ -6603,17 +6762,19 @@ export default function App() {
     }
   }
 
-  async function upsertInventoryCountOnApi(count: InventoryCountRecord) {
-    const response = await fetch(`/api/inventory-counts/${count.id}`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(count),
-    })
-    if (!response.ok) {
-      const errorPayload = (await response.json().catch(() => null)) as { error?: string } | null
-      throw new Error(errorPayload?.error || 'Nao foi possivel salvar a contagem no servidor.')
-    }
-  }
+	  async function upsertInventoryCountOnApi(count: InventoryCountRecord) {
+	    const response = await fetch(`/api/inventory-counts/${count.id}`, {
+	      method: 'PUT',
+	      headers: { 'Content-Type': 'application/json' },
+	      body: JSON.stringify(count),
+	    })
+	    if (!response.ok) {
+	      const errorPayload = (await response.json().catch(() => null)) as { error?: string } | null
+	      const error = new Error(errorPayload?.error || 'Nao foi possivel salvar a contagem no servidor.') as ApiMutationError
+	      error.statusCode = response.status
+	      throw error
+	    }
+	  }
 
   async function upsertWasteSessionOnApi(session: WasteSessionRecord) {
     const response = await fetch(`/api/waste-sessions/${session.id}`, {
@@ -7518,6 +7679,68 @@ export default function App() {
       ) ?? null,
     [currentCompanyId, manualSupplySourceCenterId, manualSupplyTargetCenterId, stockCenters],
   )
+  const manualPurchaseTargetCenter = useMemo(
+    () =>
+      stockCenters.find(
+        (center) =>
+          center.companyId === currentCompanyId &&
+          center.isActive &&
+          String(center.id) === manualPurchaseTargetCenterId,
+      ) ?? null,
+    [currentCompanyId, manualPurchaseTargetCenterId, stockCenters],
+  )
+  const purchaseProductOptions = useMemo<PurchaseProductOption[]>(
+    () =>
+      products
+        .filter(
+          (product) =>
+            currentCompanyId !== null &&
+            isProductManagedByCompany(product, currentCompanyId) &&
+            product.isActive &&
+            isProductStockTracked(product) &&
+            typeof product.technicalSheetId !== 'number' &&
+            product.controlUnit !== 'COMBO',
+        )
+        .flatMap((product) => {
+          const unitOption: PurchaseProductOption = {
+            key: buildStockCenterMinimumEntryKey({
+              kind: 'PRODUTO',
+              technicalSheetId: null,
+              productId: product.id,
+              serviceItemId: '',
+              packageId: null,
+            }),
+            productId: product.id,
+            packageId: null,
+            label: `${product.name} - ${formatControlUnitShort(product.controlUnit)}`,
+            productName: product.name,
+            family: product.family,
+            requestUnitLabel: formatControlUnitShort(product.controlUnit),
+            currentUnitLabel: formatControlUnitShort(product.controlUnit),
+          }
+          const packageOptions: PurchaseProductOption[] = product.packages
+            .filter((item) => item.isActive)
+            .map((item) => ({
+              key: buildStockCenterMinimumEntryKey({
+                kind: 'PRODUTO',
+                technicalSheetId: null,
+                productId: product.id,
+                serviceItemId: '',
+                packageId: item.id,
+              }),
+              productId: product.id,
+              packageId: item.id,
+              label: `${product.name} - ${buildProductPackageLabel(product, item)}`,
+              productName: product.name,
+              family: product.family,
+              requestUnitLabel: 'EMBALAGENS',
+              currentUnitLabel: buildProductPackageLabel(product, item),
+            }))
+          return [unitOption, ...packageOptions]
+        })
+        .sort((left, right) => left.label.localeCompare(right.label, 'pt-BR')),
+    [currentCompanyId, products],
+  )
 
   useEffect(() => {
     setManualProductionSheetSearch(getTechnicalSheetAutocompleteValue(manualProductionSheetId, manualProductionSheets))
@@ -8211,9 +8434,9 @@ export default function App() {
     () => currentUserRequisitionNotifications.filter((notification) => !notification.isRead),
     [currentUserRequisitionNotifications],
   )
-  const visibleRequisitionDraftRows = useMemo(
-    () =>
-      sortRecordsByColumn(
+	  const visibleRequisitionDraftRows = useMemo(
+	    () =>
+	      sortRecordsByColumn(
         requisitionDraftLines.filter((line) => {
           const search = normalizeFreeText(requisitionDraftSearch)
           const matchesSearch =
@@ -8241,9 +8464,37 @@ export default function App() {
         requisitionDraftColumnSort,
         (line, key) => getRequisitionDraftColumnSortableValue(line, key),
       ),
-    [requisitionDraftColumnFilters, requisitionDraftColumnSort, requisitionDraftLines, requisitionDraftSearch],
-  )
-  const distinctRequisitionDraftColumnValues = useMemo(
+	    [requisitionDraftColumnFilters, requisitionDraftColumnSort, requisitionDraftLines, requisitionDraftSearch],
+	  )
+  const addableRequisitionDraftLines = useMemo(() => {
+    if (!selectedRequisitionStockCenter) {
+      return [] as RequisitionDraftLine[]
+    }
+
+    const existingSemanticKeys = new Set(requisitionDraftLines.map((line) => buildRequisitionLineSemanticKey(line)))
+    return buildRequisitionDraftLines(selectedRequisitionStockCenter, { includeZeroSuggestions: true })
+      .filter((line) => !existingSemanticKeys.has(buildRequisitionLineSemanticKey(line)))
+      .filter((line) => line.destinationType !== 'PRODUCOES' || line.destinationCenterId !== null)
+      .map((line) => ({
+        ...line,
+        suggestedQuantity: '0',
+        requestedQuantity: '0',
+        minimumDefinitionLabel: 'Pedido manual',
+      }))
+  }, [
+    currentCompanyId,
+    latestInventoryQuantityByCenterAndAggregation,
+    products,
+    requisitionDraftLines,
+    requisitions,
+    selectedRequisitionStockCenter,
+    serviceItems,
+    stockCenters,
+    technicalSheets,
+  ])
+  const selectedManualRequisitionLine =
+    addableRequisitionDraftLines.find((line) => line.key === requisitionManualItemKey) ?? null
+	  const distinctRequisitionDraftColumnValues = useMemo(
     () =>
       Object.fromEntries(
         requisitionDraftColumnOptions.map(([key]) => [
@@ -12763,97 +13014,101 @@ export default function App() {
 
     return rows.sort((left, right) => left.name.localeCompare(right.name, 'pt-BR') || left.rowKey.localeCompare(right.rowKey, 'pt-BR'))
   }, [currentCompanyId, inventoryCountHistoryModalRecords, inventoryCountHistoryModalState, inventoryCountSessions, stockCenterMinimumRows, stockCenters])
-  useEffect(() => {
-    if (inventoryCountHistoryModalState === null) {
-      setInventoryCountHistoryDrafts({})
-      return
-    }
+	  useEffect(() => {
+	    if (inventoryCountHistoryModalState === null) {
+	      setInventoryCountHistoryDrafts((current) => (Object.keys(current).length === 0 ? current : {}))
+	      return
+	    }
 
-    setInventoryCountHistoryDrafts(
-      Object.fromEntries(
-        inventoryCountHistoryDisplayRows.map((row) => [
-          row.rowKey,
-          {
-            storageLocation: row.record?.storageLocation ?? '',
-            recipientItemId: row.record?.recipientItemId ?? '',
+	    const nextDrafts = Object.fromEntries(
+	        inventoryCountHistoryDisplayRows.map((row) => [
+	          row.rowKey,
+	          {
+	            storageLocation: row.record?.storageLocation ?? '',
+	            recipientItemId: row.record?.recipientItemId ?? '',
             closedItemsQuantity: row.record?.closedItemsQuantity ?? '0',
             hasOpenItems: row.record?.hasOpenItems ? 'true' : 'false',
             openItemsGrossWeight: row.record?.openItemsGrossWeight ?? '',
             openItemsContainerQuantity: row.record?.openItemsContainerQuantity ?? '',
-          } satisfies InventoryCountHistoryDraft,
-        ]),
-      ),
-    )
-  }, [inventoryCountHistoryDisplayRows, inventoryCountHistoryModalState])
-  useEffect(() => {
-    if (!selectedInventoryRecord || selectedInventoryRecord.isClosed) {
-      setInventorySummaryDrafts({})
-      setInventorySummaryEditingRowKey(null)
-      return
-    }
+	          } satisfies InventoryCountHistoryDraft,
+	        ]),
+	      )
+	    setInventoryCountHistoryDrafts((current) =>
+	      JSON.stringify(current) === JSON.stringify(nextDrafts) ? current : nextDrafts,
+	    )
+	  }, [inventoryCountHistoryDisplayRows, inventoryCountHistoryModalState])
+	  useEffect(() => {
+	    if (!selectedInventoryRecord || selectedInventoryRecord.isClosed) {
+	      setInventorySummaryDrafts((current) => (Object.keys(current).length === 0 ? current : {}))
+	      setInventorySummaryEditingRowKey((current) => (current === null ? current : null))
+	      return
+	    }
 
-    setInventorySummaryDrafts(
-      Object.fromEntries(
-        inventorySummaryCounts.map((record) => [
-          `record-${record.id}`,
-          {
-            storageLocation: record.storageLocation,
-            recipientItemId: record.recipientItemId,
+	    const nextDrafts = Object.fromEntries(
+	        inventorySummaryCounts.map((record) => [
+	          `record-${record.id}`,
+	          {
+	            storageLocation: record.storageLocation,
+	            recipientItemId: record.recipientItemId,
             closedItemsQuantity: record.closedItemsQuantity,
             hasOpenItems: record.hasOpenItems ? 'true' : 'false',
             openItemsGrossWeight: record.openItemsGrossWeight,
             openItemsContainerQuantity: record.openItemsContainerQuantity,
-          } satisfies InventoryCountHistoryDraft,
-        ]),
-      ),
-    )
-  }, [inventorySummaryCounts, selectedInventoryRecord])
-  useEffect(() => {
-    if (!closedInventorySummaryModalState) {
-      setClosedInventorySummaryDrafts({})
-      setClosedInventorySummaryEditingRowKey(null)
-      return
-    }
+	          } satisfies InventoryCountHistoryDraft,
+	        ]),
+	      )
+	    setInventorySummaryDrafts((current) =>
+	      JSON.stringify(current) === JSON.stringify(nextDrafts) ? current : nextDrafts,
+	    )
+	  }, [inventorySummaryCounts, selectedInventoryRecord])
+	  useEffect(() => {
+	    if (!closedInventorySummaryModalState) {
+	      setClosedInventorySummaryDrafts((current) => (Object.keys(current).length === 0 ? current : {}))
+	      setClosedInventorySummaryEditingRowKey((current) => (current === null ? current : null))
+	      return
+	    }
 
-    setClosedInventorySummaryDrafts(
-      Object.fromEntries(
-        closedInventorySummaryCounts.map((record) => [
-          `record-${record.id}`,
-          {
-            storageLocation: record.storageLocation,
-            recipientItemId: record.recipientItemId,
+	    const nextDrafts = Object.fromEntries(
+	        closedInventorySummaryCounts.map((record) => [
+	          `record-${record.id}`,
+	          {
+	            storageLocation: record.storageLocation,
+	            recipientItemId: record.recipientItemId,
             closedItemsQuantity: record.closedItemsQuantity,
             hasOpenItems: record.hasOpenItems ? 'true' : 'false',
             openItemsGrossWeight: record.openItemsGrossWeight,
             openItemsContainerQuantity: record.openItemsContainerQuantity,
-          } satisfies InventoryCountHistoryDraft,
-        ]),
-      ),
-    )
-  }, [closedInventorySummaryCounts, closedInventorySummaryModalState])
-  useEffect(() => {
-    if (!selectedInventoryCountSession || selectedInventoryCountSession.isClosed) {
-      setCurrentInventoryCountDrafts({})
-      setCurrentInventoryCountEditingRowKey(null)
-      return
-    }
+	          } satisfies InventoryCountHistoryDraft,
+	        ]),
+	      )
+	    setClosedInventorySummaryDrafts((current) =>
+	      JSON.stringify(current) === JSON.stringify(nextDrafts) ? current : nextDrafts,
+	    )
+	  }, [closedInventorySummaryCounts, closedInventorySummaryModalState])
+	  useEffect(() => {
+	    if (!selectedInventoryCountSession || selectedInventoryCountSession.isClosed) {
+	      setCurrentInventoryCountDrafts((current) => (Object.keys(current).length === 0 ? current : {}))
+	      setCurrentInventoryCountEditingRowKey((current) => (current === null ? current : null))
+	      return
+	    }
 
-    setCurrentInventoryCountDrafts(
-      Object.fromEntries(
-        currentInventoryCountSummaryCounts.map((record) => [
-          `record-${record.id}`,
-          {
-            storageLocation: record.storageLocation,
-            recipientItemId: record.recipientItemId,
+	    const nextDrafts = Object.fromEntries(
+	        currentInventoryCountSummaryCounts.map((record) => [
+	          `record-${record.id}`,
+	          {
+	            storageLocation: record.storageLocation,
+	            recipientItemId: record.recipientItemId,
             closedItemsQuantity: record.closedItemsQuantity,
             hasOpenItems: record.hasOpenItems ? 'true' : 'false',
             openItemsGrossWeight: record.openItemsGrossWeight,
             openItemsContainerQuantity: record.openItemsContainerQuantity,
-          } satisfies InventoryCountHistoryDraft,
-        ]),
-      ),
-    )
-  }, [currentInventoryCountSummaryCounts, selectedInventoryCountSession])
+	          } satisfies InventoryCountHistoryDraft,
+	        ]),
+	      )
+	    setCurrentInventoryCountDrafts((current) =>
+	      JSON.stringify(current) === JSON.stringify(nextDrafts) ? current : nextDrafts,
+	    )
+	  }, [currentInventoryCountSummaryCounts, selectedInventoryCountSession])
   const stockRequisitionReportRows = useMemo(
     () =>
       requisitions
@@ -16482,12 +16737,15 @@ export default function App() {
         if (!isCancelled) {
           syncedInventoryCountMapRef.current = currentById
         }
-      } catch (error) {
-        console.error(error)
-        if (!isCancelled) {
-          logRemoteAppStateMessage('Falha ao sincronizar contagens por entidade com o servidor.')
-        }
-      }
+	      } catch (error) {
+	        console.error(error)
+	        if (!isCancelled) {
+	          if ((error as ApiMutationError).statusCode === 409) {
+	            syncedInventoryCountMapRef.current = currentById
+	          }
+	          logRemoteAppStateMessage('Falha ao sincronizar contagens por entidade com o servidor.')
+	        }
+	      }
     })()
 
     return () => {
@@ -16947,29 +17205,45 @@ export default function App() {
       if (sessionRecord.inventoryId !== null) {
         return false
       }
+	      const linkedRecords = inventoryCounts.filter((record) => record.sessionId === sessionRecord.id)
+	      return (
+	        linkedRecords.length === 0 ||
+	        linkedRecords.every(
+	          (record) =>
+	            isWasteDraftInventoryMovementLocation(record.storageLocation) ||
+	            isWasteInventoryMovementLocation(record.storageLocation),
+	        )
+	      )
+    }
+    const isOperationalMovementSession = (sessionRecord: InventoryCountSessionRecord) => {
+      if (sessionRecord.inventoryId !== null) {
+        return false
+      }
       const linkedRecords = inventoryCounts.filter((record) => record.sessionId === sessionRecord.id)
-      return (
-        linkedRecords.length === 0 ||
-        linkedRecords.every(
-          (record) =>
-            isWasteDraftInventoryMovementLocation(record.storageLocation) ||
-            isWasteInventoryMovementLocation(record.storageLocation),
-        )
-      )
+      return linkedRecords.length > 0 && linkedRecords.every((record) => isOperationalInventoryMovementLocation(record.storageLocation))
     }
 
     const wasteSessionIds = new Set(
       inventoryCountSessions.filter((sessionRecord) => isWasteSession(sessionRecord)).map((sessionRecord) => sessionRecord.id),
     )
+    const operationalMovementSessionIds = new Set(
+      inventoryCountSessions
+        .filter((sessionRecord) => isOperationalMovementSession(sessionRecord))
+        .map((sessionRecord) => sessionRecord.id),
+    )
+    const nonInventorySessionIds = new Set([...wasteSessionIds, ...operationalMovementSessionIds])
     const wasteDerivedInventoryRecordIds = new Set(
       inventoryRecords.filter((inventoryRecord) => wasteSessionIds.has(inventoryRecord.id)).map((inventoryRecord) => inventoryRecord.id),
     )
     const needsSessionMigration = inventoryCountSessions.some(
-      (sessionRecord) => sessionRecord.inventoryId === null && !wasteSessionIds.has(sessionRecord.id),
+      (sessionRecord) => sessionRecord.inventoryId === null && !nonInventorySessionIds.has(sessionRecord.id),
     )
-    const needsCountMigration = inventoryCounts.some(
-      (record) => record.inventoryId === null && !wasteSessionIds.has(record.sessionId),
-    )
+	    const needsCountMigration = inventoryCounts.some(
+	      (record) =>
+	        record.inventoryId === null &&
+	        !nonInventorySessionIds.has(record.sessionId) &&
+	        !isOperationalInventoryMovementLocation(record.storageLocation),
+	    )
     if (!needsSessionMigration && !needsCountMigration && wasteDerivedInventoryRecordIds.size === 0) {
       return
     }
@@ -16986,7 +17260,7 @@ export default function App() {
     const inventoryIdByScope = new Map<string, number>()
 
     inventoryCountSessions.forEach((sessionRecord) => {
-      if (wasteSessionIds.has(sessionRecord.id)) {
+      if (nonInventorySessionIds.has(sessionRecord.id)) {
         return
       }
       if (sessionRecord.inventoryId !== null) {
@@ -17028,13 +17302,13 @@ export default function App() {
       setInventoryRecords(migratedInventoryRecords)
     }
 
-    if (needsSessionMigration) {
-      setInventoryCountSessions((current) =>
-        current.map((sessionRecord) =>
-          sessionRecord.inventoryId !== null || wasteSessionIds.has(sessionRecord.id)
-            ? sessionRecord
-            : {
-                ...sessionRecord,
+	    if (needsSessionMigration) {
+	      setInventoryCountSessions((current) =>
+	        current.map((sessionRecord) =>
+	          sessionRecord.inventoryId !== null || nonInventorySessionIds.has(sessionRecord.id)
+	            ? sessionRecord
+	            : {
+	                ...sessionRecord,
                 inventoryId:
                   inventoryIdByScope.get(`${sessionRecord.companyId}:${sessionRecord.stockCenterId}:${sessionRecord.countedAt}`) ??
                   sessionRecord.id,
@@ -17043,26 +17317,27 @@ export default function App() {
       )
     }
 
-    if (needsCountMigration) {
-      const sessionInventoryIdById = new Map(
-        inventoryCountSessions.map((sessionRecord) => [
-          sessionRecord.id,
-          wasteSessionIds.has(sessionRecord.id)
-            ? null
-            :
-          sessionRecord.inventoryId ??
-            inventoryIdByScope.get(`${sessionRecord.companyId}:${sessionRecord.stockCenterId}:${sessionRecord.countedAt}`) ??
-            null,
-        ]),
-      )
-      setInventoryCounts((current) =>
-        current.map((record) =>
-          record.inventoryId !== null || wasteSessionIds.has(record.sessionId)
-            ? record
-            : {
-                ...record,
-                inventoryId: sessionInventoryIdById.get(record.sessionId) ?? null,
-              },
+	    if (needsCountMigration) {
+	      const sessionInventoryIdById = new Map(
+	        inventoryCountSessions.map((sessionRecord) => [
+	          sessionRecord.id,
+	          nonInventorySessionIds.has(sessionRecord.id)
+	            ? null
+	            : sessionRecord.inventoryId ??
+	              inventoryIdByScope.get(`${sessionRecord.companyId}:${sessionRecord.stockCenterId}:${sessionRecord.countedAt}`) ??
+	              null,
+	        ]),
+	      )
+	      setInventoryCounts((current) =>
+	        current.map((record) =>
+	          record.inventoryId !== null ||
+	          nonInventorySessionIds.has(record.sessionId) ||
+	          isOperationalInventoryMovementLocation(record.storageLocation)
+	            ? record
+	            : {
+	                ...record,
+	                inventoryId: sessionInventoryIdById.get(record.sessionId) ?? null,
+	              },
         ),
       )
     }
@@ -17108,17 +17383,23 @@ export default function App() {
     }
   }, [inventoryEligibleStockCenters, wasteForm.stockCenterId])
 
-  useEffect(() => {
-    if (!selectedWasteSession) {
-      return
-    }
+	  useEffect(() => {
+	    if (!selectedWasteSession) {
+	      return
+	    }
 
-    setWasteForm((current) => ({
-      ...current,
-      stockCenterId: String(selectedWasteSession.stockCenterId),
-      countedAt: selectedWasteSession.countedAt,
-    }))
-  }, [selectedWasteSession])
+	    setWasteForm((current) => {
+	      const nextStockCenterId = String(selectedWasteSession.stockCenterId)
+	      if (current.stockCenterId === nextStockCenterId && current.countedAt === selectedWasteSession.countedAt) {
+	        return current
+	      }
+	      return {
+	        ...current,
+	        stockCenterId: nextStockCenterId,
+	        countedAt: selectedWasteSession.countedAt,
+	      }
+	    })
+	  }, [selectedWasteSession])
 
   useEffect(() => {
     if (requisitionEligibleStockCenters.length === 0) {
@@ -17258,12 +17539,18 @@ export default function App() {
       return
     }
 
-    setInventoryForm((current) => ({
-      ...current,
-      stockCenterId: String(selectedInventoryRecord.stockCenterId),
-      countedAt: selectedInventoryRecord.countedAt,
-    }))
-  }, [selectedInventoryRecord])
+	    setInventoryForm((current) => {
+	      const nextStockCenterId = String(selectedInventoryRecord.stockCenterId)
+	      if (current.stockCenterId === nextStockCenterId && current.countedAt === selectedInventoryRecord.countedAt) {
+	        return current
+	      }
+	      return {
+	        ...current,
+	        stockCenterId: nextStockCenterId,
+	        countedAt: selectedInventoryRecord.countedAt,
+	      }
+	    })
+	  }, [selectedInventoryRecord])
 
   useEffect(() => {
     if (currentCompanyId === null || !isInventoryRemoteStateReady) {
@@ -17295,12 +17582,15 @@ export default function App() {
             : null,
       }
 
-      if (existingIndex === -1) {
-        return [...current, nextLink]
-      }
+	      if (existingIndex === -1) {
+	        return [...current, nextLink]
+	      }
+	      if (existingLink?.inventoryId === nextLink.inventoryId) {
+	        return current
+	      }
 
-      return current.map((link, index) => (index === existingIndex ? nextLink : link))
-    })
+	      return current.map((link, index) => (index === existingIndex ? nextLink : link))
+	    })
   }, [currentCompanyId, inventoryRecords, inventorySessionUserKey, isInventoryRemoteStateReady, selectedInventoryRecord])
 
   useEffect(() => {
@@ -17333,12 +17623,15 @@ export default function App() {
             : null,
       }
 
-      if (existingIndex === -1) {
-        return [...current, nextLink]
-      }
+	      if (existingIndex === -1) {
+	        return [...current, nextLink]
+	      }
+	      if (existingLink?.sessionId === nextLink.sessionId) {
+	        return current
+	      }
 
-      return current.map((link, index) => (index === existingIndex ? nextLink : link))
-    })
+	      return current.map((link, index) => (index === existingIndex ? nextLink : link))
+	    })
   }, [currentCompanyId, inventoryCountSessions, inventorySessionUserKey, isInventoryRemoteStateReady, selectedInventoryCountSession])
 
   useEffect(() => {
@@ -21587,7 +21880,11 @@ export default function App() {
     })
   }
 
-  function buildRequisitionDraftLines(center: StockCenterRecord): RequisitionDraftLine[] {
+  function buildRequisitionDraftLines(
+    center: StockCenterRecord,
+    options: { includeZeroSuggestions?: boolean } = {},
+  ): RequisitionDraftLine[] {
+    const includeZeroSuggestions = options.includeZeroSuggestions === true
     const centerMinimumRows: StockCenterMinimumRow[] = [
       ...technicalSheets
         .filter(
@@ -21883,11 +22180,11 @@ export default function App() {
 
     const distributorPurchaseDemandLines = buildDistributorPurchaseDemandDraftLines(center)
 
-    if (!center.isProducer) {
-      return normalizeProductPackageRequisitionLines(mergeRequisitionLines([...baseLines, ...distributorPurchaseDemandLines]))
-        .filter((line) => (parseDecimal(line.requestedQuantity) ?? 0) > 0)
-        .sort((a, b) => a.itemName.localeCompare(b.itemName, 'pt-BR'))
-    }
+	    if (!center.isProducer) {
+	      return normalizeProductPackageRequisitionLines(mergeRequisitionLines([...baseLines, ...distributorPurchaseDemandLines]))
+	        .filter((line) => includeZeroSuggestions || (parseDecimal(line.requestedQuantity) ?? 0) > 0)
+	        .sort((a, b) => a.itemName.localeCompare(b.itemName, 'pt-BR'))
+	    }
 
     const demandContext = buildPreparationDemandContext(center, center.companyId)
     const producedSheets = demandContext?.producedSheets ?? []
@@ -21919,14 +22216,14 @@ export default function App() {
       })
     })
 
-    return normalizeProductPackageRequisitionLines(Array.from(mergedByKey.values()))
-      .filter((line) => (parseDecimal(line.requestedQuantity) ?? 0) > 0)
-      .sort((a, b) => a.itemName.localeCompare(b.itemName, 'pt-BR'))
-  }
+	    return normalizeProductPackageRequisitionLines(Array.from(mergedByKey.values()))
+	      .filter((line) => includeZeroSuggestions || (parseDecimal(line.requestedQuantity) ?? 0) > 0)
+	      .sort((a, b) => a.itemName.localeCompare(b.itemName, 'pt-BR'))
+	  }
 
-  function generateRequisitionDraft() {
-    if (!selectedRequisitionStockCenter) {
-      setSaveFeedback({
+	  function generateRequisitionDraft() {
+	    if (!selectedRequisitionStockCenter) {
+	      setSaveFeedback({
         status: 'error',
         title: 'Requisicao incompleta',
         message: 'Selecione um centro de estoque para montar a requisicao.',
@@ -21946,10 +22243,51 @@ export default function App() {
     }
 
     setEditingRequisitionId(null)
-    setRequisitionDraftLines(nextDraftLines)
-    setRequisitionDraftSearch('')
-    setIsRequisitionEditModalOpen(false)
-    setRequisitionTab('new')
+	    setRequisitionDraftLines(nextDraftLines)
+	    setRequisitionDraftSearch('')
+    setRequisitionManualItemKey('')
+    setRequisitionManualQuantity('')
+	    setIsRequisitionEditModalOpen(false)
+	    setRequisitionTab('new')
+	  }
+
+  function addManualRequisitionDraftLine() {
+    if (!selectedManualRequisitionLine) {
+      setSaveFeedback({
+        status: 'error',
+        title: 'Item nao selecionado',
+        message: 'Selecione um item abastecivel para incluir na requisicao.',
+      })
+      return
+    }
+
+    const requestedQuantity = parseDecimal(requisitionManualQuantity) ?? 0
+    if (requestedQuantity <= 0) {
+      setSaveFeedback({
+        status: 'error',
+        title: 'Quantidade invalida',
+        message: 'Informe uma quantidade maior que zero para adicionar o item.',
+      })
+      return
+    }
+
+    const nextRequestedQuantity = convertEffectiveQuantityToRequestedQuantity(
+      selectedManualRequisitionLine,
+      requisitionManualQuantity,
+    )
+    const nextLine = normalizeProductPackageRequisitionLine({
+      ...selectedManualRequisitionLine,
+      key: selectedManualRequisitionLine.key,
+      suggestedQuantity: '0',
+      requestedQuantity: nextRequestedQuantity,
+      minimumDefinitionLabel: 'Pedido manual',
+    })
+    setRequisitionDraftLines((current) =>
+      normalizeProductPackageRequisitionLines(mergeRequisitionLines([...current, nextLine]))
+        .sort((a, b) => a.itemName.localeCompare(b.itemName, 'pt-BR')),
+    )
+    setRequisitionManualItemKey('')
+    setRequisitionManualQuantity('')
   }
 
   async function saveRequisitionDraft() {
@@ -22293,8 +22631,63 @@ export default function App() {
         line.destinationType === 'COMPRAS' &&
         line.kind === 'PRODUTO' &&
         line.productId &&
-        productKeys.has(`${purchaseCenterId}:${line.productId}`),
-    )
+	        productKeys.has(`${purchaseCenterId}:${line.productId}`),
+	    )
+	  }
+
+  function getPurchaseSupplyItemSummary(record: RequisitionRecord) {
+    const itemCount = getPurchaseSupplyCandidateLines(record).length
+    return itemCount === 1 ? '1 item' : `${formatDecimal(itemCount)} itens`
+  }
+
+  function getAvailablePurchaseProductOptionsForDraft(draftLines: RequisitionDraftLine[]) {
+    const existingKeys = new Set(draftLines.map((line) => buildRequisitionLineSemanticKey(line)))
+	    return purchaseProductOptions.filter((option) => {
+	      const semanticKey = buildRequisitionLineSemanticKey({
+	        kind: 'PRODUTO',
+	        technicalSheetId: null,
+	        productId: option.productId,
+	        serviceItemId: '',
+	        packageId: option.packageId,
+	        destinationType: 'COMPRAS',
+	        destinationCenterId: null,
+	        supplierCenterId: null,
+	      })
+	      return !existingKeys.has(semanticKey)
+	    })
+  }
+
+  function buildManualPurchaseRequisitionLine(option: PurchaseProductOption, quantityValue: string, sourceLabel: string) {
+    return normalizeProductPackageRequisitionLine({
+      key: option.key,
+      kind: 'PRODUTO',
+      technicalSheetId: null,
+      productId: option.productId,
+      serviceItemId: '',
+      packageId: option.packageId,
+      itemName: option.productName,
+      itemTypeLabel: 'Produto',
+      family: option.family,
+      suggestedQuantity: '0',
+      requestedQuantity: quantityValue.trim(),
+      requestUnitLabel: option.requestUnitLabel,
+      currentQuantity: '0',
+      currentUnitLabel: option.currentUnitLabel,
+      minimumDefinitionLabel: sourceLabel,
+      destinationType: 'COMPRAS',
+      destinationCenterId: null,
+      destinationCenterName: '',
+      destinationLabel: sourceLabel,
+      supplierCenterId: null,
+      supplierCenterName: '',
+      supplierCompanyId: null,
+      supplierCompanyName: '',
+      receiptStatus: 'PENDING',
+      receiptResolvedAt: '',
+      receiptResolvedByUserId: null,
+      receiptResolvedByUserName: '',
+      receiptSessionId: null,
+    } satisfies RequisitionLineRecord)
   }
 
   function canReceiveRequisition(record: RequisitionRecord) {
@@ -22913,17 +23306,21 @@ export default function App() {
               .map((line) => ({ ...line }))
             return [...savedOnlyLines, ...mergedGeneratedLines]
           })()
-    setRequisitionDraftLines(nextDraftLines)
-    setRequisitionDraftSearch('')
-    setIsRequisitionEditModalOpen(true)
-  }
+	    setRequisitionDraftLines(nextDraftLines)
+	    setRequisitionDraftSearch('')
+    setRequisitionManualItemKey('')
+    setRequisitionManualQuantity('')
+	    setIsRequisitionEditModalOpen(true)
+	  }
 
-  function closeRequisitionEditModal() {
-    setIsRequisitionEditModalOpen(false)
-    setEditingRequisitionId(null)
-    setRequisitionDraftLines([])
-    setRequisitionDraftSearch('')
-  }
+	  function closeRequisitionEditModal() {
+	    setIsRequisitionEditModalOpen(false)
+	    setEditingRequisitionId(null)
+	    setRequisitionDraftLines([])
+	    setRequisitionDraftSearch('')
+    setRequisitionManualItemKey('')
+    setRequisitionManualQuantity('')
+	  }
 
   function startSendRequisition(requisitionId: number) {
     const targetRequisition = requisitions.find((record) => record.id === requisitionId) ?? null
@@ -24326,15 +24723,63 @@ export default function App() {
       return
     }
 
-    setPurchaseSupplyEditingRequisitionId(requisitionId)
-    setPurchaseSupplyDraftLines(candidateLines.map((line) => ({ ...line })))
-    setPurchaseSupplyDraftSearch('')
-  }
+	    setPurchaseSupplyEditingRequisitionId(requisitionId)
+	    setPurchaseSupplyDraftLines(candidateLines.map((line) => ({ ...line })))
+	    setPurchaseSupplyDraftSearch('')
+    setPurchaseSupplyManualItemKey('')
+    setPurchaseSupplyManualQuantity('')
+	  }
 
-  function closePurchaseSupplyShipment() {
-    setPurchaseSupplyEditingRequisitionId(null)
-    setPurchaseSupplyDraftLines([])
-    setPurchaseSupplyDraftSearch('')
+	  function closePurchaseSupplyShipment() {
+	    setPurchaseSupplyEditingRequisitionId(null)
+	    setPurchaseSupplyDraftLines([])
+	    setPurchaseSupplyDraftSearch('')
+    setPurchaseSupplyManualItemKey('')
+    setPurchaseSupplyManualQuantity('')
+	  }
+
+  function addPurchaseSupplyManualLine() {
+    const selectedOption = purchaseProductOptions.find((option) => option.key === purchaseSupplyManualItemKey) ?? null
+    if (!selectedOption) {
+      setSaveFeedback({
+        status: 'error',
+        title: 'Item nao selecionado',
+        message: 'Selecione um produto para incluir na compra.',
+      })
+      return
+    }
+
+    const requestedQuantity = parseDecimal(purchaseSupplyManualQuantity) ?? 0
+    if (requestedQuantity <= 0) {
+      setSaveFeedback({
+        status: 'error',
+        title: 'Quantidade invalida',
+        message: 'Informe uma quantidade maior que zero para incluir o item comprado.',
+      })
+      return
+    }
+
+    const availableOptions = getAvailablePurchaseProductOptionsForDraft(purchaseSupplyDraftLines)
+    if (!availableOptions.some((option) => option.key === selectedOption.key)) {
+      setSaveFeedback({
+        status: 'error',
+        title: 'Item ja listado',
+        message: 'Este produto ja esta no envio de compras. Ajuste a quantidade da linha existente.',
+      })
+      return
+    }
+
+    const nextLine = buildManualPurchaseRequisitionLine(
+      selectedOption,
+      purchaseSupplyManualQuantity,
+      'Compra manual / extra',
+    )
+    setPurchaseSupplyDraftLines((current) =>
+      normalizeProductPackageRequisitionLines([...current, nextLine])
+        .sort((left, right) => left.itemName.localeCompare(right.itemName, 'pt-BR')),
+    )
+    setPurchaseSupplyManualItemKey('')
+    setPurchaseSupplyManualQuantity('')
   }
 
   function updatePurchaseSupplyDraftLine(lineKey: string, quantityValue: string) {
@@ -24373,9 +24818,10 @@ export default function App() {
       return
     }
 
-    const draftByKey = new Map(purchaseSupplyDraftLines.map((line) => [line.key, line]))
-    const sentLines: RequisitionLineRecord[] = []
-    const remainingLines: RequisitionLineRecord[] = []
+	    const draftByKey = new Map(purchaseSupplyDraftLines.map((line) => [line.key, line]))
+    const originalLineKeys = new Set(targetRequisition.lines.map((line) => line.key))
+	    const sentLines: RequisitionLineRecord[] = []
+	    const remainingLines: RequisitionLineRecord[] = []
 
     targetRequisition.lines.forEach((line) => {
       const draftLine = draftByKey.get(line.key) ?? null
@@ -24388,15 +24834,18 @@ export default function App() {
       const normalizedOriginalLine = normalizeProductPackageRequisitionLine(line)
       const sentQuantity = parseDecimal(normalizedDraftLine.requestedQuantity) ?? 0
       const originalQuantity = parseDecimal(normalizedOriginalLine.requestedQuantity) ?? 0
-      if (sentQuantity > 0) {
-        sentLines.push({
-          ...normalizedDraftLine,
-          destinationType: 'COMPRAS',
-          destinationCenterId: null,
-          destinationCenterName: '',
-          destinationLabel: 'COMPRAS',
-          supplierCenterId: null,
-          supplierCenterName: '',
+	      if (sentQuantity > 0) {
+	        sentLines.push({
+	          ...normalizedDraftLine,
+	          destinationType: 'COMPRAS',
+	          destinationCenterId: null,
+	          destinationCenterName: '',
+	          destinationLabel:
+              normalizedDraftLine.minimumDefinitionLabel === 'Compra manual / extra'
+                ? 'Compra manual / extra'
+                : 'COMPRAS',
+	          supplierCenterId: null,
+	          supplierCenterName: '',
           supplierCompanyId: null,
           supplierCompanyName: '',
           receiptStatus: 'PENDING',
@@ -24413,8 +24862,34 @@ export default function App() {
           ...normalizedOriginalLine,
           requestedQuantity: formatEditableDecimal(remainingQuantity),
         })
-      }
-    })
+	      }
+	    })
+
+    purchaseSupplyDraftLines
+      .filter((line) => !originalLineKeys.has(line.key))
+      .forEach((line) => {
+        const normalizedDraftLine = normalizeProductPackageRequisitionLine(line)
+        const sentQuantity = parseDecimal(normalizedDraftLine.requestedQuantity) ?? 0
+        if (sentQuantity <= 0) {
+          return
+        }
+        sentLines.push({
+          ...normalizedDraftLine,
+          destinationType: 'COMPRAS',
+          destinationCenterId: null,
+          destinationCenterName: '',
+          destinationLabel: 'Compra manual / extra',
+          supplierCenterId: null,
+          supplierCenterName: '',
+          supplierCompanyId: null,
+          supplierCompanyName: '',
+          receiptStatus: 'PENDING',
+          receiptResolvedAt: '',
+          receiptResolvedByUserId: null,
+          receiptResolvedByUserName: '',
+          receiptSessionId: null,
+        })
+      })
 
     if (sentLines.length === 0) {
       setSaveFeedback({
@@ -26800,8 +27275,8 @@ export default function App() {
     })
   }
 
-  function saveManualSupply() {
-    if (currentCompanyId === null || !manualSupplySourceCenter || !manualSupplyTargetCenter) {
+	  function saveManualSupply() {
+	    if (currentCompanyId === null || !manualSupplySourceCenter || !manualSupplyTargetCenter) {
       setSaveFeedback({
         status: 'error',
         title: 'Novo suprimento incompleto',
@@ -26890,11 +27365,190 @@ export default function App() {
     setSaveFeedback({
       status: 'success',
       title: 'Novo suprimento criado',
-      message: 'O suprimento foi criado manualmente e ja esta disponivel no painel de suprimentos.',
+	      message: 'O suprimento foi criado manualmente e ja esta disponivel no painel de suprimentos.',
+	    })
+	  }
+
+  function openManualPurchaseEntryModal() {
+    const nextTargetId = supplyResponsibleCenters[0]
+      ? String(supplyResponsibleCenters[0].id)
+      : stockCenters.find((center) => center.companyId === currentCompanyId && center.isActive)
+        ? String(stockCenters.find((center) => center.companyId === currentCompanyId && center.isActive)?.id)
+        : ''
+    setManualPurchaseTargetCenterId(nextTargetId)
+    setManualPurchaseDraftLines([{ id: Date.now(), itemKey: '', quantity: '' }])
+    setIsManualPurchaseEntryModalOpen(true)
+  }
+
+  function closeManualPurchaseEntryModal() {
+    setIsManualPurchaseEntryModalOpen(false)
+    setManualPurchaseTargetCenterId('')
+    setManualPurchaseDraftLines([])
+  }
+
+  function addManualPurchaseDraftLine() {
+    setManualPurchaseDraftLines((current) => [...current, { id: Date.now() + current.length, itemKey: '', quantity: '' }])
+  }
+
+  function updateManualPurchaseDraftLine(lineId: number, patch: Partial<ManualSupplyDraftLine>) {
+    setManualPurchaseDraftLines((current) =>
+      current.map((line) => (line.id === lineId ? { ...line, ...patch } : line)),
+    )
+  }
+
+  function removeManualPurchaseDraftLine(lineId: number) {
+    setManualPurchaseDraftLines((current) => {
+      if (current.length <= 1) {
+        return [{ id: Date.now(), itemKey: '', quantity: '' }]
+      }
+      return current.filter((line) => line.id !== lineId)
     })
   }
 
-  function closeProductionDraft() {
+  async function saveManualPurchaseEntry() {
+    if (currentCompanyId === null || !manualPurchaseTargetCenter) {
+      setSaveFeedback({
+        status: 'error',
+        title: 'Compra manual incompleta',
+        message: 'Selecione o centro de destino e informe os itens comprados.',
+      })
+      return
+    }
+
+    const parsedLines = normalizeProductPackageRequisitionLines(
+      mergeRequisitionLines(
+        manualPurchaseDraftLines.reduce<RequisitionLineRecord[]>((accumulator, draftLine) => {
+          const selectedOption = purchaseProductOptions.find((option) => option.key === draftLine.itemKey) ?? null
+          if (!selectedOption) {
+            return accumulator
+          }
+          const requestedQuantity = parseDecimal(draftLine.quantity) ?? 0
+          if (requestedQuantity <= 0) {
+            return accumulator
+          }
+          accumulator.push(buildManualPurchaseRequisitionLine(selectedOption, draftLine.quantity, 'Compra manual avulsa'))
+          return accumulator
+        }, []),
+      ),
+    )
+
+    if (parsedLines.length === 0) {
+      setSaveFeedback({
+        status: 'error',
+        title: 'Quantidade invalida',
+        message: 'Informe pelo menos um item com quantidade maior que zero.',
+      })
+      return
+    }
+
+    let baseRequisitions: RequisitionRecord[]
+    try {
+      baseRequisitions = await loadLatestRequisitionsForMutation()
+    } catch (error) {
+      console.error(error)
+      setSaveFeedback({
+        status: 'error',
+        title: 'Falha ao carregar requisicoes',
+        message: error instanceof Error ? error.message : 'Nao foi possivel confirmar a lista atual no servidor.',
+      })
+      return
+    }
+
+    let nextRequisitionId = getNextPersistedIntId([
+      ...baseRequisitions.map((record) => record.id),
+      ...baseRequisitions.map((record) => record.requisitionGroupId),
+    ])
+    try {
+      nextRequisitionId = Math.max(nextRequisitionId, await fetchNextRequisitionIdFromApi() ?? nextRequisitionId)
+    } catch (error) {
+      console.error(error)
+      setSaveFeedback({
+        status: 'error',
+        title: 'Falha ao reservar requisicao',
+        message: error instanceof Error ? error.message : 'Nao foi possivel confirmar o proximo id de requisicao no servidor.',
+      })
+      return
+    }
+
+    const now = new Date().toISOString()
+    const nextRequisition: RequisitionRecord = {
+      id: nextRequisitionId,
+      companyId: currentCompanyId,
+      requisitionGroupId: nextRequisitionId,
+      stockCenterId: manualPurchaseTargetCenter.id,
+      stockCenterName: manualPurchaseTargetCenter.name,
+      supplyCenterId: null,
+      supplyCenterName: 'Compra manual',
+      supplyCompanyId: null,
+      supplyCompanyName: '',
+      sector: manualPurchaseTargetCenter.sector,
+      countedAt: getTodayDateInputValue(),
+      status: 'READY_TO_RECEIVE',
+      editScope: 'LINES_ONLY',
+      lines: parsedLines,
+      createdAt: now,
+      createdByUserId: currentAppUser?.id ?? null,
+      createdByUserName: currentAppUser?.fullName ?? 'Administrador do sistema',
+      approvedAt: now,
+      approvedByUserId: currentAppUser?.id ?? null,
+      approvedByUserName: currentAppUser?.fullName ?? 'Administrador do sistema',
+      sentAt: now,
+      sentByUserId: currentAppUser?.id ?? null,
+      sentByUserName: currentAppUser?.fullName ?? 'Administrador do sistema',
+      preparedAt: now,
+      preparedByUserId: currentAppUser?.id ?? null,
+      preparedByUserName: currentAppUser?.fullName ?? 'Administrador do sistema',
+      receivedAt: '',
+      receivedByUserId: null,
+      receivedByUserName: '',
+      lastUpdatedAt: now,
+      lastUpdatedByUserId: currentAppUser?.id ?? null,
+      lastUpdatedByUserName: currentAppUser?.fullName ?? 'Administrador do sistema',
+    }
+
+    try {
+      await upsertRequisitionRecordOnApi(nextRequisition)
+    } catch (error) {
+      console.error(error)
+      setSaveFeedback({
+        status: 'error',
+        title: 'Falha ao criar compra manual',
+        message: error instanceof Error ? error.message : 'Nao foi possivel gravar a compra manual no servidor.',
+      })
+      return
+    }
+
+    const nextRequisitions = [nextRequisition, ...baseRequisitions]
+    setRequisitions(nextRequisitions)
+    syncedRequisitionRecordMapRef.current = buildEntitySignatureMap(nextRequisitions, (record) => record.id)
+    closeManualPurchaseEntryModal()
+    setRequisitionTab('receive')
+    setActiveSection('Requisicoes')
+    setSaveFeedback({
+      status: 'success',
+      title: 'Compra manual enviada para receber',
+      message: 'A compra manual foi criada como entrada avulsa e esta pronta para conferencia em Receber.',
+    })
+    registerAuditEvent({
+      companyId: nextRequisition.companyId,
+      module: 'REQUISICOES',
+      actionKey: 'CREATE_MANUAL_PURCHASE_RECEIPT',
+      actionLabel: 'Compra manual para recebimento',
+      targetType: 'REQUISITION',
+      targetId: String(nextRequisition.id),
+      targetLabel: `${nextRequisition.stockCenterName} • ${formatDateForDisplay(nextRequisition.countedAt)}`,
+      summary: `Compra manual criada para recebimento no centro ${nextRequisition.stockCenterName}.`,
+      impactSummary: `${parsedLines.length} item(ns) enviado(s) para conferencia antes de entrada em estoque.`,
+      severity: 'HIGH',
+      result: 'SUCCESS',
+      details: {
+        lineCount: parsedLines.length,
+        targetCenterId: manualPurchaseTargetCenter.id,
+      },
+    })
+  }
+
+	  function closeProductionDraft() {
     const currentDraft = productionDraftState
     setIsProductionStartConfirmOpen(false)
     setIsProductionFinishConfirmOpen(false)
@@ -40467,7 +41121,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                         setColumnSort,
                       )
                     : null}
-                  
+
                   {columnVisibility.controlUnit
                     ? renderColumnHeader(
                         'controlUnit',
@@ -46941,16 +47595,20 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                 ) : (
                   <>
                     <form className="form-grid company-form-grid" onSubmit={(event) => event.preventDefault()}>
-                      <label className="field company-field-wide">
-                        <span>Centro de estoque *</span>
-                        <select
-                          value={requisitionForm.stockCenterId}
-                          onChange={(event) =>
-                            setRequisitionForm({
-                              stockCenterId: event.target.value,
-                            })
-                          }
-                        >
+	                      <label className="field company-field-wide">
+	                        <span>Centro de estoque *</span>
+	                        <select
+	                          value={requisitionForm.stockCenterId}
+	                          onChange={(event) => {
+	                            setRequisitionForm({
+	                              stockCenterId: event.target.value,
+	                            })
+	                              setRequisitionDraftLines([])
+	                              setRequisitionDraftSearch('')
+	                              setRequisitionManualItemKey('')
+	                              setRequisitionManualQuantity('')
+	                            }}
+	                        >
                           <option value="">Selecione</option>
                           {requisitionEligibleStockCenters.map((center) => (
                             <option key={center.id} value={String(center.id)}>
@@ -46961,14 +47619,14 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                       </label>
                       <div className="field field-span-all">
                         <div className="empty-state empty-state-inline requisition-info-card">
-                        <strong>
-                          {selectedRequisitionLatestInventoryDate
-                            ? `Ultimo inventario do centro: ${formatDateForDisplay(selectedRequisitionLatestInventoryDate)}`
-                            : 'Este centro ainda nao possui inventario fechado ou em andamento registrado.'}
-                        </strong>
-                        <p>
-                          A requisicao usa sempre a soma das contagens da data mais recente do centro selecionado.
-                        </p>
+                          <strong>
+                            {selectedRequisitionLatestInventoryDate
+                              ? `Ultimo inventario do centro: ${formatDateForDisplay(selectedRequisitionLatestInventoryDate)}`
+                              : 'Este centro ainda nao possui inventario fechado ou em andamento registrado.'}
+                          </strong>
+                          <p>
+                            A requisicao usa sempre a soma das contagens da data mais recente do centro selecionado.
+                          </p>
                         </div>
                       </div>
                       <div className="form-actions field-span-all">
@@ -46983,6 +47641,49 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                       </div>
                     </form>
 
+                    {selectedRequisitionStockCenter ? (
+                      <div className="form-grid company-form-grid requisition-manual-item-form">
+                        <label className="field company-field-wide">
+                          <span>Adicionar item abastecivel</span>
+                          <select
+                            value={requisitionManualItemKey}
+                            onChange={(event) => setRequisitionManualItemKey(event.target.value)}
+                            disabled={addableRequisitionDraftLines.length === 0}
+                          >
+                            <option value="">
+                              {addableRequisitionDraftLines.length > 0
+                                ? 'Selecione'
+                                : 'Todos os itens abasteciveis ja estao no rascunho'}
+                            </option>
+                            {addableRequisitionDraftLines.map((line) => (
+                              <option key={line.key} value={line.key}>
+                                {line.itemName} - {line.itemTypeLabel} - {line.destinationLabel}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+                        <label className="field">
+                          <span>Quantidade</span>
+                          <input
+                            value={requisitionManualQuantity}
+                            onChange={(event) => setRequisitionManualQuantity(event.target.value)}
+                            placeholder="0"
+                            disabled={!selectedManualRequisitionLine}
+                          />
+                        </label>
+                        <div className="form-actions field-span-all">
+                          <button
+                            type="button"
+                            className="ghost-button"
+                            onClick={addManualRequisitionDraftLine}
+                            disabled={!selectedManualRequisitionLine}
+                          >
+                            Adicionar item
+                          </button>
+                        </div>
+                      </div>
+                    ) : null}
+
                     {requisitionDraftLines.length > 0 ? (
                       <>
                         {renderRequisitionDraftTable('new')}
@@ -46995,6 +47696,8 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                               setEditingRequisitionId(null)
                               setRequisitionDraftLines([])
                               setRequisitionDraftSearch('')
+                              setRequisitionManualItemKey('')
+                              setRequisitionManualQuantity('')
                             }}
                           >
                             Cancelar
@@ -47782,13 +48485,18 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
               </>
             ) : (
               <>
-                <div className="requisition-draft-overview">
-                  <div className="pill requisition-overview-pill">Requisicoes pendentes: {String(purchaseSupplySummary.requisitionCount)}</div>
-                  <div className="pill requisition-overview-pill">Centros solicitantes: {String(purchaseSupplySummary.centerCount)}</div>
-                  <div className="pill requisition-overview-pill">Centros distribuidores: {String(purchaseSupplySummary.supplyCenterCount)}</div>
-                </div>
+	                <div className="requisition-draft-overview">
+	                  <div className="pill requisition-overview-pill">Requisicoes pendentes: {String(purchaseSupplySummary.requisitionCount)}</div>
+	                  <div className="pill requisition-overview-pill">Centros solicitantes: {String(purchaseSupplySummary.centerCount)}</div>
+	                  <div className="pill requisition-overview-pill">Centros distribuidores: {String(purchaseSupplySummary.supplyCenterCount)}</div>
+	                </div>
+                  <div className="toolbar-actions">
+                    <button type="button" className="primary-button" onClick={openManualPurchaseEntryModal}>
+                      Nova entrada manual de compra
+                    </button>
+                  </div>
 
-                <label className="field search-field">
+	                <label className="field search-field">
                   <span>Buscar suprimento de compras</span>
                   <NormalizedTextInput
                     value={purchaseSupplySearch}
@@ -47813,31 +48521,36 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                         </tr>
                       </thead>
                       <tbody>
-                        {visiblePurchaseSupplyRequisitions.map((record) => {
-                          const candidateLines = getPurchaseSupplyCandidateLines(record)
-                          return (
-                            <tr key={record.id}>
-                              <td className="sticky-product-cell"><strong>{getRequisitionRequestingCenterDisplayLabelForUi(record)}</strong></td>
-                              <td>{getRequisitionSupplyDisplayLabel(record)}</td>
-                              <td>{candidateLines.map((line) => line.itemName).join(', ')}</td>
-                              <td>{formatDateForDisplay(record.countedAt)}</td>
-                              <td>#{record.id}</td>
-                              <td>{record.createdByUserName}</td>
-                              <td className="sticky-actions-cell">
-                                <div className="table-actions">
-                                  <button
-                                    type="button"
-                                    className="primary-button"
-                                    onClick={() => startPurchaseSupplyShipment(record.id)}
-                                    disabled={!canManagePurchaseSupplyRequisition(record)}
-                                  >
-                                    Enviar
-                                  </button>
-                                </div>
-                              </td>
-                            </tr>
-                          )
-                        })}
+                        {visiblePurchaseSupplyRequisitions.map((record) => (
+                          <tr key={record.id}>
+                            <td className="sticky-product-cell"><strong>{getRequisitionRequestingCenterDisplayLabelForUi(record)}</strong></td>
+                            <td>{getRequisitionSupplyDisplayLabel(record)}</td>
+                            <td>
+                              <button
+                                type="button"
+                                className="link-button"
+                                onClick={() => setPurchaseSupplyDetailsRequisitionId(record.id)}
+                              >
+                                {getPurchaseSupplyItemSummary(record)}
+                              </button>
+                            </td>
+                            <td>{formatDateForDisplay(record.countedAt)}</td>
+                            <td>#{record.id}</td>
+                            <td>{record.createdByUserName}</td>
+                            <td className="sticky-actions-cell">
+                              <div className="table-actions">
+                                <button
+                                  type="button"
+                                  className="primary-button"
+                                  onClick={() => startPurchaseSupplyShipment(record.id)}
+                                  disabled={!canManagePurchaseSupplyRequisition(record)}
+                                >
+                                  Enviar
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        ))}
                       </tbody>
                     </table>
                   </div>
@@ -47958,6 +48671,8 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                             {productionColumnVisibility.useMinimum ? <th>Minimo de uso</th> : null}
                             {productionColumnVisibility.realMinimum ? <th>Demanda operacional</th> : null}
                             {productionColumnVisibility.suggestion ? <th>Sugestao</th> : null}
+                            {productionColumnVisibility.source ? <th>Origem</th> : null}
+                            {productionColumnVisibility.requestedAt ? <th>Entrada</th> : null}
                             {productionColumnVisibility.status ? <th>Status</th> : null}
                             <th className="sticky-actions">Acoes</th>
                           </tr>
@@ -47976,6 +48691,38 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                               {productionColumnVisibility.useMinimum ? <td>{row.useMinimumLabel}</td> : null}
                               {productionColumnVisibility.realMinimum ? <td>{row.realMinimumLabel}</td> : null}
                               {productionColumnVisibility.suggestion ? <td>{row.suggestedProductionLabel}</td> : null}
+                              {productionColumnVisibility.source ? (
+                                <td>
+                                  {row.sourceDetails.length > 0 ? (
+                                    <details className="table-cell-details">
+                                      <summary>{row.sourceLabel}</summary>
+                                      <ul>
+                                        {row.sourceDetails.map((detail, index) => (
+                                          <li key={`${row.centerId}-${row.sheetId}-source-${index}`}>{detail}</li>
+                                        ))}
+                                      </ul>
+                                    </details>
+                                  ) : (
+                                    row.sourceLabel
+                                  )}
+                                </td>
+                              ) : null}
+                              {productionColumnVisibility.requestedAt ? (
+                                <td>
+                                  {row.requestedAtDetails.length > 0 ? (
+                                    <details className="table-cell-details">
+                                      <summary>{row.requestedAtLabel}</summary>
+                                      <ul>
+                                        {row.requestedAtDetails.map((detail, index) => (
+                                          <li key={`${row.centerId}-${row.sheetId}-date-${index}`}>{detail}</li>
+                                        ))}
+                                      </ul>
+                                    </details>
+                                  ) : (
+                                    row.requestedAtLabel
+                                  )}
+                                </td>
+                              ) : null}
                               {productionColumnVisibility.status ? <td>{row.statusLabel}</td> : null}
                               <td className="sticky-actions-cell">
                                 <div className="table-actions">
@@ -50439,6 +51186,49 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
               </button>
             </div>
 
+            {selectedRequisitionStockCenter ? (
+              <div className="form-grid company-form-grid requisition-manual-item-form">
+                <label className="field company-field-wide">
+                  <span>Adicionar item abastecivel</span>
+                  <select
+                    value={requisitionManualItemKey}
+                    onChange={(event) => setRequisitionManualItemKey(event.target.value)}
+                    disabled={addableRequisitionDraftLines.length === 0}
+                  >
+                    <option value="">
+                      {addableRequisitionDraftLines.length > 0
+                        ? 'Selecione'
+                        : 'Todos os itens abasteciveis ja estao no rascunho'}
+                    </option>
+                    {addableRequisitionDraftLines.map((line) => (
+                      <option key={line.key} value={line.key}>
+                        {line.itemName} • {line.itemTypeLabel} • {line.destinationLabel}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="field">
+                  <span>Quantidade</span>
+                  <input
+                    value={requisitionManualQuantity}
+                    onChange={(event) => setRequisitionManualQuantity(event.target.value)}
+                    placeholder="0"
+                    disabled={!selectedManualRequisitionLine}
+                  />
+                </label>
+                <div className="form-actions field-span-all">
+                  <button
+                    type="button"
+                    className="ghost-button"
+                    onClick={addManualRequisitionDraftLine}
+                    disabled={!selectedManualRequisitionLine}
+                  >
+                    Adicionar item
+                  </button>
+                </div>
+              </div>
+            ) : null}
+
             {renderRequisitionDraftTable('edit')}
 
             <div className="modal-actions">
@@ -50539,7 +51329,66 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
         />
       ) : null}
 
-      {purchaseSupplyEditingRequisitionId !== null ? (
+      {purchaseSupplyDetailsRequisitionId !== null ? (
+        <div className="modal-backdrop" role="presentation" onClick={() => setPurchaseSupplyDetailsRequisitionId(null)}>
+          <section
+            className="modal-card modal-card-full"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="purchase-supply-details-title"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="section-heading">
+              <div>
+                <p className="kicker">Compras</p>
+                <h2 id="purchase-supply-details-title">Itens em compra</h2>
+              </div>
+              <button type="button" className="ghost-button" onClick={() => setPurchaseSupplyDetailsRequisitionId(null)}>
+                Fechar
+              </button>
+            </div>
+            {(() => {
+              const requisition = requisitions.find((record) => record.id === purchaseSupplyDetailsRequisitionId) ?? null
+              const detailLines = requisition ? getPurchaseSupplyCandidateLines(requisition) : []
+              return requisition ? (
+                <div className="requisition-draft-shell">
+                  <div className="requisition-draft-overview">
+                    <div className="pill requisition-overview-pill">Centro solicitante: {getRequisitionRequestingCenterDisplayLabelForUi(requisition)}</div>
+                    <div className="pill requisition-overview-pill">Origem da demanda: {getRequisitionSupplyDisplayLabel(requisition)}</div>
+                    <div className="pill requisition-overview-pill">Itens: {String(detailLines.length)}</div>
+                  </div>
+                  <div className="table-wrap">
+                    <table className="product-table">
+                      <thead>
+                        <tr>
+                          <th className="sticky-product">Item</th>
+                          <th>Tipo</th>
+                          <th>Familia</th>
+                          <th>Quantidade</th>
+                          <th>Unidade</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {detailLines.map((line) => (
+                          <tr key={line.key}>
+                            <td className="sticky-product-cell"><strong>{line.itemName}</strong></td>
+                            <td>{line.itemTypeLabel}</td>
+                            <td>{line.family}</td>
+                            <td>{getRequisitionEffectiveQuantityInputValue(line, line.requestedQuantity)}</td>
+                            <td>{getRequisitionEffectiveQuantityConfig(line).unitLabel}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              ) : null
+            })()}
+          </section>
+        </div>
+      ) : null}
+
+	      {purchaseSupplyEditingRequisitionId !== null ? (
         <div className="modal-backdrop" role="presentation" onClick={closePurchaseSupplyShipment}>
           <section
             className="modal-card modal-card-full"
@@ -50560,15 +51409,16 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
 
             {(() => {
               const requisition = requisitions.find((record) => record.id === purchaseSupplyEditingRequisitionId) ?? null
-              const search = normalizeFreeText(purchaseSupplyDraftSearch)
-              const visibleDraftLines = purchaseSupplyDraftLines.filter((line) =>
-                search
-                  ? [line.itemName, line.itemTypeLabel, line.family, getRequisitionEffectiveQuantityInputValue(line, line.requestedQuantity)]
-                      .some((value) => normalizeFreeText(value).includes(search))
-                  : true,
-              )
-              return requisition ? (
-                <div className="requisition-draft-shell">
+	              const search = normalizeFreeText(purchaseSupplyDraftSearch)
+	              const visibleDraftLines = purchaseSupplyDraftLines.filter((line) =>
+	                search
+	                  ? [line.itemName, line.itemTypeLabel, line.family, getRequisitionEffectiveQuantityInputValue(line, line.requestedQuantity)]
+	                      .some((value) => normalizeFreeText(value).includes(search))
+	                  : true,
+	              )
+              const availableManualPurchaseOptions = getAvailablePurchaseProductOptionsForDraft(purchaseSupplyDraftLines)
+	              return requisition ? (
+	                <div className="requisition-draft-shell">
                   <div className="requisition-draft-overview">
                     <div className="pill requisition-overview-pill">Centro solicitante: {getRequisitionRequestingCenterDisplayLabelForUi(requisition)}</div>
                     <div className="pill requisition-overview-pill">Origem da demanda: {getRequisitionSupplyDisplayLabel(requisition)}</div>
@@ -50582,10 +51432,51 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                       onChange={setPurchaseSupplyDraftSearch}
                       commitMode="debounce"
                       placeholder="Digite item, tipo, familia ou quantidade"
-                    />
-                  </label>
+	                    />
+	                  </label>
 
-                  <div className="table-wrap">
+                  <div className="form-grid company-form-grid requisition-manual-item-form">
+                    <label className="field company-field-wide">
+                      <span>Adicionar item comprado</span>
+                      <select
+                        value={purchaseSupplyManualItemKey}
+                        onChange={(event) => setPurchaseSupplyManualItemKey(event.target.value)}
+                        disabled={availableManualPurchaseOptions.length === 0}
+                      >
+                        <option value="">
+                          {availableManualPurchaseOptions.length > 0
+                            ? 'Selecione'
+                            : 'Todos os produtos compraveis ja estao no envio'}
+                        </option>
+                        {availableManualPurchaseOptions.map((option) => (
+                          <option key={option.key} value={option.key}>
+                            {option.label}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <label className="field">
+                      <span>Quantidade comprada</span>
+                      <input
+                        value={purchaseSupplyManualQuantity}
+                        onChange={(event) => setPurchaseSupplyManualQuantity(event.target.value)}
+                        placeholder="0"
+                        disabled={!purchaseSupplyManualItemKey}
+                      />
+                    </label>
+                    <div className="form-actions field-span-all">
+                      <button
+                        type="button"
+                        className="ghost-button"
+                        onClick={addPurchaseSupplyManualLine}
+                        disabled={!purchaseSupplyManualItemKey}
+                      >
+                        Adicionar item
+                      </button>
+                    </div>
+                  </div>
+
+	                  <div className="table-wrap">
                     <table className="product-table">
                       <thead>
                         <tr>
@@ -50597,10 +51488,10 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                         </tr>
                       </thead>
                       <tbody>
-                        {visibleDraftLines.map((line) => {
-                          const originalLine = requisition.lines.find((candidate) => candidate.key === line.key) ?? line
-                          return (
-                            <tr key={line.key}>
+	                        {visibleDraftLines.map((line) => {
+	                          const originalLine = requisition.lines.find((candidate) => candidate.key === line.key) ?? null
+	                          return (
+	                            <tr key={line.key}>
                               <td className="sticky-product-cell">
                                 <strong>{line.itemName}</strong>
                                 <div className="table-cell-support">{line.family}</div>
@@ -50614,10 +51505,14 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                                 />
                               </td>
                               <td>{getRequisitionEffectiveQuantityConfig(line).unitLabel}</td>
-                              <td>{formatRequisitionEffectiveQuantity(originalLine, originalLine.requestedQuantity)}</td>
-                            </tr>
-                          )
-                        })}
+	                              <td>
+	                                {originalLine
+	                                  ? formatRequisitionEffectiveQuantity(originalLine, originalLine.requestedQuantity)
+	                                  : line.minimumDefinitionLabel || 'Compra manual / extra'}
+	                              </td>
+	                            </tr>
+	                          )
+	                        })}
                       </tbody>
                     </table>
                   </div>
@@ -50637,7 +51532,102 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
         </div>
       ) : null}
 
-      {isManualSupplyModalOpen ? (
+      {isManualPurchaseEntryModalOpen ? (
+        <div className="modal-backdrop" role="presentation" onClick={closeManualPurchaseEntryModal}>
+          <section
+            className="modal-card modal-card-full"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="manual-purchase-entry-title"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="section-heading">
+              <div>
+                <p className="kicker">Compras</p>
+                <h2 id="manual-purchase-entry-title">Nova entrada manual de compra</h2>
+              </div>
+              <button type="button" className="ghost-button" onClick={closeManualPurchaseEntryModal}>Fechar</button>
+            </div>
+            <form className="form-grid company-form-grid" onSubmit={(event) => event.preventDefault()}>
+              <label className="field company-field-wide">
+                <span>Centro de destino</span>
+                <select
+                  value={manualPurchaseTargetCenterId}
+                  onChange={(event) => {
+                    setManualPurchaseTargetCenterId(event.target.value)
+                    setManualPurchaseDraftLines([{ id: Date.now(), itemKey: '', quantity: '' }])
+                  }}
+                >
+                  <option value="">Selecione</option>
+                  {stockCenters
+                    .filter((center) => center.companyId === currentCompanyId && center.isActive)
+                    .map((center) => (
+                      <option key={center.id} value={String(center.id)}>{center.name}</option>
+                    ))}
+                </select>
+              </label>
+            </form>
+            <div className="form-stack">
+              {manualPurchaseDraftLines.map((draftLine, index) => {
+                const selectedOption = purchaseProductOptions.find((option) => option.key === draftLine.itemKey) ?? null
+                return (
+                  <div key={draftLine.id} className="nested-form-block">
+                    <div className="manual-supply-line">
+                      <label className="field company-field-wide">
+                        {index === 0 ? <span>Item comprado</span> : null}
+                        <select
+                          value={draftLine.itemKey}
+                          onChange={(event) => updateManualPurchaseDraftLine(draftLine.id, { itemKey: event.target.value, quantity: '' })}
+                        >
+                          <option value="">Selecione</option>
+                          {purchaseProductOptions.map((option) => (
+                            <option key={option.key} value={option.key}>{option.label}</option>
+                          ))}
+                        </select>
+                      </label>
+                      <label className="field company-field-wide">
+                        {index === 0 ? <span>Quantidade comprada</span> : null}
+                        <input
+                          value={draftLine.quantity}
+                          onChange={(event) => updateManualPurchaseDraftLine(draftLine.id, { quantity: event.target.value })}
+                          placeholder="0"
+                        />
+                      </label>
+                      <button
+                        type="button"
+                        className="icon-button icon-delete manual-supply-line-action"
+                        aria-label={`Remover item ${index + 1} da compra manual`}
+                        onClick={() => removeManualPurchaseDraftLine(draftLine.id)}
+                      >
+                        x
+                      </button>
+                    </div>
+                    {selectedOption ? (
+                      <p className="helper-text">Unidade de recebimento: {selectedOption.currentUnitLabel}.</p>
+                    ) : null}
+                  </div>
+                )
+              })}
+              <div className="manual-supply-add-row">
+                <button
+                  type="button"
+                  className="icon-button icon-add"
+                  aria-label="Adicionar item a compra manual"
+                  onClick={addManualPurchaseDraftLine}
+                >
+                  +
+                </button>
+              </div>
+            </div>
+            <div className="modal-actions">
+              <button type="button" className="ghost-button" onClick={closeManualPurchaseEntryModal}>Cancelar</button>
+              <button type="button" className="primary-button" onClick={saveManualPurchaseEntry}>Enviar para receber</button>
+            </div>
+          </section>
+        </div>
+      ) : null}
+
+	      {isManualSupplyModalOpen ? (
         <div className="modal-backdrop" role="presentation" onClick={() => setIsManualSupplyModalOpen(false)}>
           <section className="modal-card modal-card-compact" role="dialog" aria-modal="true" aria-labelledby="manual-supply-title" onClick={(event) => event.stopPropagation()}>
             <div className="section-heading">
