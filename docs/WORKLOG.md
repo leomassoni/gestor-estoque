@@ -6,6 +6,64 @@
 
 Registrar um historico resumido do que foi feito, do que falhou e do que ficou pendente.
 
+## 2026-08-27
+
+### Cadastro online de fichas de venda de garrafas Macaxeira
+
+- Criada a aba `Cadastro venda garrafas` na planilha `/home/leomassoni/Downloads/Bebidas sistema rancho macaxeira-pois pois 2026.xlsx` para organizar os cadastros das bebidas em garrafa a partir da linha 298.
+- Criado no online o produto base `CACHACA DOM TAPPARO EXTRA PREMIUM 10 ANOS CARVALHO AMERICANO` com ID `PRD-MTB4PO1S-RY1382`, embalagem `750 MILLILITER` e custo de referencia `295,80`.
+- Criadas no online 36 fichas de venda em garrafa para `MACAXEIRA POIS POIS`, compartilhadas com `FAZENDA MACAXEIRA` e `BOTECO MACAXEIRA`.
+- Puladas 5 fichas de empório porque ja existiam no sistema.
+- Relatorio de execucao salvo em [`auditorias/macaxeira-bottle-sale-sheets-20260827T031608.json`](/home/leomassoni/Documentos/Igarapé/Projetos/TCC-SP/gestor-estoque/auditorias/macaxeira-bottle-sale-sheets-20260827T031608.json).
+- Planilha atualizada com os IDs reais na aba `Cadastro venda garrafas` e com a aba `Resultado cadastro online`.
+
+### Correcao parcial de escopo de preparos Macaxeira
+
+- A planilha corrigida `/home/leomassoni/Downloads/macaxeira_auditoria_escopo_execucao_venda_2026-08-25_revisada(1).xlsx` foi aplicada apenas nos pontos de `PREPARO` combinados:
+  - preparos marcados como `macaxeiras` ou `macaxeiras pois pois` foram criados/remapeados para origem `MACAXEIRA POIS POIS`;
+  - preparos marcados como `analia` foram mantidos no `COMPLEXO VILA ANALIA` com centro produtor `LABORATORIO`.
+- Foram criados 7 preparos novos Macaxeira e retomado 1 preparo parcialmente criado na primeira tentativa, totalizando 8 preparos Macaxeira validados.
+- Foram remapeadas 26 fichas consumidoras Macaxeira para usar os novos produtos `PRE-...` da Macaxeira.
+- Foram ajustados 21 preparos Analia para garantir centro produtor `LABORATORIO` e manter compartilhamento necessario quando havia consumo Macaxeira.
+- Apos conferencia no online, foram inativadas 6 fichas antigas de `PREPARO` no `COMPLEXO VILA ANALIA` que ja tinham versao Macaxeira ativa e nao tinham mais consumidores ativos:
+  - `BOMBEIRINHO COLLINS PRE-BATCHED`
+  - `INVASAO TROPICAL PRE-BATCHED`
+  - `PINDORAMA PRE-BATCHED`
+  - `PRE-BATCHED CARAVELA AFUNDADA`
+  - `PURE GOIABA`
+  - `REFRESCO DO SERTAO PRE-BATCHED`
+- Mantidas temporariamente ativas no `COMPLEXO VILA ANALIA`, por ainda terem consumidores ativos no proprio Complexo:
+  - `XAROPE DE CAJA`, consumida por `BATIDA CAJA PRE-BATCHED` e `TACAMA`
+- A ficha de execucao `LISBOA E NOSSA` do `COMPLEXO VILA ANALIA`, marcada como `inativar` na planilha corrigida, foi excluida junto com seu produto vinculado `EXE-MRI0H8G0-5G4UNO`.
+- Depois dessa exclusao, `LISBOA E NOSSA PRE-BATCHED` ficou sem consumidores ativos e foi inativada junto com seu produto vinculado `PRE-MRFPNXGB-MJ4H19`.
+- Nao foram tratadas nesta rodada as duplicatas comerciais com divergencia de preco/composicao nem as lacunas de dependencia das fichas `todas as casas`.
+- Backup dos endpoints publicado antes da aplicacao salvo em [`backups/online-before-macaxeira-corrected-prep-scope-20260827T040140`](/home/leomassoni/Documentos/Igarapé/Projetos/TCC-SP/gestor-estoque/backups/online-before-macaxeira-corrected-prep-scope-20260827T040140).
+- Relatorio aplicado salvo em [`auditorias/macaxeira-corrected-prep-scope-20260827T040140.json`](/home/leomassoni/Documentos/Igarapé/Projetos/TCC-SP/gestor-estoque/auditorias/macaxeira-corrected-prep-scope-20260827T040140.json).
+- Relatorio da inativacao complementar salvo em [`auditorias/inactivate-old-complexo-macaxeira-preps-20260827T040940.json`](/home/leomassoni/Documentos/Igarapé/Projetos/TCC-SP/gestor-estoque/auditorias/inactivate-old-complexo-macaxeira-preps-20260827T040940.json).
+- Relatorio da exclusao de `LISBOA E NOSSA` e inativacao de `LISBOA E NOSSA PRE-BATCHED` salvo em [`auditorias/delete-lisboa-e-nossa-inactivate-prebatch-20260827T041516.json`](/home/leomassoni/Documentos/Igarapé/Projetos/TCC-SP/gestor-estoque/auditorias/delete-lisboa-e-nossa-inactivate-prebatch-20260827T041516.json).
+- Corrigido `NECTAR DE MARACUJA`, marcado como `todas as casas`, para ficar compartilhado com todas as casas do grupo Vila Analia (`5,6,7,8,9,10,11,12`) e produzido nos centros produtores canonicos do grupo (`1,2,3,4,10,11,12,14`).
+- O centro duplicado `13` do Boteco nao foi incluido; o centro canonico usado no fluxo Macaxeira e `11`.
+- Relatorio da correcao salvo em [`auditorias/fix-nectar-maracuja-all-houses-20260827T042852.json`](/home/leomassoni/Documentos/Igarapé/Projetos/TCC-SP/gestor-estoque/auditorias/fix-nectar-maracuja-all-houses-20260827T042852.json).
+- Corrigidos os outros 11 preparos marcados como `todas as casas` para ficarem compartilhados com todas as casas do grupo Vila Analia (`5,6,7,8,9,10,11,12`) e produzidos nos centros produtores canonicos (`1,2,3,4,10,11,12,14`).
+- O ajuste sincronizou os dois lados do cadastro: `productionCenters` nas fichas e `producedTechnicalSheetIds` nos centros produtores.
+- Backup dos endpoints antes da correcao salvo em [`backups/online-before-fix-all-houses-prep-centers-20260827T044309`](/home/leomassoni/Documentos/Igarapé/Projetos/TCC-SP/gestor-estoque/backups/online-before-fix-all-houses-prep-centers-20260827T044309).
+- Relatorio da correcao salvo em [`auditorias/fix-all-houses-prep-centers-20260827T044309.json`](/home/leomassoni/Documentos/Igarapé/Projetos/TCC-SP/gestor-estoque/auditorias/fix-all-houses-prep-centers-20260827T044309.json).
+- Validacao posterior por API salva em [`auditorias/fix-all-houses-prep-centers-20260827T044325.json`](/home/leomassoni/Documentos/Igarapé/Projetos/TCC-SP/gestor-estoque/auditorias/fix-all-houses-prep-centers-20260827T044325.json), com `beforeIssues: 0`.
+- Corrigida a planilha `/home/leomassoni/Downloads/relatorio fake venda estoque minimo atualizado.xlsx` para remover IDs de produto `PRD-...` da lista de venda minima.
+- Regra consolidada: a planilha de venda minima deve conter apenas fichas de `EXECUCAO` ou `VENDA`; produtos avulsos/garrafas de cadastro nao entram nessa base.
+- Foram removidas 52 linhas de produto/garrafa sem ficha, normalizadas 5 linhas de venda que estavam marcadas como `Garrafa` e adicionadas 36 fichas de venda de garrafa na aba `Itens faltantes`, com `quantidade venda` vazia.
+- Backup da planilha salvo em `/home/leomassoni/Downloads/relatorio fake venda estoque minimo atualizado.backup-before-remove-product-ids-20260827T045527.xlsx`.
+- Relatorio da correcao salvo em [`auditorias/macaxeira-minimum-sales-remove-product-ids-20260827T045527.json`](/home/leomassoni/Documentos/Igarapé/Projetos/TCC-SP/gestor-estoque/auditorias/macaxeira-minimum-sales-remove-product-ids-20260827T045527.json).
+
+### Perfil de usuario e atribuicao de acessos
+
+- Diagnosticado que o perfil `ADMINISTRATIVO` existia no online, ativo, mas nao aparecia para Rafael Welbert no cadastro de usuarios.
+- Causa: o frontend ainda tratava `role` como hierarquia fixa e ocultava perfis `Administrativo`/`Gestor` para usuarios internos cujo papel efetivo nao fosse `Gestor`, mesmo quando eles tinham permissao de acessar `Usuarios`.
+- Ajustado o cadastro de usuarios para que qualquer usuario com acesso a `Usuarios` possa ver e atribuir qualquer perfil ativo disponivel no escopo da empresa.
+- Mantida a configuracao de permissoes por perfil como fonte real de acesso; os nomes/papeis `Administrativo`, `Gestor` e `Colaborador` deixam de bloquear a selecao no fluxo de cadastro de usuarios.
+- Validacao executada:
+  - `npm run build`
+
 ## 2026-08-26
 
 ### Requisicao do Laboratorio e minimo operacional

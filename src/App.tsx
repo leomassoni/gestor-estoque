@@ -3041,7 +3041,7 @@ export default function App() {
   const canEditCompanyData =
     isSystemAdmin || (effectiveSessionAppUser?.sectionAccess.Empresa === true)
   const canDeleteRecords = isSystemAdmin || isAdministrative
-  const canAssignPrivilegedUserRoles = isSystemAdmin || isManagerUser
+  const canAssignAnyUserProfile = canAccessUsersPanel
   const userCatalogAccess =
     effectiveSessionAppUser?.catalogAccess ?? defaultCatalogAccessByRole('Colaborador')
   const effectiveRecipePanelAccess =
@@ -14255,11 +14255,11 @@ export default function App() {
       company.id,
       buildCompanyAccessProfilesForSettings(company.id, accessProfiles, getCompanyLinkScopeIds(company.id))
         .filter((profile) => profile.isActive)
-        .filter((profile) => canAssignPrivilegedUserRoles || profile.role === 'Colaborador')
+        .filter(() => canAssignAnyUserProfile)
         .sort((left, right) => left.name.localeCompare(right.name, 'pt-BR')),
     ] as const)
     return new Map<number, AccessProfileRecord[]>(entries)
-  }, [accessProfiles, canAssignPrivilegedUserRoles, companies, userAssignableCompanies])
+  }, [accessProfiles, canAssignAnyUserProfile, companies, userAssignableCompanies])
   const userAssignableCompanyLabels = useMemo(
     () => userAssignableCompanies.map((company) => `${company.tradeName} (${company.cnpj || `ID ${company.id}`})`),
     [userAssignableCompanies],
@@ -30765,10 +30765,6 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
     if (selectedCompanyIds.length === 0 || companyId === null) {
       errors.push('selecione ao menos uma empresa antes de cadastrar usuarios')
     }
-    if (!canAssignPrivilegedUserRoles && (userForm.role === 'Administrativo' || userForm.role === 'Gestor')) {
-      errors.push('apenas usuarios master ou gestor podem cadastrar usuarios gestor ou administrativo')
-    }
-
     normalizedMemberships.forEach((membership) => {
       if (!membership.accessProfileId) {
         errors.push(`selecione um perfil de acesso para ${getCompanyTradeName(membership.companyId)}`)
@@ -30778,9 +30774,6 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
       }
       if (membership.role !== 'Administrativo' && membership.normalizedSectors.length === 0) {
         errors.push(`ao menos 1 setor obrigatorio para ${getCompanyTradeName(membership.companyId)}`)
-      }
-      if (!canAssignPrivilegedUserRoles && (membership.role === 'Administrativo' || membership.role === 'Gestor')) {
-        errors.push(`apenas usuarios master ou gestor podem vincular perfil privilegiado em ${getCompanyTradeName(membership.companyId)}`)
       }
     })
 
@@ -30792,15 +30785,6 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
     if (duplicateUsername) {
       errors.push('ja existe outro usuario com esse login')
     }
-    const editingTarget = editingUserId === null ? null : users.find((item) => item.id === editingUserId) ?? null
-    if (
-      !canAssignPrivilegedUserRoles &&
-      editingTarget &&
-      (editingTarget.role === 'Administrativo' || editingTarget.role === 'Gestor')
-    ) {
-      errors.push('apenas usuarios master ou gestor podem editar usuarios gestor ou administrativo')
-    }
-
     if (errors.length > 0) {
       setSaveFeedback({
         status: 'error',
@@ -49637,7 +49621,6 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                         type="button"
                         className="ghost-button"
                         onClick={() => editUser(item.id)}
-                        disabled={!canAssignPrivilegedUserRoles && (item.role === 'Administrativo' || item.role === 'Gestor')}
                       >
                         Atualizar
                       </button>
