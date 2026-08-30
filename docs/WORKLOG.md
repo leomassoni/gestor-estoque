@@ -1,10 +1,28 @@
 # Worklog
 
- Ultima atualizacao: 2026-08-29
+ Ultima atualizacao: 2026-08-30
 
 ## Objetivo deste arquivo
 
 Registrar um historico resumido do que foi feito, do que falhou e do que ficou pendente.
+
+## 2026-08-30
+
+### Correcao de contagem decimal e compra derivada de producao na Madre
+
+- Caso auditado no online para `CASA DE MI MADRE LTDA` (`companyId=13`): o minimo de `PRE-BATCH EFFEMERA 1L` existia no `BAR DE BAIXO`, mas a requisicao ativa nao gerou linha de producao nem compra de `TIQUIRA GUAAJA CARVALHO`.
+- Causa encontrada: uma contagem digitada como `1.575` no input numerico foi interpretada pelo parser geral como `1575`, gerando saldo persistido de `1.575.000 ML` para `PRE-BATCH EFFEMERA 1L`. Com esse saldo artificial, o sistema entendeu que o bar estava coberto e nao abriu a cadeia operacional ate a Tiquira.
+- Foi encontrado e corrigido online o mesmo padrao em dois registros da Madre:
+  - contagem `260`: `PRE-BATCH EFFEMERA 1L`, total `1.575.000 ML` -> `1.575 ML`;
+  - contagem `182`: `XAROPE DE ERVAS ANDINAS`, total `1.192.000 ML` -> `1.192 ML`.
+- Ajuste aplicado no codigo:
+  - criado `parseNumericInputDecimal` para campos numericos digitados, preservando `parseDecimal` para textos formatados e rotulos do sistema;
+  - calculos de contagem de inventario passam a interpretar `1.575` de input numerico como decimal;
+  - quantidades operacionais de requisicao/compra em embalagens passam a arredondar para cima, evitando subpedido de faltas fracionarias.
+- Validacao executada:
+  - API online confirmou `0` contagens restantes da Madre com padrao contaminado `1.000.000`;
+  - simulacao apos correcao: minimo Effemera `9.380 ML`, saldo bar `4.150 ML`, falta `5.230 ML`, requisicao esperada `6 x 1.000 ML`; considerando saldo do laboratorio, necessidade prevista de Tiquira aproximadamente `953 ML`, ou `2` garrafas de `500 ML`;
+  - `npm run build`.
 
 ## 2026-08-29
 

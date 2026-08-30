@@ -221,6 +221,19 @@ export function parseDecimal(value: string) {
   return Number.isFinite(parsed) ? parsed : null
 }
 
+export function parseNumericInputDecimal(value: string) {
+  const compact = value.replace(/\s/g, '')
+  if (!compact) {
+    return null
+  }
+
+  const normalized = compact.includes(',') && !compact.includes('.')
+    ? compact.replace(',', '.')
+    : compact
+  const parsed = Number(normalized)
+  return Number.isFinite(parsed) ? parsed : null
+}
+
 const maxPersistedIntId = 2147483647
 
 export function isSafePersistedIntId(value: number | null | undefined): value is number {

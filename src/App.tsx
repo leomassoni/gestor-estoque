@@ -367,6 +367,7 @@ import {
   normalizeRegistrationText,
   normalizeSuggestionSet,
   parseDecimal,
+  parseNumericInputDecimal,
   sortRecordsByColumn,
 } from './utils/core'
 
@@ -843,8 +844,18 @@ function roundOperationalPackageQuantity(quantity: number) {
   const fraction = quantity - floorQuantity
   return floorQuantity + (fraction >= 0.5 ? 1 : 0)
 }
+function ceilOperationalPackageQuantity(quantity: number) {
+  if (quantity <= 0) {
+    return 0
+  }
+
+  return Math.ceil(quantity - 1e-9)
+}
 function formatOperationalPackageQuantity(quantity: number) {
   return formatEditableDecimal(roundOperationalPackageQuantity(quantity))
+}
+function formatCeilOperationalPackageQuantity(quantity: number) {
+  return formatEditableDecimal(ceilOperationalPackageQuantity(quantity))
 }
 function parseOperationalPackageQuantity(value: string) {
   const normalizedValue = value.trim()
@@ -8018,12 +8029,12 @@ export default function App() {
         : quantity
     }
 
-    const roundBaseQuantityToOperationalPackage = (quantity: number, packageBaseQuantity: number | null) => {
+    const ceilBaseQuantityToOperationalPackage = (quantity: number, packageBaseQuantity: number | null) => {
       if (packageBaseQuantity === null || packageBaseQuantity <= 0) {
         return quantity
       }
 
-      return roundOperationalPackageQuantity(quantity / packageBaseQuantity) * packageBaseQuantity
+      return ceilOperationalPackageQuantity(quantity / packageBaseQuantity) * packageBaseQuantity
     }
 
     const getLinePurchasePackageInfo = (line: RequisitionLineRecord, product: ProductRecord | null) => {
@@ -8143,8 +8154,8 @@ export default function App() {
 
     return Array.from(groups.values())
       .map((group) => {
-        const requestedQuantity = roundBaseQuantityToOperationalPackage(group.requestedQuantity, group.packageBaseQuantity)
-        const purchaseQuantity = roundBaseQuantityToOperationalPackage(
+        const requestedQuantity = ceilBaseQuantityToOperationalPackage(group.requestedQuantity, group.packageBaseQuantity)
+        const purchaseQuantity = ceilBaseQuantityToOperationalPackage(
           group.shouldSubtractCurrentStock
             ? Math.max(requestedQuantity - group.currentQuantity, 0)
             : requestedQuantity,
@@ -9903,9 +9914,9 @@ export default function App() {
     }
     return 1
   }, [selectedInventoryCountableItem, selectedInventoryProduct, selectedInventorySheet])
-  const inventoryClosedQuantity = parseDecimal(inventoryForm.closedItemsQuantity) ?? 0
-  const inventoryOpenGrossWeight = parseDecimal(inventoryForm.openItemsGrossWeight) ?? 0
-  const inventoryOpenContainerQuantity = parseDecimal(inventoryForm.openItemsContainerQuantity) ?? 0
+  const inventoryClosedQuantity = parseNumericInputDecimal(inventoryForm.closedItemsQuantity) ?? 0
+  const inventoryOpenGrossWeight = parseNumericInputDecimal(inventoryForm.openItemsGrossWeight) ?? 0
+  const inventoryOpenContainerQuantity = parseNumericInputDecimal(inventoryForm.openItemsContainerQuantity) ?? 0
   const inventoryOpenNetWeight = useMemo(
     () => Math.max(inventoryOpenGrossWeight - (selectedInventoryRecipient?.emptyWeight ?? 0) * inventoryOpenContainerQuantity, 0),
     [inventoryOpenContainerQuantity, inventoryOpenGrossWeight, selectedInventoryRecipient?.emptyWeight],
@@ -26435,7 +26446,7 @@ export default function App() {
       return value
     }
 
-    return formatOperationalPackageQuantity(parseOperationalPackageQuantity(value))
+    return formatCeilOperationalPackageQuantity(parseOperationalPackageQuantity(value))
   }
 
   function normalizeProductPackageRequisitionLine<T extends RequisitionLineRecord>(line: T): T {

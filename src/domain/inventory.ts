@@ -25,6 +25,7 @@ import {
   formatDecimal,
   normalizeRegistrationText,
   parseDecimal,
+  parseNumericInputDecimal,
 } from '../utils/core'
 import {
   calculateNormalizedPackageQuantity,
@@ -501,8 +502,8 @@ export function calculateInventoryOpenPhysicalQuantityForContext(params: {
     return 0
   }
 
-  const grossWeight = parseDecimal(openItemsGrossWeight) ?? 0
-  const containerQuantity = parseDecimal(openItemsContainerQuantity) ?? 0
+  const grossWeight = parseNumericInputDecimal(openItemsGrossWeight) ?? 0
+  const containerQuantity = parseNumericInputDecimal(openItemsContainerQuantity) ?? 0
   const netWeight = Math.max(grossWeight - (recipient?.emptyWeight ?? 0) * containerQuantity, 0)
 
   if (countableItem.controlUnit === 'GRAM') {
@@ -526,7 +527,7 @@ export function calculateInventoryTotalCountedQuantityForContext(params: {
     return 0
   }
 
-  const closedQuantity = parseDecimal(closedItemsQuantity) ?? 0
+  const closedQuantity = parseNumericInputDecimal(closedItemsQuantity) ?? 0
 
   if (countableItem.kind === 'ITEM') {
     return closedQuantity * (recipient?.referenceQuantity ?? 1)

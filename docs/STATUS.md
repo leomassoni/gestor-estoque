@@ -1,6 +1,6 @@
 # Status do Sistema
 
- Ultima atualizacao: 2026-08-29
+ Ultima atualizacao: 2026-08-30
 
 ## Objetivo deste arquivo
 
@@ -178,6 +178,8 @@ Registrar em que pe o sistema esta hoje, por area, para consulta rapida antes de
 - `Compras` deve considerar requisicoes aprovadas e enviadas como obrigacao operacional propria. Compra direta so entra no consolidado quando esta `READY_TO_RECEIVE`; requisicao apenas `APPROVED`, ainda nao enviada, nao entra.
 - Requisicoes de `Compras` nao devem depender da fila de `Entrada de producoes` continuar carregada no frontend. Se um planejamento for cancelado, o cancelamento deve marcar as requisicoes derivadas como `CANCELLED`; enquanto a requisicao estiver `SENT_TO_SUPPLIES`/`READY_TO_RECEIVE`, ela deve aparecer no fluxo correspondente.
 - `Compras` agora possui aba `Suprimentos` para enviar produtos comprados aos centros solicitantes. Esse envio move as quantidades escolhidas para `READY_TO_RECEIVE` sem registrar recebimento externo de fornecedor nem baixar estoque do centro distribuidor; envio parcial mantem residual pendente.
+- Campos numericos digitados no inventario usam parser especifico para input numerico: `1.575` vindo do campo do navegador significa `1,575`, enquanto textos/rotulos formatados do sistema continuam usando o parser geral.
+- Requisicoes e compras em embalagem operacional arredondam a falta para cima quando ha fracao, evitando que uma demanda de `1,12` embalagem vire pedido de apenas `1` embalagem.
 - Linhas antigas de requisicao podem ter sido salvas com `requestUnitLabel = EMBALAGENS` e `packageId` vazio. No consolidado de `Compras`, quando houver uma embalagem ativa unica ou uma embalagem que corresponda ao rotulo salvo da linha, a quantidade deve ser calculada em unidade base internamente, mas exibida para o comprador em embalagens. A referencia da embalagem aparece em coluna propria `Embalagem`; as colunas `Estoque atual`, `Demanda interna` e `Comprar` exibem apenas a quantidade.
 - Em `Suprimentos`, cancelar requisicao `SENT_TO_SUPPLIES` deve gravar `CANCELLED` no servidor. O fluxo nao deve reabrir a requisicao como pendente.
 - Uma requisicao ja `CANCELLED` nao pode ser reativada por sincronizacao de cliente antigo/cache local; a API deve bloquear essa sobrescrita.
