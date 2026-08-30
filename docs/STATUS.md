@@ -381,6 +381,10 @@ Registrar em que pe o sistema esta hoje, por area, para consulta rapida antes de
   - caso validado: no `BAR MACAXEIRA POIS POIS` (`companyId=5`, `stockCenterId=10`), `CASCAS DE LIMAO SICILIANO` (`id=13`) e `CASCAS DE LARANJA BAHIA` (`id=15`) foram compartilhadas com a empresa 5 e marcadas como produzidas no centro 10.
   - regra complementar aplicada no frontend: falta de producao nao deve requisitar como produto avulso nenhum produto vinculado a ficha tecnica; se houver ficha `PREPARO` visivel, a linha deve ser de preparo, e fichas `EXECUCAO`/`VENDA` nao podem virar produto de requisicao.
   - caso validado: `XAROPE DE CAJA 53.5` (`id=79`) foi compartilhado com a empresa 5 e passa a resolver como `PREPARO` com porcao base de `1000 ml`; `NAO E PINK LIMONADE` (`id=81`, `EXECUCAO`) nao passa mais pela regra de produto avulso.
+- Matriz de composicao de fichas tecnicas:
+  - produto vinculado a ficha `PREPARO` pode compor ficha `PREPARO` ou `EXECUCAO`, mas nao ficha `VENDA`;
+  - produto vinculado a ficha `EXECUCAO` pode compor ficha `VENDA`, mas nao ficha `PREPARO` nem outra `EXECUCAO`;
+  - produto vinculado a ficha `VENDA` pode compor ficha `VENDA` apenas quando a ficha mae estiver no modelo `COMBO`; nao pode compor `PREPARO` nem `EXECUCAO`.
 
 ## Cadastro via API
 

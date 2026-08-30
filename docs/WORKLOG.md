@@ -892,3 +892,9 @@ Registrar um historico resumido do que foi feito, do que falhou e do que ficou p
   - validacao por API: `XAROPE DE CAJA 53.5` agora resolve como `PREPARO` para o centro 10 com unidade de requisicao `1000 ml`; `NAO E PINK LIMONADE` nao passa mais como produto avulso no calculo corrigido;
   - backup local do xarope: `backups/online-before-macaxeira-xarope-caja-535-scope-20260830T040228Z/technical-sheet-79-before.json`;
   - validacao local: `npm run build`.
+- Matriz de composicao aplicada no cadastro de fichas:
+  - `PREPARO` pode compor `PREPARO` ou `EXECUCAO`, mas nao `VENDA`;
+  - `EXECUCAO` pode compor `VENDA`, mas nao `PREPARO` nem outra `EXECUCAO`;
+  - `VENDA` pode compor outra `VENDA` apenas quando a ficha mae usa `COMBO`, e nao pode compor `PREPARO` nem `EXECUCAO`.
+- O frontend passou a usar a mesma matriz na lista de ingredientes disponiveis e na validacao antes de salvar a ficha tecnica.
+- Auditoria online encontrou 10 ocorrencias em 9 fichas `VENDA` ativas ja cadastradas com `PREPARO` direto antes da trava: `COMPOTA DE CAJU MACAXEIRA EMPORIO`, `DS LICOR CAMBUCI`, `DS LICOR DE GOIABA`, `DS LICOR DE MEL`, `DS LICOR DOCE DE LEITE`, `LICOR DE CAMBUCI MACAXEIRA EMPORIO 700ML`, `LICOR DE GOIABA EMPORIO 700ML`, `LICOR DE MEL E CAJUINA MACAXEIRA EMPORIO 700ML`, `LICOR DOCE DE LEITE EMPORIO 700ML`.

@@ -2010,6 +2010,54 @@ function isTechnicalSheetStockTracked(sheet: TechnicalSheetRecord, products: Pro
   return linkedProduct ? isProductStockTracked(linkedProduct) : true
 }
 
+function getProductLinkedTechnicalSheet(product: ProductRecord, technicalSheets: TechnicalSheetRecord[]) {
+  return typeof product.technicalSheetId === 'number'
+    ? technicalSheets.find((sheet) => sheet.id === product.technicalSheetId) ?? null
+    : null
+}
+
+function isTechnicalSheetCompositionIngredientAllowed(
+  parentKind: TechnicalSheetKind,
+  parentOutputUnit: ControlUnit,
+  linkedTechnicalSheet: TechnicalSheetRecord | null,
+) {
+  if (!linkedTechnicalSheet) {
+    return true
+  }
+
+  if (linkedTechnicalSheet.kind === 'PREPARO') {
+    return parentKind === 'PREPARO' || parentKind === 'EXECUCAO'
+  }
+
+  if (linkedTechnicalSheet.kind === 'EXECUCAO') {
+    return parentKind === 'VENDA'
+  }
+
+  return parentKind === 'VENDA' && parentOutputUnit === 'COMBO'
+}
+
+function getTechnicalSheetCompositionRuleError(
+  parentKind: TechnicalSheetKind,
+  parentOutputUnit: ControlUnit,
+  linkedTechnicalSheet: TechnicalSheetRecord | null,
+) {
+  if (!linkedTechnicalSheet || isTechnicalSheetCompositionIngredientAllowed(parentKind, parentOutputUnit, linkedTechnicalSheet)) {
+    return ''
+  }
+
+  if (linkedTechnicalSheet.kind === 'PREPARO') {
+    return 'ficha de venda nao pode usar ficha de pre-preparo na composicao'
+  }
+
+  if (linkedTechnicalSheet.kind === 'EXECUCAO') {
+    return 'ficha de execucao so pode compor ficha de venda'
+  }
+
+  return parentKind === 'VENDA'
+    ? 'ficha de venda so pode usar outra ficha de venda no modelo combo'
+    : 'ficha de venda nao pode compor ficha de pre-preparo ou execucao'
+}
+
 function syncTechnicalSheetsForStockCenterChange(
   currentSheets: TechnicalSheetRecord[],
   centerToSave: StockCenterRecord,
@@ -14564,10 +14612,7 @@ export default function App() {
       products
         .filter(
           (product) => {
-            const linkedTechnicalSheet =
-              typeof product.technicalSheetId === 'number'
-                ? technicalSheets.find((sheet) => sheet.id === product.technicalSheetId) ?? null
-                : null
+            const linkedTechnicalSheet = getProductLinkedTechnicalSheet(product, technicalSheets)
             const isTechnicalSheetProductId =
               product.id.startsWith('PRE-') || product.id.startsWith('EXE-') || product.id.startsWith('VEN-')
             const isValidTechnicalSheetProduct =
@@ -14575,22 +14620,17 @@ export default function App() {
               (linkedTechnicalSheet !== null &&
                 linkedTechnicalSheet.productId === product.id &&
                 isTechnicalSheetVisibleForCompany(linkedTechnicalSheet, currentCompanyId))
-            const isSaleTechnicalProduct = linkedTechnicalSheet?.kind === 'VENDA' || product.id.startsWith('VEN-')
-
-            const allowedByVendaCombo =
-              technicalSheetForm.kind === 'VENDA' && technicalSheetForm.outputUnit === 'COMBO'
-                ? linkedTechnicalSheet === null ||
-                  linkedTechnicalSheet.kind === 'PREPARO' ||
-                  linkedTechnicalSheet.kind === 'EXECUCAO'
-                : true
 
             return (
               isProductVisibleForCompany(product, currentCompanyId) &&
               product.isActive &&
               isValidTechnicalSheetProduct &&
-              !isSaleTechnicalProduct &&
               !excludedTechnicalSheetProductIds.has(product.id) &&
-              allowedByVendaCombo &&
+              isTechnicalSheetCompositionIngredientAllowed(
+                technicalSheetForm.kind,
+                technicalSheetForm.outputUnit,
+                linkedTechnicalSheet,
+              ) &&
               hasSectorOverlap(product.sectors, technicalSheetForm.sectors)
             )
           },
@@ -33322,6 +33362,25 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
             }))
             .filter((item) => item.isActive && item.itemId.trim() !== '' && item.quantity !== '')
         : []
+    const invalidCompositionIngredients = [...normalizedIngredients, ...normalizedGarnishIngredients]
+      .map((ingredient) => {
+        const linkedProduct = products.find((product) => product.id === ingredient.productId) ?? null
+        const linkedTechnicalSheet =
+          (linkedProduct ? getProductLinkedTechnicalSheet(linkedProduct, technicalSheets) : null) ??
+          technicalSheets.find(
+            (sheet) =>
+              sheet.productId === ingredient.productId &&
+              isTechnicalSheetVisibleForCompany(sheet, currentCompanyId),
+          ) ??
+          null
+        const message = getTechnicalSheetCompositionRuleError(
+          technicalSheetForm.kind,
+          technicalSheetForm.outputUnit,
+          linkedTechnicalSheet,
+        )
+        return message ? `${ingredient.productLabel}: ${message}` : ''
+      })
+      .filter(Boolean)
     const normalizedProductionCenters =
       technicalSheetForm.kind === 'PREPARO'
         ? technicalSheetForm.productionCenters
@@ -33389,6 +33448,9 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
     }
     if (isTechnicalSheetFieldRequired(technicalSheetForm.kind, 'ingredients') && normalizedIngredients.length === 0) {
       errors.push('adicione ao menos 1 produto na ficha')
+    }
+    if (invalidCompositionIngredients.length > 0) {
+      errors.push(`composicao invalida: ${invalidCompositionIngredients.join('; ')}`)
     }
     if (
       [...technicalSheetIngredients, ...(technicalSheetForm.kind === 'EXECUCAO' ? technicalSheetGarnishIngredients : [])].some(
