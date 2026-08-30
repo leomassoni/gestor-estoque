@@ -21,6 +21,8 @@ Registrar um historico resumido do que foi feito, do que falhou e do que ficou p
   - quantidades operacionais de requisicao/compra em embalagens passam a arredondar para cima, evitando subpedido de faltas fracionarias.
 - Validacao executada:
   - API online confirmou `0` contagens restantes da Madre com padrao contaminado `1.000.000`;
+  - rechecagem confirmou que os registros online de `PRE-BATCH EFFEMERA 1L` no `LABORATORIO` eram contagens fisicas (`LABORATORIO`/`FREEZER`), nao movimentos operacionais com local `ENTRADA DE PRODUCAO`;
+  - API online confirmou `0` movimentos operacionais de producao (`ENTRADA DE PRODUCAO`/`SAIDA PARA PRODUCAO`) envolvendo Effemera, `0` solicitacoes manuais de producao e `0` rascunhos de producao ativos para essa ficha;
   - simulacao apos correcao: minimo Effemera `9.380 ML`, saldo bar `4.150 ML`, falta `5.230 ML`, requisicao esperada `6 x 1.000 ML`; considerando saldo do laboratorio, necessidade prevista de Tiquira aproximadamente `953 ML`, ou `2` garrafas de `500 ML`;
   - `npm run build`.
 
