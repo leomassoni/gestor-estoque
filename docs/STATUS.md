@@ -385,6 +385,10 @@ Registrar em que pe o sistema esta hoje, por area, para consulta rapida antes de
   - produto vinculado a ficha `PREPARO` pode compor ficha `PREPARO` ou `EXECUCAO`, mas nao ficha `VENDA`;
   - produto vinculado a ficha `EXECUCAO` pode compor ficha `VENDA`, mas nao ficha `PREPARO` nem outra `EXECUCAO`;
   - produto vinculado a ficha `VENDA` pode compor ficha `VENDA` apenas quando a ficha mae estiver no modelo `COMBO`; nao pode compor `PREPARO` nem `EXECUCAO`.
+- Import de vendas e produtos compartilhados:
+  - o minimo sugerido por venda deve considerar produtos visiveis/compartilhados com a empresa do centro, nao apenas produtos originarios dessa empresa;
+  - a montagem de requisicao, demanda do distribuidor, painel de compras e compra manual seguem essa mesma regra;
+  - produtos vinculados a fichas tecnicas e produtos `COMBO` continuam proibidos como produto avulso no fluxo de minimo/requisicao/compra.
 
 ## Cadastro via API
 

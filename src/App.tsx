@@ -4237,9 +4237,6 @@ export default function App() {
   function isProductVisibleForCompany(product: ProductRecord, companyId: number | null) {
     return companyId !== null && getCompanyLinkScopeIds(getProductOwnerCompanyId(product)).includes(companyId)
   }
-  function isProductManagedByCompany(product: ProductRecord, companyId: number | null) {
-    return companyId !== null && getProductOwnerCompanyId(product) === companyId
-  }
   function isAccessProfileVisibleForCompany(profile: AccessProfileRecord, companyId: number | null) {
     return companyId !== null && getCompanyLinkScopeIds(profile.companyId).includes(companyId)
   }
@@ -7759,7 +7756,7 @@ export default function App() {
         .filter(
           (product) =>
             currentCompanyId !== null &&
-            isProductManagedByCompany(product, currentCompanyId) &&
+            isProductVisibleForCompany(product, currentCompanyId) &&
             product.isActive &&
             isProductStockTracked(product) &&
             typeof product.technicalSheetId !== 'number' &&
@@ -7803,7 +7800,7 @@ export default function App() {
           return [unitOption, ...packageOptions]
         })
         .sort((left, right) => left.label.localeCompare(right.label, 'pt-BR')),
-    [currentCompanyId, products],
+    [currentCompanyId, isProductVisibleForCompany, products],
   )
 
   useEffect(() => {
@@ -8012,7 +8009,7 @@ export default function App() {
       return [] as PurchaseDemandRow[]
     }
 
-    const productById = new Map(products.filter((product) => isProductManagedByCompany(product, currentCompanyId)).map((product) => [product.id, product]))
+    const productById = new Map(products.filter((product) => isProductVisibleForCompany(product, currentCompanyId)).map((product) => [product.id, product]))
     const stockCenterById = new Map(stockCenters.filter((center) => center.companyId === currentCompanyId).map((center) => [center.id, center]))
     const groups = new Map<
       string,
@@ -8246,6 +8243,7 @@ export default function App() {
       )
   }, [
     currentCompanyId,
+    isProductVisibleForCompany,
     latestInventoryQuantityByCenterAndAggregation,
     products,
     requisitions,
@@ -8315,7 +8313,7 @@ export default function App() {
     }
     const visibleDemandRows = visiblePurchaseDemandRows
     const visibleDemandRowKeys = new Set(visibleDemandRows.map((row) => row.key))
-    const productById = new Map(products.filter((product) => isProductManagedByCompany(product, currentCompanyId)).map((product) => [product.id, product]))
+    const productById = new Map(products.filter((product) => isProductVisibleForCompany(product, currentCompanyId)).map((product) => [product.id, product]))
     const stockCenterById = new Map(stockCenters.filter((center) => center.companyId === currentCompanyId).map((center) => [center.id, center]))
 
     const buildCancelledLines = (record: RequisitionRecord) =>
@@ -8413,7 +8411,7 @@ export default function App() {
         }
         return right.createdAt.localeCompare(left.createdAt) || left.purchaseOrderCode.localeCompare(right.purchaseOrderCode, 'pt-BR')
       })
-  }, [companyRequisitions, currentCompanyId, products, showCancelledPurchaseOrders, stockCenters, technicalSheets, visiblePurchaseDemandRows])
+  }, [companyRequisitions, currentCompanyId, isProductVisibleForCompany, products, showCancelledPurchaseOrders, stockCenters, technicalSheets, visiblePurchaseDemandRows])
   const purchaseOrderSummary = useMemo(
     () => ({
       activeOrderCount: visiblePurchaseOrderGroups.filter((group) => !group.isCancelled).length,
@@ -10673,7 +10671,7 @@ export default function App() {
       const countableProducts = products
         .filter(
           (product) =>
-            isProductManagedByCompany(product, companyId) &&
+            isProductVisibleForCompany(product, companyId) &&
             product.isActive &&
             isProductStockTracked(product) &&
             typeof product.technicalSheetId !== 'number' &&
@@ -10851,7 +10849,7 @@ export default function App() {
       products
         .filter(
           (product) =>
-            isProductManagedByCompany(product, center.companyId) &&
+            isProductVisibleForCompany(product, center.companyId) &&
             product.isActive &&
             isProductStockTracked(product) &&
             typeof product.technicalSheetId !== 'number' &&
@@ -21976,7 +21974,7 @@ export default function App() {
       ...products
         .filter(
           (product) =>
-            isProductManagedByCompany(product, center.companyId) &&
+            isProductVisibleForCompany(product, center.companyId) &&
             product.isActive &&
             isProductStockTracked(product) &&
             typeof product.technicalSheetId !== 'number' &&
@@ -22917,7 +22915,14 @@ export default function App() {
 
     const productById = new Map(
       products
-        .filter((product) => isProductManagedByCompany(product, center.companyId) && product.isActive && isProductStockTracked(product))
+        .filter(
+          (product) =>
+            isProductVisibleForCompany(product, center.companyId) &&
+            product.isActive &&
+            isProductStockTracked(product) &&
+            typeof product.technicalSheetId !== 'number' &&
+            product.controlUnit !== 'COMBO',
+        )
         .map((product) => [product.id, product] as const),
     )
     const demandByProductId = new Map<
@@ -35953,7 +35958,14 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
 
     const stockTrackedProductsById = new Map(
       products
-        .filter((product) => product.isActive && isProductStockTracked(product) && isProductVisibleForCompany(product, targetCompanyId))
+        .filter(
+          (product) =>
+            product.isActive &&
+            isProductStockTracked(product) &&
+            isProductVisibleForCompany(product, targetCompanyId) &&
+            typeof product.technicalSheetId !== 'number' &&
+            product.controlUnit !== 'COMBO',
+        )
         .map((product) => [product.id, product] as const),
     )
     type MinimumSuggestionTarget = {

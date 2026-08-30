@@ -898,3 +898,9 @@ Registrar um historico resumido do que foi feito, do que falhou e do que ficou p
   - `VENDA` pode compor outra `VENDA` apenas quando a ficha mae usa `COMBO`, e nao pode compor `PREPARO` nem `EXECUCAO`.
 - O frontend passou a usar a mesma matriz na lista de ingredientes disponiveis e na validacao antes de salvar a ficha tecnica.
 - Auditoria online encontrou 10 ocorrencias em 9 fichas `VENDA` ativas ja cadastradas com `PREPARO` direto antes da trava: `COMPOTA DE CAJU MACAXEIRA EMPORIO`, `DS LICOR CAMBUCI`, `DS LICOR DE GOIABA`, `DS LICOR DE MEL`, `DS LICOR DOCE DE LEITE`, `LICOR DE CAMBUCI MACAXEIRA EMPORIO 700ML`, `LICOR DE GOIABA EMPORIO 700ML`, `LICOR DE MEL E CAJUINA MACAXEIRA EMPORIO 700ML`, `LICOR DOCE DE LEITE EMPORIO 700ML`.
+- Import de vendas e requisicao do `BAR MACAXEIRA POIS POIS`:
+  - validado no online que o lote `IMP-C5-CE10-20260829-0007` gerou consumos e minimos sugeridos para produtos de fichas `VENDA`, incluindo `COCA COLA LATA 350ML`, `COCA COLA ZERO LATA 350ML`, tonicas, aguas e doses;
+  - o centro `ESTOQUE` da empresa 5 esta ativo como distribuidor, com `distributesAllProducts=true` e `suppliedCenterIds=[10]`;
+  - causa raiz: a montagem de requisicao/compra considerava apenas produtos geridos pela empresa do centro, mas varios produtos consumidos por fichas de venda da Macaxeira usam cadastros compartilhados do `COMPLEXO VILA ANALIA` (`companyId=2`);
+  - ajustado o frontend para aceitar produtos visiveis/compartilhados nos minimos de centro, rascunho de requisicao, demanda do distribuidor, painel de compras e opcao manual de compra;
+  - mantida a exclusao de produtos vinculados a ficha tecnica (`technicalSheetId`) e de `COMBO` como produto avulso, inclusive na geracao futura de minimos por import de vendas.
