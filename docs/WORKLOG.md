@@ -886,6 +886,7 @@ Registrar um historico resumido do que foi feito, do que falhou e do que ficou p
 - Backup local dos registros afetados: `backups/online-before-macaxeira-bar-cascas-production-scope-20260830T034537Z/affected-records.json`.
 - Complemento:
   - `NAO E PINK LIMONADE` ainda aparecia porque era ingrediente da ficha `BOMBEIRINHO COLLINS PRE-BATCHED` (`id=823`) e o calculo de falta de producao ainda permitia produto vinculado a ficha tecnica como produto avulso;
+  - o usuario corrigiu o cadastro da ficha `BOMBEIRINHO COLLINS PRE-BATCHED` (`id=823`) para usar `PRE-BATCHED NAO E PINK`;
   - ajustado o frontend para que falta de producao trate como produto avulso apenas produtos sem `technicalSheetId`;
   - `XAROPE DE CAJA 53.5` (`id=79`) estava em Complexo Vila Analia com porcao base correta de `1000 ml`, mas nao estava compartilhado com a empresa 5; foi compartilhado com a empresa 5 mantendo producao no `LABORATORIO` (`stockCenterId=1`);
   - validacao por API: `XAROPE DE CAJA 53.5` agora resolve como `PREPARO` para o centro 10 com unidade de requisicao `1000 ml`; `NAO E PINK LIMONADE` nao passa mais como produto avulso no calculo corrigido;
