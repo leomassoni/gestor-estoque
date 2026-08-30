@@ -373,6 +373,15 @@ Registrar em que pe o sistema esta hoje, por area, para consulta rapida antes de
     - exportar inconsistencias de multiplos lotes
 - Manter este arquivo atualizado sempre que uma decisao mudar o estado real do sistema.
 
+## 2026-08-30
+
+- Requisicao/minimo de centro produtor:
+  - quando um ingrediente consumido por uma ficha e produto vinculado a ficha `PREPARO`, essa ficha precisa estar visivel para a empresa do centro e marcada como produzida no centro correto;
+  - se a ficha de preparo nao estiver no escopo do centro, o fluxo pode tratar o ingrediente como `PRODUTO` comum e perder a exibicao operacional de `quantidade x porcao base`;
+  - caso validado: no `BAR MACAXEIRA POIS POIS` (`companyId=5`, `stockCenterId=10`), `CASCAS DE LIMAO SICILIANO` (`id=13`) e `CASCAS DE LARANJA BAHIA` (`id=15`) foram compartilhadas com a empresa 5 e marcadas como produzidas no centro 10.
+  - regra complementar aplicada no frontend: falta de producao nao deve requisitar como produto avulso nenhum produto vinculado a ficha tecnica; se houver ficha `PREPARO` visivel, a linha deve ser de preparo, e fichas `EXECUCAO`/`VENDA` nao podem virar produto de requisicao.
+  - caso validado: `XAROPE DE CAJA 53.5` (`id=79`) foi compartilhado com a empresa 5 e passa a resolver como `PREPARO` com porcao base de `1000 ml`; `NAO E PINK LIMONADE` (`id=81`, `EXECUCAO`) nao passa mais pela regra de produto avulso.
+
 ## Cadastro via API
 
 - `POST /api/technical-sheets` aloca `id` numerico e `productId` interno da ficha no servidor.

@@ -870,3 +870,24 @@ Registrar um historico resumido do que foi feito, do que falhou e do que ficou p
   - mitigar/substituir `xlsx`
   - modularizar [`src/App.tsx`](/home/leomassoni/Documentos/Igarapé/Projetos/TCC-SP/gestor-estoque/src/App.tsx) e isolar calculos pesados em passos pequenos
   - medir storage antes de migracoes de infraestrutura
+
+## 2026-08-30
+
+### Requisicao do BAR MACAXEIRA POIS POIS
+
+- Investigado o rascunho de requisicao da empresa `MACAXEIRA POIS POIS` (`companyId=5`) para o centro `BAR MACAXEIRA POIS POIS` (`stockCenterId=10`).
+- `NAO E PINK LIMONADE` permanece ficha `EXECUCAO` (`id=81`) e nao aparece como minimo direto do centro 10; o minimo atual relacionado e do preparo `PRE-BATCHED NAO E PINK` (`id=80`), produzido no proprio centro.
+- Corrigido o escopo das fichas de preparo `CASCAS DE LIMAO SICILIANO` (`id=13`) e `CASCAS DE LARANJA BAHIA` (`id=15`):
+  - adicionadas como compartilhadas com a empresa 5;
+  - adicionadas ao `productionCenters` com `stockCenterId=10`;
+  - adicionadas ao `producedTechnicalSheetIds` do centro 10.
+- Causa raiz: as cascas eram produtos vinculados a fichas `PREPARO`, mas as fichas nao estavam visiveis para a empresa 5 nem marcadas como produzidas no centro 10. Assim, a geracao de requisicao resolvia a dependencia como `PRODUTO`, sem exibicao de `quantidade x porcao base`.
+- Validacao por API: apos a correcao, as fichas 13 e 15 aparecem em `/api/technical-sheets?companyId=5`, resolvem como `PREPARO` para o centro 10 e nao sao elegiveis como linha direta de requisicao; os produtos vinculados tambem nao sao elegiveis como produto direto porque possuem `technicalSheetId`.
+- Backup local dos registros afetados: `backups/online-before-macaxeira-bar-cascas-production-scope-20260830T034537Z/affected-records.json`.
+- Complemento:
+  - `NAO E PINK LIMONADE` ainda aparecia porque era ingrediente da ficha `BOMBEIRINHO COLLINS PRE-BATCHED` (`id=823`) e o calculo de falta de producao ainda permitia produto vinculado a ficha tecnica como produto avulso;
+  - ajustado o frontend para que falta de producao trate como produto avulso apenas produtos sem `technicalSheetId`;
+  - `XAROPE DE CAJA 53.5` (`id=79`) estava em Complexo Vila Analia com porcao base correta de `1000 ml`, mas nao estava compartilhado com a empresa 5; foi compartilhado com a empresa 5 mantendo producao no `LABORATORIO` (`stockCenterId=1`);
+  - validacao por API: `XAROPE DE CAJA 53.5` agora resolve como `PREPARO` para o centro 10 com unidade de requisicao `1000 ml`; `NAO E PINK LIMONADE` nao passa mais como produto avulso no calculo corrigido;
+  - backup local do xarope: `backups/online-before-macaxeira-xarope-caja-535-scope-20260830T040228Z/technical-sheet-79-before.json`;
+  - validacao local: `npm run build`.

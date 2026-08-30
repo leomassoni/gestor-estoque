@@ -26483,7 +26483,8 @@ export default function App() {
           (product) =>
             isProductVisibleForCompany(product, stockCenterCompanyId) &&
             product.isActive &&
-            isProductStockTracked(product),
+            isProductStockTracked(product) &&
+            typeof product.technicalSheetId !== 'number',
         )
         .map((product) => [product.id, product] as const),
     )
@@ -26793,7 +26794,8 @@ export default function App() {
           (product) =>
             isProductVisibleForCompany(product, companyId) &&
             product.isActive &&
-            isProductStockTracked(product),
+            isProductStockTracked(product) &&
+            typeof product.technicalSheetId !== 'number',
         )
         .map((product) => [product.id, product] as const),
     )
