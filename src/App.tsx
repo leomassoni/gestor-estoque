@@ -3785,12 +3785,13 @@ export default function App() {
   function buildPreparationDemandContext(
     center: StockCenterRecord,
     companyId: number | null,
-    options: { additionalSheetIds?: Iterable<number> } = {},
+    options: { additionalSheetIds?: Iterable<number>; includeExternalUseMinimum?: boolean } = {},
   ) {
     if (companyId === null) {
       return null
     }
 
+    const includeExternalUseMinimum = options.includeExternalUseMinimum ?? true
     const baseProducedSheets = getProducedPreparationSheetsForCenter(center, companyId)
     const additionalSheetIds = new Set(options.additionalSheetIds ?? [])
     const baseProducedSheetIds = new Set(baseProducedSheets.map((sheet) => sheet.id))
@@ -3852,7 +3853,10 @@ export default function App() {
 
     const externalUseMinimumBySheetId = new Map<number, number>()
     producedSheets.forEach((sheet) => {
-      externalUseMinimumBySheetId.set(sheet.id, getTechnicalSheetExternalUseMinimumQuantityForCenter(sheet, center))
+      externalUseMinimumBySheetId.set(
+        sheet.id,
+        includeExternalUseMinimum ? getTechnicalSheetExternalUseMinimumQuantityForCenter(sheet, center) : 0,
+      )
     })
 
     const pendingSupplyDemandBySheetId = buildPendingRequisitionDemandBySheetIdForSupplierCenter(center)
@@ -5012,6 +5016,7 @@ export default function App() {
     )
     const demandContext = buildPreparationDemandContext(selectedProductionCenter, selectedProductionCenter.companyId, {
       additionalSheetIds: new Set([...manualRequestSheetIds, ...draftSheetIds]),
+      includeExternalUseMinimum: false,
     })
     const producedSheets = technicalSheets
       .filter(
@@ -22186,7 +22191,7 @@ export default function App() {
 	        .sort((a, b) => a.itemName.localeCompare(b.itemName, 'pt-BR'))
 	    }
 
-    const demandContext = buildPreparationDemandContext(center, center.companyId)
+    const demandContext = buildPreparationDemandContext(center, center.companyId, { includeExternalUseMinimum: false })
     const producedSheets = demandContext?.producedSheets ?? []
 
     const productionShortageLines = producedSheets.flatMap((sheet) => {

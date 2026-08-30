@@ -1,10 +1,105 @@
 # Worklog
 
- Ultima atualizacao: 2026-08-27
+ Ultima atualizacao: 2026-08-29
 
 ## Objetivo deste arquivo
 
 Registrar um historico resumido do que foi feito, do que falhou e do que ficou pendente.
+
+## 2026-08-29
+
+### Correcao de Entrada de producoes sem requisicao no Laboratorio CPXVA
+
+- Bug confirmado no online para `COMPLEXO VILA ANALIA` (`companyId=2`): `/api/requisitions`, `/api/manual-production-requests` e `/api/production-drafts` nao tinham registros ativos da empresa, mas a tela de `Entrada de producoes` ainda podia exibir demandas do `LABORATORIO`.
+- Causa no frontend: o contexto operacional de producao somava o minimo/historico de centros consumidores externos (`externalUseMinimum`) como demanda direta do centro produtor. Isso fazia o `LABORATORIO` herdar minimo de bares consumidores mesmo sem requisicao ativa.
+- Regra corrigida:
+  - a fila operacional de `Entrada de producoes` usa historico/minimo proprio do centro, solicitacoes manuais e requisicoes ativas;
+  - minimo/historico de outro centro consumidor continua podendo aparecer em consolidado/relatorios, mas nao cria entrada operacional no centro produtor sem requisicao.
+- Ajuste aplicado em [`src/App.tsx`](/home/leomassoni/Documentos/Igarapé/Projetos/TCC-SP/gestor-estoque/src/App.tsx): `buildPreparationDemandContext` ganhou a opcao `includeExternalUseMinimum`; a fila de producao e a geracao de requisicao de insumos do centro produtor passam `false`.
+- Validacao executada:
+  - leitura da API online confirmou `0` requisicoes, `0` solicitacoes manuais de producao e `0` rascunhos de producao para `companyId=2`;
+  - `npm run build`.
+
+### Importacao fake de vendas para minimo do Bar Macaxeira Pois Pois
+
+- A planilha `/home/leomassoni/Downloads/Fichas tecnicas - MACAXEIRA POIS POIS - 2026-08-29(1).xlsx` foi tratada como relatorio fake de vendas para gerar minimo de estoque do centro `BAR MACAXEIRA POIS POIS` (`companyId=5`, `stockCenterId=10`).
+- Criada na propria planilha a aba `Importacao vendas`, com as colunas `DATA`, `ID interno`, `Quantidade` e `Ficha origem resumo`, preservando os IDs internos `VEN-*`/`EXE-*` como fallback do fluxo natural de importacao de vendas.
+- O import foi aplicado no online como consumo da semana passada, usando data `2026-08-23` para representar a semana `2026-08-17` a `2026-08-23`.
+- Resultado online validado:
+  - lote de importacao `7`, codigo `IMP-C5-CE10-20260829-0007`;
+  - 225 linhas importadas, 0 sem match, 0 duplicadas e 0 invalidas;
+  - 763 consumos analiticos registrados;
+  - 122 minimos sugeridos no centro, sendo 78 de `PRODUTO` e 44 de `PREPARO`;
+  - log de auditoria `1599`.
+- As 7 linhas sem `Quantidade de venda` na aba `Resumo` foram omitidas do import:
+  - `AQUA LOCALE COM GAS`
+  - `AQUA LOCALE SEM GAS`
+  - `CERVEJA CORONA 330 ML VENDA`
+  - `CERVEJA CORONA CERO 330 ML VENDA`
+  - `CERVEJA ORIGINAL 600ML VENDA`
+  - `CERVEJA SPATEN 600ML VENDA`
+  - `CERVEJA STELLA PURE GOLD 600 VENDA`
+- Backup online salvo em [`backups/online-before-macaxeira-fake-sales-import-20260829T015839`](/home/leomassoni/Documentos/Igarapé/Projetos/TCC-SP/gestor-estoque/backups/online-before-macaxeira-fake-sales-import-20260829T015839).
+- Backup da planilha salvo em `/home/leomassoni/Downloads/Fichas tecnicas - MACAXEIRA POIS POIS - 2026-08-29(1).backup-before-sales-import-sheet-20260829T015839.xlsx`.
+- Relatorios salvos em:
+  - [`auditorias/macaxeira-fake-sales-import-20260829T015825.json`](/home/leomassoni/Documentos/Igarapé/Projetos/TCC-SP/gestor-estoque/auditorias/macaxeira-fake-sales-import-20260829T015825.json)
+  - [`auditorias/macaxeira-fake-sales-import-20260829T015839.json`](/home/leomassoni/Documentos/Igarapé/Projetos/TCC-SP/gestor-estoque/auditorias/macaxeira-fake-sales-import-20260829T015839.json)
+
+### Cadastro complementar de fichas de venda de doses Macaxeira
+
+- A planilha `/home/leomassoni/Downloads/Bebidas sistema rancho macaxeira-pois pois 2026.xlsx` foi usada para cadastrar as fichas de venda de doses que faltavam na lista enviada pelo usuario.
+- Todas as fichas foram cadastradas/validadas com origem em `MACAXEIRA POIS POIS` (`ownerCompanyId=5`) e compartilhadas com `FAZENDA MACAXEIRA` e `BOTECO MACAXEIRA` (`sharedCompanyIds=[8,9]`).
+- Nenhum produto base novo precisou ser cadastrado nesta rodada; os produtos ja existiam no online ou ja estavam mapeados pela aba `Cadastro venda garrafas`.
+- A ficha `DS ANISIO DE SANTIAGO BALSAMO 50ML` ja existia e foi mantida.
+- Foram criadas 16 fichas novas de dose e, em seguida, reparadas para garantir leitura da faixa correta de doses da `Planilha1`: ingrediente `50 ML`, preco de venda da dose e CMV calculado pelo custo da embalagem existente.
+- Observacao pendente: o produto base `CACHACA SANTA TEREZINHA SASSAFRAS` existe, mas segue com custo de embalagem vazio/zerado; a ficha foi criada com `CMV desejado` padrao `40` ate validacao/correcao desse custo.
+- A aba `Resultado cadastro doses` foi criada/atualizada na planilha com IDs reais, acao aplicada, produto base, preco, volume e observacoes.
+- Backups online:
+  - [`backups/online-before-macaxeira-missing-dose-sale-sheets-20260829T010624`](/home/leomassoni/Documentos/Igarapé/Projetos/TCC-SP/gestor-estoque/backups/online-before-macaxeira-missing-dose-sale-sheets-20260829T010624)
+  - [`backups/online-before-repair-macaxeira-dose-sale-sheets-20260829T010859`](/home/leomassoni/Documentos/Igarapé/Projetos/TCC-SP/gestor-estoque/backups/online-before-repair-macaxeira-dose-sale-sheets-20260829T010859)
+- Relatorios:
+  - [`auditorias/macaxeira-missing-dose-sale-sheets-20260829T010624.json`](/home/leomassoni/Documentos/Igarapé/Projetos/TCC-SP/gestor-estoque/auditorias/macaxeira-missing-dose-sale-sheets-20260829T010624.json)
+  - [`auditorias/macaxeira-dose-sale-sheet-values-repair-20260829T010859.json`](/home/leomassoni/Documentos/Igarapé/Projetos/TCC-SP/gestor-estoque/auditorias/macaxeira-dose-sale-sheet-values-repair-20260829T010859.json)
+- Validacao posterior por API: as 17 fichas-alvo aparecem para as empresas `5`, `8` e `9`, sem divergencia de origem, compartilhamento, tipo, status ativo, preco ou quantidade.
+
+### Preenchimento de IDs internos em resumo Macaxeira
+
+- A planilha `/home/leomassoni/Downloads/Fichas tecnicas - MACAXEIRA POIS POIS - 2026-08-29(1).xlsx` teve a coluna `ID interno` da aba `Resumo` preenchida com os IDs internos das fichas visiveis para `MACAXEIRA POIS POIS` (`companyId=5`).
+- Foram preenchidas 233 linhas:
+  - 98 fichas de `VENDA`;
+  - 135 fichas de `EXECUCAO`.
+- A correspondencia foi feita por nome normalizado contra `/api/technical-sheets?companyId=5`, priorizando ficha ativa com origem na empresa 5 quando aplicavel.
+- Resultado da conferencia: 0 linhas sem ID, 0 divergencias contra a API e 0 divergencias contra as abas individuais da propria planilha.
+- Duas fichas do resumo sao visiveis em Macaxeira por compartilhamento a partir do `COMPLEXO VILA ANALIA`, nao por origem Macaxeira:
+  - `CAJU AMIGO` (`EXE-MQLKMSLX-DN6TXK`)
+  - `NAO E PINK LIMONADE` (`EXE-MQ19JG1E-Y6PTED`)
+- Backup da planilha salvo em `/home/leomassoni/Downloads/Fichas tecnicas - MACAXEIRA POIS POIS - 2026-08-29(1).backup-before-fill-internal-ids-20260829T013646.xlsx`.
+- Relatorios salvos em:
+  - [`auditorias/macaxeira-summary-internal-ids-20260829T013646.json`](/home/leomassoni/Documentos/Igarapé/Projetos/TCC-SP/gestor-estoque/auditorias/macaxeira-summary-internal-ids-20260829T013646.json)
+  - [`auditorias/macaxeira-summary-internal-ids-validation-20260829T013746.json`](/home/leomassoni/Documentos/Igarapé/Projetos/TCC-SP/gestor-estoque/auditorias/macaxeira-summary-internal-ids-validation-20260829T013746.json)
+
+### Preenchimento de quantidades de venda em resumo Macaxeira
+
+- A coluna `Quantidade de venda` da aba `Resumo` da planilha `/home/leomassoni/Downloads/Fichas tecnicas - MACAXEIRA POIS POIS - 2026-08-29(1).xlsx` foi preenchida a partir da coluna correspondente da aba `Resumo` da planilha `/home/leomassoni/Downloads/Para devolver Fichas tecnicas - MACAXEIRA POIS POIS - 2026-08-27.xlsx`.
+- Foram preenchidas 226 linhas:
+  - 197 por correspondencia exata de nome;
+  - 16 por correspondencia de dose com nome base (`DS ... 50ML` para a linha original da dose);
+  - 8 sucos de `EXECUCAO` usando o primeiro bloco da planilha devolvida, com quantidade `200`;
+  - 5 aliases claros (`DS INSINUANTE UMBURANA 50ML` e doses de licor da casa).
+- Permaneceram 7 linhas vazias porque nao havia linha correspondente na planilha devolvida:
+  - `AQUA LOCALE COM GAS`
+  - `AQUA LOCALE SEM GAS`
+  - `CERVEJA CORONA 330 ML VENDA`
+  - `CERVEJA CORONA CERO 330 ML VENDA`
+  - `CERVEJA ORIGINAL 600ML VENDA`
+  - `CERVEJA SPATEN 600ML VENDA`
+  - `CERVEJA STELLA PURE GOLD 600 VENDA`
+- Backups da planilha salvos em:
+  - `/home/leomassoni/Downloads/Fichas tecnicas - MACAXEIRA POIS POIS - 2026-08-29(1).backup-before-fill-sales-quantity-20260829T014206.xlsx`
+  - `/home/leomassoni/Downloads/Fichas tecnicas - MACAXEIRA POIS POIS - 2026-08-29(1).backup-before-fill-sales-quantity-aliases-20260829T014248.xlsx`
+- Relatorios salvos em:
+  - [`auditorias/macaxeira-summary-sales-quantity-from-returned-20260829T014206.json`](/home/leomassoni/Documentos/Igarapé/Projetos/TCC-SP/gestor-estoque/auditorias/macaxeira-summary-sales-quantity-from-returned-20260829T014206.json)
+  - [`auditorias/macaxeira-summary-sales-quantity-aliases-20260829T014248.json`](/home/leomassoni/Documentos/Igarapé/Projetos/TCC-SP/gestor-estoque/auditorias/macaxeira-summary-sales-quantity-aliases-20260829T014248.json)
 
 ## 2026-08-27
 

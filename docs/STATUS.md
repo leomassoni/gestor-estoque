@@ -1,6 +1,6 @@
 # Status do Sistema
 
- Ultima atualizacao: 2026-08-17
+ Ultima atualizacao: 2026-08-29
 
 ## Objetivo deste arquivo
 
@@ -45,9 +45,17 @@ Registrar em que pe o sistema esta hoje, por area, para consulta rapida antes de
 ### Importacao de vendas e simulacao Madre
 
 - O import de vendas aceita identificador por `ID empresa` e, como fallback, por ID interno da ficha/produto de `EXECUCAO` ou `VENDA`.
+- Para relatorios fake de venda usados para gerar minimo de estoque, a planilha pode usar `ID interno` quando ainda nao houver `ID empresa`; o import precisa preservar literalmente os IDs `VEN-*`/`EXE-*` nas linhas importadas.
 - Para a simulacao de demanda da Casa de mi Madre, existe dry-run local em [`scripts/madre_demand_projection_dry_run.py`](/home/leomassoni/Documentos/Igarapé/Projetos/TCC-SP/gestor-estoque/scripts/madre_demand_projection_dry_run.py).
 - O relatorio fake final usa vendas datadas de `2026-08-12` a `2026-08-16`, com fator `0,8` sobre a projecao para compensar a margem automatica de `20%` do estoque minimo.
 - Bebidas fechadas vendidas em relatorio precisam de ficha `VENDA`; na Madre ja foram criadas fichas para Coca, Coca Zero, Guarana, Guarana Zero, Corona, Agua sem gas e Agua com gas.
+- Para `MACAXEIRA POIS POIS`, a planilha `/home/leomassoni/Downloads/Fichas tecnicas - MACAXEIRA POIS POIS - 2026-08-29(1).xlsx` foi importada no online para o centro `BAR MACAXEIRA POIS POIS` (`stockCenterId=10`) como consumo fake da semana `2026-08-17` a `2026-08-23`, gerando o lote `7` e 122 minimos sugeridos.
+
+### Entrada de producoes e demanda externa
+
+- Centro produtor sem venda direta importada, sem minimo proprio/manual e sem requisicao ativa nao deve receber linha operacional em `Entrada de producoes`.
+- Minimo/historico de centro consumidor externo pode compor consolidado e relatorio de necessidade, mas so vira demanda operacional do centro produtor quando houver requisicao ativa ou solicitacao manual explicita.
+- Exemplo critico: `LABORATORIO` do `COMPLEXO VILA ANALIA` nao deve produzir apenas porque `BAR ARAIS` ou `BAR MII` tem minimo sugerido por historico de venda; a ponte operacional entre eles e a requisicao.
 
 ### Ainda sensivel ao modelo hibrido
 
@@ -110,7 +118,7 @@ Registrar em que pe o sistema esta hoje, por area, para consulta rapida antes de
 - Produtos usados na composicao de ficha tecnica devem ficar restritos ao escopo da empresa da ficha e de suas empresas vinculadas, evitando que fichas puxem produtos de empresas sem vinculo.
 - Fichas de `PREPARO` compartilhadas continuam podendo ter centros produtores por empresa; compartilhar cadastro nao significa compartilhar movimentacao operacional.
 - Taxas de compartilhamento de `PREPARO` sao aplicadas uma unica vez na fronteira de venda do item compartilhado para a empresa destino. Dependencias internas desse pre-preparo sao calculadas pelo custo base, sem taxa recursiva.
-- Para o lote Macaxeira de doses de cachacas, existem 21 fichas finais `DS ... 50ML` criadas na empresa 5 e compartilhadas com empresas 8 e 9. A planilha de controle e `/home/leomassoni/Documentos/Igarapé/Projetos/CPXVA/doses_cachacas_macaxeira_2026_extraido.xlsx`.
+- Para o lote Macaxeira de doses de cachacas, existem 37 fichas finais `DS ... 50ML` ativas criadas na empresa 5 e compartilhadas com empresas 8 e 9. A rodada complementar de 2026-08-29 ficou registrada na aba `Resultado cadastro doses` da planilha `/home/leomassoni/Downloads/Bebidas sistema rancho macaxeira-pois pois 2026.xlsx`.
 
 ## Painel de configuracoes de fichas tecnicas
 
@@ -284,6 +292,10 @@ Registrar em que pe o sistema esta hoje, por area, para consulta rapida antes de
 - Proximo passo recomendado:
   - testar digitacao no offline;
   - se ainda houver lentidao perceptivel, extrair paineis inteiros de cadastro/tabela para reduzir a arvore renderizada pelo `App.tsx`.
+- Prioridade ao retomar a divisao do `App.tsx`:
+  - tratar produtividade do sistema como foco principal;
+  - a primeira extracao de campos melhorou a digitacao, mas o app segue lento;
+  - continuar a modularizacao por paineis/telas e isolar estados locais de formularios, filtros e listas grandes.
 
   - manter login unico e escolha de empresa apos o login
   - carregar permissoes efetivas a partir da empresa ativa, nao do usuario global
