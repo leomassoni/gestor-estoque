@@ -921,3 +921,10 @@ Registrar um historico resumido do que foi feito, do que falhou e do que ficou p
   - excluidas as requisicoes canceladas `#105`, `#107`, `#100`, `#101` e `#103`;
   - validacao: nao restou nenhuma requisicao em `/api/requisitions` para `COMPLEXO VILA ANALIA` nem `MACAXEIRA POIS POIS`;
   - validacao: entradas e rascunhos de producao vinculados permaneceram em `0`.
+- Auditoria do relatorio fake da Macaxeira:
+  - comparada a planilha `/home/leomassoni/Downloads/Fichas tecnicas - MACAXEIRA POIS POIS - 2026-08-29(1).xlsx` contra as fichas `VENDA` e `EXECUCAO` ativas online da empresa 5;
+  - o `Resumo` contem as `232` fichas ativas esperadas, sem falta e sem linha extra;
+  - a aba `Importacao vendas` contem `225` linhas porque `7` fichas estavam com `Quantidade de venda` vazia no `Resumo`: `AQUA LOCALE COM GAS`, `AQUA LOCALE SEM GAS`, `CERVEJA CORONA 330 ML VENDA`, `CERVEJA CORONA CERO 330 ML VENDA`, `CERVEJA ORIGINAL 600ML VENDA`, `CERVEJA SPATEN 600ML VENDA` e `CERVEJA STELLA PURE GOLD 600 VENDA`;
+  - conclusao: ausencia dessas aguas na requisicao nao e bug do fluxo; faltou quantidade no relatorio importado;
+  - observacao de cadastro: `AGUA POTAVEL` e `POLPA CAJU FRUTA DA FAZENDA` tiveram consumo analitico por receitas importadas, mas estao marcadas como `ignoreStock=true`, portanto nao geram minimo/requisicao por regra de cadastro;
+  - arquivo de auditoria gerado: `auditorias/auditoria_relatorio_fake_macaxeira_pois_pois_2026-08-31.xlsx`.
