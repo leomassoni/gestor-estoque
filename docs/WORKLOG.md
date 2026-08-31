@@ -990,3 +990,8 @@ Registrar um historico resumido do que foi feito, do que falhou e do que ficou p
 - Todas estavam em `SENT_TO_SUPPLIES` antes do cancelamento.
 - Auditoria criada no online: log `#1760`.
 - Validacao online: nao restou requisicao aberta nao recebida para as empresas 2 e 5; nao restou solicitacao manual de producao nem rascunho de producao vinculado aos grupos cancelados.
+- Complemento de exclusao:
+  - criado backup antes da exclusao em `backups/online-before-delete-cancelled-cpxva-macaxeira-requisitions-20260831T212011Z`;
+  - excluidas as requisicoes canceladas `#127`, `#128`, `#130`, `#132` e `#134`;
+  - auditoria criada no online: log `#1761`;
+  - validacao online: nao restou requisicao das empresas 2 e 5; nao restou solicitacao manual de producao nem rascunho de producao vinculado aos grupos excluidos.
