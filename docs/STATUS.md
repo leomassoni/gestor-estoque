@@ -400,7 +400,8 @@ Registrar em que pe o sistema esta hoje, por area, para consulta rapida antes de
 - Correcao online de cadastro unitario:
   - fichas `VENDA` unitarias com composicao `1` foram corrigidas para consumir o volume da embalagem ativa;
   - o lote fake de vendas da Macaxeira foi recriado como lote `7` em `2026-08-31T11:51:37.557Z`, com `225` linhas e `763` consumos;
-  - requisicoes `#118`, `#119` e `#121` ainda refletem o estado anterior e devem ser canceladas/regeneradas antes de validar a nova demanda no painel.
+  - requisicoes antigas `#118`, `#119`, `#121`, `#123` e `#125` foram canceladas e excluidas para novo teste do fluxo;
+  - backup da operacao: `backups/online-before-cancel-delete-cpxva-macaxeira-requisitions-20260831T121634Z`.
 
 ## Cadastro via API
 

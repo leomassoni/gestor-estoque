@@ -939,3 +939,9 @@ Registrar um historico resumido do que foi feito, do que falhou e do que ficou p
   - validacao online: lote `7` recriado com `225` linhas e `763` consumos; nao restou ficha `VENDA` ativa da Macaxeira com composicao `1` para produto com embalagem em `ml` maior que `1`;
   - minimos validados no centro 10 apos reimportacao: `GUARANA ANTARCTICA LATA 350ML` `20160 ml`, `GUARANA ANTARCTICA ZERO LATA 350ML` `15120 ml`, `H2OH LIMAO PET 500ML` `28800 ml` e `H2O LIMONETO PET 500ML` `28800 ml`;
   - pendencia operacional: requisicoes `#118`, `#119` e `#121` foram criadas antes da correcao de cadastro e precisam ser canceladas/regeneradas para refletir os minimos corrigidos.
+- Reset de requisicoes apos correcao de cadastro unitario:
+  - criado backup antes da operacao em `backups/online-before-cancel-delete-cpxva-macaxeira-requisitions-20260831T121634Z`;
+  - canceladas e excluidas as requisicoes de `MACAXEIRA POIS POIS`: `#118`, `#119` e `#121`;
+  - canceladas e excluidas as requisicoes de `COMPLEXO VILA ANALIA`: `#123` e `#125`;
+  - validacao online: nao restou requisicao em `/api/requisitions` para as empresas 2 e 5;
+  - validacao online: nao restou solicitacao manual de producao nem rascunho de producao vinculado aos grupos cancelados/excluidos.
