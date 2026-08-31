@@ -390,7 +390,7 @@ Registrar em que pe o sistema esta hoje, por area, para consulta rapida antes de
   - a montagem de requisicao, demanda do distribuidor, painel de compras e compra manual seguem essa mesma regra;
   - produtos vinculados a fichas tecnicas e produtos `COMBO` continuam proibidos como produto avulso no fluxo de minimo/requisicao/compra.
   - regra operacional: produto direto usado em ficha `VENDA`, `EXECUCAO` ou `PREPARO` produzido na propria empresa deve ser requisitado ao centro distribuidor de materia-prima dessa empresa; produto usado dentro de `PREPARO` produzido por centro de outra empresa deve seguir a cadeia do centro produtor externo.
-- Produtos unitarios vendidos por ficha `VENDA`, como latas, garrafas e PETs, podem ter o produto rastreavel controlado por volume e embalagem ativa cadastrada em `ml`, mas a composicao da ficha de venda precisa consumir o volume total da embalagem vendida. Se a ficha consumir `1 ml`, o minimo fica subestimado; ainda assim, qualquer demanda positiva deve aparecer na requisicao arredondada para cima em embalagem/porcao.
+- Produtos unitarios vendidos por ficha `VENDA`, como latas, garrafas e PETs, podem ter o produto rastreavel controlado por volume e embalagem ativa cadastrada em `ml`, mas a composicao da ficha de venda precisa consumir o volume total da embalagem vendida. Se a ficha consumir `1 ml`, o minimo fica subestimado.
 - Reset de teste aplicado no online:
   - requisicoes abertas das empresas `COMPLEXO VILA ANALIA` e `MACAXEIRA POIS POIS` foram canceladas para novo teste do fluxo;
   - entradas de producao vinculadas aos cancelamentos foram removidas com sucesso;

@@ -22116,7 +22116,7 @@ export default function App() {
           ? getProductPackageMinimumQuantity(effectiveMinimumStock, getRealMinimumQuantityText(effectiveMinimumStock))
           : (parseDecimal(effectiveMinimumStock?.suggestedMinimumQuantity ?? '') ?? 0)
         const targetRowQuantity = shouldRoundOperationalRow
-          ? ceilOperationalPackageQuantity(manualUseMinimum + suggestedRealMinimum)
+          ? roundOperationalPackageQuantity(manualUseMinimum + suggestedRealMinimum)
           : manualUseMinimum + suggestedRealMinimum
         const requiredBaseQuantity = targetRowQuantity * row.baseQuantity
         const currentBaseQuantity =
@@ -22130,7 +22130,7 @@ export default function App() {
           ) ?? 0
         const currentRowQuantity = row.baseQuantity > 0 ? currentBaseQuantity / row.baseQuantity : currentBaseQuantity
         const suggestedQuantity = shouldRoundOperationalRow
-          ? ceilOperationalPackageQuantity(Math.max(targetRowQuantity - currentRowQuantity, 0))
+          ? roundOperationalPackageQuantity(Math.max(targetRowQuantity - currentRowQuantity, 0))
           : row.baseQuantity > 0
             ? Math.max(requiredBaseQuantity - currentBaseQuantity, 0) / row.baseQuantity
             : 0

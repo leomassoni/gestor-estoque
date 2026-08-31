@@ -928,9 +928,7 @@ Registrar um historico resumido do que foi feito, do que falhou e do que ficou p
   - conclusao: ausencia dessas aguas na requisicao nao e bug do fluxo; faltou quantidade no relatorio importado;
   - observacao de cadastro: `AGUA POTAVEL` e `POLPA CAJU FRUTA DA FAZENDA` tiveram consumo analitico por receitas importadas, mas estao marcadas como `ignoreStock=true`, portanto nao geram minimo/requisicao por regra de cadastro;
   - arquivo de auditoria gerado: `auditorias/auditoria_relatorio_fake_macaxeira_pois_pois_2026-08-31.xlsx`.
-- Correcao complementar para requisicao de produtos unitarios:
-  - casos validados no online: `GUARANA ANTARTICA LATA 350ML VENDA`, `GUARANA ANTARTICA ZERO LATA 350ML VENDA`, `H2O LIMAO 500ML VENDA` e `H2O LIMONETO 500ML VENDA` estavam no lote de importacao e geraram minimo sugerido no centro 10, mas nao apareciam na requisicao `BAR MACAXEIRA POIS POIS -> ESTOQUE` nem em `ESTOQUE -> COMPRAS`;
-  - causa de cadastro identificada: os produtos rastreaveis estavam corretamente controlados por volume e com embalagem ativa (`350 ml` ou `500 ml`), mas as fichas de venda unitarias estavam consumindo `1 ml` do produto na composicao, quando deveriam consumir o volume total da embalagem vendida, reduzindo artificialmente o minimo calculado;
-  - causa de sistema identificada: mesmo com minimo pequeno e estoque zerado, a montagem da requisicao arredondava a quantidade operacional para o inteiro mais proximo antes de filtrar linhas; demandas positivas abaixo de meia embalagem viravam `0` e eram removidas do rascunho;
-  - ajuste aplicado em [`src/App.tsx`](/home/leomassoni/Documentos/Igarapé/Projetos/TCC-SP/gestor-estoque/src/App.tsx): rascunhos de requisicao passam a arredondar demanda operacional positiva para cima ao converter para embalagem/porcao, evitando suprimir linhas fracionarias;
-  - validacao local: `npm run build` e `git diff --check`.
+- Correcao de cadastro de fichas `VENDA` unitarias da Macaxeira:
+  - regra validada: produto rastreavel pode ser controlado por `ML` e ter embalagem ativa com volume (`350 ml`, `500 ml` etc.), mas a composicao da ficha de venda unitaria precisa consumir o volume total da embalagem vendida, nao `1 ml`;
+  - casos identificados no online com quantidade de composicao `1`: `COCA COLA LATA 350ML VENDA`, `COCA COLA ZERO LATA 350ML VENDA`, `GUARANA ANTARTICA LATA 350ML VENDA`, `GUARANA ANTARTICA ZERO LATA 350ML VENDA`, `H2O LIMONETO 500ML VENDA`, `RED BULL TRADICIONAL LATA 250ML VENDA`, `TONICA ANTARTICA 350ML VENDA` e `TONICA ANTARTICA ZERO 350ML VENDA`;
+  - observacao: `H2O LIMAO 500ML VENDA` ja estava correto no online, consumindo `500` do produto.
