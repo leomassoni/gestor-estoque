@@ -995,3 +995,24 @@ Registrar um historico resumido do que foi feito, do que falhou e do que ficou p
   - excluidas as requisicoes canceladas `#127`, `#128`, `#130`, `#132` e `#134`;
   - auditoria criada no online: log `#1761`;
   - validacao online: nao restou requisicao das empresas 2 e 5; nao restou solicitacao manual de producao nem rascunho de producao vinculado aos grupos excluidos.
+
+### Atualizacao do relatorio fake de vendas da Macaxeira
+
+- Comparada a planilha `/home/leomassoni/Downloads/atualizado Para devolver Fichas tecnicas - MACAXEIRA POIS POIS - 2026-08-27.xlsx` com o lote fake ativo do centro `BAR MACAXEIRA POIS POIS` (`companyId=5`, `stockCenterId=10`).
+- A planilha atualizada tinha layout diferente do arquivo anterior: `Resumo!A=ficha`, `Resumo!B=ID interno`, `Resumo!C=tipo`, `Resumo!D=quantidade`, `Resumo!E=und`.
+- A coluna `ID interno` foi preenchida na planilha atualizada para as linhas que casaram com fichas `VENDA` ou `EXECUCAO`; foi criada/substituida a aba `Importacao vendas`.
+- Foi preservado o lote anterior como base e aplicada a atualizacao valida da nova planilha, para nao remover fichas de dose que ainda existiam no lote importado mas nao apareciam no arquivo atualizado.
+- Lote antigo `#7` (`Fichas tecnicas - MACAXEIRA POIS POIS - 2026-08-29(1).xlsx`) cancelado no online: `225` linhas e `763` consumos passaram para `CANCELLED`.
+- Novo lote `#8` criado no online a partir da planilha atualizada:
+  - `230` linhas importadas;
+  - `768` consumos analiticos;
+  - `5` novas fichas incluidas: `CERVEJA CORONA 330 ML VENDA`, `CERVEJA CORONA CERO 330 ML VENDA`, `CERVEJA ORIGINAL 600ML VENDA`, `CERVEJA SPATEN 600ML VENDA` e `CERVEJA STELLA PURE GOLD 600 VENDA`;
+  - `17` grupos de duplicata/segunda projecao consolidados por ficha e data;
+  - `13` linhas positivas eram produtos avulsos sem ficha `VENDA`/`EXECUCAO` correspondente e foram deixadas fora do import: `Aperol`, `Per se`, `Campari`, `Single Fin`, `Tanqueray london dry`, `43`, `Cointreau`, `Carpano classico`, `Jim beam black`, `Jim beam white`, `Jack Daniels N.7`, `Jhonnie Walker Black Label` e `Jhonnie Walker Red Label`.
+- Regra operacional reforcada: relatorio fake de vendas deve importar somente fichas de `VENDA` ou `EXECUCAO`; ID de produto (`PRD-*`) nao cabe nesse arquivo.
+- Centro 10 recalculado no online: `127` minimos sugeridos por venda (`83` produtos e `44` preparos).
+- Backups e auditoria:
+  - backup remoto: `backups/online-before-macaxeira-fake-sales-refresh-20260831T184945`;
+  - backup da planilha: `/home/leomassoni/Downloads/atualizado Para devolver Fichas tecnicas - MACAXEIRA POIS POIS - 2026-08-27.backup-before-fake-sales-refresh-20260831T184945.xlsx`;
+  - relatorio local: `auditorias/macaxeira-fake-sales-refresh-20260831T184945.json`;
+  - logs online: `#1762` para cancelamento do lote antigo e `#1763` para criacao do lote novo.
