@@ -615,3 +615,10 @@ Registrar o que foi decidido, o que foi adiado e o que foi descartado, com foco 
   - nao aplicar taxa recursiva nos pre-preparos internos que compoem esse item;
   - nao gravar valores calculados no cadastro, apenas calcular e exibir a partir da configuracao vigente.
 - Regra de visibilidade: em receituarios de pre-preparo, o campo `Acrescimo de compartilhamento` deve respeitar os perfis de acesso junto aos demais campos do cabecalho tecnico.
+
+### Painel master precisa registrar acoes administrativas destrutivas
+
+- Decisao: toda confirmacao que ativa, inativa ou exclui cadastro operacional deve gerar evento no painel master.
+- A regra vale para acoes diretas e indiretas, incluindo produto, ficha tecnica, item, centro de estoque e exclusao de familia/subfamilia com cadastros impactados.
+- O evento deve registrar ator, empresa ativa, alvo, acao executada, resolucao escolhida, resumo de impacto e IDs dos cadastros afetados quando existirem.
+- O objetivo e permitir auditoria posterior de autoria e impacto sem depender apenas de `updatedAt` nos registros alterados.

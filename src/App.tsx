@@ -4389,6 +4389,33 @@ export default function App() {
       console.error(error)
     })
   }
+  function getCatalogActionPastParticiple(action: ProductAction) {
+    if (action === 'delete') {
+      return 'excluido'
+    }
+    if (action === 'enable') {
+      return 'ativado'
+    }
+    return 'inativado'
+  }
+  function getCatalogActionAuditLabel(action: ProductAction, targetLabel: string) {
+    if (action === 'delete') {
+      return `Exclusao de ${targetLabel}`
+    }
+    if (action === 'enable') {
+      return `Ativacao de ${targetLabel}`
+    }
+    return `Inativacao de ${targetLabel}`
+  }
+  function getCatalogActionAuditKey(action: ProductAction, targetKey: string) {
+    if (action === 'delete') {
+      return `DELETE_${targetKey}`
+    }
+    if (action === 'enable') {
+      return `ENABLE_${targetKey}`
+    }
+    return `DISABLE_${targetKey}`
+  }
   function getRequisitionRequestingCenterDisplayLabelForUi(record: RequisitionRecord) {
     return `${record.stockCenterName} • ${getCompanyTradeName(record.companyId)}`
   }
@@ -19471,6 +19498,79 @@ export default function App() {
       return
     }
 
+    const taxonomyField =
+      taxonomyDeleteState.kind === 'productFamily' || taxonomyDeleteState.kind === 'serviceItemFamily'
+        ? 'family'
+        : 'subfamily'
+    const taxonomyKindLabel =
+      taxonomyDeleteState.kind === 'productFamily'
+        ? 'familia de produto/ficha'
+        : taxonomyDeleteState.kind === 'productSubfamily'
+          ? 'subfamilia de produto/ficha'
+          : taxonomyDeleteState.kind === 'serviceItemFamily'
+            ? 'familia de item'
+            : 'subfamilia de item'
+    const impactedProductAuditDetails =
+      taxonomyDeleteState.kind === 'productFamily' || taxonomyDeleteState.kind === 'productSubfamily'
+        ? products
+            .filter(
+              (product) =>
+                isProductVisibleForCompany(product, currentCompanyId) &&
+                product[taxonomyField] === taxonomyDeleteState.value,
+            )
+            .map((product) => ({
+              productId: product.id,
+              productName: product.name,
+              companyId: product.companyId,
+              ownerCompanyId: getProductOwnerCompanyId(product),
+              wasActive: product.isActive,
+            }))
+        : []
+    const impactedTechnicalSheetAuditDetails =
+      taxonomyDeleteState.kind === 'productFamily' || taxonomyDeleteState.kind === 'productSubfamily'
+        ? technicalSheets
+            .filter(
+              (sheet) =>
+                isTechnicalSheetVisibleForCompany(sheet, currentCompanyId) &&
+                sheet[taxonomyField] === taxonomyDeleteState.value,
+            )
+            .map((sheet) => ({
+              technicalSheetId: sheet.id,
+              technicalSheetName: sheet.name,
+              kind: sheet.kind,
+              companyId: sheet.companyId,
+              ownerCompanyId: getTechnicalSheetOwnerCompanyId(sheet),
+              sharedCompanyIds: getTechnicalSheetExplicitSharedCompanyIds(sheet),
+              wasActive: sheet.isActive,
+            }))
+        : []
+    const impactedServiceItemAuditDetails =
+      taxonomyDeleteState.kind === 'serviceItemFamily' || taxonomyDeleteState.kind === 'serviceItemSubfamily'
+        ? serviceItems
+            .filter(
+              (item) =>
+                isServiceItemVisibleForCompany(item, currentCompanyId) &&
+                item[taxonomyField] === taxonomyDeleteState.value,
+            )
+            .map((item) => ({
+              serviceItemId: item.id,
+              serviceItemName: item.name,
+              companyId: item.companyId,
+              ownerCompanyId: getServiceItemOwnerCompanyId(item),
+              wasActive: item.isActive,
+            }))
+        : []
+    const relatedCompanyIds = Array.from(
+      new Set([
+        ...impactedProductAuditDetails.map((product) => product.ownerCompanyId),
+        ...impactedTechnicalSheetAuditDetails.flatMap((sheet) => [
+          sheet.ownerCompanyId,
+          ...sheet.sharedCompanyIds,
+        ]),
+        ...impactedServiceItemAuditDetails.map((item) => item.ownerCompanyId),
+      ]),
+    )
+
     if (taxonomyDeleteState.kind === 'productFamily' || taxonomyDeleteState.kind === 'productSubfamily') {
       const field = taxonomyDeleteState.kind === 'productFamily' ? 'family' : 'subfamily'
       setProducts((current) =>
@@ -19537,6 +19637,42 @@ export default function App() {
       }))
     }
 
+    registerAuditEvent({
+      companyId: currentCompanyId,
+      module: 'CATALOGO',
+      actionKey:
+        taxonomyDeleteState.resolution === 'replace'
+          ? 'DELETE_TAXONOMY_OPTION_REPLACE_IMPACTS'
+          : 'DELETE_TAXONOMY_OPTION_DISABLE_IMPACTS',
+      actionLabel:
+        taxonomyDeleteState.resolution === 'replace'
+          ? 'Exclusao de opcao com substituicao'
+          : 'Exclusao de opcao com inativacao de impactados',
+      targetType: 'CATALOG_TAXONOMY',
+      targetId: `${taxonomyDeleteState.kind}:${taxonomyDeleteState.value}`,
+      targetLabel: taxonomyDeleteState.value,
+      summary:
+        taxonomyDeleteState.resolution === 'replace'
+          ? `Opcao ${taxonomyDeleteState.value} (${taxonomyKindLabel}) foi excluida e substituida por ${replacementValue}.`
+          : `Opcao ${taxonomyDeleteState.value} (${taxonomyKindLabel}) foi excluida e cadastros impactados foram inativados.`,
+      impactSummary:
+        `${impactedProductAuditDetails.length} produto(s), ` +
+        `${impactedTechnicalSheetAuditDetails.length} ficha(s) tecnica(s) e ` +
+        `${impactedServiceItemAuditDetails.length} item(ns) impactado(s).`,
+      severity: taxonomyDeleteState.resolution === 'inactivate' ? 'HIGH' : 'MEDIUM',
+      result: 'SUCCESS',
+      relatedCompanyIds,
+      details: {
+        kind: taxonomyDeleteState.kind,
+        field: taxonomyField,
+        value: taxonomyDeleteState.value,
+        resolution: taxonomyDeleteState.resolution,
+        replacementValue: taxonomyDeleteState.resolution === 'replace' ? replacementValue : '',
+        impactedProducts: impactedProductAuditDetails,
+        impactedTechnicalSheets: impactedTechnicalSheetAuditDetails,
+        impactedServiceItems: impactedServiceItemAuditDetails,
+      },
+    })
     setTaxonomyDeleteState(null)
   }
 
@@ -21859,6 +21995,7 @@ export default function App() {
       return
     }
 
+    const impact = collectStockCenterImpactSummary(targetCenter.id)
     if (
       targetCenter.isActive &&
       typeof window !== 'undefined' &&
@@ -21882,6 +22019,33 @@ export default function App() {
 
     setStockCenters((current) => current.map((center) => (center.id === stockCenterId ? nextCenter : center)))
     await refreshAppStockCenterRecordsFromApi()
+    registerAuditEvent({
+      companyId: targetCenter.companyId,
+      module: 'ESTOQUE',
+      actionKey: nextCenter.isActive ? 'ENABLE_STOCK_CENTER' : 'DISABLE_STOCK_CENTER',
+      actionLabel: nextCenter.isActive ? 'Ativacao de centro de estoque' : 'Inativacao de centro de estoque',
+      targetType: 'STOCK_CENTER',
+      targetId: String(targetCenter.id),
+      targetLabel: targetCenter.name,
+      summary: `Centro de estoque ${targetCenter.name} foi ${nextCenter.isActive ? 'ativado' : 'inativado'}.`,
+      impactSummary:
+        `${impact.impactedProductionSheets.length} ficha(s) produtora(s), ` +
+        `${impact.impactedSupplyRouteSheets.length} rota(s), ` +
+        `${impact.minimumStocksCount} minimo(s) e ` +
+        `${impact.impactedRequisitionsCount} requisicao(oes)/suprimento(s) relacionados.`,
+      severity: nextCenter.isActive ? 'MEDIUM' : 'HIGH',
+      result: 'SUCCESS',
+      details: {
+        action: nextCenter.isActive ? 'enable' : 'disable',
+        stockCenterId: targetCenter.id,
+        code: targetCenter.code,
+        sector: targetCenter.sector,
+        impactedProductionSheets: impact.impactedProductionSheets,
+        impactedSupplyRouteSheets: impact.impactedSupplyRouteSheets,
+        minimumStocksCount: impact.minimumStocksCount,
+        impactedRequisitionsCount: impact.impactedRequisitionsCount,
+      },
+    })
     setSaveFeedback({
       status: 'success',
       title: nextCenter.isActive ? 'Centro de estoque ativado' : 'Centro de estoque inativado',
@@ -21895,6 +22059,7 @@ export default function App() {
       return
     }
 
+    const impact = collectStockCenterImpactSummary(targetCenter.id)
     if (
       typeof window !== 'undefined' &&
       !window.confirm(formatStockCenterImpactConfirmationMessage(targetCenter, 'excluir'))
@@ -21916,6 +22081,12 @@ export default function App() {
       return
     }
 
+    const changedTechnicalSheetReferences = nextTechnicalSheets
+      .filter((sheet) => JSON.stringify(sheet) !== JSON.stringify(technicalSheets.find((current) => current.id === sheet.id)))
+      .map((sheet) => ({
+        technicalSheetId: sheet.id,
+        technicalSheetName: sheet.name,
+      }))
     setTechnicalSheets(nextTechnicalSheets)
     setStockCenters((current) => current.filter((center) => center.id !== stockCenterId))
     if (editingStockCenterId === stockCenterId) {
@@ -21927,6 +22098,33 @@ export default function App() {
       refreshAppStockCenterRecordsFromApi(),
       refreshAppCatalogRecordsFromApi(),
     ])
+    registerAuditEvent({
+      companyId: targetCenter.companyId,
+      module: 'ESTOQUE',
+      actionKey: 'DELETE_STOCK_CENTER_WITH_IMPACTS',
+      actionLabel: 'Exclusao de centro de estoque com impactos',
+      targetType: 'STOCK_CENTER',
+      targetId: String(targetCenter.id),
+      targetLabel: targetCenter.name,
+      summary: `Centro de estoque ${targetCenter.name} foi excluido com resolucao de impactos.`,
+      impactSummary:
+        `${changedTechnicalSheetReferences.length} ficha(s) tecnica(s) ajustada(s); ` +
+        `${impact.minimumStocksCount} minimo(s) e ` +
+        `${impact.impactedRequisitionsCount} requisicao(oes)/suprimento(s) relacionados.`,
+      severity: 'HIGH',
+      result: 'SUCCESS',
+      details: {
+        action: 'delete',
+        stockCenterId: targetCenter.id,
+        code: targetCenter.code,
+        sector: targetCenter.sector,
+        impactedProductionSheets: impact.impactedProductionSheets,
+        impactedSupplyRouteSheets: impact.impactedSupplyRouteSheets,
+        changedTechnicalSheets: changedTechnicalSheetReferences,
+        minimumStocksCount: impact.minimumStocksCount,
+        impactedRequisitionsCount: impact.impactedRequisitionsCount,
+      },
+    })
     setSaveFeedback({
       status: 'success',
       title: 'Centro de estoque excluido',
@@ -39240,6 +39438,32 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
         }
       }
       await refreshAppCatalogRecordsFromApi()
+      registerAuditEvent({
+        companyId: targetProduct.companyId,
+        module: 'CATALOGO',
+        actionKey: getCatalogActionAuditKey(productActionState.action, 'PRODUCT'),
+        actionLabel: getCatalogActionAuditLabel(productActionState.action, 'produto'),
+        targetType: 'PRODUCT',
+        targetId: targetProduct.id,
+        targetLabel: targetProduct.name,
+        summary: `Produto ${targetProduct.name} foi ${getCatalogActionPastParticiple(productActionState.action)}.`,
+        impactSummary:
+          productActionState.action === 'delete'
+            ? 'Produto removido definitivamente do cadastro.'
+            : productActionState.action === 'enable'
+              ? 'Produto voltou a ficar disponivel para uso operacional.'
+              : 'Produto deixou de ficar disponivel para uso operacional.',
+        severity: productActionState.action === 'enable' ? 'MEDIUM' : 'HIGH',
+        result: 'SUCCESS',
+        details: {
+          action: productActionState.action,
+          productId: targetProduct.id,
+          technicalSheetId: targetProduct.technicalSheetId,
+          family: targetProduct.family,
+          subfamily: targetProduct.subfamily,
+          sectors: targetProduct.sectors,
+        },
+      })
     } catch (error) {
       console.error(error)
       setSaveFeedback({
@@ -39275,6 +39499,11 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
     const impactedSheetActionById = new Map(
       productDisableImpactState.impactedSheets.map((sheet) => [sheet.id, sheet.action] as const),
     )
+    const impactedSheetAuditDetails = productDisableImpactState.impactedSheets.map((sheet) => ({
+      technicalSheetId: sheet.id,
+      technicalSheetName: sheet.name,
+      resolution: sheet.action,
+    }))
     const nextTechnicalSheets = technicalSheets.map((sheet) => {
       const action = impactedSheetActionById.get(sheet.id) ?? 'keep'
       if (action === 'remove') {
@@ -39319,6 +39548,39 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
       }
       await persistChangedTechnicalSheetsOnApi(technicalSheets, nextTechnicalSheets)
       await refreshAppCatalogRecordsFromApi()
+      registerAuditEvent({
+        companyId: targetProduct.companyId,
+        module: 'CATALOGO',
+        actionKey:
+          productDisableImpactState.action === 'delete'
+            ? 'DELETE_PRODUCT_WITH_IMPACTS'
+            : 'DISABLE_PRODUCT_WITH_IMPACTS',
+        actionLabel:
+          productDisableImpactState.action === 'delete'
+            ? 'Exclusao de produto com impactos'
+            : 'Inativacao de produto com impactos',
+        targetType: 'PRODUCT',
+        targetId: targetProduct.id,
+        targetLabel: targetProduct.name,
+        summary: `Produto ${targetProduct.name} foi ${getCatalogActionPastParticiple(productDisableImpactState.action)} com resolucao de impactos.`,
+        impactSummary:
+          `${impactedSheetAuditDetails.length} ficha(s) tecnica(s) impactada(s); ` +
+          `${productDisableImpactState.impactedStockCenters.length} centro(s) com minimo impactado(s).`,
+        severity: 'HIGH',
+        result: 'SUCCESS',
+        details: {
+          action: productDisableImpactState.action,
+          productId: targetProduct.id,
+          linkedTechnicalSheetName: productDisableImpactState.linkedTechnicalSheetName,
+          impactedSheets: impactedSheetAuditDetails,
+          impactedStockCenters: productDisableImpactState.impactedStockCenters,
+          resolutionCounts: {
+            keep: impactedSheetAuditDetails.filter((sheet) => sheet.resolution === 'keep').length,
+            remove: impactedSheetAuditDetails.filter((sheet) => sheet.resolution === 'remove').length,
+            disable_sheet: impactedSheetAuditDetails.filter((sheet) => sheet.resolution === 'disable_sheet').length,
+          },
+        },
+      })
     } catch (error) {
       console.error(error)
       setSaveFeedback({
@@ -39370,6 +39632,32 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
         }
       }
       await refreshAppCatalogRecordsFromApi()
+      registerAuditEvent({
+        companyId: targetItem.companyId,
+        module: 'CATALOGO',
+        actionKey: getCatalogActionAuditKey(serviceItemActionState.action, 'SERVICE_ITEM'),
+        actionLabel: getCatalogActionAuditLabel(serviceItemActionState.action, 'item'),
+        targetType: 'SERVICE_ITEM',
+        targetId: targetItem.id,
+        targetLabel: targetItem.name,
+        summary: `Item ${targetItem.name} foi ${getCatalogActionPastParticiple(serviceItemActionState.action)}.`,
+        impactSummary:
+          serviceItemActionState.action === 'delete'
+            ? 'Item removido definitivamente do cadastro.'
+            : serviceItemActionState.action === 'enable'
+              ? 'Item voltou a ficar disponivel para uso operacional.'
+              : 'Item deixou de ficar disponivel para uso operacional.',
+        severity: serviceItemActionState.action === 'enable' ? 'MEDIUM' : 'HIGH',
+        result: 'SUCCESS',
+        details: {
+          action: serviceItemActionState.action,
+          serviceItemId: targetItem.id,
+          family: targetItem.family,
+          subfamily: targetItem.subfamily,
+          sectors: targetItem.sectors,
+          packages: targetItem.packages.length,
+        },
+      })
     } catch (error) {
       console.error(error)
       setSaveFeedback({
@@ -39441,6 +39729,33 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
         }
       }
       await refreshAppCatalogRecordsFromApi()
+      registerAuditEvent({
+        companyId: targetSheet.companyId,
+        module: 'FICHAS',
+        actionKey: getCatalogActionAuditKey(technicalSheetActionState.action, 'TECHNICAL_SHEET'),
+        actionLabel: getCatalogActionAuditLabel(technicalSheetActionState.action, 'ficha tecnica'),
+        targetType: 'TECHNICAL_SHEET',
+        targetId: String(targetSheet.id),
+        targetLabel: targetSheet.name,
+        summary: `Ficha tecnica ${targetSheet.name} foi ${getCatalogActionPastParticiple(technicalSheetActionState.action)}.`,
+        impactSummary:
+          linkedProduct
+            ? `Produto vinculado ${linkedProduct.name} tambem foi ${getCatalogActionPastParticiple(technicalSheetActionState.action)}.`
+            : 'Ficha tecnica atualizada sem produto vinculado.',
+        severity: technicalSheetActionState.action === 'enable' ? 'MEDIUM' : 'HIGH',
+        result: 'SUCCESS',
+        relatedCompanyIds: getTechnicalSheetExplicitSharedCompanyIds(targetSheet),
+        details: {
+          action: technicalSheetActionState.action,
+          kind: targetSheet.kind,
+          productId: targetSheet.productId,
+          linkedProductId: linkedProduct?.id ?? null,
+          linkedProductName: linkedProduct?.name ?? null,
+          sharedCompanyIds: getTechnicalSheetExplicitSharedCompanyIds(targetSheet),
+          productionCenters: targetSheet.productionCenters,
+          supplyRoutes: targetSheet.supplyRoutes,
+        },
+      })
     } catch (error) {
       console.error(error)
       setSaveFeedback({
@@ -39477,6 +39792,12 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
     const impactedMotherActionById = new Map(
       technicalSheetDisableImpactState.impactedMotherSheets.map((sheet) => [sheet.id, sheet.action] as const),
     )
+    const impactedMotherSheetAuditDetails = technicalSheetDisableImpactState.impactedMotherSheets.map((sheet) => ({
+      technicalSheetId: sheet.id,
+      technicalSheetName: sheet.name,
+      resolution: sheet.action,
+      impactedSharedCompanyLabels: sheet.impactedSharedCompanyLabels,
+    }))
     if (technicalSheetDisableImpactState.impactedProductionDrafts.length > 0) {
       setSaveFeedback({
         status: 'error',
@@ -39592,6 +39913,47 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
       syncedManualProductionRequestMapRef.current = buildEntitySignatureMap(nextManualProductionRequests, (record) => record.id)
       syncedRequisitionRecordMapRef.current = buildEntitySignatureMap(nextRequisitions, (record) => record.id)
       await refreshAppCatalogRecordsFromApi()
+      registerAuditEvent({
+        companyId: targetSheet.companyId,
+        module: 'FICHAS',
+        actionKey:
+          technicalSheetDisableImpactState.action === 'delete'
+            ? 'DELETE_TECHNICAL_SHEET_WITH_IMPACTS'
+            : 'DISABLE_TECHNICAL_SHEET_WITH_IMPACTS',
+        actionLabel:
+          technicalSheetDisableImpactState.action === 'delete'
+            ? 'Exclusao de ficha tecnica com impactos'
+            : 'Inativacao de ficha tecnica com impactos',
+        targetType: 'TECHNICAL_SHEET',
+        targetId: String(targetSheet.id),
+        targetLabel: targetSheet.name,
+        summary: `Ficha tecnica ${targetSheet.name} foi ${getCatalogActionPastParticiple(technicalSheetDisableImpactState.action)} com resolucao de impactos.`,
+        impactSummary:
+          `${impactedMotherSheetAuditDetails.length} ficha(s) mae impactada(s); ` +
+          `${technicalSheetDisableImpactState.impactedManualProductionPlans.length} planejamento(s) de producao impactado(s); ` +
+          `${changedRequisitions.length} requisicao(oes)/suprimento(s) cancelado(s).`,
+        severity: 'HIGH',
+        result: 'SUCCESS',
+        relatedCompanyIds: getTechnicalSheetExplicitSharedCompanyIds(targetSheet),
+        details: {
+          action: technicalSheetDisableImpactState.action,
+          kind: targetSheet.kind,
+          productId: targetSheet.productId,
+          linkedProductId: linkedProduct?.id ?? null,
+          linkedProductName: technicalSheetDisableImpactState.linkedProductName,
+          sharedCompanyIds: getTechnicalSheetExplicitSharedCompanyIds(targetSheet),
+          impactedMotherSheets: impactedMotherSheetAuditDetails,
+          impactedStockCenters: technicalSheetDisableImpactState.impactedStockCenters,
+          impactedManualProductionPlans: technicalSheetDisableImpactState.impactedManualProductionPlans,
+          impactedPlanningRequisitions: technicalSheetDisableImpactState.impactedPlanningRequisitions,
+          cancelledRequisitionIds: changedRequisitions.map((record) => record.id),
+          resolutionCounts: {
+            keep: impactedMotherSheetAuditDetails.filter((sheet) => sheet.resolution === 'keep').length,
+            remove: impactedMotherSheetAuditDetails.filter((sheet) => sheet.resolution === 'remove').length,
+            disable_sheet: impactedMotherSheetAuditDetails.filter((sheet) => sheet.resolution === 'disable_sheet').length,
+          },
+        },
+      })
     } catch (error) {
       console.error(error)
       setSaveFeedback({

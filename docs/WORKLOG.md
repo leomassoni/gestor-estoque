@@ -945,3 +945,38 @@ Registrar um historico resumido do que foi feito, do que falhou e do que ficou p
   - canceladas e excluidas as requisicoes de `COMPLEXO VILA ANALIA`: `#123` e `#125`;
   - validacao online: nao restou requisicao em `/api/requisitions` para as empresas 2 e 5;
   - validacao online: nao restou solicitacao manual de producao nem rascunho de producao vinculado aos grupos cancelados/excluidos.
+
+## 2026-08-31
+
+### Auditoria de inativacoes diretas e indiretas
+
+- Problema identificado: algumas acoes administrativas com impacto operacional executavam `PUT`/`DELETE` e alteravam `isActive`, mas nao registravam evento no painel master.
+- Ajustado o frontend para registrar auditoria consolidada apos confirmacao bem-sucedida de:
+  - ativacao, inativacao e exclusao direta de produto;
+  - inativacao e exclusao de produto com resolucao de impactos em fichas tecnicas;
+  - ativacao, inativacao e exclusao direta de ficha tecnica;
+  - inativacao e exclusao de ficha tecnica com impactos em fichas maes, planejamentos de producao e requisicoes/suprimentos vinculados;
+  - ativacao, inativacao e exclusao direta de item;
+  - inativacao e exclusao de centro de estoque com resumo dos impactos em fichas, rotas, minimos e requisicoes/suprimentos;
+  - exclusao de familia/subfamilia com substituicao ou inativacao dos cadastros impactados.
+- Os eventos gravam ator, empresa ativa, alvo, acao, severidade, resumo de impacto e `details` com IDs dos cadastros afetados quando disponiveis.
+- Validacao local: `npm run build`.
+
+### Ativacao de fichas inativas da Macaxeira
+
+- Ativadas no online as fichas inativas pertencentes a `MACAXEIRA POIS POIS`:
+  - `CHOPE BRAHMA 300ML` (`id=625`, `VENDA`);
+  - `CHOOPE BRAHAMA CLARA` (`id=765`, `EXECUCAO`).
+- Complemento de escopo: o fluxo foi ampliado para considerar fichas visiveis/necessarias para a Macaxeira mesmo quando a origem e outra empresa.
+- Ativadas no online as fichas inativas visiveis para `MACAXEIRA POIS POIS`, mas originarias do `COMPLEXO VILA ANALIA`:
+  - `PRE-BATCHED GAJU AMIGO` (`id=125`, `PREPARO`);
+  - `REFAZER A FICHA` (`id=400`, `PREPARO`).
+- Ativados os produtos vinculados ainda inativos na cadeia tecnica:
+  - `BATIDA CAJA PRE-BATCHED` (`PRE-MRVHTDWC-WBUHRF`, ficha `id=332`);
+  - `PRE-BATCHED GAJU AMIGO` (`PRE-MRI88FIU-ZPW2RB`, ficha `id=125`);
+  - `REFAZER A FICHA` (`PRE-MRS8I95D-GTEI14`, ficha `id=400`).
+- Backups:
+  - `backups/online-before-activate-inactive-macaxeira-sheets-20260831T210758Z`;
+  - `backups/online-before-activate-macaxeira-visible-subsheet-chain-20260831T211026Z`.
+- Auditoria criada no online: logs `#1758` e `#1759`.
+- Validacao online: nao restou ficha tecnica inativa visivel para a empresa 5 nem produto vinculado inativo usado por ficha ativa visivel da Macaxeira.
