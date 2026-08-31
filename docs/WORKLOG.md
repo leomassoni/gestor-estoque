@@ -911,3 +911,8 @@ Registrar um historico resumido do que foi feito, do que falhou e do que ficou p
   - a requisicao `#10` de `MACAXEIRA POIS POIS` foi mantida porque ja estava `RECEIVED`;
   - validacao pos-cancelamento: as entradas de producao vinculadas as requisicoes canceladas cairam de `41` para `0`, sem rascunhos de producao vinculados restantes;
   - validacao pos-cancelamento: nao restou requisicao aberta nao recebida para as empresas 2 e 5.
+- Complemento do reset:
+  - a requisicao `#10` foi identificada como teste antigo de `BATIDA CAJA` e removida do online a pedido do usuario;
+  - antes de excluir, foi criado backup em `backups/online-before-delete-received-requisition-10-20260831T001543Z/backup.json`;
+  - a requisicao `#10` foi marcada como `CANCELLED` e depois excluida via API, restando apenas marcador em `/api/deleted-requisitions`;
+  - validacao: nao havia `inventory-count-session`, `inventory-count` nem `pending-inventory-movement` ligado ao `receiptSessionId=84`; nao houve entrada de estoque remanescente a remover.
