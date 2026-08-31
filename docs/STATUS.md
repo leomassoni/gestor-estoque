@@ -395,6 +395,7 @@ Registrar em que pe o sistema esta hoje, por area, para consulta rapida antes de
   - entradas de producao vinculadas aos cancelamentos foram removidas com sucesso;
   - backup da operacao: `backups/online-before-cancel-macaxeira-cpxva-requisitions-20260831T000728Z/backup.json`.
   - a requisicao teste `#10`, que estava `RECEIVED`, foi cancelada e excluida; backup especifico em `backups/online-before-delete-received-requisition-10-20260831T001543Z/backup.json`.
+  - as requisicoes canceladas `#100`, `#101`, `#103`, `#105` e `#107` tambem foram excluidas; backup especifico em `backups/online-before-delete-cancelled-macaxeira-cpxva-requisitions-20260831T001729Z/backup.json`.
 
 ## Cadastro via API
 

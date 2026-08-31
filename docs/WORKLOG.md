@@ -916,3 +916,8 @@ Registrar um historico resumido do que foi feito, do que falhou e do que ficou p
   - antes de excluir, foi criado backup em `backups/online-before-delete-received-requisition-10-20260831T001543Z/backup.json`;
   - a requisicao `#10` foi marcada como `CANCELLED` e depois excluida via API, restando apenas marcador em `/api/deleted-requisitions`;
   - validacao: nao havia `inventory-count-session`, `inventory-count` nem `pending-inventory-movement` ligado ao `receiptSessionId=84`; nao houve entrada de estoque remanescente a remover.
+- Exclusao das requisicoes canceladas:
+  - criado backup antes da exclusao em `backups/online-before-delete-cancelled-macaxeira-cpxva-requisitions-20260831T001729Z/backup.json`;
+  - excluidas as requisicoes canceladas `#105`, `#107`, `#100`, `#101` e `#103`;
+  - validacao: nao restou nenhuma requisicao em `/api/requisitions` para `COMPLEXO VILA ANALIA` nem `MACAXEIRA POIS POIS`;
+  - validacao: entradas e rascunhos de producao vinculados permaneceram em `0`.
