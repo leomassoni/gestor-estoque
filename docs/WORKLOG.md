@@ -905,3 +905,9 @@ Registrar um historico resumido do que foi feito, do que falhou e do que ficou p
   - ajustado o frontend para aceitar produtos visiveis/compartilhados nos minimos de centro, rascunho de requisicao, demanda do distribuidor, painel de compras e opcao manual de compra;
   - mantida a exclusao de produtos vinculados a ficha tecnica (`technicalSheetId`) e de `COMBO` como produto avulso, inclusive na geracao futura de minimos por import de vendas.
   - regra de roteamento validada: produto direto consumido por ficha `VENDA`/`EXECUCAO`, como `COCA COLA LATA 350ML`, `COCA COLA ZERO LATA 350ML` e `TONICA ANTARTICA ZERO 350ML`, fica com destino `ESTOQUE` da Macaxeira; preparo produzido por centro externo, como `XAROPE DE CAJA 53.5`, resolve para o `LABORATORIO` do `COMPLEXO VILA ANALIA` quando houver demanda.
+- Reset online para novo teste do fluxo:
+  - criado backup antes da operacao em `backups/online-before-cancel-macaxeira-cpxva-requisitions-20260831T000728Z/backup.json`;
+  - canceladas as requisicoes abertas das empresas `COMPLEXO VILA ANALIA` e `MACAXEIRA POIS POIS`: `#100`, `#101`, `#103`, `#105` e `#107`;
+  - a requisicao `#10` de `MACAXEIRA POIS POIS` foi mantida porque ja estava `RECEIVED`;
+  - validacao pos-cancelamento: as entradas de producao vinculadas as requisicoes canceladas cairam de `41` para `0`, sem rascunhos de producao vinculados restantes;
+  - validacao pos-cancelamento: nao restou requisicao aberta nao recebida para as empresas 2 e 5.
