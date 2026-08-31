@@ -397,6 +397,10 @@ Registrar em que pe o sistema esta hoje, por area, para consulta rapida antes de
   - backup da operacao: `backups/online-before-cancel-macaxeira-cpxva-requisitions-20260831T000728Z/backup.json`.
   - a requisicao teste `#10`, que estava `RECEIVED`, foi cancelada e excluida; backup especifico em `backups/online-before-delete-received-requisition-10-20260831T001543Z/backup.json`.
   - as requisicoes canceladas `#100`, `#101`, `#103`, `#105` e `#107` tambem foram excluidas; backup especifico em `backups/online-before-delete-cancelled-macaxeira-cpxva-requisitions-20260831T001729Z/backup.json`.
+- Correcao online de cadastro unitario:
+  - fichas `VENDA` unitarias com composicao `1` foram corrigidas para consumir o volume da embalagem ativa;
+  - o lote fake de vendas da Macaxeira foi recriado como lote `7` em `2026-08-31T11:51:37.557Z`, com `225` linhas e `763` consumos;
+  - requisicoes `#118`, `#119` e `#121` ainda refletem o estado anterior e devem ser canceladas/regeneradas antes de validar a nova demanda no painel.
 
 ## Cadastro via API
 

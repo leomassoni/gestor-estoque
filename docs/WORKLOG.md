@@ -931,4 +931,11 @@ Registrar um historico resumido do que foi feito, do que falhou e do que ficou p
 - Correcao de cadastro de fichas `VENDA` unitarias da Macaxeira:
   - regra validada: produto rastreavel pode ser controlado por `ML` e ter embalagem ativa com volume (`350 ml`, `500 ml` etc.), mas a composicao da ficha de venda unitaria precisa consumir o volume total da embalagem vendida, nao `1 ml`;
   - casos identificados no online com quantidade de composicao `1`: `COCA COLA LATA 350ML VENDA`, `COCA COLA ZERO LATA 350ML VENDA`, `GUARANA ANTARTICA LATA 350ML VENDA`, `GUARANA ANTARTICA ZERO LATA 350ML VENDA`, `H2O LIMONETO 500ML VENDA`, `RED BULL TRADICIONAL LATA 250ML VENDA`, `TONICA ANTARTICA 350ML VENDA` e `TONICA ANTARTICA ZERO 350ML VENDA`;
-  - observacao: `H2O LIMAO 500ML VENDA` ja estava correto no online, consumindo `500` do produto.
+  - observacao: `H2O LIMAO 500ML VENDA` ja estava correto no online, consumindo `500` do produto;
+  - correcao aplicada no online: as 8 fichas foram atualizadas para consumir o volume da embalagem ativa (`350`, `500` ou `250`) tambem em `yieldQuantity`;
+  - backup da operacao: `backups/online-before-macaxeira-unit-sale-sheet-volume-fix-20260831T115057Z`;
+  - o lote fake antigo `7` foi excluido e reimportado a partir da mesma planilha para recalcular consumos e minimos com as fichas corrigidas;
+  - relatorio da reimportacao: `auditorias/macaxeira-fake-sales-import-20260831T085129.json`;
+  - validacao online: lote `7` recriado com `225` linhas e `763` consumos; nao restou ficha `VENDA` ativa da Macaxeira com composicao `1` para produto com embalagem em `ml` maior que `1`;
+  - minimos validados no centro 10 apos reimportacao: `GUARANA ANTARCTICA LATA 350ML` `20160 ml`, `GUARANA ANTARCTICA ZERO LATA 350ML` `15120 ml`, `H2OH LIMAO PET 500ML` `28800 ml` e `H2O LIMONETO PET 500ML` `28800 ml`;
+  - pendencia operacional: requisicoes `#118`, `#119` e `#121` foram criadas antes da correcao de cadastro e precisam ser canceladas/regeneradas para refletir os minimos corrigidos.
