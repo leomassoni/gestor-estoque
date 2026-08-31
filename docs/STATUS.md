@@ -389,6 +389,7 @@ Registrar em que pe o sistema esta hoje, por area, para consulta rapida antes de
   - o minimo sugerido por venda deve considerar produtos visiveis/compartilhados com a empresa do centro, nao apenas produtos originarios dessa empresa;
   - a montagem de requisicao, demanda do distribuidor, painel de compras e compra manual seguem essa mesma regra;
   - produtos vinculados a fichas tecnicas e produtos `COMBO` continuam proibidos como produto avulso no fluxo de minimo/requisicao/compra.
+  - regra operacional: produto direto usado em ficha `VENDA`, `EXECUCAO` ou `PREPARO` produzido na propria empresa deve ser requisitado ao centro distribuidor de materia-prima dessa empresa; produto usado dentro de `PREPARO` produzido por centro de outra empresa deve seguir a cadeia do centro produtor externo.
 
 ## Cadastro via API
 
