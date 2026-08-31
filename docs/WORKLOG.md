@@ -980,3 +980,13 @@ Registrar um historico resumido do que foi feito, do que falhou e do que ficou p
   - `backups/online-before-activate-macaxeira-visible-subsheet-chain-20260831T211026Z`.
 - Auditoria criada no online: logs `#1758` e `#1759`.
 - Validacao online: nao restou ficha tecnica inativa visivel para a empresa 5 nem produto vinculado inativo usado por ficha ativa visivel da Macaxeira.
+
+### Cancelamento de requisicoes para novo teste Macaxeira/Complexo
+
+- Criado backup antes da operacao em `backups/online-before-cancel-cpxva-macaxeira-requisitions-20260831T211520Z`.
+- Canceladas no online as requisicoes abertas das empresas `MACAXEIRA POIS POIS` e `COMPLEXO VILA ANALIA`:
+  - `#127`, `#128` e `#130` da empresa 5;
+  - `#132` e `#134` da empresa 2.
+- Todas estavam em `SENT_TO_SUPPLIES` antes do cancelamento.
+- Auditoria criada no online: log `#1760`.
+- Validacao online: nao restou requisicao aberta nao recebida para as empresas 2 e 5; nao restou solicitacao manual de producao nem rascunho de producao vinculado aos grupos cancelados.
