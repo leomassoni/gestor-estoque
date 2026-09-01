@@ -1038,3 +1038,15 @@ Registrar um historico resumido do que foi feito, do que falhou e do que ficou p
   - `NECTAR ABACAXI` (`id=119`), usada por `BATIDA PEQUI PRE-BATCHED` e `INVASAO TROPICAL CLARIFICADO`, demanda estimada `2,95 ml`, produzida hoje apenas por `BAR URU` e `BAR TRATTORIA`, sem rota explicita para o laboratorio e sem registro de estoque no laboratorio.
 - Conclusao: a lista nao esta omitindo subproducoes ja marcadas como feitas pelo laboratorio, mas pode esconder necessidade real nesses dois casos por falta de configuracao de produtor/rota.
 - Relatorio local: `auditorias/auditoria-fila-producao-laboratorio-cpxva-macaxeira-20260831.json`.
+
+### Correcao de produtor do LABORATORIO para Tintura e Nectar
+
+- Confirmado operacionalmente que `TINTURA FRUTAS VERMELHAS` (`id=115`) e `NECTAR ABACAXI` (`id=119`) tambem sao produzidos pelo `LABORATORIO` de `COMPLEXO VILA ANALIA`.
+- Online corrigido via script rastreavel `scripts/fix_cpxva_lab_producer_gaps.py`:
+  - adiciona `stockCenterId=1` em `productionCenters` das fichas `115` e `119`;
+  - adiciona as fichas `115` e `119` em `producedTechnicalSheetIds` do centro `LABORATORIO`;
+  - cria entradas complementares da fila atual para a requisicao `#136`: `TINTURA FRUTAS VERMELHAS` `1.052,63 ml`, `NECTAR ABACAXI` `2.375,78 ml` por `BATIDA PEQUI PRE-BATCHED` e `NECTAR ABACAXI` `571,43 ml` por `INVASAO TROPICAL CLARIFICADO`.
+- Observacao de escala: a primeira auditoria subestimou o `NECTAR ABACAXI` porque o calculo externo nao reproduziu o `parseDecimal` do app; no app, `17.000` e `3.000` sao milhar, nao decimal.
+- Logs online gerados: `#1772` a `#1775`.
+- Backups online: `backups/online-before-cpxva-lab-producer-gaps-20260901T003339Z`.
+- Relatorio aplicado: `auditorias/cpxva-lab-producer-gaps-fix-20260901T003343Z.json`.
