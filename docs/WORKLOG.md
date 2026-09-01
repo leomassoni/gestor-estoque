@@ -1024,3 +1024,17 @@ Registrar um historico resumido do que foi feito, do que falhou e do que ficou p
 - O modal permite escolher `PDF` ou `XLSX`.
 - Campos exportados: centro produtor, pre-preparo, ID interno, familia, prioridade, estoque atual, minimo de uso, demanda operacional, sugestao, origem, detalhes da origem, entrada, detalhes da entrada, status e quantidade de insumos em falta.
 - Validacao local: `npm run build`.
+
+### Auditoria da fila do LABORATORIO para atender Macaxeira
+
+- Verificada a fila online de `Entrada de producoes` do `LABORATORIO` em `COMPLEXO VILA ANALIA`, gerada a partir da requisicao `#136` de `BAR MACAXEIRA POIS POIS`.
+- Estado encontrado:
+  - `47` entradas de producao no laboratorio;
+  - `39` fichas unicas na fila;
+  - nenhuma ficha atualmente na fila estava sem vinculo de producao com o laboratorio;
+  - nenhuma dependencia que o sistema ja considera produzida pelo laboratorio ficou fora da fila.
+- Lacuna de cadastro encontrada: existem dependencias de pre-preparo necessarias para producoes da fila que nao resolvem para o laboratorio e tambem nao tem saldo registrado no laboratorio:
+  - `TINTURA FRUTAS VERMELHAS` (`id=115`), usada por `LICOR FRUTAS VERMELHAS LISBOA E NOSSA`, demanda estimada `1.052,63 ml`, sem centro produtor, sem rota de suprimento e sem registro de estoque no laboratorio;
+  - `NECTAR ABACAXI` (`id=119`), usada por `BATIDA PEQUI PRE-BATCHED` e `INVASAO TROPICAL CLARIFICADO`, demanda estimada `2,95 ml`, produzida hoje apenas por `BAR URU` e `BAR TRATTORIA`, sem rota explicita para o laboratorio e sem registro de estoque no laboratorio.
+- Conclusao: a lista nao esta omitindo subproducoes ja marcadas como feitas pelo laboratorio, mas pode esconder necessidade real nesses dois casos por falta de configuracao de produtor/rota.
+- Relatorio local: `auditorias/auditoria-fila-producao-laboratorio-cpxva-macaxeira-20260831.json`.
