@@ -5358,11 +5358,20 @@ export default function App() {
           .slice()
           .sort((left, right) => right.createdAt.localeCompare(left.createdAt) || right.id - left.id)
           .map((request) => {
-            const sourceLabel =
+            const sourceRequisition =
               typeof request.sourceRequisitionId === 'number' && request.sourceRequisitionId > 0
+                ? requisitions.find((record) => record.id === request.sourceRequisitionId) ?? null
+                : null
+            const sourceLabel =
+              sourceRequisition
                 ? `Requisicao #${request.sourceRequisitionId}`
                 : `Pedido manual #${request.rootRequestId}`
-            return `${sourceLabel}: ${request.createdByUserName} em ${formatDateTimeForDisplay(request.createdAt)}`
+            const originLabel = sourceRequisition
+              ? `${getCompanyTradeName(sourceRequisition.companyId)} • ${sourceRequisition.stockCenterName.trim() || `CENTRO ${sourceRequisition.stockCenterId}`}`
+              : ''
+            const requesterName = sourceRequisition?.createdByUserName || request.createdByUserName
+            const requestedAt = sourceRequisition?.createdAt || request.createdAt
+            return `${sourceLabel}${originLabel ? ` de ${originLabel}` : ''}: ${requesterName} em ${formatDateTimeForDisplay(requestedAt)}`
           })
         const sourceDetails = [
           ...(automaticSuggestedQuantity > 0

@@ -30,6 +30,9 @@ Registrar um historico resumido do que foi feito, do que falhou e do que ficou p
   - limpeza online aplicada removendo `335` e `649` do centro `10`, log `#1837`;
   - ajuste de codigo: `doesCenterDirectlyProduceTechnicalSheet` passou a considerar apenas `technicalSheet.productionCenters` como fonte autoritativa da producao;
   - rechecagem online: `0` preparos ativos restantes com divergencia entre centro produtor e `productionCenters`.
+- Origem de requisicao na fila de entrada de producoes:
+  - detalhes de origem passam a usar a requisicao original quando houver `sourceRequisitionId`;
+  - alem de usuario e horario, o detalhe mostra empresa e centro de estoque requisitor, por exemplo `Requisicao #151 de MACAXEIRA POIS POIS • BAR MACAXEIRA POIS POIS`.
 - Validacao online apos correcao:
   - `XAROPE DE CAJA 53.5` resolve para produtores `[1,10,11,12]`;
   - `MACA VERDE GRANNY SMITH CLARIFICADO` segue produzido somente no `LABORATORIO`;
