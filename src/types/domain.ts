@@ -574,6 +574,9 @@ export type PurchaseDemandColumnKey =
   | 'order'
   | 'product'
   | 'center'
+  | 'originCompany'
+  | 'originCenter'
+  | 'externalOrigin'
   | 'family'
   | 'subfamily'
   | 'package'
@@ -879,6 +882,19 @@ export type RequisitionLineRecord = {
   receiptResolvedByUserId?: number | null
   receiptResolvedByUserName?: string
   receiptSessionId?: number | null
+  sourceAllocations?: RequisitionLineSourceAllocation[]
+}
+
+export type RequisitionLineSourceAllocation = {
+  originCompanyId: number | null
+  originCompanyName: string
+  originCenterId: number | null
+  originCenterName: string
+  sourceRequisitionId: number | null
+  sourceRequisitionGroupId: number | null
+  sourceRequisitionLineKey: string
+  sourcePath: string
+  quantity: number
 }
 
 export type RequisitionRecord = {

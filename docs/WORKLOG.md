@@ -1,10 +1,42 @@
 # Worklog
 
- Ultima atualizacao: 2026-08-30
+ Ultima atualizacao: 2026-09-01
 
 ## Objetivo deste arquivo
 
 Registrar um historico resumido do que foi feito, do que falhou e do que ficou pendente.
+
+## 2026-09-01
+
+### Correcao de roteamento de producao CPXVA/Macaxeira
+
+- Auditados 3 casos reportados na fila de `Entrada de producoes` envolvendo `COMPLEXO VILA ANALIA` e `MACAXEIRA POIS POIS`.
+- `PURE GOIABA`: havia duas fichas ativas diferentes:
+  - `id=476`, origem `COMPLEXO VILA ANALIA`, produzida no `LABORATORIO`, compartilhada com Macaxeira;
+  - `id=828`, origem `MACAXEIRA POIS POIS`, produzida pelos bares Macaxeira.
+- Correcao aplicada para seguir a regra operacional de producao somente no laboratorio:
+  - usos ativos da ficha duplicada Macaxeira foram redirecionados para o produto da ficha `id=476`;
+  - ficha duplicada `id=828` foi inativada e teve `productionCenters` limpo;
+  - produto tecnico `PRE-MTB6D1C9-55RSUM` foi inativado/renomeado para `PURE GOIABA - DUPLICADO INATIVO MACAXEIRA`;
+  - minimo stale do centro `BAR MACAXEIRA POIS POIS` foi migrado da ficha `id=828` para `id=476` e deduplicado.
+- `XAROPE DE CAJA 53.5` (`id=79`): estava produzido apenas pelos centros Macaxeira `10`, `11` e `12`; foi adicionado tambem ao `LABORATORIO` (`stockCenterId=1`), mantendo os produtores Macaxeira.
+- `PINDORAMA PRE-BATCHED` Macaxeira (`id=826`): a ficha ativa estava sem o ingrediente `MACA VERDE GRANNY SMITH CLARIFICADO`; o ingrediente foi reativado/corrigido com `productId=PRE-MRFLF21B-7ZBYNH`, quantidade `600`.
+- Varredura de casos semelhantes:
+  - a unica dependencia de requisicao do laboratorio que nao resolvia para produtor era `XAROPE DE CAJA 53.5` via `BATIDA CAJA PRE-BATCHED`;
+  - as duplicidades ativas relevantes com divergencia de ingredientes eram `PINDORAMA PRE-BATCHED` e `BOMBEIRINHO COLLINS PRE-BATCHED`; o segundo ficou apenas como observacao porque a versao Macaxeira ja usa `PRE-BATCHED NAO E PINK`, conforme correcao manual do usuario.
+- Validacao online apos correcao:
+  - `XAROPE DE CAJA 53.5` resolve para produtores `[1,10,11,12]`;
+  - `MACA VERDE GRANNY SMITH CLARIFICADO` segue produzido somente no `LABORATORIO`;
+  - `PURE GOIABA` ativo em Macaxeira aponta para a ficha compartilhada `id=476`, sem referencias ativas ao produto duplicado;
+  - nenhuma dependencia ativa da fila do laboratorio ficou sem produtor resolvido.
+- Logs online: `#1833`, `#1834`, `#1835` e `#1836` (`#1832` tambem foi gerado para a primeira migracao parcial do pure).
+- Relatorios locais:
+  - `auditorias/production-routing-focus-audit-20260901.json`
+  - `auditorias/production-routing-dependency-problems-20260901.json`
+  - `auditorias/macaxeira-cpxva-duplicate-prep-divergences-20260901.json`
+  - `auditorias/macaxeira-production-routing-postfix-verification-20260901.json`
+  - `auditorias/macaxeira-production-routing-cases-fix-20260901T034948Z.json`
+- Script rastreavel: `scripts/fix_macaxeira_production_routing_cases.py`.
 
 ## 2026-08-30
 

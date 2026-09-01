@@ -264,6 +264,7 @@ import type {
   WasteHistoryRow,
   RequisitionStatus,
   RequisitionLineRecord,
+  RequisitionLineSourceAllocation,
   RequisitionRecord,
   RequisitionFormState,
   RequisitionDraftLine,
@@ -683,6 +684,9 @@ const purchaseDemandColumnOptions: Array<[PurchaseDemandColumnKey, string]> = [
   ['order', 'Pedido'],
   ['product', 'Produto'],
   ['center', 'Centro a abastecer'],
+  ['originCompany', 'Empresa origem'],
+  ['originCenter', 'Centro origem'],
+  ['externalOrigin', 'Origem externa'],
   ['family', 'Familia'],
   ['subfamily', 'Subfamilia'],
   ['package', 'Embalagem'],
@@ -697,6 +701,9 @@ const defaultPurchaseDemandColumnVisibility: Record<PurchaseDemandColumnKey, boo
   order: true,
   product: true,
   center: true,
+  originCompany: true,
+  originCenter: true,
+  externalOrigin: true,
   family: true,
   subfamily: true,
   package: true,
@@ -725,6 +732,9 @@ type PurchaseDemandRow = {
   currentQuantity: number
   purchaseQuantity: number
   originCount: number
+  originCompanyNames: string[]
+  originCenterNames: string[]
+  externalOriginLabel: string
   requesterCenters: string[]
   requisitionIds: number[]
   originDetails: PurchaseDemandOriginDetail[]
@@ -734,9 +744,15 @@ type PurchaseDemandOriginDetail = {
   requisitionId: number
   requisitionGroupId: number
   purchaseOrderCode: string
+  originCompanyId: number | null
+  originCompanyName: string
+  originCenterId: number | null
+  originCenterName: string
   requestingCenterName: string
+  sourcePath: string
   sourceLabel: string
   requestedQuantity: number
+  purchaseQuantity: number
 }
 type PurchaseOrderGroupLine = {
   key: string
@@ -748,6 +764,10 @@ type PurchaseOrderGroupLine = {
   unitLabel: string
   requestedQuantity: number
   purchaseQuantity: number
+  originCompanyName: string
+  originCenterName: string
+  externalOriginLabel: string
+  sourcePath: string
   sourceLabel: string
   demandRow: PurchaseDemandRow | null
 }
@@ -795,6 +815,12 @@ function getPurchaseDemandColumnValue(row: PurchaseDemandRow, key: PurchaseDeman
       return `${row.productName} ${row.internalId}`.trim()
     case 'center':
       return row.stockCenterName
+    case 'originCompany':
+      return row.originCompanyNames.join(', ') || '-'
+    case 'originCenter':
+      return row.originCenterNames.join(', ') || '-'
+    case 'externalOrigin':
+      return row.externalOriginLabel
     case 'family':
       return row.family
     case 'subfamily':
@@ -814,6 +840,15 @@ function getPurchaseDemandColumnValue(row: PurchaseDemandRow, key: PurchaseDeman
     case 'type':
       return row.sourceLabel
   }
+}
+function getPurchaseDemandColumnFilterValues(row: PurchaseDemandRow, key: PurchaseDemandColumnKey) {
+  if (key === 'originCompany') {
+    return row.originCompanyNames.length > 0 ? row.originCompanyNames : ['-']
+  }
+  if (key === 'originCenter') {
+    return row.originCenterNames.length > 0 ? row.originCenterNames : ['-']
+  }
+  return [getPurchaseDemandColumnValue(row, key)]
 }
 function getPurchaseDemandColumnSortableValue(row: PurchaseDemandRow, key: PurchaseDemandColumnKey) {
   if (key === 'current') {
@@ -4289,6 +4324,119 @@ export default function App() {
       line.destinationCenterId ?? '',
       line.supplierCenterId ?? '',
     ].join(':')
+  }
+  function normalizeRequisitionLineSourceAllocations(
+    allocations: RequisitionLineSourceAllocation[] | undefined,
+  ): RequisitionLineSourceAllocation[] {
+    if (!Array.isArray(allocations)) {
+      return []
+    }
+
+    return allocations
+      .filter((allocation) => allocation && typeof allocation === 'object')
+      .map((allocation) => ({
+        originCompanyId: isSafePersistedIntId(allocation.originCompanyId) ? allocation.originCompanyId : null,
+        originCompanyName: normalizeRegistrationText(allocation.originCompanyName ?? ''),
+        originCenterId: isSafePersistedIntId(allocation.originCenterId) ? allocation.originCenterId : null,
+        originCenterName: normalizeRegistrationText(allocation.originCenterName ?? ''),
+        sourceRequisitionId: isSafePersistedIntId(allocation.sourceRequisitionId) ? allocation.sourceRequisitionId : null,
+        sourceRequisitionGroupId: isSafePersistedIntId(allocation.sourceRequisitionGroupId)
+          ? allocation.sourceRequisitionGroupId
+          : null,
+        sourceRequisitionLineKey:
+          typeof allocation.sourceRequisitionLineKey === 'string'
+            ? normalizeRegistrationText(allocation.sourceRequisitionLineKey)
+            : '',
+        sourcePath: normalizeRegistrationText(allocation.sourcePath ?? ''),
+        quantity: typeof allocation.quantity === 'number' && Number.isFinite(allocation.quantity) ? allocation.quantity : 0,
+      }))
+      .filter(
+        (allocation) =>
+          allocation.quantity > 0 &&
+          (allocation.originCompanyName || allocation.originCenterName || allocation.sourcePath),
+      )
+  }
+  function getSourceAllocationKey(allocation: RequisitionLineSourceAllocation) {
+    return [
+      allocation.originCompanyId ?? '',
+      allocation.originCompanyName,
+      allocation.originCenterId ?? '',
+      allocation.originCenterName,
+      allocation.sourceRequisitionId ?? '',
+      allocation.sourceRequisitionLineKey,
+      allocation.sourcePath,
+    ].join('::')
+  }
+  function mergeSourceAllocations(allocations: RequisitionLineSourceAllocation[]) {
+    const merged = new Map<string, RequisitionLineSourceAllocation>()
+    normalizeRequisitionLineSourceAllocations(allocations).forEach((allocation) => {
+      const key = getSourceAllocationKey(allocation)
+      const existing = merged.get(key) ?? null
+      merged.set(key, {
+        ...allocation,
+        quantity: (existing?.quantity ?? 0) + allocation.quantity,
+      })
+    })
+    return Array.from(merged.values())
+  }
+  function scaleSourceAllocations(
+    allocations: RequisitionLineSourceAllocation[],
+    targetQuantity: number,
+  ): RequisitionLineSourceAllocation[] {
+    if (targetQuantity <= 0) {
+      return []
+    }
+    const normalizedAllocations = normalizeRequisitionLineSourceAllocations(allocations)
+    const totalQuantity = normalizedAllocations.reduce((sum, allocation) => sum + allocation.quantity, 0)
+    if (totalQuantity <= 0) {
+      return []
+    }
+    return normalizedAllocations.map((allocation) => ({
+      ...allocation,
+      quantity: targetQuantity * (allocation.quantity / totalQuantity),
+    }))
+  }
+  function getLineBaseDemandQuantity(line: RequisitionLineRecord) {
+    const requestedQuantity = parseDecimal(line.requestedQuantity) ?? 0
+    if (line.kind !== 'PRODUTO') {
+      return requestedQuantity
+    }
+    return requestedQuantity * getRequisitionStockMovementConfig(line).multiplier
+  }
+  function buildFallbackSourceAllocation(line: RequisitionLineRecord, record: RequisitionRecord) {
+    const originCompanyName = getCompanyTradeName(record.companyId)
+    const originCenterName = normalizeRegistrationText(record.stockCenterName) || `CENTRO ${record.stockCenterId}`
+    return {
+      originCompanyId: record.companyId,
+      originCompanyName,
+      originCenterId: record.stockCenterId,
+      originCenterName,
+      sourceRequisitionId: record.id,
+      sourceRequisitionGroupId: record.requisitionGroupId,
+      sourceRequisitionLineKey: line.key,
+      sourcePath: `${originCompanyName} > ${originCenterName} > requisicao #${record.id}`,
+      quantity: getLineBaseDemandQuantity(line),
+    } satisfies RequisitionLineSourceAllocation
+  }
+  function getLineSourceAllocations(
+    line: RequisitionLineRecord,
+    record: RequisitionRecord,
+    targetQuantity = getLineBaseDemandQuantity(line),
+  ) {
+    const allocations = normalizeRequisitionLineSourceAllocations(line.sourceAllocations)
+    return allocations.length > 0
+      ? scaleSourceAllocations(allocations, targetQuantity)
+      : scaleSourceAllocations([buildFallbackSourceAllocation(line, record)], targetQuantity)
+  }
+  function attachFallbackSourceAllocations(line: RequisitionLineRecord, record: RequisitionRecord) {
+    const existingAllocations = normalizeRequisitionLineSourceAllocations(line.sourceAllocations)
+    return {
+      ...line,
+      sourceAllocations:
+        existingAllocations.length > 0
+          ? existingAllocations
+          : [buildFallbackSourceAllocation(line, record)],
+    } satisfies RequisitionLineRecord
   }
   function getAuditActorSnapshot() {
     if (session?.kind === 'systemAdmin') {
@@ -8076,7 +8224,7 @@ export default function App() {
         currentQuantity: number
         requesterCenters: Set<string>
         requisitionIds: Set<number>
-        originDetails: Map<number, PurchaseDemandOriginDetail>
+        originDetails: Map<string, PurchaseDemandOriginDetail>
         sourceLabels: Set<string>
         shouldSubtractCurrentStock: boolean
       }
@@ -8162,6 +8310,7 @@ export default function App() {
       }
       const product = productById.get(params.line.productId) ?? null
       const packageInfo = getLinePurchasePackageInfo(params.line, product)
+      const lineBaseQuantity = getLineBaseQuantity(params.line)
       const aggregationKey = buildInventoryAggregationKey({
         kind: 'PRODUTO',
         technicalSheetId: null,
@@ -8192,7 +8341,7 @@ export default function App() {
           currentQuantity,
           requesterCenters: new Set<string>(),
           requisitionIds: new Set<number>(),
-          originDetails: new Map<number, PurchaseDemandOriginDetail>(),
+          originDetails: new Map<string, PurchaseDemandOriginDetail>(),
           sourceLabels: new Set<string>(),
           shouldSubtractCurrentStock: params.shouldSubtractCurrentStock,
         }
@@ -8203,19 +8352,28 @@ export default function App() {
         group.packageBaseQuantity = null
         group.packageLabel = ''
       }
-      group.requestedQuantity += getLineBaseQuantity(params.line)
+      group.requestedQuantity += lineBaseQuantity
       group.currentQuantity = currentQuantity
       const requestingCenterName = params.requesterCenterName ?? params.record.stockCenterName
       group.requesterCenters.add(requestingCenterName)
       group.requisitionIds.add(params.record.id)
-      const currentOrigin = group.originDetails.get(params.record.id)
-      group.originDetails.set(params.record.id, {
-        requisitionId: params.record.id,
-        requisitionGroupId: params.record.requisitionGroupId,
-        purchaseOrderCode: buildPurchaseOrderOperationalCode(params.record),
-        requestingCenterName,
-        sourceLabel: params.sourceLabel,
-        requestedQuantity: (currentOrigin?.requestedQuantity ?? 0) + getLineBaseQuantity(params.line),
+      getLineSourceAllocations(params.line, params.record, lineBaseQuantity).forEach((allocation) => {
+        const originKey = `${params.record.id}:${getSourceAllocationKey(allocation)}`
+        const currentOrigin = group.originDetails.get(originKey)
+        group.originDetails.set(originKey, {
+          requisitionId: params.record.id,
+          requisitionGroupId: params.record.requisitionGroupId,
+          purchaseOrderCode: buildPurchaseOrderOperationalCode(params.record),
+          originCompanyId: allocation.originCompanyId,
+          originCompanyName: allocation.originCompanyName || getCompanyTradeName(params.record.companyId),
+          originCenterId: allocation.originCenterId,
+          originCenterName: allocation.originCenterName || requestingCenterName,
+          requestingCenterName,
+          sourcePath: allocation.sourcePath || `${getCompanyTradeName(params.record.companyId)} > ${requestingCenterName}`,
+          sourceLabel: params.sourceLabel,
+          requestedQuantity: (currentOrigin?.requestedQuantity ?? 0) + allocation.quantity,
+          purchaseQuantity: 0,
+        })
       })
       group.sourceLabels.add(params.sourceLabel)
       groups.set(groupKey, group)
@@ -8248,8 +8406,9 @@ export default function App() {
       })
 
     return Array.from(groups.values())
-      .map((group) => {
-        const requestedQuantity = ceilBaseQuantityToOperationalPackage(group.requestedQuantity, group.packageBaseQuantity)
+      .flatMap((group) => {
+        const rawRequestedQuantity = group.requestedQuantity
+        const requestedQuantity = ceilBaseQuantityToOperationalPackage(rawRequestedQuantity, group.packageBaseQuantity)
         const purchaseQuantity = ceilBaseQuantityToOperationalPackage(
           group.shouldSubtractCurrentStock
             ? Math.max(requestedQuantity - group.currentQuantity, 0)
@@ -8257,31 +8416,50 @@ export default function App() {
           group.packageBaseQuantity,
         )
         const originDetails = Array.from(group.originDetails.values()).sort((left, right) => left.requisitionId - right.requisitionId)
-        return {
-          key: `${group.center.id}:${group.productId}:${Array.from(group.sourceLabels).join('|')}`,
-          purchaseOrderCode:
-            originDetails.length === 1
-              ? originDetails[0]?.purchaseOrderCode ?? `PC-C${currentCompanyId}-CE${group.center.id}`
-              : `PC-C${currentCompanyId}-CE${group.center.id}-CONSOLIDADO`,
-          stockCenterId: group.center.id,
-          stockCenterName: group.center.name,
-          productId: group.productId,
-          productName: group.productName,
-          internalId: group.product?.companyProductId || group.productId,
-          family: group.family || '-',
-          subfamily: group.subfamily || '-',
-          unitLabel: group.product ? formatControlUnitShort(group.product.controlUnit) : 'UN',
-          packageBaseQuantity: group.packageBaseQuantity,
-          packageLabel: group.packageLabel,
-          requestedQuantity,
-          currentQuantity: group.currentQuantity,
-          purchaseQuantity,
-          originCount: group.requisitionIds.size,
-          requesterCenters: Array.from(group.requesterCenters).sort((left, right) => left.localeCompare(right, 'pt-BR')),
-          requisitionIds: Array.from(group.requisitionIds).sort((left, right) => left - right),
-          originDetails,
-          sourceLabel: Array.from(group.sourceLabels).sort((left, right) => left.localeCompare(right, 'pt-BR')).join(' / '),
-        } satisfies PurchaseDemandRow
+        const allocatedOriginDetails = originDetails.map((origin) => ({
+          ...origin,
+          purchaseQuantity: rawRequestedQuantity > 0 ? purchaseQuantity * (origin.requestedQuantity / rawRequestedQuantity) : 0,
+        }))
+        return allocatedOriginDetails.map((origin, originIndex) => {
+          const originRequestedRatio = rawRequestedQuantity > 0 ? origin.requestedQuantity / rawRequestedQuantity : 0
+          const originCurrentQuantity = group.shouldSubtractCurrentStock ? group.currentQuantity * originRequestedRatio : 0
+          const externalOriginLabel =
+            origin.originCompanyId !== null && origin.originCompanyId !== currentCompanyId ? 'Externa' : 'Interna'
+          return {
+            key: [
+              group.center.id,
+              group.productId,
+              Array.from(group.sourceLabels).join('|'),
+              origin.requisitionId,
+              origin.originCompanyId ?? '',
+              origin.originCenterId ?? '',
+              origin.sourcePath,
+              originIndex,
+            ].join(':'),
+            purchaseOrderCode: origin.purchaseOrderCode || `PC-C${currentCompanyId}-CE${group.center.id}`,
+            stockCenterId: group.center.id,
+            stockCenterName: group.center.name,
+            productId: group.productId,
+            productName: group.productName,
+            internalId: group.product?.companyProductId || group.productId,
+            family: group.family || '-',
+            subfamily: group.subfamily || '-',
+            unitLabel: group.product ? formatControlUnitShort(group.product.controlUnit) : 'UN',
+            packageBaseQuantity: group.packageBaseQuantity,
+            packageLabel: group.packageLabel,
+            requestedQuantity: origin.requestedQuantity,
+            currentQuantity: originCurrentQuantity,
+            purchaseQuantity: origin.purchaseQuantity,
+            originCount: 1,
+            originCompanyNames: origin.originCompanyName ? [origin.originCompanyName] : [],
+            originCenterNames: origin.originCenterName ? [origin.originCenterName] : [],
+            externalOriginLabel,
+            requesterCenters: [origin.requestingCenterName].filter(Boolean),
+            requisitionIds: [origin.requisitionId],
+            originDetails: [origin],
+            sourceLabel: origin.sourceLabel,
+          } satisfies PurchaseDemandRow
+        })
       })
       .filter((row) => row.purchaseQuantity > 0)
       .sort(
@@ -8313,9 +8491,13 @@ export default function App() {
             row.subfamily,
             row.purchaseOrderCode,
             row.sourceLabel,
+            row.originCompanyNames.join(', '),
+            row.originCenterNames.join(', '),
+            row.externalOriginLabel,
             row.requesterCenters.join(', '),
             row.requisitionIds.map((id) => `#${id}`).join(', '),
             row.originDetails.map((origin) => origin.purchaseOrderCode).join(', '),
+            row.originDetails.map((origin) => origin.sourcePath).join(', '),
           ].some((value) => normalizeFreeText(value).includes(search))
 
         const matchesFilters = Object.entries(purchaseDemandColumnFilters).every(([rawKey, selectedValues]) => {
@@ -8323,7 +8505,7 @@ export default function App() {
             return true
           }
           const key = rawKey as PurchaseDemandColumnKey
-          return selectedValues.includes(getPurchaseDemandColumnValue(row, key))
+          return getPurchaseDemandColumnFilterValues(row, key).some((value) => selectedValues.includes(value))
         })
 
         return matchesSearch && matchesFilters
@@ -8338,7 +8520,7 @@ export default function App() {
         purchaseDemandColumnOptions.map(([key]) => [
           key,
           sortDistinctValues(
-            Array.from(new Set(purchaseDemandRows.map((row) => getPurchaseDemandColumnValue(row, key)))),
+            Array.from(new Set(purchaseDemandRows.flatMap((row) => getPurchaseDemandColumnFilterValues(row, key)))),
             isNumericPurchaseDemandColumn(key),
           ),
         ]),
@@ -8386,6 +8568,10 @@ export default function App() {
             unitLabel: line.currentUnitLabel || (product ? formatControlUnitShort(product.controlUnit) : preparation ? formatControlUnitShort(preparation.outputUnit) : 'UN'),
             requestedQuantity,
             purchaseQuantity: 0,
+            originCompanyName: getCompanyTradeName(record.companyId),
+            originCenterName: record.stockCenterName,
+            externalOriginLabel: 'Interna',
+            sourcePath: `${getCompanyTradeName(record.companyId)} > ${record.stockCenterName} > requisicao #${record.id}`,
             sourceLabel:
               line.destinationType === 'COMPRAS'
                 ? 'Origem cancelada em compras'
@@ -8419,7 +8605,7 @@ export default function App() {
               .map((origin) => {
                 const allocationRatio = row.requestedQuantity > 0 ? origin.requestedQuantity / row.requestedQuantity : 0
                 return {
-                  key: `${record.id}:${row.key}`,
+                  key: `${record.id}:${row.key}:${origin.originCompanyId ?? ''}:${origin.originCenterId ?? ''}:${origin.sourcePath}`,
                   productName: row.productName,
                   internalId: row.internalId,
                   family: row.family,
@@ -8428,6 +8614,11 @@ export default function App() {
                   unitLabel: row.packageLabel ? 'EMB.' : row.unitLabel,
                   requestedQuantity: origin.requestedQuantity,
                   purchaseQuantity: row.purchaseQuantity * allocationRatio,
+                  originCompanyName: origin.originCompanyName,
+                  originCenterName: origin.originCenterName,
+                  externalOriginLabel:
+                    origin.originCompanyId !== null && origin.originCompanyId !== currentCompanyId ? 'Externa' : 'Interna',
+                  sourcePath: origin.sourcePath,
                   sourceLabel: origin.sourceLabel,
                   demandRow: row,
                 } satisfies PurchaseOrderGroupLine
@@ -23153,6 +23344,7 @@ export default function App() {
         requiredBaseQuantity: number
         requesterCenters: Set<string>
         requisitionIds: Set<number>
+        sourceAllocations: RequisitionLineSourceAllocation[]
       }
     >()
     const committedPurchaseBaseQuantityByProductId = new Map<string, number>()
@@ -23186,10 +23378,15 @@ export default function App() {
               requiredBaseQuantity: 0,
               requesterCenters: new Set<string>(),
               requisitionIds: new Set<number>(),
+              sourceAllocations: [],
             }
             currentDemand.requiredBaseQuantity += requiredBaseQuantity
             currentDemand.requesterCenters.add(record.stockCenterName)
             currentDemand.requisitionIds.add(record.id)
+            currentDemand.sourceAllocations = mergeSourceAllocations([
+              ...currentDemand.sourceAllocations,
+              ...getLineSourceAllocations(line, record, requiredBaseQuantity),
+            ])
             demandByProductId.set(product.id, currentDemand)
           })
       })
@@ -23284,6 +23481,7 @@ export default function App() {
         supplierCompanyId: null,
         supplierCompanyName: '',
         receiptStatus: 'PENDING',
+        sourceAllocations: scaleSourceAllocations(demand.sourceAllocations, shortageBaseQuantity),
       } satisfies RequisitionDraftLine]
     })
   }
@@ -23292,9 +23490,15 @@ export default function App() {
     record: RequisitionRecord,
     options: { reservedIds?: number[]; sentAt?: string; baseRequisitions?: RequisitionRecord[] } = {},
   ) {
-    const productionLines = record.lines.filter((line) => line.destinationType === 'PRODUCOES')
-    const supplyLines = record.lines.filter((line) => line.destinationType === 'SUPRIMENTOS')
-    const purchaseLines = record.lines.filter((line) => line.destinationType === 'COMPRAS')
+    const productionLines = record.lines
+      .filter((line) => line.destinationType === 'PRODUCOES')
+      .map((line) => attachFallbackSourceAllocations(line, record))
+    const supplyLines = record.lines
+      .filter((line) => line.destinationType === 'SUPRIMENTOS')
+      .map((line) => attachFallbackSourceAllocations(line, record))
+    const purchaseLines = record.lines
+      .filter((line) => line.destinationType === 'COMPRAS')
+      .map((line) => attachFallbackSourceAllocations(line, record))
     const unresolvedProductionLines = productionLines.filter((line) => getLineDestinationCenter(line) === null)
     const unresolvedSupplyLines = supplyLines.filter((line) => line.supplierCenterId === null || typeof line.supplierCenterId !== 'number')
 
@@ -23352,7 +23556,7 @@ export default function App() {
         supplyCompanyName: center ? getCompanyTradeName(center.companyId) : '',
         status: 'SENT_TO_SUPPLIES' as const,
         editScope: 'LINES_ONLY' as const,
-        lines,
+        lines: normalizedLines,
         sentAt: now,
         sentByUserId: currentAppUser?.id ?? null,
         sentByUserName: currentAppUser?.fullName ?? 'Administrador do sistema',
@@ -23371,9 +23575,15 @@ export default function App() {
   }
 
   function buildSplitRequisitionsForDraft(record: RequisitionRecord, baseRequisitions: RequisitionRecord[] = requisitions) {
-    const productionLines = record.lines.filter((line) => line.destinationType === 'PRODUCOES')
-    const supplyLines = record.lines.filter((line) => line.destinationType === 'SUPRIMENTOS')
-    const purchaseLines = record.lines.filter((line) => line.destinationType === 'COMPRAS')
+    const productionLines = record.lines
+      .filter((line) => line.destinationType === 'PRODUCOES')
+      .map((line) => attachFallbackSourceAllocations(line, record))
+    const supplyLines = record.lines
+      .filter((line) => line.destinationType === 'SUPRIMENTOS')
+      .map((line) => attachFallbackSourceAllocations(line, record))
+    const purchaseLines = record.lines
+      .filter((line) => line.destinationType === 'COMPRAS')
+      .map((line) => attachFallbackSourceAllocations(line, record))
     const unresolvedProductionLines = productionLines.filter((line) => getLineDestinationCenter(line) === null)
     const unresolvedSupplyLines = supplyLines.filter((line) => line.supplierCenterId === null || typeof line.supplierCenterId !== 'number')
 
@@ -23712,7 +23922,10 @@ export default function App() {
           if (productionYield <= 0) {
             return [] as RequisitionLineRecord[]
           }
-          return buildManualProductionShortageLines(producerCenter, sheet, productionYield, { availableByAggregationKey }).shortageLines
+          return buildManualProductionShortageLines(producerCenter, sheet, productionYield, {
+            availableByAggregationKey,
+            sourceAllocations: getLineSourceAllocations(line, productionRequisition, productionYield),
+          }).shortageLines
         })
 
         const mergedShortageLines = normalizeProductPackageRequisitionLines(mergeRequisitionLines(shortageLines)).filter(
@@ -26649,6 +26862,10 @@ export default function App() {
         ...existingLine,
         suggestedQuantity: formatDecimal(nextSuggestedQuantity),
         requestedQuantity: formatDecimal(nextRequestedQuantity),
+        sourceAllocations: mergeSourceAllocations([
+          ...(existingLine.sourceAllocations ?? []),
+          ...(line.sourceAllocations ?? []),
+        ]),
       })
     })
     return Array.from(merged.values())
@@ -26735,10 +26952,14 @@ export default function App() {
     stockCenter: StockCenterRecord,
     targetSheet: TechnicalSheetRecord,
     desiredYield: number,
-    options: { availableByAggregationKey?: Map<string, number> } = {},
+    options: {
+      availableByAggregationKey?: Map<string, number>
+      sourceAllocations?: RequisitionLineSourceAllocation[]
+    } = {},
   ) {
     const availableByAggregationKey =
       options.availableByAggregationKey ?? buildAvailableInventoryByAggregationKeyForCenter(stockCenter.id)
+    const sourceAllocations = normalizeRequisitionLineSourceAllocations(options.sourceAllocations)
 
     const lineMap = new Map<string, RequisitionLineRecord>()
     const plannedProductionRequests = new Map<string, { centerId: number; sheetId: number; desiredYield: number }>()
@@ -26841,6 +27062,10 @@ export default function App() {
         supplierCompanyId: productDemandDestination.supplierCompanyId,
         supplierCompanyName: productDemandDestination.supplierCompanyName,
         receiptStatus: 'PENDING',
+        sourceAllocations: mergeSourceAllocations([
+          ...(existingLine?.sourceAllocations ?? []),
+          ...scaleSourceAllocations(sourceAllocations, shortageQuantity),
+        ]),
       })
     }
 
@@ -26881,6 +27106,10 @@ export default function App() {
         supplierCompanyId: producerCenter?.companyId ?? null,
         supplierCompanyName: producerCenter ? getCompanyTradeName(producerCenter.companyId) : '',
         receiptStatus: 'PENDING',
+        sourceAllocations: mergeSourceAllocations([
+          ...(existingLine?.sourceAllocations ?? []),
+          ...scaleSourceAllocations(sourceAllocations, shortageQuantity),
+        ]),
       })
     }
 
@@ -28644,6 +28873,9 @@ export default function App() {
     const headers = [
       'Pedido',
       'Centro a abastecer',
+      'Empresa origem',
+      'Centro origem',
+      'Origem externa',
       'Familia',
       'Subfamilia',
       'Embalagem',
@@ -28656,11 +28888,15 @@ export default function App() {
       'Origens',
       'Requisicoes',
       'Pedidos origem',
+      'Detalhes origem',
       'Tipo',
     ]
     const rows = visiblePurchaseDemandRows.map((row) => [
       row.purchaseOrderCode,
       row.stockCenterName,
+      row.originCompanyNames.join(', ') || '-',
+      row.originCenterNames.join(', ') || '-',
+      row.externalOriginLabel,
       row.family,
       row.subfamily,
       formatPurchaseDemandPackageLabel(row),
@@ -28673,6 +28909,7 @@ export default function App() {
       row.requesterCenters.join(', '),
       row.requisitionIds.map((id) => `#${id}`).join(', '),
       row.originDetails.map((origin) => origin.purchaseOrderCode).join(', '),
+      row.originDetails.map((origin) => origin.sourcePath).join(' | '),
       row.sourceLabel,
     ])
     const fileDate = getTodayDateInputValue()
@@ -28744,6 +28981,10 @@ export default function App() {
       'Requisicao',
       'Centro solicitante',
       'Centro distribuidor',
+      'Empresa origem',
+      'Centro origem',
+      'Origem externa',
+      'Detalhes origem',
       'Familia',
       'Subfamilia',
       'Produto',
@@ -28759,6 +29000,10 @@ export default function App() {
       `#${group.requisitionId}`,
       group.requestingCenterName,
       group.supplyCenterName,
+      line.originCompanyName || '-',
+      line.originCenterName || '-',
+      line.externalOriginLabel,
+      line.sourcePath || '-',
       line.family,
       line.subfamily,
       line.productName,
@@ -48970,6 +49215,9 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                                   <th>Embalagem</th>
                                   <th>Demanda interna</th>
                                   <th>Comprar</th>
+                                  <th>Empresa origem</th>
+                                  <th>Centro origem</th>
+                                  <th>Origem externa</th>
                                   <th>Tipo</th>
                                 </tr>
                               </thead>
@@ -48985,6 +49233,9 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                                     <td>{line.packageLabel}</td>
                                     <td>{line.demandRow ? formatPurchaseDemandQuantity(line.requestedQuantity, line.demandRow) : `${formatDecimal(line.requestedQuantity)} ${line.unitLabel}`}</td>
                                     <td><strong>{line.demandRow ? formatPurchaseDemandQuantity(line.purchaseQuantity, line.demandRow) : `${formatDecimal(line.purchaseQuantity)} ${line.unitLabel}`}</strong></td>
+                                    <td>{line.originCompanyName || '-'}</td>
+                                    <td>{line.originCenterName || '-'}</td>
+                                    <td>{line.externalOriginLabel}</td>
                                     <td>{line.sourceLabel}</td>
                                   </tr>
                                 ))}
@@ -49049,6 +49300,9 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                                 </td>
                               ) : null}
                               {purchaseDemandColumnVisibility.center ? <td>{row.stockCenterName}</td> : null}
+                              {purchaseDemandColumnVisibility.originCompany ? <td>{row.originCompanyNames.join(', ') || '-'}</td> : null}
+                              {purchaseDemandColumnVisibility.originCenter ? <td>{row.originCenterNames.join(', ') || '-'}</td> : null}
+                              {purchaseDemandColumnVisibility.externalOrigin ? <td>{row.externalOriginLabel}</td> : null}
                               {purchaseDemandColumnVisibility.family ? <td>{row.family}</td> : null}
                               {purchaseDemandColumnVisibility.subfamily ? <td>{row.subfamily}</td> : null}
                               {purchaseDemandColumnVisibility.package ? <td>{formatPurchaseDemandPackageLabel(row)}</td> : null}
@@ -59021,6 +59275,40 @@ function normalizeStockCenterRecord(value: unknown): StockCenterRecord | null {
   }
 }
 
+function normalizePersistedRequisitionLineSourceAllocations(value: unknown): RequisitionLineSourceAllocation[] {
+  if (!Array.isArray(value)) {
+    return []
+  }
+
+  return value
+    .filter((allocation): allocation is Partial<RequisitionLineSourceAllocation> =>
+      Boolean(allocation) && typeof allocation === 'object',
+    )
+    .map((allocation) => ({
+      originCompanyId: isSafePersistedIntId(allocation.originCompanyId) ? allocation.originCompanyId : null,
+      originCompanyName:
+        typeof allocation.originCompanyName === 'string' ? normalizeRegistrationText(allocation.originCompanyName) : '',
+      originCenterId: isSafePersistedIntId(allocation.originCenterId) ? allocation.originCenterId : null,
+      originCenterName:
+        typeof allocation.originCenterName === 'string' ? normalizeRegistrationText(allocation.originCenterName) : '',
+      sourceRequisitionId: isSafePersistedIntId(allocation.sourceRequisitionId) ? allocation.sourceRequisitionId : null,
+      sourceRequisitionGroupId: isSafePersistedIntId(allocation.sourceRequisitionGroupId)
+        ? allocation.sourceRequisitionGroupId
+        : null,
+      sourceRequisitionLineKey:
+        typeof allocation.sourceRequisitionLineKey === 'string'
+          ? normalizeRegistrationText(allocation.sourceRequisitionLineKey)
+          : '',
+      sourcePath: typeof allocation.sourcePath === 'string' ? normalizeRegistrationText(allocation.sourcePath) : '',
+      quantity: typeof allocation.quantity === 'number' && Number.isFinite(allocation.quantity) ? allocation.quantity : 0,
+    }))
+    .filter(
+      (allocation) =>
+        allocation.quantity > 0 &&
+        (allocation.originCompanyName || allocation.originCenterName || allocation.sourcePath),
+    )
+}
+
 function normalizeRequisitionRecord(value: unknown): RequisitionRecord | null {
   if (!value || typeof value !== 'object') {
     return null
@@ -59118,6 +59406,7 @@ function normalizeRequisitionRecord(value: unknown): RequisitionRecord | null {
       receiptResolvedByUserName:
         typeof line.receiptResolvedByUserName === 'string' ? normalizeRegistrationText(line.receiptResolvedByUserName) : '',
       receiptSessionId: isSafePersistedIntId(line.receiptSessionId) ? line.receiptSessionId : null,
+      sourceAllocations: normalizePersistedRequisitionLineSourceAllocations(line.sourceAllocations),
     }})
 
   return {
