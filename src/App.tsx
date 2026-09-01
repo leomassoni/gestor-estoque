@@ -284,6 +284,7 @@ import type {
   RecipeExportState,
   TechnicalSheetExportState,
   RequisitionExportState,
+  ProductionExportState,
   StockReportExportState,
   AuditSeverity,
   AuditResult,
@@ -2895,6 +2896,7 @@ export default function App() {
   const [pendingExecutionPlanningCancelRow, setPendingExecutionPlanningCancelRow] = useState<ExecutionProductionPlanningRow | null>(null)
   const [pendingExecutionPlanningBatchCancelRows, setPendingExecutionPlanningBatchCancelRows] = useState<ExecutionProductionPlanningRow[] | null>(null)
   const [selectedExecutionPlanningRootIds, setSelectedExecutionPlanningRootIds] = useState<Set<number>>(() => new Set())
+  const [productionExportState, setProductionExportState] = useState<ProductionExportState | null>(null)
   const [technicalSheetExportSearch, setTechnicalSheetExportSearch] = useState('')
   const [recipePanelTab, setRecipePanelTab] = useState<RecipePanelTab>('PREPARO')
   const [recipePanelSearch, setRecipePanelSearch] = useState<Record<RecipePanelTab, string>>({
@@ -28408,6 +28410,145 @@ export default function App() {
     })
   }
 
+  function buildProductionQueueExportFileName(extension: 'pdf' | 'xlsx') {
+    const companyLabel = currentCompany?.tradeName || 'EMPRESA'
+    const centerLabel = selectedProductionCenter?.name || 'CENTRO'
+    const normalizedCompanyLabel = companyLabel
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/[^A-Z0-9]+/gi, '-')
+      .replace(/^-+|-+$/g, '')
+      .toUpperCase()
+    const normalizedCenterLabel = centerLabel
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/[^A-Z0-9]+/gi, '-')
+      .replace(/^-+|-+$/g, '')
+      .toUpperCase()
+
+    return `ENTRADA-PRODUCOES-${normalizedCompanyLabel || 'EMPRESA'}-${normalizedCenterLabel || 'CENTRO'}-${getTodayDateInputValue()}.${extension}`
+  }
+
+  async function exportProductionQueue(format: 'pdf' | 'xlsx') {
+    if (!selectedProductionCenter) {
+      setSaveFeedback({
+        status: 'error',
+        title: 'Exportacao indisponivel',
+        message: 'Selecione um centro produtor antes de exportar a fila de producoes.',
+      })
+      return
+    }
+    if (visibleProductionRows.length === 0) {
+      setSaveFeedback({
+        status: 'error',
+        title: 'Exportacao indisponivel',
+        message: 'Nao existem producoes visiveis na fila para exportar.',
+      })
+      return
+    }
+
+    const headers = [
+      'Centro produtor',
+      'Pre-preparo',
+      'ID interno',
+      'Familia',
+      'Prioridade',
+      'Estoque atual',
+      'Minimo de uso',
+      'Demanda operacional',
+      'Sugestao',
+      'Origem',
+      'Detalhes da origem',
+      'Entrada',
+      'Detalhes da entrada',
+      'Status',
+      'Insumos em falta',
+    ]
+    const rows = visibleProductionRows.map((row) => [
+      row.centerName,
+      row.sheetName,
+      row.internalId,
+      row.family || '-',
+      String(row.priority),
+      row.currentQuantityLabel,
+      row.useMinimumLabel,
+      row.realMinimumLabel,
+      row.suggestedProductionLabel,
+      row.sourceLabel,
+      row.sourceDetails.join('; ') || '-',
+      row.requestedAtLabel,
+      row.requestedAtDetails.join('; ') || '-',
+      row.statusLabel,
+      formatDecimal(row.shortageLineCount),
+    ])
+    const fileName = buildProductionQueueExportFileName(format)
+
+    if (format === 'xlsx') {
+      const xlsxModule = await loadXlsxModule()
+      const worksheet = xlsxModule.utils.aoa_to_sheet([
+        ['Empresa', currentCompany?.tradeName || '-'],
+        ['Centro produtor', selectedProductionCenter.name],
+        ['Data', formatDateForDisplay(getTodayDateInputValue())],
+        ['Busca', productionSearch.trim() || '-'],
+        ['Producoes visiveis', String(visibleProductionRows.length)],
+        [],
+        headers,
+        ...rows,
+      ])
+      const workbook = xlsxModule.utils.book_new()
+      xlsxModule.utils.book_append_sheet(workbook, worksheet, 'Entrada de producoes')
+      xlsxModule.writeFile(workbook, fileName)
+    } else {
+      const { jsPdfModule, autoTableModule } = await loadPdfDependencies()
+      const { jsPDF } = jsPdfModule
+      const autoTable = autoTableModule.default
+      const doc = new jsPDF({ orientation: 'landscape', unit: 'pt', format: 'a4' })
+      doc.setFontSize(14)
+      doc.text('Entrada de producoes', 40, 32)
+      doc.setFontSize(9)
+      doc.text(
+        `Empresa: ${currentCompany?.tradeName || '-'} | Centro: ${selectedProductionCenter.name} | Producoes: ${visibleProductionRows.length}`,
+        40,
+        48,
+      )
+      doc.text(`Busca: ${productionSearch.trim() || '-'}`, 40, 62)
+      autoTable(doc, {
+        head: [headers],
+        body: rows,
+        startY: 76,
+        styles: { fontSize: 7, cellPadding: 4, overflow: 'linebreak' },
+        headStyles: { fillColor: [15, 72, 124] },
+        columnStyles: {
+          1: { cellWidth: 118 },
+          10: { cellWidth: 128 },
+          12: { cellWidth: 128 },
+        },
+      })
+      doc.save(fileName)
+    }
+
+    setSaveFeedback({
+      status: 'success',
+      title: `Entrada de producoes exportada em ${format.toUpperCase()}`,
+      message: 'O arquivo foi gerado com base na fila visivel do centro produtor selecionado.',
+    })
+  }
+
+  function openProductionExportModal() {
+    setProductionExportState({
+      format: 'pdf',
+    })
+  }
+
+  function confirmProductionExport() {
+    if (!productionExportState) {
+      return
+    }
+
+    void exportProductionQueue(productionExportState.format)
+    setProductionExportState(null)
+  }
+
   async function exportRequisition(requisition: RequisitionRecord, format: 'pdf' | 'xlsx') {
     if (requisition.status === 'PENDING_APPROVAL' || requisition.status === 'CANCELLED') {
       return
@@ -49011,6 +49152,14 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                 <h2>Entrada de producoes</h2>
               </div>
               <div className="toolbar-actions">
+                <button
+                  type="button"
+                  className="ghost-button"
+                  onClick={openProductionExportModal}
+                  disabled={!selectedProductionCenter || visibleProductionRows.length === 0}
+                >
+                  Exportar
+                </button>
                 <button type="button" className="ghost-button" onClick={openExecutionProductionModal}>
                   Producao por ficha
                 </button>
@@ -55236,6 +55385,60 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                 Cancelar
               </button>
               <button className="primary-button" type="button" onClick={confirmTechnicalSheetExport}>
+                Exportar
+              </button>
+            </div>
+          </section>
+        </div>
+      ) : null}
+
+      {productionExportState ? (
+        <div className="modal-backdrop" role="presentation" onClick={() => setProductionExportState(null)}>
+          <section
+            className="modal-card modal-card-compact"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="production-export-title"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="section-heading">
+              <div>
+                <p className="kicker">Exportacao</p>
+                <h2 id="production-export-title">Exportar entrada de producoes</h2>
+              </div>
+            </div>
+
+            <div className="confirmation-details">
+              <label className="field">
+                <span>Formato do arquivo</span>
+                <select
+                  value={productionExportState.format}
+                  onChange={(event) =>
+                    setProductionExportState((current) =>
+                      current
+                        ? {
+                            ...current,
+                            format: event.target.value as ProductionExportState['format'],
+                          }
+                        : current,
+                    )
+                  }
+                >
+                  <option value="pdf">PDF</option>
+                  <option value="xlsx">XLSX</option>
+                </select>
+              </label>
+
+              <p className="confirm-copy">
+                A exportacao considera o centro produtor selecionado, a busca ativa e somente as producoes visiveis na fila.
+              </p>
+            </div>
+
+            <div className="modal-actions">
+              <button className="ghost-button" type="button" onClick={() => setProductionExportState(null)}>
+                Cancelar
+              </button>
+              <button className="primary-button" type="button" onClick={confirmProductionExport}>
                 Exportar
               </button>
             </div>

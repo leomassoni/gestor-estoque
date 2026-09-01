@@ -1016,3 +1016,11 @@ Registrar um historico resumido do que foi feito, do que falhou e do que ficou p
   - backup da planilha: `/home/leomassoni/Downloads/atualizado Para devolver Fichas tecnicas - MACAXEIRA POIS POIS - 2026-08-27.backup-before-fake-sales-refresh-20260831T184945.xlsx`;
   - relatorio local: `auditorias/macaxeira-fake-sales-refresh-20260831T184945.json`;
   - logs online: `#1762` para cancelamento do lote antigo e `#1763` para criacao do lote novo.
+
+### Exportacao da fila de entrada de producoes
+
+- Adicionado botao `Exportar` no painel `Entrada de producoes`.
+- A primeira versao exporta apenas a fila visivel do centro produtor selecionado, respeitando o vinculo do usuario, a busca ativa e as linhas exibidas no painel.
+- O modal permite escolher `PDF` ou `XLSX`.
+- Campos exportados: centro produtor, pre-preparo, ID interno, familia, prioridade, estoque atual, minimo de uso, demanda operacional, sugestao, origem, detalhes da origem, entrada, detalhes da entrada, status e quantidade de insumos em falta.
+- Validacao local: `npm run build`.

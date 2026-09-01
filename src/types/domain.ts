@@ -1129,6 +1129,10 @@ export type RequisitionExportState = {
   format: 'pdf' | 'xlsx'
 }
 
+export type ProductionExportState = {
+  format: 'pdf' | 'xlsx'
+}
+
 export type StockReportExportState = {
   format: 'pdf' | 'xlsx'
 }
