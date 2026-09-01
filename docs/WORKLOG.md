@@ -1060,3 +1060,8 @@ Registrar um historico resumido do que foi feito, do que falhou e do que ficou p
   - os detalhes de historico da fila de producao nao incluem minimo externo de centros consumidores quando a fila deve ser alimentada por requisicao.
 - Validacao com dados online: `CORDIAL DE CAMBUCI AMERICA DO SUL` ficou com demanda pendente da requisicao `#136` de `7.000 ml`, entrada manual da propria `#136` de `7.000 ml`, residuo automatico `0` e origem visivel apenas como `1 requisicao`.
 - Validacao tecnica: `npm run build`.
+
+### Exportacao detalhada da fila de producao
+
+- Ajustado o exportador de `Entrada de producoes`: no PDF/XLSX, as colunas `Origem` e `Entrada` passam a trazer os detalhes completos diretamente, porque o arquivo exportado nao tem expansao de resumo.
+- Removidas as colunas redundantes `Detalhes da origem` e `Detalhes da entrada` da exportacao.

@@ -28479,9 +28479,7 @@ export default function App() {
       'Demanda operacional',
       'Sugestao',
       'Origem',
-      'Detalhes da origem',
       'Entrada',
-      'Detalhes da entrada',
       'Status',
       'Insumos em falta',
     ]
@@ -28495,9 +28493,7 @@ export default function App() {
       row.useMinimumLabel,
       row.realMinimumLabel,
       row.suggestedProductionLabel,
-      row.sourceLabel,
       row.sourceDetails.join('; ') || '-',
-      row.requestedAtLabel,
       row.requestedAtDetails.join('; ') || '-',
       row.statusLabel,
       formatDecimal(row.shortageLineCount),
@@ -28541,8 +28537,8 @@ export default function App() {
         headStyles: { fillColor: [15, 72, 124] },
         columnStyles: {
           1: { cellWidth: 118 },
-          10: { cellWidth: 128 },
-          12: { cellWidth: 128 },
+          9: { cellWidth: 150 },
+          10: { cellWidth: 150 },
         },
       })
       doc.save(fileName)
