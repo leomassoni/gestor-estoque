@@ -24,6 +24,12 @@ Registrar um historico resumido do que foi feito, do que falhou e do que ficou p
 - Varredura de casos semelhantes:
   - a unica dependencia de requisicao do laboratorio que nao resolvia para produtor era `XAROPE DE CAJA 53.5` via `BATIDA CAJA PRE-BATCHED`;
   - as duplicidades ativas relevantes com divergencia de ingredientes eram `PINDORAMA PRE-BATCHED` e `BOMBEIRINHO COLLINS PRE-BATCHED`; o segundo ficou apenas como observacao porque a versao Macaxeira ja usa `PRE-BATCHED NAO E PINK`, conforme correcao manual do usuario.
+- Complemento da varredura apos relato de `TINTURA ALCOOLICA HIBISCO SECO`:
+  - causa encontrada: a fila aceitava `producedTechnicalSheetIds` do centro como fonte de verdade alternativa a `technicalSheet.productionCenters`;
+  - o centro `BAR MACAXEIRA POIS POIS` ainda tinha os IDs obsoletos `335` (`PINDORAMA PRE-BATCHED` antigo CPXVA) e `649` (`TINTURA ALCOOLICA HIBISCO SECO`) em `producedTechnicalSheetIds`, mesmo sem esses centros nos `productionCenters` das fichas;
+  - limpeza online aplicada removendo `335` e `649` do centro `10`, log `#1837`;
+  - ajuste de codigo: `doesCenterDirectlyProduceTechnicalSheet` passou a considerar apenas `technicalSheet.productionCenters` como fonte autoritativa da producao;
+  - rechecagem online: `0` preparos ativos restantes com divergencia entre centro produtor e `productionCenters`.
 - Validacao online apos correcao:
   - `XAROPE DE CAJA 53.5` resolve para produtores `[1,10,11,12]`;
   - `MACA VERDE GRANNY SMITH CLARIFICADO` segue produzido somente no `LABORATORIO`;

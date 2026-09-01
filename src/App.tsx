@@ -3461,10 +3461,7 @@ export default function App() {
     return normalizeTechnicalSheetSupplyRoutes(sheet.supplyRoutes)
   }
   function doesCenterDirectlyProduceTechnicalSheet(center: StockCenterRecord, sheet: TechnicalSheetRecord) {
-    return (
-      center.producedTechnicalSheetIds.includes(sheet.id) ||
-      (sheet.productionCenters ?? []).some((assignment) => assignment.stockCenterId === center.id)
-    )
+    return (sheet.productionCenters ?? []).some((assignment) => assignment.stockCenterId === center.id)
   }
   function doesCenterProduceTechnicalSheet(center: StockCenterRecord, sheet: TechnicalSheetRecord) {
     if (doesCenterDirectlyProduceTechnicalSheet(center, sheet)) {
