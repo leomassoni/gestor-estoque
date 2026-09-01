@@ -1050,3 +1050,13 @@ Registrar um historico resumido do que foi feito, do que falhou e do que ficou p
 - Logs online gerados: `#1772` a `#1775`.
 - Backups online: `backups/online-before-cpxva-lab-producer-gaps-20260901T003339Z`.
 - Relatorio aplicado: `auditorias/cpxva-lab-producer-gaps-fix-20260901T003343Z.json`.
+
+### Origem da fila de producao do LABORATORIO
+
+- Bug identificado na tela `Entrada de producoes`: uma requisicao recebida pelo centro produtor podia aparecer duas vezes na linha da fila, uma vez pela demanda operacional pendente e outra vez pelo `manualProductionRequest` materializado a partir da propria requisicao.
+- O mesmo painel podia mostrar historico de centros consumidores externos (`BAR ARAIS`, `BAR MII`) como detalhe de origem mesmo quando `includeExternalUseMinimum` estava desabilitado para a fila de producao.
+- Corrigido em `src/App.tsx`:
+  - a sugestao automatica da linha agora desconta a quantidade ja materializada em `manualProductionRequests` vinculados a `sourceRequisitionId`;
+  - os detalhes de historico da fila de producao nao incluem minimo externo de centros consumidores quando a fila deve ser alimentada por requisicao.
+- Validacao com dados online: `CORDIAL DE CAMBUCI AMERICA DO SUL` ficou com demanda pendente da requisicao `#136` de `7.000 ml`, entrada manual da propria `#136` de `7.000 ml`, residuo automatico `0` e origem visivel apenas como `1 requisicao`.
+- Validacao tecnica: `npm run build`.

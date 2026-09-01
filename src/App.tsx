@@ -5021,7 +5021,12 @@ export default function App() {
     return values.filter(Boolean).sort((left, right) => right.localeCompare(left))[0] ?? ''
   }
 
-  function getProductionHistorySourceInfo(producerCenter: StockCenterRecord, targetSheet: TechnicalSheetRecord) {
+  function getProductionHistorySourceInfo(
+    producerCenter: StockCenterRecord,
+    targetSheet: TechnicalSheetRecord,
+    options: { includeExternalUseMinimum?: boolean } = {},
+  ) {
+    const includeExternalUseMinimum = options.includeExternalUseMinimum ?? true
     const details: string[] = []
     const timestamps: string[] = []
     const addMinimumEntry = (center: StockCenterRecord, entry: StockCenterMinimumStock | null, prefix: string) => {
@@ -5054,6 +5059,13 @@ export default function App() {
       packageId: null,
     })
     addMinimumEntry(producerCenter, targetEntry, 'Historico do centro produtor')
+
+    if (!includeExternalUseMinimum) {
+      return {
+        details,
+        latestTimestamp: getLatestTimestamp(timestamps),
+      }
+    }
 
     stockCenters.forEach((consumerCenter) => {
       if (!consumerCenter.isActive || consumerCenter.id === producerCenter.id) {
@@ -5151,12 +5163,19 @@ export default function App() {
         const realMinimumQuantity = demandContext?.computeEffectiveMinimum(sheet.id) ?? 0
         const byproductSourceDemandQuantity = demandContext?.computeByproductSourceDemand(sheet.id) ?? 0
         const regularMinimumQuantity = Math.max(realMinimumQuantity - byproductSourceDemandQuantity, 0)
-        const automaticSuggestedQuantity =
-          Math.max(regularMinimumQuantity - currentQuantity, 0) + byproductSourceDemandQuantity
-        const manualRequestedQuantity = manualRequestedQuantityBySheetId.get(sheet.id) ?? 0
         const manualRequestIds = manualRequestIdsBySheetId.get(sheet.id) ?? []
         const manualRequestsForSheet = manualRequestsBySheetId.get(sheet.id) ?? []
         const cancellableManualRequestIds = cancellableManualRequestIdsBySheetId.get(sheet.id) ?? []
+        const manualRequestedQuantity = manualRequestedQuantityBySheetId.get(sheet.id) ?? 0
+        const sourceRequisitionManualQuantity = manualRequestsForSheet
+          .filter((request) => typeof request.sourceRequisitionId === 'number' && request.sourceRequisitionId > 0)
+          .reduce((sum, request) => sum + (parseDecimal(request.desiredYield) ?? 0), 0)
+        const automaticSuggestedQuantity = Math.max(
+          Math.max(regularMinimumQuantity - currentQuantity, 0) +
+            byproductSourceDemandQuantity -
+            sourceRequisitionManualQuantity,
+          0,
+        )
         const suggestedProductionQuantity = automaticSuggestedQuantity + manualRequestedQuantity
         const shortagePlan =
           suggestedProductionQuantity > 0
@@ -5168,7 +5187,9 @@ export default function App() {
         const priority = demandContext?.computePriority(sheet.id) ?? 0
         const inProgressDraft = productionInProgressDraftByKey.get(`${selectedProductionCenter.id}:${sheet.id}`) ?? null
         const hasManualRequests = manualRequestIds.length > 0
-        const historySourceInfo = getProductionHistorySourceInfo(selectedProductionCenter, sheet)
+        const historySourceInfo = getProductionHistorySourceInfo(selectedProductionCenter, sheet, {
+          includeExternalUseMinimum: false,
+        })
         const sourceRequisitionIds = Array.from(
           new Set(
             manualRequestsForSheet
