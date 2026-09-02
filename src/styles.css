@@ -1297,6 +1297,14 @@ h3 {
   background: rgba(220, 247, 229, 0.98);
 }
 
+.supply-draft-row-confirmed td {
+  background: rgba(220, 247, 229, 0.72);
+}
+
+.supply-draft-row-confirmed .sticky-product-cell {
+  background: rgba(220, 247, 229, 0.96);
+}
+
 .receive-review-row-not-received td {
   background: rgba(253, 226, 226, 0.82);
 }
@@ -1329,6 +1337,13 @@ h3 {
   display: grid;
   gap: 8px;
   min-width: 120px;
+}
+
+.supply-line-action-stack {
+  display: grid;
+  gap: 6px;
+  justify-items: center;
+  width: 36px;
 }
 
 .header-cell {
@@ -3144,6 +3159,16 @@ h3 {
 
 .icon-add {
   background: rgba(23, 163, 74, 0.14);
+  color: #17753a;
+}
+
+.icon-confirm {
+  background: rgba(20, 33, 61, 0.08);
+  color: rgba(20, 33, 61, 0.62);
+}
+
+.icon-confirm-active {
+  background: rgba(23, 117, 58, 0.18);
   color: #17753a;
 }
 

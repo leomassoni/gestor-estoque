@@ -1111,3 +1111,15 @@ Registrar um historico resumido do que foi feito, do que falhou e do que ficou p
 
 - Ajustado o exportador de `Entrada de producoes`: no PDF/XLSX, as colunas `Origem` e `Entrada` passam a trazer os detalhes completos diretamente, porque o arquivo exportado nao tem expansao de resumo.
 - Removidas as colunas redundantes `Detalhes da origem` e `Detalhes da entrada` da exportacao.
+
+### Conferencia parcial de suprimentos
+
+- Ajustado o fluxo de suprimentos internos entre estoques: o centro distribuidor passa a conferir a quantidade enviada por linha antes de mandar para recebimento.
+- O envio interno agora aceita separacao parcial:
+  - apenas itens marcados como conferidos seguem para `READY_TO_RECEIVE`;
+  - itens nao marcados permanecem pendentes em suprimentos;
+  - quando a quantidade enviada e menor que o pedido original, o saldo restante fica em uma requisicao residual de suprimentos.
+- A baixa de estoque do centro distribuidor usa somente as linhas e quantidades enviadas.
+- A mesma mecanica de conferencia por icone foi aplicada ao suprimento de compras, eliminando a necessidade de zerar itens que nao serao enviados naquele momento.
+- As linhas enviadas e residuais preservam `sourceAllocations` proporcionais a quantidade, mantendo o rastreio de origem da demanda para compras e auditoria.
+- Validacao tecnica: `npm run build` e `git diff --check`.

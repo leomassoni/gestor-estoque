@@ -2831,6 +2831,7 @@ export default function App() {
   const [purchaseSupplyDetailsRequisitionId, setPurchaseSupplyDetailsRequisitionId] = useState<number | null>(null)
   const [purchaseSupplyEditingRequisitionId, setPurchaseSupplyEditingRequisitionId] = useState<number | null>(null)
   const [purchaseSupplyDraftLines, setPurchaseSupplyDraftLines] = useState<RequisitionDraftLine[]>([])
+  const [purchaseSupplyConfirmedLineKeys, setPurchaseSupplyConfirmedLineKeys] = useState<Set<string>>(new Set())
   const [purchaseSupplyDraftSearch, setPurchaseSupplyDraftSearch] = useState('')
   const [purchaseSupplyManualItemKey, setPurchaseSupplyManualItemKey] = useState('')
   const [purchaseSupplyManualQuantity, setPurchaseSupplyManualQuantity] = useState('')
@@ -2845,6 +2846,7 @@ export default function App() {
   const [supplyColumnSort, setSupplyColumnSort] = useState<ColumnSort<RequisitionFlowColumnKey> | null>(null)
   const [supplyEditingRequisitionId, setSupplyEditingRequisitionId] = useState<number | null>(null)
   const [supplyDraftLines, setSupplyDraftLines] = useState<RequisitionDraftLine[]>([])
+  const [supplyConfirmedLineKeys, setSupplyConfirmedLineKeys] = useState<Set<string>>(new Set())
   const [supplyDraftSearch, setSupplyDraftSearch] = useState('')
   const [isSupplyEditModalOpen, setIsSupplyEditModalOpen] = useState(false)
   const [receiveReviewRequisitionId, setReceiveReviewRequisitionId] = useState<number | null>(null)
@@ -4424,6 +4426,15 @@ export default function App() {
     return allocations.length > 0
       ? scaleSourceAllocations(allocations, targetQuantity)
       : scaleSourceAllocations([buildFallbackSourceAllocation(line, record)], targetQuantity)
+  }
+  function applyLineSourceAllocationQuantity(
+    line: RequisitionLineRecord,
+    record: RequisitionRecord,
+  ) {
+    return {
+      ...line,
+      sourceAllocations: getLineSourceAllocations(line, record, getLineBaseDemandQuantity(line)),
+    } satisfies RequisitionLineRecord
   }
   function attachFallbackSourceAllocations(line: RequisitionLineRecord, record: RequisitionRecord) {
     const existingAllocations = normalizeRequisitionLineSourceAllocations(line.sourceAllocations)
@@ -24967,6 +24978,7 @@ export default function App() {
 
     setSupplyEditingRequisitionId(requisitionId)
     setSupplyDraftLines(targetRequisition.lines.map((line) => ({ ...line })))
+    setSupplyConfirmedLineKeys(new Set())
     setSupplyDraftSearch('')
     setIsSupplyEditModalOpen(true)
   }
@@ -24974,6 +24986,7 @@ export default function App() {
   function closeSupplyEditModal() {
     setSupplyEditingRequisitionId(null)
     setSupplyDraftLines([])
+    setSupplyConfirmedLineKeys(new Set())
     setSupplyDraftSearch('')
     setIsSupplyEditModalOpen(false)
   }
@@ -25069,6 +25082,40 @@ export default function App() {
     })
   }
 
+  function updateSupplyDraftLine(lineKey: string, quantityValue: string) {
+    setSupplyDraftLines((current) =>
+      current.map((line) =>
+        line.key === lineKey
+          ? {
+              ...line,
+              requestedQuantity: convertEffectiveQuantityToRequestedQuantity(line, quantityValue),
+            }
+          : line,
+      ),
+    )
+  }
+
+  function toggleSupplyDraftLineConfirmation(lineKey: string) {
+    setSupplyConfirmedLineKeys((current) => {
+      const next = new Set(current)
+      if (next.has(lineKey)) {
+        next.delete(lineKey)
+      } else {
+        next.add(lineKey)
+      }
+      return next
+    })
+  }
+
+  function removeSupplyDraftLine(lineKey: string) {
+    setSupplyDraftLines((current) => current.filter((line) => line.key !== lineKey))
+    setSupplyConfirmedLineKeys((current) => {
+      const next = new Set(current)
+      next.delete(lineKey)
+      return next
+    })
+  }
+
   async function cancelSupplyRequisition(requisitionId: number) {
     const targetRequisition = requisitions.find((record) => record.id === requisitionId) ?? null
     if (!targetRequisition || !canManageSupplyRequisition(targetRequisition)) {
@@ -25159,13 +25206,110 @@ export default function App() {
     return 'queued' as const
   }
 
-  function moveRequisitionToReceive(requisitionId: number) {
-    const targetRequisition = requisitions.find((record) => record.id === requisitionId) ?? null
+  async function moveRequisitionToReceive(requisitionId: number) {
+    let latestRequisitions: RequisitionRecord[]
+    try {
+      latestRequisitions = await loadLatestRequisitionsForMutation()
+    } catch (error) {
+      console.error(error)
+      setSaveFeedback({
+        status: 'error',
+        title: 'Falha ao atualizar suprimento',
+        message: error instanceof Error ? error.message : 'Nao foi possivel carregar a requisicao mais recente do servidor.',
+      })
+      return
+    }
+
+    const targetRequisition = latestRequisitions.find((record) => record.id === requisitionId) ?? null
     if (!targetRequisition || !canManageSupplyRequisition(targetRequisition) || currentCompanyId === null) {
       return
     }
 
-    const shortageMessage = getSupplyRequisitionStockShortageMessage(targetRequisition)
+    const confirmedDraftLines = supplyDraftLines.filter((line) => supplyConfirmedLineKeys.has(line.key))
+    const draftByKey = new Map(confirmedDraftLines.map((line) => [line.key, line]))
+    const sentLines: RequisitionLineRecord[] = []
+    const remainingLines: RequisitionLineRecord[] = []
+
+    for (const line of targetRequisition.lines) {
+      const draftLine = draftByKey.get(line.key) ?? null
+      if (!draftLine) {
+        remainingLines.push(line)
+        continue
+      }
+
+      const normalizedDraftLine = normalizeProductPackageRequisitionLine(draftLine)
+      const normalizedOriginalLine = normalizeProductPackageRequisitionLine(line)
+      const sentQuantity = parseDecimal(normalizedDraftLine.requestedQuantity) ?? 0
+      const originalQuantity = parseDecimal(normalizedOriginalLine.requestedQuantity) ?? 0
+
+      if (sentQuantity <= 0) {
+        remainingLines.push(normalizedOriginalLine)
+        continue
+      }
+      if (sentQuantity > originalQuantity) {
+        setSaveFeedback({
+          status: 'error',
+          title: 'Quantidade enviada acima do pedido',
+          message: `${line.itemName}: a quantidade enviada nao pode ser maior que o pedido original.`,
+        })
+        return
+      }
+
+      sentLines.push(
+        applyLineSourceAllocationQuantity(
+          {
+            ...normalizedDraftLine,
+            destinationType: normalizedOriginalLine.destinationType,
+            destinationCenterId: normalizedOriginalLine.destinationCenterId,
+            destinationCenterName: normalizedOriginalLine.destinationCenterName,
+            destinationLabel: normalizedOriginalLine.destinationLabel,
+            supplierCenterId: normalizedOriginalLine.supplierCenterId,
+            supplierCenterName: normalizedOriginalLine.supplierCenterName,
+            supplierCompanyId: normalizedOriginalLine.supplierCompanyId,
+            supplierCompanyName: normalizedOriginalLine.supplierCompanyName,
+            receiptStatus: 'PENDING',
+            receiptResolvedAt: '',
+            receiptResolvedByUserId: null,
+            receiptResolvedByUserName: '',
+            receiptSessionId: null,
+          },
+          targetRequisition,
+        ),
+      )
+
+      const remainingQuantity = originalQuantity - sentQuantity
+      if (remainingQuantity > 0) {
+        remainingLines.push(
+          applyLineSourceAllocationQuantity(
+            {
+              ...normalizedOriginalLine,
+              requestedQuantity: formatEditableDecimal(remainingQuantity),
+              receiptStatus: 'PENDING',
+              receiptResolvedAt: '',
+              receiptResolvedByUserId: null,
+              receiptResolvedByUserName: '',
+              receiptSessionId: null,
+            },
+            targetRequisition,
+          ),
+        )
+      }
+    }
+
+    if (sentLines.length === 0) {
+      setSaveFeedback({
+        status: 'error',
+        title: 'Nenhum item conferido',
+        message: 'Marque ao menos um item conferido para enviar ao recebimento.',
+      })
+      return
+    }
+
+    const shipmentRequisition = {
+      ...targetRequisition,
+      lines: sentLines,
+    }
+    const shortageMessage = getSupplyRequisitionStockShortageMessage(shipmentRequisition)
     if (shortageMessage) {
       setSaveFeedback({
         status: 'error',
@@ -25204,7 +25348,7 @@ export default function App() {
         closedByUserName: currentAppUser?.fullName ?? 'Administrador do sistema',
       }
 
-      const sourceMovementRecords: InventoryCountRecord[] = targetRequisition.lines.map((line, index) => ({
+      const sourceMovementRecords: InventoryCountRecord[] = sentLines.map((line, index) => ({
           id: movementTimestamp + index + 1,
           inventoryId: null,
           sessionId: movementTimestamp,
@@ -25246,32 +25390,76 @@ export default function App() {
       }
     }
 
-    setRequisitions((current) =>
-      current.map((record) =>
-        record.id === requisitionId
-          ? {
-              ...record,
-              status: 'READY_TO_RECEIVE',
-              preparedAt: now,
-              preparedByUserId: currentAppUser?.id ?? null,
-              preparedByUserName: currentAppUser?.fullName ?? 'Administrador do sistema',
-              lastUpdatedAt: now,
-              lastUpdatedByUserId: currentAppUser?.id ?? null,
-              lastUpdatedByUserName: currentAppUser?.fullName ?? 'Administrador do sistema',
-            }
-          : record,
-      ),
-    )
+    const nextReadyId =
+      remainingLines.length > 0
+        ? getNextPersistedIntId([
+            ...latestRequisitions.map((record) => record.id),
+            ...latestRequisitions.map((record) => record.requisitionGroupId),
+          ])
+        : targetRequisition.id
+    const readyRequisition: RequisitionRecord = {
+      ...targetRequisition,
+      id: nextReadyId,
+      status: 'READY_TO_RECEIVE',
+      editScope: 'LINES_ONLY',
+      lines: sentLines,
+      preparedAt: now,
+      preparedByUserId: currentAppUser?.id ?? null,
+      preparedByUserName: currentAppUser?.fullName ?? 'Administrador do sistema',
+      lastUpdatedAt: now,
+      lastUpdatedByUserId: currentAppUser?.id ?? null,
+      lastUpdatedByUserName: currentAppUser?.fullName ?? 'Administrador do sistema',
+    }
+    const residualRequisition: RequisitionRecord | null =
+      remainingLines.length > 0
+        ? {
+            ...targetRequisition,
+            lines: remainingLines,
+            lastUpdatedAt: now,
+            lastUpdatedByUserId: currentAppUser?.id ?? null,
+            lastUpdatedByUserName: currentAppUser?.fullName ?? 'Administrador do sistema',
+          }
+        : null
+
+    const nextRequisitions =
+      residualRequisition === null
+        ? latestRequisitions.map((record) => (record.id === targetRequisition.id ? readyRequisition : record))
+        : [
+            readyRequisition,
+            ...latestRequisitions.map((record) => (record.id === targetRequisition.id ? residualRequisition : record)),
+          ]
+
+    try {
+      await Promise.all(
+        residualRequisition === null
+          ? [upsertRequisitionRecordOnApi(readyRequisition)]
+          : [upsertRequisitionRecordOnApi(readyRequisition), upsertRequisitionRecordOnApi(residualRequisition)],
+      )
+    } catch (error) {
+      console.error(error)
+      setSaveFeedback({
+        status: 'error',
+        title: 'Falha ao enviar suprimento',
+        message: error instanceof Error ? error.message : 'Nao foi possivel gravar o envio de suprimentos no servidor.',
+      })
+      return
+    }
+
+    setRequisitions(nextRequisitions)
+    syncedRequisitionRecordMapRef.current = buildEntitySignatureMap(nextRequisitions, (record) => record.id)
 
     if (!(shouldDeductSourceInventory && inventoryRecords.some((inventoryRecord) => inventoryRecord.companyId === currentCompanyId && inventoryRecord.stockCenterId === sourceCenterId && !inventoryRecord.isClosed))) {
       setSaveFeedback({
         status: 'success',
         title: 'Requisicao pronta para recebimento',
-        message: shouldDeductSourceInventory
-          ? `A requisicao foi movida para receber no centro solicitante e o estoque do centro ${sourceCenterName} foi baixado.`
-          : 'A requisicao foi movida para receber no centro solicitante.',
+        message: remainingLines.length > 0
+          ? `Os itens conferidos foram movidos para receber e o saldo nao atendido continua pendente no centro ${sourceCenterName}.`
+          : shouldDeductSourceInventory
+            ? `A requisicao foi movida para receber no centro solicitante e o estoque do centro ${sourceCenterName} foi baixado.`
+            : 'A requisicao foi movida para receber no centro solicitante.',
       })
     }
+    closeSupplyEditModal()
     registerAuditEvent({
       companyId: targetRequisition.companyId,
       module: 'REQUISICOES',
@@ -25295,7 +25483,10 @@ export default function App() {
         sourceCenterName,
         destinationCompanyId: targetRequisition.companyId,
         destinationCenterId: targetRequisition.stockCenterId,
-        lineCount: targetRequisition.lines.length,
+        sourceRequisitionId: targetRequisition.id,
+        readyRequisitionId: readyRequisition.id,
+        sentLineCount: sentLines.length,
+        hasResidualDemand: remainingLines.length > 0,
       },
     })
   }
@@ -25318,6 +25509,7 @@ export default function App() {
 
 	    setPurchaseSupplyEditingRequisitionId(requisitionId)
 	    setPurchaseSupplyDraftLines(candidateLines.map((line) => ({ ...line })))
+    setPurchaseSupplyConfirmedLineKeys(new Set())
 	    setPurchaseSupplyDraftSearch('')
     setPurchaseSupplyManualItemKey('')
     setPurchaseSupplyManualQuantity('')
@@ -25326,6 +25518,7 @@ export default function App() {
 	  function closePurchaseSupplyShipment() {
 	    setPurchaseSupplyEditingRequisitionId(null)
 	    setPurchaseSupplyDraftLines([])
+    setPurchaseSupplyConfirmedLineKeys(new Set())
 	    setPurchaseSupplyDraftSearch('')
     setPurchaseSupplyManualItemKey('')
     setPurchaseSupplyManualQuantity('')
@@ -25371,6 +25564,7 @@ export default function App() {
       normalizeProductPackageRequisitionLines([...current, nextLine])
         .sort((left, right) => left.itemName.localeCompare(right.itemName, 'pt-BR')),
     )
+    setPurchaseSupplyConfirmedLineKeys((current) => new Set([...current, nextLine.key]))
     setPurchaseSupplyManualItemKey('')
     setPurchaseSupplyManualQuantity('')
   }
@@ -25386,6 +25580,27 @@ export default function App() {
           : line,
       ),
     )
+  }
+
+  function togglePurchaseSupplyDraftLineConfirmation(lineKey: string) {
+    setPurchaseSupplyConfirmedLineKeys((current) => {
+      const next = new Set(current)
+      if (next.has(lineKey)) {
+        next.delete(lineKey)
+      } else {
+        next.add(lineKey)
+      }
+      return next
+    })
+  }
+
+  function removePurchaseSupplyDraftLine(lineKey: string) {
+    setPurchaseSupplyDraftLines((current) => current.filter((line) => line.key !== lineKey))
+    setPurchaseSupplyConfirmedLineKeys((current) => {
+      const next = new Set(current)
+      next.delete(lineKey)
+      return next
+    })
   }
 
   async function confirmPurchaseSupplyShipment() {
@@ -25411,7 +25626,8 @@ export default function App() {
       return
     }
 
-	    const draftByKey = new Map(purchaseSupplyDraftLines.map((line) => [line.key, line]))
+    const confirmedDraftLines = purchaseSupplyDraftLines.filter((line) => purchaseSupplyConfirmedLineKeys.has(line.key))
+	    const draftByKey = new Map(confirmedDraftLines.map((line) => [line.key, line]))
     const originalLineKeys = new Set(targetRequisition.lines.map((line) => line.key))
 	    const sentLines: RequisitionLineRecord[] = []
 	    const remainingLines: RequisitionLineRecord[] = []
@@ -25427,6 +25643,14 @@ export default function App() {
       const normalizedOriginalLine = normalizeProductPackageRequisitionLine(line)
       const sentQuantity = parseDecimal(normalizedDraftLine.requestedQuantity) ?? 0
       const originalQuantity = parseDecimal(normalizedOriginalLine.requestedQuantity) ?? 0
+      if (sentQuantity > originalQuantity) {
+        setSaveFeedback({
+          status: 'error',
+          title: 'Quantidade enviada acima do pedido',
+          message: `${line.itemName}: a quantidade enviada nao pode ser maior que o pedido original.`,
+        })
+        return
+      }
 	      if (sentQuantity > 0) {
 	        sentLines.push({
 	          ...normalizedDraftLine,
@@ -25446,6 +25670,13 @@ export default function App() {
           receiptResolvedByUserId: null,
           receiptResolvedByUserName: '',
           receiptSessionId: null,
+          sourceAllocations: getLineSourceAllocations(
+            {
+              ...normalizedDraftLine,
+              requestedQuantity: formatEditableDecimal(sentQuantity),
+            },
+            targetRequisition,
+          ),
         })
       }
 
@@ -25454,11 +25685,23 @@ export default function App() {
         remainingLines.push({
           ...normalizedOriginalLine,
           requestedQuantity: formatEditableDecimal(remainingQuantity),
+          receiptStatus: 'PENDING',
+          receiptResolvedAt: '',
+          receiptResolvedByUserId: null,
+          receiptResolvedByUserName: '',
+          receiptSessionId: null,
+          sourceAllocations: getLineSourceAllocations(
+            {
+              ...normalizedOriginalLine,
+              requestedQuantity: formatEditableDecimal(remainingQuantity),
+            },
+            targetRequisition,
+          ),
         })
 	      }
 	    })
 
-    purchaseSupplyDraftLines
+    confirmedDraftLines
       .filter((line) => !originalLineKeys.has(line.key))
       .forEach((line) => {
         const normalizedDraftLine = normalizeProductPackageRequisitionLine(line)
@@ -25487,8 +25730,8 @@ export default function App() {
     if (sentLines.length === 0) {
       setSaveFeedback({
         status: 'error',
-        title: 'Quantidade invalida',
-        message: 'Informe pelo menos um item com quantidade maior que zero para enviar pelo compras.',
+        title: 'Nenhum item conferido',
+        message: 'Marque ao menos um item conferido para enviar pelo compras.',
       })
       return
     }
@@ -29750,9 +29993,12 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
         if ((parseDecimal(line.requestedQuantity) ?? 0) > 0) {
           accumulator.requestedItems += 1
         }
+        if (supplyConfirmedLineKeys.has(line.key)) {
+          accumulator.confirmedItems += 1
+        }
         return accumulator
       },
-      { totalItems: supplyDraftLines.length, requestedItems: 0 },
+      { totalItems: supplyDraftLines.length, requestedItems: 0, confirmedItems: 0 },
     )
 
     return (
@@ -29767,6 +30013,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
           <div className="requisition-draft-overview">
             <div className="pill requisition-overview-pill">Itens totais: {String(summary.totalItems)}</div>
             <div className="pill requisition-overview-pill">Com envio: {String(summary.requestedItems)}</div>
+            <div className="pill requisition-overview-pill">Conferidos: {String(summary.confirmedItems)}</div>
           </div>
           <label className="field search-field">
             <span>Buscar item em suprimentos</span>
@@ -29838,32 +30085,47 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                         setRequisitionDraftColumnSort,
                       )
                     : null}
+                  <th>Acoes</th>
                 </tr>
               </thead>
               <tbody>
                 {visibleRows.map((line) => (
-                  <tr key={line.key}>
+                  <tr key={line.key} className={supplyConfirmedLineKeys.has(line.key) ? 'supply-draft-row-confirmed' : undefined}>
                     {requisitionDraftColumnVisibility.item ? <td className="sticky-product-cell"><strong>{line.itemName}</strong></td> : null}
                     {requisitionDraftColumnVisibility.type ? <td>{line.itemTypeLabel}</td> : null}
                     {requisitionDraftColumnVisibility.requested ? (
                       <td>
                         <input
                           value={getRequisitionEffectiveQuantityInputValue(line, line.requestedQuantity)}
-                          onChange={(event) =>
-                            setSupplyDraftLines((current) =>
-                              current.map((candidate) =>
-                                candidate.key === line.key
-                                  ? { ...candidate, requestedQuantity: convertEffectiveQuantityToRequestedQuantity(line, event.target.value) }
-                                  : candidate,
-                              ),
-                            )
-                          }
+                          onChange={(event) => updateSupplyDraftLine(line.key, event.target.value)}
                           placeholder="0"
                         />
                       </td>
                     ) : null}
                     <td>{getRequisitionEffectiveQuantityConfig(line).unitLabel}</td>
                     {requisitionDraftColumnVisibility.destination ? <td>{line.destinationLabel}</td> : null}
+                    <td>
+                      <div className="supply-line-action-stack">
+                        <button
+                          type="button"
+                          className={supplyConfirmedLineKeys.has(line.key) ? 'icon-button icon-confirm-active' : 'icon-button icon-confirm'}
+                          onClick={() => toggleSupplyDraftLineConfirmation(line.key)}
+                          title="Marcar item conferido para envio"
+                          aria-label="Marcar item conferido para envio"
+                        >
+                          ✓
+                        </button>
+                        <button
+                          type="button"
+                          className="icon-button icon-delete"
+                          onClick={() => removeSupplyDraftLine(line.key)}
+                          title="Remover item deste envio"
+                          aria-label="Remover item deste envio"
+                        >
+                          ×
+                        </button>
+                      </div>
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -49104,8 +49366,8 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                               >
                                 Cancelar
                               </button>
-                              <button type="button" className="primary-button" onClick={() => moveRequisitionToReceive(record.id)} disabled={!canManageSupplyRequisition(record) || record.status === 'READY_TO_RECEIVE'}>
-                                Mover para
+                              <button type="button" className="primary-button" onClick={() => startEditSupplyRequisition(record.id)} disabled={!canManageSupplyRequisition(record) || record.status === 'READY_TO_RECEIVE'}>
+                                Enviar
                               </button>
                             </div>
                           </td>
@@ -52226,6 +52488,15 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
               <button type="button" className="primary-button" onClick={saveSupplyDraft}>
                 Salvar separacao
               </button>
+              {supplyEditingRequisitionId !== null ? (
+                <button
+                  type="button"
+                  className="primary-button"
+                  onClick={() => void moveRequisitionToReceive(supplyEditingRequisitionId)}
+                >
+                  Enviar para receber
+                </button>
+              ) : null}
             </div>
           </section>
         </div>
@@ -52378,6 +52649,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                     <div className="pill requisition-overview-pill">Centro solicitante: {getRequisitionRequestingCenterDisplayLabelForUi(requisition)}</div>
                     <div className="pill requisition-overview-pill">Origem da demanda: {getRequisitionSupplyDisplayLabel(requisition)}</div>
                     <div className="pill requisition-overview-pill">Itens: {String(purchaseSupplyDraftLines.length)}</div>
+                    <div className="pill requisition-overview-pill">Conferidos: {String(purchaseSupplyConfirmedLineKeys.size)}</div>
                   </div>
 
                   <label className="field search-field">
@@ -52440,13 +52712,14 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                           <th>Quantidade enviada</th>
                           <th>Unidade</th>
                           <th>Pedido original</th>
+                          <th>Acoes</th>
                         </tr>
                       </thead>
                       <tbody>
 	                        {visibleDraftLines.map((line) => {
 	                          const originalLine = requisition.lines.find((candidate) => candidate.key === line.key) ?? null
 	                          return (
-	                            <tr key={line.key}>
+	                            <tr key={line.key} className={purchaseSupplyConfirmedLineKeys.has(line.key) ? 'supply-draft-row-confirmed' : undefined}>
                               <td className="sticky-product-cell">
                                 <strong>{line.itemName}</strong>
                                 <div className="table-cell-support">{line.family}</div>
@@ -52465,6 +52738,28 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
 	                                  ? formatRequisitionEffectiveQuantity(originalLine, originalLine.requestedQuantity)
 	                                  : line.minimumDefinitionLabel || 'Compra manual / extra'}
 	                              </td>
+                              <td>
+                                <div className="supply-line-action-stack">
+                                  <button
+                                    type="button"
+                                    className={purchaseSupplyConfirmedLineKeys.has(line.key) ? 'icon-button icon-confirm-active' : 'icon-button icon-confirm'}
+                                    onClick={() => togglePurchaseSupplyDraftLineConfirmation(line.key)}
+                                    title="Marcar item conferido para envio"
+                                    aria-label="Marcar item conferido para envio"
+                                  >
+                                    ✓
+                                  </button>
+                                  <button
+                                    type="button"
+                                    className="icon-button icon-delete"
+                                    onClick={() => removePurchaseSupplyDraftLine(line.key)}
+                                    title="Remover item deste envio"
+                                    aria-label="Remover item deste envio"
+                                  >
+                                    ×
+                                  </button>
+                                </div>
+                              </td>
 	                            </tr>
 	                          )
 	                        })}
