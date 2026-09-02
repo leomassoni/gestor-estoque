@@ -30101,7 +30101,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                       )
                     : null}
                   <th>Unidade</th>
-                  <th>Estoque origem</th>
+                  <th>Saldo estoque</th>
                   {requisitionDraftColumnVisibility.destination
                     ? renderRequisitionDraftColumnHeader(
                         'destination',
