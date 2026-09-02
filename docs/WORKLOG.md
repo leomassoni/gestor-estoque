@@ -33,6 +33,10 @@ Registrar um historico resumido do que foi feito, do que falhou e do que ficou p
 - Origem de requisicao na fila de entrada de producoes:
   - detalhes de origem passam a usar a requisicao original quando houver `sourceRequisitionId`;
   - alem de usuario e horario, o detalhe mostra empresa e centro de estoque requisitor, por exemplo `Requisicao #151 de MACAXEIRA POIS POIS • BAR MACAXEIRA POIS POIS`.
+- Origem de compras derivadas de producao:
+  - causa encontrada: ao gerar requisicao de insumos a partir da fila de producao, as linhas de produto recebiam fallback para o centro produtor (`COMPLEXO VILA ANALIA • LABORATORIO`) em vez de herdar a origem da requisicao que abriu a producao;
+  - ajuste de codigo: a fila de producao recompõe `sourceAllocations` a partir de `sourceRequisitionId` e `sourceRequisitionLineKey`, propagando empresa/centro requisitor ate as linhas de suprimentos e compras;
+  - reparo online aplicado nas requisicoes `#156` e `#158`: 62 linhas em cada uma passaram a apontar para `MACAXEIRA POIS POIS • BAR MACAXEIRA POIS POIS`, log `#1847`.
 - Validacao online apos correcao:
   - `XAROPE DE CAJA 53.5` resolve para produtores `[1,10,11,12]`;
   - `MACA VERDE GRANNY SMITH CLARIFICADO` segue produzido somente no `LABORATORIO`;

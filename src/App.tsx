@@ -4435,6 +4435,91 @@ export default function App() {
           : [buildFallbackSourceAllocation(line, record)],
     } satisfies RequisitionLineRecord
   }
+  function getManualProductionRequestSourceAllocations(
+    request: ManualProductionRequestRecord,
+    targetQuantity: number,
+    fallbackCenter: StockCenterRecord,
+  ) {
+    if (targetQuantity <= 0) {
+      return [] as RequisitionLineSourceAllocation[]
+    }
+
+    const sourceRequisition =
+      typeof request.sourceRequisitionId === 'number' && request.sourceRequisitionId > 0
+        ? requisitions.find((record) => record.id === request.sourceRequisitionId) ?? null
+        : null
+    const sourceLineKey = normalizeRegistrationText(request.sourceRequisitionLineKey ?? '')
+    const sourceLine =
+      sourceRequisition?.lines.find(
+        (line) => line.key === request.sourceRequisitionLineKey || normalizeRegistrationText(line.key) === sourceLineKey,
+      ) ?? null
+
+    if (sourceRequisition && sourceLine) {
+      return getLineSourceAllocations(sourceLine, sourceRequisition, targetQuantity).map((allocation) => {
+        const originCompanyName = allocation.originCompanyName || getCompanyTradeName(sourceRequisition.companyId)
+        const originCenterName =
+          allocation.originCenterName ||
+          normalizeRegistrationText(sourceRequisition.stockCenterName) ||
+          `CENTRO ${sourceRequisition.stockCenterId}`
+        return {
+          ...allocation,
+          originCompanyName,
+          originCenterName,
+          sourceRequisitionId: sourceRequisition.id,
+          sourceRequisitionGroupId: sourceRequisition.requisitionGroupId,
+          sourceRequisitionLineKey: sourceLine.key,
+          sourcePath: `${originCompanyName} > ${originCenterName} > requisicao #${sourceRequisition.id}`,
+        }
+      })
+    }
+
+    const originCenter =
+      typeof request.planningSourceCenterId === 'number' && request.planningSourceCenterId > 0
+        ? stockCenters.find((center) => center.id === request.planningSourceCenterId) ?? null
+        : null
+    const originCompanyId = originCenter?.companyId ?? fallbackCenter.companyId
+    const originCompanyName = getCompanyTradeName(originCompanyId)
+    const originCenterName =
+      normalizeRegistrationText(originCenter?.name ?? request.planningSourceCenterName ?? '') ||
+      fallbackCenter.name ||
+      `CENTRO ${fallbackCenter.id}`
+
+    return [{
+      originCompanyId,
+      originCompanyName,
+      originCenterId: originCenter?.id ?? fallbackCenter.id,
+      originCenterName,
+      sourceRequisitionId: request.sourceRequisitionId ?? null,
+      sourceRequisitionGroupId: request.sourceRequisitionGroupId ?? null,
+      sourceRequisitionLineKey: request.sourceRequisitionLineKey ?? '',
+      sourcePath: `${originCompanyName} > ${originCenterName} > pedido de producao #${request.rootRequestId}`,
+      quantity: targetQuantity,
+    }]
+  }
+  function buildProductionQueueSourceAllocations(
+    stockCenter: StockCenterRecord,
+    automaticSuggestedQuantity: number,
+    manualRequestsForSheet: ManualProductionRequestRecord[],
+  ) {
+    const automaticAllocations =
+      automaticSuggestedQuantity > 0
+        ? [{
+            originCompanyId: stockCenter.companyId,
+            originCompanyName: getCompanyTradeName(stockCenter.companyId),
+            originCenterId: stockCenter.id,
+            originCenterName: stockCenter.name,
+            sourceRequisitionId: null,
+            sourceRequisitionGroupId: null,
+            sourceRequisitionLineKey: '',
+            sourcePath: `${getCompanyTradeName(stockCenter.companyId)} > ${stockCenter.name} > historico/minimo do centro produtor`,
+            quantity: automaticSuggestedQuantity,
+          } satisfies RequisitionLineSourceAllocation]
+        : []
+    const manualAllocations = manualRequestsForSheet.flatMap((request) =>
+      getManualProductionRequestSourceAllocations(request, parseDecimal(request.desiredYield) ?? 0, stockCenter),
+    )
+    return mergeSourceAllocations([...automaticAllocations, ...manualAllocations])
+  }
   function getAuditActorSnapshot() {
     if (session?.kind === 'systemAdmin') {
       return {
@@ -5322,9 +5407,16 @@ export default function App() {
           0,
         )
         const suggestedProductionQuantity = automaticSuggestedQuantity + manualRequestedQuantity
+        const productionSourceAllocations = buildProductionQueueSourceAllocations(
+          selectedProductionCenter,
+          automaticSuggestedQuantity,
+          manualRequestsForSheet,
+        )
         const shortagePlan =
           suggestedProductionQuantity > 0
-            ? buildManualProductionShortageLines(selectedProductionCenter, sheet, suggestedProductionQuantity)
+            ? buildManualProductionShortageLines(selectedProductionCenter, sheet, suggestedProductionQuantity, {
+                sourceAllocations: productionSourceAllocations,
+              })
             : {
                 shortageLines: [] as RequisitionLineRecord[],
                 dependencyRequests: [] as Array<{ centerId: number; sheetId: number; desiredYield: number }>,
