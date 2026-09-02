@@ -1020,7 +1020,9 @@ app.post('/api/requisitions', async (request, response) => {
   }
 
   try {
-    const saved = await saveRequisitionWithCancellationGuard(requisition.id, requisition)
+    const saved = await saveRequisitionWithCancellationGuard(requisition.id, requisition, {
+      allowSourceAllocationOverwrite: request.headers['x-allow-source-allocation-overwrite'] === 'true',
+    })
     response.json({ requisition: saved })
   } catch (error) {
     response.status(error.statusCode ?? 500).json({ error: error.message ?? 'Erro ao salvar requisicao.' })
@@ -1036,7 +1038,9 @@ app.put('/api/requisitions/:id', async (request, response) => {
   }
 
   try {
-    const saved = await saveRequisitionWithCancellationGuard(requisitionId, requisition)
+    const saved = await saveRequisitionWithCancellationGuard(requisitionId, requisition, {
+      allowSourceAllocationOverwrite: request.headers['x-allow-source-allocation-overwrite'] === 'true',
+    })
     response.json({ requisition: saved })
   } catch (error) {
     response.status(error.statusCode ?? 500).json({ error: error.message ?? 'Erro ao salvar requisicao.' })
@@ -3707,11 +3711,59 @@ function normalizeRequisitionPayload(value) {
   }
 }
 
-async function saveRequisitionWithCancellationGuard(requisitionId, requisition) {
+function hasLineSourceAllocations(line) {
+  return Array.isArray(line?.sourceAllocations) && line.sourceAllocations.length > 0
+}
+
+function buildRequisitionLinePreserveKey(line) {
+  return [
+    typeof line?.key === 'string' ? line.key : '',
+    line?.kind ?? '',
+    line?.technicalSheetId ?? '',
+    line?.productId ?? '',
+    line?.packageId ?? '',
+    line?.destinationType ?? '',
+  ].join('::')
+}
+
+function preserveExistingRequisitionLineSourceAllocations(existing, requisition, options = {}) {
+  if (options.allowSourceAllocationOverwrite || !existing || !Array.isArray(existing.lines) || !Array.isArray(requisition.lines)) {
+    return requisition
+  }
+
+  const existingLinesByKey = new Map(
+    existing.lines
+      .filter((line) => hasLineSourceAllocations(line))
+      .map((line) => [buildRequisitionLinePreserveKey(line), line]),
+  )
+  if (existingLinesByKey.size === 0) {
+    return requisition
+  }
+
+  return {
+    ...requisition,
+    lines: requisition.lines.map((line) => {
+      const existingLine = existingLinesByKey.get(buildRequisitionLinePreserveKey(line))
+      return existingLine && hasLineSourceAllocations(existingLine)
+        ? { ...line, sourceAllocations: existingLine.sourceAllocations }
+        : line
+    }),
+  }
+}
+
+async function saveRequisitionWithCancellationGuard(requisitionId, requisition, options = {}) {
   const [existing, deletedRecord] = await Promise.all([
     prisma.appRequisitionRecord.findUnique({
       where: { id: requisitionId },
-      select: { id: true, requisitionGroupId: true, stockCenterId: true, createdAt: true, status: true, stockCenterName: true },
+      select: {
+        id: true,
+        requisitionGroupId: true,
+        stockCenterId: true,
+        createdAt: true,
+        status: true,
+        stockCenterName: true,
+        lines: true,
+      },
     }),
     prisma.appDeletedRequisitionRecord.findUnique({
       where: { id: requisitionId },
@@ -3743,16 +3795,17 @@ async function saveRequisitionWithCancellationGuard(requisitionId, requisition) 
   }
 
   return prisma.$transaction(async (transaction) => {
+    const requisitionToSave = preserveExistingRequisitionLineSourceAllocations(existing, requisition, options)
     const saved = await transaction.appRequisitionRecord.upsert({
       where: { id: requisitionId },
-      create: requisition,
-      update: requisition,
+      create: requisitionToSave,
+      update: requisitionToSave,
     })
 
-    if (requisition.status === 'CANCELLED') {
+    if (requisitionToSave.status === 'CANCELLED') {
       await deleteManualProductionRequestsLinkedToRequisition(transaction, {
         id: requisitionId,
-        requisitionGroupId: requisition.requisitionGroupId,
+        requisitionGroupId: requisitionToSave.requisitionGroupId,
       })
     }
 
