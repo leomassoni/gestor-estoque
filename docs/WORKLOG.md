@@ -1123,3 +1123,4 @@ Registrar um historico resumido do que foi feito, do que falhou e do que ficou p
 - A mesma mecanica de conferencia por icone foi aplicada ao suprimento de compras, eliminando a necessidade de zerar itens que nao serao enviados naquele momento.
 - As linhas enviadas e residuais preservam `sourceAllocations` proporcionais a quantidade, mantendo o rastreio de origem da demanda para compras e auditoria.
 - Validacao tecnica: `npm run build` e `git diff --check`.
+- Complemento: a conferencia de suprimentos internos passa a exibir a coluna `Estoque origem`, calculada pelo saldo atual do centro distribuidor para o item movimentado e apresentada na mesma unidade visual do envio.

@@ -29921,6 +29921,31 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
     return `${formatDecimal(availableQuantity)} ${getManualSupplyQuantityUnitLabel(line)}`
   }
 
+  function getSupplyLineAvailableQuantityLabel(requisition: RequisitionRecord | null, line: RequisitionLineRecord) {
+    if (!requisition || requisition.supplyCenterId === null) {
+      return '-'
+    }
+
+    const aggregationKey = buildInventoryAggregationKey({
+      kind: line.kind,
+      technicalSheetId: line.kind === 'PREPARO' ? line.technicalSheetId : null,
+      productId: line.kind === 'PRODUTO' ? line.productId : '',
+      serviceItemId: line.kind === 'ITEM' ? line.serviceItemId : '',
+    })
+    const availableBaseQuantity =
+      latestInventoryQuantityByCenterAndAggregation.get(`${requisition.supplyCenterId}:${aggregationKey}`) ?? 0
+    const movementConfig = getRequisitionStockMovementConfig(line)
+    const effectiveConfig = getRequisitionEffectiveQuantityConfig(line)
+    const displayQuantity =
+      movementConfig.multiplier > 0 ? availableBaseQuantity / movementConfig.multiplier : availableBaseQuantity
+
+    if (line.kind === 'PREPARO' || line.packageId !== null) {
+      return `${formatDecimal(displayQuantity)} x ${effectiveConfig.unitLabel}`
+    }
+
+    return `${formatDecimal(availableBaseQuantity)} ${formatControlUnitShort(movementConfig.totalUnit)}`
+  }
+
   function getManualSupplyDisplayedQuantityValue(line: RequisitionLineRecord, storedQuantityValue: string) {
     if (line.kind === 'PREPARO') {
       return getRequisitionEffectiveQuantityInputValue(line, storedQuantityValue)
@@ -29952,6 +29977,10 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
       return getRequisitionDraftColumnSortableValue(line, key)
     }
 
+    const targetRequisition =
+      supplyEditingRequisitionId === null
+        ? null
+        : requisitions.find((record) => record.id === supplyEditingRequisitionId) ?? null
     const distinctValues = Object.fromEntries(
       requisitionDraftColumnOptions.map(([key]) => [
         key,
@@ -29972,6 +30001,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
             line.family,
             line.destinationLabel,
             formatRequisitionEffectiveQuantity(line, line.requestedQuantity),
+            getSupplyLineAvailableQuantityLabel(targetRequisition, line),
           ].some((value) => normalizeFreeText(value).includes(search))
 
         const matchesFilters = Object.entries(requisitionDraftColumnFilters).every(([rawKey, selectedValues]) => {
@@ -30071,6 +30101,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                       )
                     : null}
                   <th>Unidade</th>
+                  <th>Estoque origem</th>
                   {requisitionDraftColumnVisibility.destination
                     ? renderRequisitionDraftColumnHeader(
                         'destination',
@@ -30103,6 +30134,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                       </td>
                     ) : null}
                     <td>{getRequisitionEffectiveQuantityConfig(line).unitLabel}</td>
+                    <td>{getSupplyLineAvailableQuantityLabel(targetRequisition, line)}</td>
                     {requisitionDraftColumnVisibility.destination ? <td>{line.destinationLabel}</td> : null}
                     <td>
                       <div className="supply-line-action-stack">
