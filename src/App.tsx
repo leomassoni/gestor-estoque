@@ -15287,7 +15287,11 @@ export default function App() {
         ? totalRecipeCost / (desiredCmvPercentage / 100)
         : 0
     const currentCompanyFinalSalePrice =
-      currentCompanyId === null ? '' : technicalSheetForm.finalSalePricesByCompanyId[String(currentCompanyId)] ?? ''
+      currentCompanyId === null
+        ? ''
+        : currentCompanyId === technicalSheetOwnerCompanyId
+          ? technicalSheetForm.finalSalePrice
+          : technicalSheetForm.finalSalePricesByCompanyId[String(currentCompanyId)] ?? ''
     const finalSalePrice =
       isCommercialTechnicalSheetKind(technicalSheetForm.kind)
         ? parseDecimal(currentCompanyFinalSalePrice || technicalSheetForm.finalSalePrice) ?? suggestedSalePrice
@@ -15323,6 +15327,7 @@ export default function App() {
     technicalSheetForm.outputUnit,
     technicalSheetForm.portionSize,
     technicalSheetForm.yieldDifferenceDestination,
+    technicalSheetOwnerCompanyId,
     technicalSheetGarnishIngredientMetrics,
     technicalSheetIngredientMetrics,
     technicalSheetServiceItems,
@@ -33433,14 +33438,14 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
       willResetProductionCenters,
     } = technicalSheetCopyPreviewState
     let technicalSheetId = await fetchNextTechnicalSheetIdFromApi()
-    const generatedProductId = buildTechnicalSheetProductId(newName, sourceSheet.kind)
+    let technicalSheetProductId = buildTechnicalSheetProductId(newName, sourceSheet.kind)
     let nextCopiedTechnicalSheet: TechnicalSheetRecord = {
       ...sourceSheet,
       id: technicalSheetId,
       companyId: targetCompanyId,
       ownerCompanyId: targetCompanyId,
       sharedCompanyIds,
-      productId: generatedProductId,
+      productId: technicalSheetProductId,
       companyProductId: '',
       companyProductIdsByCompanyId: {},
       name: newName,
@@ -33474,7 +33479,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
       const copiedTechnicalProduct: ProductRecord = {
         companyId: targetCompanyId,
         ownerCompanyId: targetCompanyId,
-        id: generatedProductId,
+        id: sheetToCopy.productId,
         companyProductId: '',
         name: newName,
         controlUnit: sourceSheet.outputUnit,
@@ -33510,11 +33515,13 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
     })
     try {
       const savedTechnicalSheet = await createTechnicalSheetRecordOnApiWithRetry(nextCopiedTechnicalSheet)
-      if (savedTechnicalSheet.id !== technicalSheetId) {
+      if (savedTechnicalSheet.id !== technicalSheetId || savedTechnicalSheet.productId !== technicalSheetProductId) {
         technicalSheetId = savedTechnicalSheet.id
+        technicalSheetProductId = savedTechnicalSheet.productId
         nextCopiedTechnicalSheet = {
           ...nextCopiedTechnicalSheet,
           id: savedTechnicalSheet.id,
+          productId: savedTechnicalSheet.productId,
         }
         ;({ nextTechnicalSheets, copiedTechnicalProduct, nextProducts } = buildCopySaveState(nextCopiedTechnicalSheet))
       }

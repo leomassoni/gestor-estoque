@@ -1124,3 +1124,9 @@ Registrar um historico resumido do que foi feito, do que falhou e do que ficou p
 - As linhas enviadas e residuais preservam `sourceAllocations` proporcionais a quantidade, mantendo o rastreio de origem da demanda para compras e auditoria.
 - Validacao tecnica: `npm run build` e `git diff --check`.
 - Complemento: a conferencia de suprimentos internos passa a exibir a coluna `Saldo estoque`, calculada pelo saldo atual do centro distribuidor para o item movimentado e apresentada na mesma unidade visual do envio.
+
+### Correcoes no cadastro de fichas tecnicas
+
+- Corrigido o resumo de custo de fichas comerciais: ao editar o `Valor de venda final padrao` da empresa origem, o `CMV final` passa a recalcular em tempo real com o valor digitado, sem depender do salvamento da ficha.
+- Corrigida a copia de ficha tecnica para empresa vinculada: o produto vinculado da copia passa a usar o `productId` alocado pelo backend junto da nova ficha, evitando erro de ID interno divergente na empresa destino.
+- Validacao tecnica: `npm run build` e `git diff --check`.
