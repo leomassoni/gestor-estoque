@@ -1333,3 +1333,25 @@ Registrar um historico resumido do que foi feito, do que falhou e do que ficou p
   - `backups/online-before-madre-20260906-cachacas-doses-20260906-120419`;
   - `auditorias/madre-20260906-photo-cachacas-doses-20260906-120419.json`.
 - Validacao pela API confirmou que nao houve produto, ficha ou ingrediente faltando.
+
+### Exclusao de duplicidade Capel na Casa de mi Madre
+
+- Verificado no online de `CASA DE MI MADRE LTDA` (`companyId=13`) que o produto em uso nas fichas tecnicas e `PISCO CAPEL 70` (`PRD-MSPIALEZ-LS8YRO`).
+- Usos preservados de `PISCO CAPEL 70`:
+  - `DS PISCO CAPEL 70 60ML` (`VENDA`, id `986`);
+  - `PISCO INFUSIONADO COM EUCALIPTO` (`PREPARO`, id `446`);
+  - `PISCO SOUR` (`EXECUCAO`, id `292`).
+- `DS PISCO CAPEL 70 60ML` ja existia, portanto nao foi criada nova ficha; o valor existente foi preservado em `R$ 80,00`.
+- O valor da ficha removida `DS CAPEL RESERVADO 60ML` era `R$ 50,00`, mas nao foi reaplicado porque a ficha substituta ja existia.
+- Excluidos do online:
+  - ficha `DS CAPEL RESERVADO 60ML` (`id=921`);
+  - produto vinculado da ficha `VEN-MTOW9WCE-UXG0N5`;
+  - produto base duplicado `CAPEL RESERVADO` (`PRD-MADRE-CAPEL-RESERVADO-962AD640E0`).
+- Validacao pela API confirmou:
+  - `CAPEL RESERVADO` removido;
+  - `DS CAPEL RESERVADO 60ML` removida;
+  - `DS PISCO CAPEL 70 60ML` ativa;
+  - nenhum uso restante apontando para o produto duplicado removido.
+- Backup e auditoria:
+  - `backups/madre-capel-reservado-delete-20260906T153442Z`;
+  - `auditorias/madre-capel-reservado-delete-20260906T153442Z.json`.
