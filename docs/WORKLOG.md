@@ -1355,3 +1355,32 @@ Registrar um historico resumido do que foi feito, do que falhou e do que ficou p
 - Backup e auditoria:
   - `backups/madre-capel-reservado-delete-20260906T153442Z`;
   - `auditorias/madre-capel-reservado-delete-20260906T153442Z.json`.
+
+### Cadastro complementar de vermutes Padro & Co da Casa de mi Madre
+
+- Imagens analisadas:
+  - `/home/leomassoni/Downloads/WhatsApp Image 2026-09-06 at 13.36.12.jpeg`;
+  - `/home/leomassoni/Downloads/WhatsApp Image 2026-09-06 at 13.36.11.jpeg`;
+  - `/home/leomassoni/Downloads/WhatsApp Image 2026-09-06 at 13.36.09(1).jpeg`;
+  - `/home/leomassoni/Downloads/WhatsApp Image 2026-09-06 at 13.36.09.jpeg`;
+  - `/home/leomassoni/Downloads/WhatsApp Image 2026-09-06 at 13.36.08(1).jpeg`;
+  - `/home/leomassoni/Downloads/WhatsApp Image 2026-09-06 at 13.36.08.jpeg`;
+  - `/home/leomassoni/Downloads/WhatsApp Image 2026-09-06 at 13.36.07(2).jpeg`;
+  - `/home/leomassoni/Downloads/WhatsApp Image 2026-09-06 at 13.36.07(1).jpeg`;
+  - `/home/leomassoni/Downloads/WhatsApp Image 2026-09-06 at 13.36.07.jpeg`.
+- A planilha `/home/leomassoni/Downloads/Lista de preços Bar.xlsx` nao continha os vermutes Padro & Co.
+- Aplicado no online para `CASA DE MI MADRE LTDA` (`companyId=13`) via script rastreavel `scripts/register_madre_20260906_padro_vermouths_and_doses.py`.
+- Criados `3` produtos base:
+  - `VERMOUTH PADRO & CO BLANCO RESERVA` (`PRD-MTQ1UVX0-EBT7MZ`), embalagem `750 ML`, custo `R$ 74,39`, EAN `8427221023915`;
+  - `VERMOUTH PADRO & CO ROJO CLASICO` (`PRD-MTQ1UWJJ-0K9IRV`), embalagem `750 ML`, custo `R$ 62,37`, EAN `8427221023946`;
+  - `VERMOUTH PADRO & CO DORADO AMARGO SUAVE` (`PRD-MTQ1UX55-LPZ9J8`), embalagem `750 ML`, custo `R$ 73,65`, EAN `8427221023939`.
+- Criadas `3` fichas `VENDA` de dose `60 ML`, todas com produto vinculado `VEN-*` e ingrediente ativo de `60 ML` do produto base:
+  - `DS VERMOUTH PADRO & CO BLANCO RESERVA 60ML` (`id=1052`, produto `VEN-MTQ1UW59-DF30UD`);
+  - `DS VERMOUTH PADRO & CO ROJO CLASICO 60ML` (`id=1053`, produto `VEN-MTQ1UWRC-9ZIU1O`);
+  - `DS VERMOUTH PADRO & CO DORADO AMARGO SUAVE 60ML` (`id=1054`, produto `VEN-MTQ1UXD6-C22EQJ`).
+- Preco de venda sugerido: `R$ 45,00` para as tres doses, mantendo `CMV final` estimado entre `11,09%` e `13,22%`.
+- Planilha criada: `/home/leomassoni/Downloads/Bebidas novas fotos 2026-09-06 Padro - custos e doses Casa de mi Madre.xlsx`, com formulas para conversao, IOF, custo final, custo da dose e `CMV final %`.
+- Backup e relatorio:
+  - `backups/online-before-madre-20260906-padro-vermouths-doses-20260906-135216`;
+  - `auditorias/madre-20260906-padro-vermouths-doses-20260906-135216.json`.
+- Validacao pela API confirmou que nao houve produto, ficha, ingrediente ou custo divergente.
