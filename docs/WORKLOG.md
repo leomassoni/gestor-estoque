@@ -1277,3 +1277,25 @@ Registrar um historico resumido do que foi feito, do que falhou e do que ficou p
 - Validacao pela API confirmou `0` inventarios abertos na Casa de mi Madre e nenhum vinculo ativo restante apontando para o inventario/sessao removidos.
 - Causa do clique sem resposta: o botao `Finalizar inventario` estava desabilitado quando havia contagem aberta, embora a confirmacao de fechamento ja explique que contagens abertas serao descartadas ao fechar.
 - Ajuste aplicado em `src/App.tsx`: removido o bloqueio silencioso do botao para permitir abrir a confirmacao de fechamento do inventario.
+
+### Realocacao de producoes da Casa de mi Madre para Bar de Baixo
+
+- Aplicada no online a mudanca operacional solicitada para `CASA DE MI MADRE LTDA` (`companyId=13`):
+  - centro produtor removido: `LABORATORIO` (`stockCenterId=5`);
+  - centro produtor destino: `BAR DE BAIXO` (`stockCenterId=7`).
+- Foram atualizadas `68` fichas tecnicas, todas do tipo `PREPARO`, que tinham o laboratorio em `productionCenters`.
+- Regra aplicada:
+  - quando a ficha tinha apenas `LABORATORIO`, ele foi substituido por `BAR DE BAIXO`;
+  - quando a ficha ja tinha `BAR DE BAIXO` e tambem `LABORATORIO`, apenas o laboratorio foi removido, sem duplicar o centro destino;
+  - outros centros produtores existentes foram preservados.
+- Tambem foram atualizados os espelhos dos centros de estoque:
+  - `LABORATORIO.producedTechnicalSheetIds`: `68` -> `0`;
+  - `BAR DE BAIXO.producedTechnicalSheetIds`: `8` -> `70`.
+- Validacao pela API confirmou:
+  - `0` fichas ainda vinculadas para produzir em laboratorio;
+  - `0` fichas afetadas sem `BAR DE BAIXO` como centro produtor;
+  - `0` IDs afetados restantes no espelho do laboratorio;
+  - `0` IDs afetados faltando no espelho do `BAR DE BAIXO`.
+- Backup e relatorio:
+  - `backups/madre-production-centers-lab-to-bar-baixo-20260906T142601Z.json`;
+  - `auditorias/madre-production-centers-lab-to-bar-baixo-20260906T142601Z.json`.
