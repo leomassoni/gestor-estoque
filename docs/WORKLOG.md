@@ -1299,3 +1299,37 @@ Registrar um historico resumido do que foi feito, do que falhou e do que ficou p
 - Backup e relatorio:
   - `backups/madre-production-centers-lab-to-bar-baixo-20260906T142601Z.json`;
   - `auditorias/madre-production-centers-lab-to-bar-baixo-20260906T142601Z.json`.
+
+### Cadastro de cachacas por fotos e doses 60 ml da Casa de mi Madre
+
+- Imagens analisadas:
+  - `/home/leomassoni/Downloads/WhatsApp Image 2026-09-06 at 11.42.21(3).jpeg`;
+  - `/home/leomassoni/Downloads/WhatsApp Image 2026-09-06 at 11.42.21(2).jpeg`;
+  - `/home/leomassoni/Downloads/WhatsApp Image 2026-09-06 at 11.42.21(1).jpeg`;
+  - `/home/leomassoni/Downloads/WhatsApp Image 2026-09-06 at 11.42.21.jpeg`;
+  - `/home/leomassoni/Downloads/WhatsApp Image 2026-09-06 at 11.42.20(1).jpeg`;
+  - `/home/leomassoni/Downloads/WhatsApp Image 2026-09-06 at 11.42.20.jpeg`;
+  - `/home/leomassoni/Downloads/WhatsApp Image 2026-09-06 at 11.42.19(2).jpeg`;
+  - `/home/leomassoni/Downloads/WhatsApp Image 2026-09-06 at 11.42.19(1).jpeg`;
+  - `/home/leomassoni/Downloads/WhatsApp Image 2026-09-06 at 11.42.19.jpeg`.
+- A planilha `/home/leomassoni/Downloads/Lista de preços Bar.xlsx` nao continha esses produtos exatos; havia apenas itens semelhantes/ja cadastrados (`Bem Me Quer`, AMZ Jambu e flor de jambu).
+- Aplicado no online para `CASA DE MI MADRE LTDA` (`companyId=13`) via script rastreavel `scripts/register_madre_20260906_photo_cachacas_and_doses.py`.
+- Criados `9` produtos base:
+  - `CACHACA TIE PRATA` (`PRD-MTPY02UD-AMNE6G`);
+  - `CACHACA TIE CASTANHEIRA` (`PRD-MTPY03VZ-P2IQ6P`);
+  - `CACHACA MEIA LUA SALINAS BALSAMO` (`PRD-MTPY04LX-KRH8CC`);
+  - `CACHACA COM JAMBU SENSACAO TRADICIONAL` (`PRD-MTPY05B0-3LPC85`);
+  - `CACHACA CAPUEIRA OURO BALSAMO` (`PRD-MTPY05XT-JEF8J8`);
+  - `FAMIGERADA JENI LIQUOR LICOR DE JENIPAPO` (`PRD-MTPY070T-YU2N8V`);
+  - `CACHACA MATRIARCA JAQUEIRA` (`PRD-MTPY07YH-B88Q1C`);
+  - `CACHACA COLOMBINA TRADICIONAL 1920 JATOBA` (`PRD-MTPY093V-VAJY9J`);
+  - `CACHACA YVY DESTILARIA ORIGINAL DO BRASIL` (`PRD-MTPY0A1J-RSFUGT`).
+- Criadas `9` fichas `VENDA` de dose `60 ML`, IDs `1043` a `1051`, todas com produto vinculado `VEN-*` e ingrediente ativo de `60 ML` do produto base.
+- Precos de venda sugeridos pelo criterio usado na rodada anterior: maior valor entre piso de mercado da categoria e minimo para manter `CMV final <= 35%`.
+  - apenas `DS CACHACA TIE CASTANHEIRA 60ML` ficou acima do piso (`R$ 55,00`) por usar custo internacional convertido;
+  - as demais ficaram em `R$ 40,00`.
+- Planilha criada: `/home/leomassoni/Downloads/Bebidas novas fotos 2026-09-06 - custos e doses Casa de mi Madre.xlsx`, com formulas para conversao, IOF, custo final, custo da dose e `CMV final %`.
+- Backup e relatorio:
+  - `backups/online-before-madre-20260906-cachacas-doses-20260906-120419`;
+  - `auditorias/madre-20260906-photo-cachacas-doses-20260906-120419.json`.
+- Validacao pela API confirmou que nao houve produto, ficha ou ingrediente faltando.
