@@ -1130,3 +1130,150 @@ Registrar um historico resumido do que foi feito, do que falhou e do que ficou p
 - Corrigido o resumo de custo de fichas comerciais: ao editar o `Valor de venda final padrao` da empresa origem, o `CMV final` passa a recalcular em tempo real com o valor digitado, sem depender do salvamento da ficha.
 - Corrigida a copia de ficha tecnica para empresa vinculada: o produto vinculado da copia passa a usar o `productId` alocado pelo backend junto da nova ficha, evitando erro de ID interno divergente na empresa destino.
 - Validacao tecnica: `npm run build` e `git diff --check`.
+
+### Cadastro de bebidas por fotos da Casa de mi Madre
+
+- Planilha de trabalho: `/home/leomassoni/Downloads/Bebidas para cadastro - Casa de mi Madre.xlsx`.
+- Aplicado no online para `CASA DE MI MADRE LTDA` (`companyId=13`) via script rastreavel `scripts/register_madre_photo_beverage_products.py`.
+- Resultado aplicado:
+  - `27` produtos novos cadastrados, com ID interno alocado pelo backend;
+  - `1` nova embalagem cadastrada no produto existente `MADRE MEZCAL ENSAMBLE` (`EMB-002`, `200 MILLILITER`);
+  - `2` linhas mantidas como ja cadastradas: `LICOR FINO DE MEL DE BRACATINGA SCHLUCK` e `TEQUILA HERRADURA ANEJO`.
+- A planilha foi atualizada com `28` linhas `FEITO`, IDs internos preenchidos e `17` pendencias preservadas para revisao de custo/rotulo.
+- Backup e relatorio: `backups/madre-photo-beverage-products-20260905-141733`.
+
+### Sugestoes da planilha de custos da Casa de mi Madre
+
+- Processadas as sugestoes preenchidas na coluna `Y` da aba `Pendencias` da planilha `/home/leomassoni/Downloads/Lista de preços Bar - custos Casa de mi Madre identificados.xlsx`.
+- Aplicado no online para `CASA DE MI MADRE LTDA` (`companyId=13`) via script rastreavel `scripts/apply_madre_price_pending_suggestions.py`.
+- Resultado aplicado:
+  - `20` produtos existentes atualizados com custo, embalagem e/ou nome;
+  - `7` produtos novos cadastrados: `FLOR DE JAMBU`, `FLOR DE MEL`, `POLPA DE CAMBUCI`, `VERMU BRANCO COMPANHIA DOS FERMENTADOS`, `VERMU DE JABUTICABA COMPANHIA DOS FERMENTADOS`, `VERMU DE MEL COMPANHIA DOS FERMENTADOS` e `VERMU ROSE COMPANHIA DOS FERMENTADOS`;
+  - `2` produtos sem uso excluidos: `ABACAXI MADURO` e o duplicado inativo `TIO PEPE JEREZ FINO`.
+- Validacao por API:
+  - nenhuma atualizacao ou criacao ficou faltando;
+  - `PIMENTA SECA ANCHO` foi corrigida para `PIMENTA CHOCOLATE`, preservando o ID usado por fichas/requisicoes;
+  - `VORKA SMIRNOFF 21` foi corrigida para `VODKA SMIRNOFF 21`.
+- A planilha ficou com `73` linhas `FEITO`, `11` `REVISAR` e `4` `PENDENTE`; todas as `32` linhas com sugestao na aba `Pendencias` foram marcadas como `FEITO` e ficaram com ID preenchido.
+- Backup e relatorio: `backups/madre-price-pending-suggestions-20260905-162520`.
+
+### Revisao de precos das bebidas por imagens e lista da Ana
+
+- Planilha de trabalho: `/home/leomassoni/Downloads/Bebidas para cadastro - Casa de mi Madre.xlsx`.
+- Atualizados no online e na planilha `8` custos de bebidas cadastradas em `CASA DE MI MADRE LTDA` (`companyId=13`).
+- Precos diretos informados por Ana/prateleira:
+  - `ANCHO REYES LICOR DE CHILE ANCHO`: `R$ 300,00`;
+  - `SIGLO CERO POX`: `R$ 300,00`;
+  - `YVY GIN TERRITORIOS BIOMA MATA ATLANTICA`: `R$ 100,00`;
+  - `YVY GIN TERRITORIOS BIOMA PANTANAL`: `R$ 100,00`;
+  - `CACHACA MINEIRIANA CLASSICA`: `R$ 65,00`;
+  - `CACHACA DIVINA CANA JUPITER EXTRA PREMIUM BLEND DE CARVALHOS`: `R$ 99,00`.
+- Precos convertidos de imagens em USD usando `R$ 5,30 + 3,5% IOF`, sem o fator de importacao antigo:
+  - `BOZAL MEZCAL ENSAMBLE ESPADIN MEXICANO BARRIL`: `US$ 54,00` -> `R$ 296,22`;
+  - `DOS MADERAS 5+5 PX TRIPLE AGED RUM`: `US$ 39,96` -> `R$ 219,20`.
+- O cadastro `YVY GIN TERRITORIOS BIOMA CERRADO` foi renomeado para `YVY GIN TERRITORIOS BIOMA PANTANAL` conforme a nova referencia.
+- Itens citados mas ausentes da planilha apontada foram registrados na aba `Precos fora da planilha`, sem cadastro automatico: `FAMIGERADA JENI JENIPAPO`, `CAPUEIRA OURO` e `YVY DESTILARIA RUM`.
+- Backup e relatorio: `backups/madre-beverage-price-corrections-20260905-165557`.
+
+### Sugestoes finais da aba Pendencias das bebidas da Casa de mi Madre
+
+- Processadas as sugestoes preenchidas na coluna `F` da aba `Pendencias` da planilha `/home/leomassoni/Downloads/Bebidas para cadastro - Casa de mi Madre.xlsx`.
+- Aplicado no online para `CASA DE MI MADRE LTDA` (`companyId=13`):
+  - `PISCO FUNDO LOS NICHOS RESERVADO 40`: `CLP 10.990` convertido com `CLP/BRL 0,005486 + 3,5% IOF`, custo `R$ 62,40`;
+  - `UNION DISTILLERY PURE MALT WHISKY EXCLUSIVE CARVALHO AMERICANO`: mantido `R$ 237,95` conforme sugestao;
+  - `SANTA SPINA FUMIGATA DESTILADO DE FICO D'INDIA`: `EUR 45,50` convertido com `EUR/BRL 5,95496 + 3,5% IOF`, custo `R$ 280,43`;
+  - `MADRE MEZCAL ENSAMBLE`: confirmada embalagem `EMB-002`, `200 MILLILITER`, custo `R$ 72,55`, preservando a embalagem `700 MILLILITER`;
+  - `SINGANI SAN PEDRO ORO`: `BOB 80` convertido com `BOB/BRL 0,41134 + 3,5% IOF`, custo `R$ 34,06`;
+  - `CACHACA YAGUARA ORGANICA`: volume corrigido para `750 MILLILITER`, custo `R$ 89,99`;
+  - `CAJUINA REOBOTE DO CAJU 100% NATURAL`: renomeada para `CAJUINA 100% NATURAL`, embalagem corrigida para `300 MILLILITER`, custo medio `R$ 12,75`.
+- A aba `Pendencias` ficou sem linhas abertas; a planilha manteve `28` linhas `FEITO` e `2` `JA CADASTRADO`.
+- Backup e relatorio: `backups/madre-beverage-pending-suggestions-20260905-170802`.
+
+### Fichas de venda de doses 60 ml da Casa de mi Madre
+
+- Planilha de trabalho: `/home/leomassoni/Downloads/Bebidas para cadastro - Casa de mi Madre.xlsx`.
+- Criadas no online `29` fichas `VENDA` de dose `60 ML` para destilados/bebidas alcoolicas cadastradas em `CASA DE MI MADRE LTDA` (`companyId=13`), com nomes no padrao `DS ... 60ML`.
+- Cada ficha usa `1 UNIT` como produto de venda e consome `60 ML` do produto base cadastrado como garrafa.
+- Precos de venda foram sugeridos usando o maior valor entre:
+  - preco minimo para manter `CMV final <= 35%` com base no custo da embalagem cadastrada;
+  - piso de mercado por categoria para bares de coquetelaria em Pinheiros/Sao Paulo.
+- A planilha ganhou a aba `Doses 60ml Madre` com custo da embalagem, custo da dose, preco sugerido, CMV final, ID da ficha e ID do produto vinculado.
+- Validacao online posterior confirmou `29` fichas ativas, IDs `855` a `883`, todos com produto vinculado existente e ingrediente ativo de `60 ML`.
+- Backup e relatorio:
+  - `backups/online-before-madre-dose-60ml-sale-sheets-20260905-172534`;
+  - `auditorias/madre-dose-60ml-sale-sheets-20260905-172534.json`.
+
+### Complemento completo de fichas de dose 60 ml da Casa de mi Madre
+
+- Feita auditoria online completa dos produtos `BEBIDAS` ativos da `CASA DE MI MADRE LTDA` (`companyId=13`) para cobrir destilados, licores, vermutes, vodkas, whiskies, tequilas, mezcais, runs/rhums, cachacas, aguardentes, tiquiras, pisco, pox, singani e similares.
+- Criadas `152` fichas complementares `VENDA` de dose `60 ML`, IDs `884` a `1035`, todas com produto vinculado `VEN-*`.
+- Com as `29` fichas criadas na rodada anterior, o cadastro ficou com `181` fichas ativas de dose `60 ML`, IDs `855` a `1035`.
+- Atualizados os custos de `8` produtos que estavam sem preco de embalagem antes da criacao das fichas: `AGUARDIENTE AMARILLO DE MANZANARES`, `ANGOSTURA 5 YEAR OLD`, `ANGOSTURA 7 YEAR OLD`, `APPLETON ESTATE 12 YEAR RARE CASKS`, `LA VENENOSA TABERNAS`, `RANCHO TEPUA BACANORA BLANCO`, `SANTISIMA TRINIDAD 15 ANOS` e `VERMU DE CAJU COMPANHIA DOS FERMENTADOS`.
+- Os precos de venda foram definidos pelo maior valor entre o minimo para manter `CMV final <= 35%` e piso de mercado por categoria.
+- A planilha `/home/leomassoni/Downloads/Bebidas para cadastro - Casa de mi Madre.xlsx` ganhou/atualizou a aba `Auditoria doses 60ml completa`, com `217` linhas:
+  - `181` `JA_COBERTO`;
+  - `29` `NAO_CRIAR`;
+  - `7` `DECIDIR`.
+- Os `7` itens em `DECIDIR` ficaram sem ficha criada por exigirem decisao operacional: `AMARGO CHUNCHO`, `ANGOSTURA AROMATIC BITTERS`, `ANGOSTURA ORANGE BITTERS`, `BITTER AROMATICO SAN BASILE N 05 FOLHAS VERDES ELIXIR DE ABADIA`, `BITTER DE CACAU`, `PEYCHAUDS BITTER` e `UNION TRUFADO`.
+- Validacao online posterior confirmou `181` fichas ativas de dose `60 ML`, todas com produto vinculado existente e ingrediente ativo de `60 ML`; segunda execucao do script retornou `181` `JA_COBERTO` e nao criou duplicatas.
+- Backup e relatorio:
+  - `backups/online-before-madre-complementary-dose-60ml-20260905-182744`;
+  - `auditorias/madre-complementary-dose-60ml-20260905-182744.json`.
+
+### Revisao de custos de tequilas e fichas de dose Madre
+
+- Aplicados no online os custos informados pelo usuario para `14` tequilas da `CASA DE MI MADRE LTDA` (`companyId=13`).
+- Foram atualizados `8` produtos ja existentes: `TEQUILA HERRADURA REPOSADO`, `TEQUILA HERRADURA PLATA`, `TEQUILA HERRADURA ANEJO`, `TEQUILA ESPOLON REPOSADO`, `TEQUILA ESPOLON BLANCO`, `TEQUILA EL JIMANDOR REPOSADO`, `TEQUILA EL JIMANDOR BLANCO` e `DON JULIO BLANCO`.
+- Foram criados `6` produtos novos: `TEQUILA JOSE CUERVO PRATA`, `TEQUILA JOSE CUERVO OURO`, `TEQUILA DON JULIO REPOSADO`, `TEQUILA DON JULIO 1942`, `TEQUILA 1800 BLANCO` e `TEQUILA 1800 CRISTALINO`.
+- Criadas `6` fichas de venda novas de dose `60 ML`, IDs `1037` a `1042`, para os produtos novos.
+- Atualizadas `8` fichas de venda ja existentes para recalcular `finalSalePrice`/`desiredCmvPercentage` com os custos revisados; apenas `DS TEQUILA DON JULIO 1942 60ML` precisou de preco acima do piso (`R$ 320,00`) para manter `CMV final <= 35%`.
+- A planilha `/home/leomassoni/Downloads/custos_precos_doses_60ml_Casa_de_mi_Madre.xlsx` foi regenerada com `188` linhas na aba `Doses 60ml` e `6` linhas em `Itens para decisao`.
+- Validacao por API confirmou custo correto nos `14` produtos e ficha de dose ativa com ingrediente `60 ML` para todos.
+- Backup e relatorio:
+  - `backups/online-before-madre-tequila-costs-doses-20260905-185404`;
+  - `auditorias/madre-tequila-costs-doses-20260905-185404.json`.
+
+### Correcao de custo por fonte direta - Vermu de Caju Madre
+
+- Removido o criterio de custo por paridade para `VERMU DE CAJU COMPANHIA DOS FERMENTADOS`.
+- Fonte validada: busca da loja oficial da Companhia dos Fermentados para `Vermu de caju`, com preco `R$ 134,00`.
+- Atualizado no online:
+  - produto `PRD-MADRE-VERMU-DE-CAJU-COMPAN-B515E7D0A5`: embalagem `750 MILLILITER`, custo `R$ 134,00`;
+  - ficha `1020` (`DS VERMU DE CAJU COMPANHIA DOS FERMENTADOS 60ML`): preco de venda `R$ 45,00`, CMV final `23,8222%`.
+- Atualizadas as planilhas:
+  - `/home/leomassoni/Downloads/custos_precos_doses_60ml_Casa_de_mi_Madre.xlsx`;
+  - `/home/leomassoni/Downloads/Bebidas para cadastro - Casa de mi Madre.xlsx`.
+- Validacao confirmou que nao ha mais ocorrencia de `paridade` nos scripts, `docs/WORKLOG.md` ou nas abas atuais das duas planilhas.
+- Backup e relatorio:
+  - `backups/online-before-vermu-caju-cost-correction-20260905-185857`;
+  - `auditorias/vermu-caju-cost-correction-20260905-185857.json`.
+
+### Planilha de custos de doses com formulas
+
+- Reconstruida a planilha `/home/leomassoni/Downloads/custos_precos_doses_60ml_Casa_de_mi_Madre.xlsx` a partir da API online atual para preservar as `188` fichas de dose `60 ML`.
+- Mantidos como valores fixos/input: `Valor compra moeda origem`, `Cotacao usada`, `IOF %`, `Outros impostos R$`, `Outros valores inclusos R$` e `Sugestao preco venda dose R$`.
+- Transformados em formulas por linha:
+  - `Valor convertido R$` = `Valor compra moeda origem * Cotacao usada`;
+  - `Valor IOF R$` = `Valor convertido R$ * IOF %`;
+  - `Valor final custo R$` = `Valor convertido R$ + Valor IOF R$ + Outros impostos R$ + Outros valores inclusos R$`;
+  - `Custo dose 60ml R$` = `Valor final custo R$ / Volume embalagem ml * 60`;
+  - `CMV final %` = `Custo dose 60ml R$ / Sugestao preco venda dose R$`.
+- Adicionada aba `Metodologia formulas` explicando os campos.
+- Validacao confirmou `188` linhas na aba `Doses 60ml`, nenhuma formula faltando e inclusao da linha `ACAIU DESTILADO DE CAJU`.
+- Ajustado o script `scripts/update_madre_tequila_costs_and_doses.py` para preservar, em futuras regeneracoes, os inputs ja editados na planilha por chave `ID produto base + ID ficha venda`, evitando sobrescrever alteracoes manuais do usuario nessas colunas.
+
+### Limpeza de inventario aberto da Casa de mi Madre
+
+- Investigado no online o inventario aberto da `CASA DE MI MADRE LTDA` (`companyId=13`):
+  - inventario aberto encontrado: `INV-92`, centro `BAR DE BAIXO` (`stockCenterId=7`), data `2026-08-30`;
+  - sessoes vinculadas: `CON-88` aberta com `30` itens, `CON-89` fechada com `124` itens e `CON-90` fechada com `24` itens;
+  - sem movimentacoes pendentes vinculadas ao inventario.
+- Como o usuario confirmou que esse inventario foi usado apenas para gestao de pedidos e podia ser excluido, foi feita limpeza direta no online:
+  - backup salvo em `backups/madre-inventory-92-before-delete-20260906T135636Z.json`;
+  - removidas `178` contagens do inventario;
+  - removidas as sessoes `CON-88`, `CON-89` e `CON-90`;
+  - removido o inventario `INV-92`;
+  - limpos os vinculos ativos que apontavam para `INV-92` e `CON-88`.
+- Validacao pela API confirmou `0` inventarios abertos na Casa de mi Madre e nenhum vinculo ativo restante apontando para o inventario/sessao removidos.
+- Causa do clique sem resposta: o botao `Finalizar inventario` estava desabilitado quando havia contagem aberta, embora a confirmacao de fechamento ja explique que contagens abertas serao descartadas ao fechar.
+- Ajuste aplicado em `src/App.tsx`: removido o bloqueio silencioso do botao para permitir abrir a confirmacao de fechamento do inventario.

@@ -9222,17 +9222,6 @@ export default function App() {
         : inventoryCountSessions.find((sessionRecord) => sessionRecord.id === selectedInventorySessionId && sessionRecord.companyId === currentCompanyId) ?? null,
     [currentCompanyId, inventoryCountSessions, selectedInventorySessionId],
   )
-  const inventoryHasOpenCountSessions = useMemo(
-    () =>
-      selectedInventoryRecord !== null &&
-      inventoryCountSessions.some(
-        (sessionRecord) =>
-          sessionRecord.companyId === currentCompanyId &&
-          sessionRecord.inventoryId === selectedInventoryRecord.id &&
-          !sessionRecord.isClosed,
-      ),
-    [currentCompanyId, inventoryCountSessions, selectedInventoryRecord],
-  )
   const selectedUserInventoryCountSessions = useMemo(
     () =>
       selectedInventoryRecord === null
@@ -46171,7 +46160,6 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                                 `CENTRO ${selectedInventoryRecord.stockCenterId}`,
                             })
                           }
-                          disabled={inventoryHasOpenCountSessions}
                         >
                           Finalizar inventario
                         </button>
