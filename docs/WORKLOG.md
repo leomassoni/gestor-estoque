@@ -1430,3 +1430,30 @@ Registrar um historico resumido do que foi feito, do que falhou e do que ficou p
   - container `gestor-estoque-pg` inicializou base vazia/sem evidencias uteis;
   - ambos nao servem para recuperar a contagem de `06/09/2026`.
 - Conclusao tecnica ate este ponto: sem backup point-in-time/log do provedor ou acesso ao armazenamento local do celular/navegador usado por Lorran, o conteudo de uma sessao fisicamente deletada por `/api/inventory-counts/:id` e `/api/inventory-count-sessions/:id` nao e recuperavel pelas tabelas atuais, porque nao havia tabela de tombstone nem auditoria do fluxo de inventario antes da correcao.
+- Resgate de localStorage recebido em `2026-09-07`:
+  - arquivo original: `/home/leomassoni/Downloads/gestor-estoque-localstorage-resgate-2026-09-07T19-55-48-715Z (1).json`;
+  - copia preservada: `auditorias/madre-inventory-lorran-20260906-forensics/lorran-phone-localstorage-resgate-2026-09-07T19-55-48-715Z.json`;
+  - navegador de origem: Chrome Mobile em Android;
+  - o dump contem `16` inventarios, `15` sessoes e `637` itens de contagem;
+  - para `INV-0094` existem `168` itens, todos na `sessionId=92`, com `createdByUserName=ADMINISTRADOR DO SISTEMA`;
+  - nao ha sessao nem item de contagem com `createdByUserId=8` ou nome `LORRAN GALDINO DA SILVA`;
+  - chaves ativas locais de `app-user:8` em `companyId=13` estao com `inventoryId=null` e `sessionId=null`;
+  - planilha de evidencia criada: `/home/leomassoni/Downloads/Analise resgate localStorage Lorran 06-09-2026 Casa de mi Madre.xlsx`.
+
+### Fechamento autoritativo de inventario com contagens paralelas
+
+- Correcao complementar em `2026-09-07` apos reavaliar o fluxo real: o problema principal nao era apenas descartar sessao aberta; o fechamento do inventario tambem nao podia depender do estado local do navegador que clicou em finalizar.
+- Ajustes aplicados:
+  - `refreshAppInventoryRecordsFromApi()` passou a buscar dados de inventario com `cache: no-store` e retornar o snapshot carregado;
+  - o botao `Finalizar inventario` agora recarrega inventario, sessoes e itens do servidor antes de abrir a revisao;
+  - o modal de fechamento mostra sessoes fechadas e abertas, usuario responsavel, horarios e quantidade de itens;
+  - sessoes fechadas entram automaticamente na consolidacao;
+  - sessoes abertas exigem decisao explicita: `Fechar e consolidar` ou `Descartar`;
+  - no clique final, o frontend recarrega novamente do servidor; se surgir uma sessao aberta nova que nao estava na revisao, o fechamento e bloqueado e a revisao e atualizada;
+  - nova rota `POST /api/inventories/:id/close` aplica a decisao sobre sessoes abertas e fecha o inventario em uma unica transacao no backend.
+- Validacao local por API:
+  - duas sessoes fechadas por usuarios diferentes foram preservadas para consolidacao;
+  - uma sessao aberta selecionada como `Fechar e consolidar` foi fechada e mantida com seus itens;
+  - uma sessao aberta selecionada como `Descartar` teve seus itens e sessao removidos antes do fechamento;
+  - uma sessao aberta sem decisao retornou bloqueio `409`;
+  - cleanup confirmou `0` inventarios, `0` sessoes e `0` itens restantes da empresa de teste `987654`.

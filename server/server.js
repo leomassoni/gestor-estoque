@@ -1428,6 +1428,97 @@ app.put('/api/inventories/:id', async (request, response) => {
   response.json({ inventoryRecord: saved })
 })
 
+app.post('/api/inventories/:id/close', async (request, response) => {
+  const inventoryId = parseIntegerParam(request.params.id)
+  const inventory = normalizeInventoryPayload({ ...request.body?.inventory, id: inventoryId })
+  const openSessionActions =
+    request.body?.openSessionActions && typeof request.body.openSessionActions === 'object'
+      ? request.body.openSessionActions
+      : {}
+  if (inventoryId === null || !inventory || !inventory.isClosed) {
+    response.status(400).json({ error: 'Payload de fechamento de inventario invalido.' })
+    return
+  }
+
+  const existing = await prisma.appInventoryRecord.findUnique({ where: { id: inventoryId } })
+  if (!existing) {
+    response.status(404).json({ error: 'Inventario nao encontrado.' })
+    return
+  }
+  if (existing.isClosed) {
+    response.status(409).json({ error: 'Inventario ja finalizado.' })
+    return
+  }
+  if (
+    existing.companyId !== inventory.companyId ||
+    existing.stockCenterId !== inventory.stockCenterId ||
+    existing.countedAt !== inventory.countedAt ||
+    existing.startedAt !== inventory.startedAt ||
+    existing.startedByUserId !== inventory.startedByUserId ||
+    existing.startedByUserName !== inventory.startedByUserName
+  ) {
+    response.status(409).json({
+      error: 'Payload de fechamento nao corresponde ao inventario atual. Recarregue a revisao antes de finalizar.',
+    })
+    return
+  }
+
+  const openSessions = await prisma.appInventoryCountSessionRecord.findMany({
+    where: { inventoryId, isClosed: false },
+    orderBy: [{ startedAt: 'asc' }, { id: 'asc' }],
+  })
+  const unknownActionSession = openSessions.find((session) => {
+    const action = openSessionActions[String(session.id)]
+    return action !== 'close' && action !== 'discard'
+  })
+  if (unknownActionSession) {
+    response.status(409).json({
+      error: 'Existem contagens abertas sem decisao de fechamento. Recarregue a revisao antes de finalizar.',
+    })
+    return
+  }
+
+  const closeSessionIds = openSessions
+    .filter((session) => openSessionActions[String(session.id)] === 'close')
+    .map((session) => session.id)
+  const discardSessionIds = openSessions
+    .filter((session) => openSessionActions[String(session.id)] === 'discard')
+    .map((session) => session.id)
+
+  const saved = await prisma.$transaction(async (transaction) => {
+    if (discardSessionIds.length > 0) {
+      await transaction.appInventoryCountRecord.deleteMany({ where: { sessionId: { in: discardSessionIds } } })
+      await transaction.appInventoryCountSessionRecord.deleteMany({ where: { id: { in: discardSessionIds } } })
+    }
+
+    if (closeSessionIds.length > 0) {
+      await transaction.appInventoryCountSessionRecord.updateMany({
+        where: { id: { in: closeSessionIds } },
+        data: {
+          isClosed: true,
+          closedAt: inventory.closedAt,
+          closedByUserId: inventory.closedByUserId,
+          closedByUserName: inventory.closedByUserName,
+        },
+      })
+    }
+
+    return transaction.appInventoryRecord.update({
+      where: { id: inventoryId },
+      data: {
+        ...inventory,
+        discardedOpenSessionCount: discardSessionIds.length,
+      },
+    })
+  })
+
+  response.json({
+    inventoryRecord: saved,
+    closedOpenSessionIds: closeSessionIds,
+    discardedOpenSessionIds: discardSessionIds,
+  })
+})
+
 app.delete('/api/inventories/:id', async (request, response) => {
   const inventoryId = parseIntegerParam(request.params.id)
   if (inventoryId === null) {

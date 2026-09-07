@@ -1508,6 +1508,23 @@ export type InventoryCloseState = {
   id: number
   countedAt: string
   stockCenterName: string
+  refreshedAt: string
+  sessions: InventoryCloseSessionReview[]
+  openSessionActions: Record<number, InventoryCloseSessionAction>
+}
+
+export type InventoryCloseSessionAction = 'close' | 'discard'
+
+export type InventoryCloseSessionReview = {
+  id: number
+  isClosed: boolean
+  startedAt: string
+  startedByUserId: number | null
+  startedByUserName: string
+  closedAt: string
+  closedByUserId: number | null
+  closedByUserName: string
+  itemCount: number
 }
 
 export type InventoryLeaveState = {

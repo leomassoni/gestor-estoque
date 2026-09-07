@@ -315,6 +315,7 @@ import type {
   InventoryStorageLocationDeleteState,
   InventoryCountDeleteState,
   InventorySessionCloseState,
+  InventoryCloseSessionAction,
   InventoryCloseState,
   InventoryLeaveState,
   InventoryDeleteState,
@@ -2735,6 +2736,8 @@ export default function App() {
   const [editingInventoryCountId, setEditingInventoryCountId] = useState<number | null>(null)
   const [inventoryDraftBeforeEdit, setInventoryDraftBeforeEdit] = useState<InventoryFormState | null>(null)
   const [isStartingInventoryRecord, setIsStartingInventoryRecord] = useState(false)
+  const [isPreparingInventoryClose, setIsPreparingInventoryClose] = useState(false)
+  const [isClosingInventoryRecord, setIsClosingInventoryRecord] = useState(false)
   const [isSavingInventoryCount, setIsSavingInventoryCount] = useState(false)
   const [isStartingInventoryCountSession, setIsStartingInventoryCountSession] = useState(false)
   const [selectedInventoryId, setSelectedInventoryId] = useState<number | null>(null)
@@ -6396,15 +6399,15 @@ export default function App() {
       pendingMovementsResponse,
     ] =
       await Promise.all([
-        fetch('/api/inventory-storage-locations'),
-        fetch('/api/inventory-active-record-links'),
-        fetch('/api/inventories'),
-        fetch('/api/inventory-count-sessions'),
-        fetch('/api/inventory-active-session-links'),
-        fetch('/api/inventory-counts'),
-        fetch('/api/waste-sessions'),
-        fetch('/api/waste-records'),
-        fetch('/api/pending-inventory-movements'),
+        fetch('/api/inventory-storage-locations', { cache: 'no-store' }),
+        fetch('/api/inventory-active-record-links', { cache: 'no-store' }),
+        fetch('/api/inventories', { cache: 'no-store' }),
+        fetch('/api/inventory-count-sessions', { cache: 'no-store' }),
+        fetch('/api/inventory-active-session-links', { cache: 'no-store' }),
+        fetch('/api/inventory-counts', { cache: 'no-store' }),
+        fetch('/api/waste-sessions', { cache: 'no-store' }),
+        fetch('/api/waste-records', { cache: 'no-store' }),
+        fetch('/api/pending-inventory-movements', { cache: 'no-store' }),
       ])
 
     if (
@@ -6574,7 +6577,17 @@ export default function App() {
 
       logRemoteAppStateMessage('Dados auxiliares locais de inventario foram usados apenas quando nao havia equivalente no servidor.')
       setIsInventoryRemoteStateReady(true)
-      return
+      return {
+        inventoryStorageLocations: missingLocations ? localLocations : nextLocations,
+        inventoryRecords: missingInventories ? localInventories : nextInventories,
+        inventoryActiveRecordLinks: missingActiveRecordLinks ? localActiveRecordLinks : nextActiveRecordLinks,
+        inventoryCountSessions: missingSessions ? localSessions : nextSessions,
+        inventoryActiveSessionLinks: missingActiveSessionLinks ? localActiveSessionLinks : nextActiveSessionLinks,
+        inventoryCounts: missingCounts ? localCounts : nextCounts,
+        wasteSessions: missingWasteSessions ? localWasteSessions : nextWasteSessions,
+        wasteRecords: missingWasteRecords ? localWasteRecords : nextWasteRecords,
+        pendingInventoryMovements: missingPendingMovements ? localPendingMovements : nextPendingMovements,
+      }
     }
     const nextLocationsById = buildEntitySignatureMap(nextLocations, (record) => `${record.companyId}:${record.name}`)
     const currentLocationsById = buildEntitySignatureMap(inventoryStorageLocations, (record) => `${record.companyId}:${record.name}`)
@@ -6632,6 +6645,17 @@ export default function App() {
     syncedWasteRecordMapRef.current = nextWasteRecordsById
     syncedPendingInventoryMovementMapRef.current = nextPendingMovementsById
     setIsInventoryRemoteStateReady(true)
+    return {
+      inventoryStorageLocations: nextLocations,
+      inventoryRecords: nextInventories,
+      inventoryActiveRecordLinks: nextActiveRecordLinks,
+      inventoryCountSessions: nextSessions,
+      inventoryActiveSessionLinks: nextActiveSessionLinks,
+      inventoryCounts: nextCounts,
+      wasteSessions: nextWasteSessions,
+      wasteRecords: nextWasteRecords,
+      pendingInventoryMovements: nextPendingMovements,
+    }
   }
 
   async function refreshAppCatalogRecordsFromApi() {
@@ -7070,6 +7094,27 @@ export default function App() {
     if (!response.ok) {
       const errorPayload = (await response.json().catch(() => null)) as { error?: string } | null
       throw new Error(errorPayload?.error || 'Nao foi possivel criar o inventario no servidor.')
+    }
+    const payload = (await response.json().catch(() => null)) as { inventoryRecord?: unknown } | null
+    const savedInventory = normalizeInventoryRecord(payload?.inventoryRecord)
+    if (!savedInventory) {
+      throw new Error('O inventario retornado pelo servidor e invalido.')
+    }
+    return savedInventory
+  }
+
+  async function closeInventoryRecordOnApi(
+    inventory: InventoryRecord,
+    openSessionActions: Record<number, InventoryCloseSessionAction>,
+  ) {
+    const response = await fetch(`/api/inventories/${inventory.id}/close`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ inventory, openSessionActions }),
+    })
+    if (!response.ok) {
+      const errorPayload = (await response.json().catch(() => null)) as { error?: string } | null
+      throw new Error(errorPayload?.error || 'Nao foi possivel finalizar o inventario no servidor.')
     }
     const payload = (await response.json().catch(() => null)) as { inventoryRecord?: unknown } | null
     const savedInventory = normalizeInventoryRecord(payload?.inventoryRecord)
@@ -21765,35 +21810,180 @@ export default function App() {
     setInventoryErrors({})
   }
 
+  function buildInventoryCloseReviewState(
+    inventoryRecord: InventoryRecord,
+    remoteState: Awaited<ReturnType<typeof refreshAppInventoryRecordsFromApi>>,
+  ): InventoryCloseState {
+    const relatedCounts = remoteState.inventoryCounts.filter((record) => record.inventoryId === inventoryRecord.id)
+    const sessions = remoteState.inventoryCountSessions
+      .filter((sessionRecord) => sessionRecord.inventoryId === inventoryRecord.id)
+      .map((sessionRecord) => ({
+        id: sessionRecord.id,
+        isClosed: sessionRecord.isClosed,
+        startedAt: sessionRecord.startedAt,
+        startedByUserId: sessionRecord.startedByUserId,
+        startedByUserName: sessionRecord.startedByUserName,
+        closedAt: sessionRecord.closedAt,
+        closedByUserId: sessionRecord.closedByUserId,
+        closedByUserName: sessionRecord.closedByUserName,
+        itemCount: relatedCounts.filter((record) => record.sessionId === sessionRecord.id).length,
+      }))
+      .sort(
+        (left, right) =>
+          Number(left.isClosed) - Number(right.isClosed) ||
+          left.startedAt.localeCompare(right.startedAt) ||
+          left.id - right.id,
+      )
+    const openSessionActions: Record<number, InventoryCloseSessionAction> = {}
+    sessions
+      .filter((sessionRecord) => !sessionRecord.isClosed)
+      .forEach((sessionRecord) => {
+        openSessionActions[sessionRecord.id] = 'close'
+      })
+
+    return {
+      id: inventoryRecord.id,
+      countedAt: inventoryRecord.countedAt,
+      stockCenterName: inventoryStockCenterNameById.get(inventoryRecord.stockCenterId) ?? `CENTRO ${inventoryRecord.stockCenterId}`,
+      refreshedAt: new Date().toISOString(),
+      sessions,
+      openSessionActions,
+    }
+  }
+
+  async function requestCloseInventoryRecord(inventoryRecord: InventoryRecord) {
+    if (isPreparingInventoryClose || isClosingInventoryRecord) {
+      return
+    }
+
+    setIsPreparingInventoryClose(true)
+    try {
+      const remoteState = await refreshAppInventoryRecordsFromApi()
+      const targetInventory =
+        remoteState.inventoryRecords.find((record) => record.id === inventoryRecord.id) ?? null
+      if (!targetInventory) {
+        setSaveFeedback({
+          status: 'error',
+          title: 'Inventario nao encontrado',
+          message: 'O inventario nao foi encontrado no servidor apos atualizar os dados. Reabra o painel e tente novamente.',
+        })
+        return
+      }
+      if (targetInventory.isClosed) {
+        setSaveFeedback({
+          status: 'error',
+          title: 'Inventario ja finalizado',
+          message: 'Este inventario ja consta como finalizado no servidor. Reabra o painel para consultar o resumo consolidado.',
+        })
+        return
+      }
+
+      setInventoryCloseState(buildInventoryCloseReviewState(targetInventory, remoteState))
+    } catch (error) {
+      console.error(error)
+      setSaveFeedback({
+        status: 'error',
+        title: 'Falha ao revisar inventario',
+        message:
+          'Nao foi possivel recarregar as contagens do servidor. O inventario nao sera finalizado sem esta revisao.',
+      })
+    } finally {
+      setIsPreparingInventoryClose(false)
+    }
+  }
+
+  function updateInventoryCloseSessionAction(sessionId: number, action: InventoryCloseSessionAction) {
+    setInventoryCloseState((current) =>
+      current
+        ? {
+            ...current,
+            openSessionActions: {
+              ...current.openSessionActions,
+              [sessionId]: action,
+            },
+          }
+        : current,
+    )
+  }
+
   async function confirmCloseInventoryRecord() {
     if (!inventoryCloseState) {
       return
     }
-
-    const openSessionIds = inventoryCountSessions
-      .filter((sessionRecord) => sessionRecord.inventoryId === inventoryCloseState.id && !sessionRecord.isClosed)
-      .map((sessionRecord) => sessionRecord.id)
-    if (openSessionIds.length > 0) {
-      setInventoryCloseState(null)
-      setSaveFeedback({
-        status: 'error',
-        title: 'Inventario ainda tem contagens abertas',
-        message:
-          'Feche todas as sessoes de contagem vinculadas a este inventario antes de finalizar. Nenhuma contagem aberta sera descartada automaticamente.',
-      })
+    if (isClosingInventoryRecord) {
       return
     }
 
-    const relatedPendingMovements = pendingInventoryMovements
+    let authoritativeInventoryState: Awaited<ReturnType<typeof refreshAppInventoryRecordsFromApi>>
+    setIsClosingInventoryRecord(true)
+    try {
+      authoritativeInventoryState = await refreshAppInventoryRecordsFromApi()
+    } catch (error) {
+      console.error(error)
+      setSaveFeedback({
+        status: 'error',
+        title: 'Falha ao atualizar inventario',
+        message:
+          'Nao foi possivel recarregar as contagens do servidor. O inventario nao foi finalizado para evitar consolidacao incompleta.',
+      })
+      setIsClosingInventoryRecord(false)
+      return
+    }
+
+    const authoritativeInventoryRecords = authoritativeInventoryState.inventoryRecords
+    const authoritativeSessions = authoritativeInventoryState.inventoryCountSessions
+    const authoritativeCounts = authoritativeInventoryState.inventoryCounts
+    const authoritativePendingMovements = authoritativeInventoryState.pendingInventoryMovements
+
+    const openSessions = authoritativeSessions
+      .filter((sessionRecord) => sessionRecord.inventoryId === inventoryCloseState.id && !sessionRecord.isClosed)
+      .sort((left, right) => left.startedAt.localeCompare(right.startedAt) || left.id - right.id)
+    const unseenOpenSessions = openSessions.filter(
+      (sessionRecord) => inventoryCloseState.openSessionActions[sessionRecord.id] === undefined,
+    )
+    if (unseenOpenSessions.length > 0) {
+      const targetInventory =
+        authoritativeInventoryRecords.find((inventoryRecord) => inventoryRecord.id === inventoryCloseState.id) ?? null
+      if (targetInventory) {
+        setInventoryCloseState(buildInventoryCloseReviewState(targetInventory, authoritativeInventoryState))
+      }
+      setSaveFeedback({
+        status: 'error',
+        title: 'Inventario atualizado antes de finalizar',
+        message:
+          'Surgiram contagens abertas que nao estavam na revisao anterior. Confira a lista atualizada antes de finalizar.',
+      })
+      setIsClosingInventoryRecord(false)
+      return
+    }
+
+    const closeOpenSessionIds = new Set(
+      openSessions
+        .filter((sessionRecord) => inventoryCloseState.openSessionActions[sessionRecord.id] === 'close')
+        .map((sessionRecord) => sessionRecord.id),
+    )
+    const discardOpenSessionIds = new Set(
+      openSessions
+        .filter((sessionRecord) => inventoryCloseState.openSessionActions[sessionRecord.id] === 'discard')
+        .map((sessionRecord) => sessionRecord.id),
+    )
+
+    const relatedPendingMovements = authoritativePendingMovements
       .filter((movement) => movement.companyId === currentCompanyId && movement.inventoryId === inventoryCloseState.id)
       .sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.id - b.id)
     const now = new Date()
     const closedAtIso = now.toISOString()
 
     const targetInventory =
-      inventoryRecords.find((inventoryRecord) => inventoryRecord.id === inventoryCloseState.id) ?? null
+      authoritativeInventoryRecords.find((inventoryRecord) => inventoryRecord.id === inventoryCloseState.id) ?? null
     if (!targetInventory) {
       setInventoryCloseState(null)
+      setSaveFeedback({
+        status: 'error',
+        title: 'Inventario nao encontrado',
+        message: 'O inventario nao foi encontrado no servidor apos atualizar os dados. Reabra o painel e tente novamente.',
+      })
+      setIsClosingInventoryRecord(false)
       return
     }
 
@@ -21808,8 +21998,8 @@ export default function App() {
     }
 
     try {
-      const savedInventory = await upsertInventoryRecordOnApi(inventoryToClose)
-      const nextInventoryRecords = inventoryRecords.map((inventoryRecord) =>
+      const savedInventory = await closeInventoryRecordOnApi(inventoryToClose, inventoryCloseState.openSessionActions)
+      const nextInventoryRecords = authoritativeInventoryRecords.map((inventoryRecord) =>
         inventoryRecord.id === savedInventory.id ? savedInventory : inventoryRecord,
       )
       const queuedSessions: InventoryCountSessionRecord[] = []
@@ -21840,13 +22030,40 @@ export default function App() {
       setInventoryRecords(nextInventoryRecords)
       saveInventoryRecordsState(nextInventoryRecords)
       syncedInventoryRecordMapRef.current = buildEntitySignatureMap(nextInventoryRecords, (record) => record.id)
-      if (queuedSessions.length > 0) {
-        setInventoryCountSessions((current) => [...queuedSessions.reverse(), ...current])
-        setInventoryCounts((current) => [...queuedRecords.reverse(), ...current])
-      }
-      setPendingInventoryMovements((current) =>
-        current.filter((movement) => !(movement.companyId === currentCompanyId && movement.inventoryId === inventoryCloseState.id)),
+      const sessionsAfterReview = authoritativeSessions
+        .filter((sessionRecord) => !discardOpenSessionIds.has(sessionRecord.id))
+        .map(
+          (sessionRecord) => {
+            if (!closeOpenSessionIds.has(sessionRecord.id)) {
+              return sessionRecord
+            }
+
+            return {
+              ...sessionRecord,
+              isClosed: true,
+              closedAt: closedAtIso,
+              closedByUserId: currentAppUser?.id ?? null,
+              closedByUserName: currentAppUser?.fullName ?? 'Administrador do sistema',
+            }
+          },
+        )
+      const countsAfterReview = authoritativeCounts.filter((record) => !discardOpenSessionIds.has(record.sessionId))
+      const nextInventoryCountSessions =
+        queuedSessions.length > 0 ? [...queuedSessions.reverse(), ...sessionsAfterReview] : sessionsAfterReview
+      const nextInventoryCounts =
+        queuedRecords.length > 0 ? [...queuedRecords.reverse(), ...countsAfterReview] : countsAfterReview
+      const nextPendingInventoryMovements = authoritativePendingMovements.filter(
+        (movement) => !(movement.companyId === currentCompanyId && movement.inventoryId === inventoryCloseState.id),
       )
+      setInventoryCountSessions(nextInventoryCountSessions)
+      saveInventoryCountSessionsState(nextInventoryCountSessions)
+      syncedInventoryCountSessionMapRef.current = buildEntitySignatureMap(nextInventoryCountSessions, (record) => record.id)
+      setInventoryCounts(nextInventoryCounts)
+      saveInventoryCountsState(nextInventoryCounts)
+      syncedInventoryCountMapRef.current = buildEntitySignatureMap(nextInventoryCounts, (record) => record.id)
+      setPendingInventoryMovements(nextPendingInventoryMovements)
+      savePendingInventoryMovementsState(nextPendingInventoryMovements)
+      syncedPendingInventoryMovementMapRef.current = buildEntitySignatureMap(nextPendingInventoryMovements, (record) => record.id)
       registerAuditEvent({
         companyId: savedInventory.companyId,
         module: 'INVENTARIO',
@@ -21863,8 +22080,10 @@ export default function App() {
           stockCenterId: savedInventory.stockCenterId,
           stockCenterName: inventoryStockCenterNameById.get(savedInventory.stockCenterId) ?? '',
           countedAt: savedInventory.countedAt,
-          sessionCount: inventoryCountSessions.filter((sessionRecord) => sessionRecord.inventoryId === savedInventory.id).length,
-          itemCount: inventoryCounts.filter((record) => record.inventoryId === savedInventory.id).length,
+          sessionCount: nextInventoryCountSessions.filter((sessionRecord) => sessionRecord.inventoryId === savedInventory.id).length,
+          itemCount: nextInventoryCounts.filter((record) => record.inventoryId === savedInventory.id).length,
+          openSessionsClosedForConsolidation: Array.from(closeOpenSessionIds),
+          openSessionsDiscarded: Array.from(discardOpenSessionIds),
           appliedPendingMovementCount: relatedPendingMovements.length,
         },
       })
@@ -21875,6 +22094,7 @@ export default function App() {
         title: 'Falha ao finalizar inventario',
         message: error instanceof Error ? error.message : 'Nao foi possivel finalizar o inventario no servidor.',
       })
+      setIsClosingInventoryRecord(false)
       return
     }
 
@@ -21884,6 +22104,7 @@ export default function App() {
     setEditingInventoryCountId(null)
     setInventoryDraftBeforeEdit(null)
     setInventoryErrors({})
+    setIsClosingInventoryRecord(false)
     setSaveFeedback({
       status: 'success',
       title: 'Inventario finalizado com sucesso',
@@ -46343,7 +46564,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                       Inicio {formatTimeForDisplay(selectedInventoryRecord.startedAt)}.{' '}
                       {selectedInventoryRecord.isClosed
                         ? 'Este inventario ja foi finalizado e seu saldo consolidado ja entrou nas movimentacoes.'
-                        : 'Abra uma ou mais contagens dentro deste inventario. O movimento de estoque so sera gerado quando o inventario for finalizado e apenas o fechamento do inventario descarta contagens ainda abertas.'}
+                        : 'Abra uma ou mais contagens dentro deste inventario. O movimento de estoque so sera gerado quando o inventario for finalizado apos a revisao das contagens no servidor.'}
                     </p>
                     {!selectedInventoryRecord.isClosed && selectedInventoryPendingMovementCount > 0 ? (
                       <p className="compact-feedback">
@@ -46379,17 +46600,10 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                         <button
                           type="button"
                           className="warning-button"
-                          onClick={() =>
-                            setInventoryCloseState({
-                              id: selectedInventoryRecord.id,
-                              countedAt: selectedInventoryRecord.countedAt,
-                              stockCenterName:
-                                inventoryStockCenterNameById.get(selectedInventoryRecord.stockCenterId) ??
-                                `CENTRO ${selectedInventoryRecord.stockCenterId}`,
-                            })
-                          }
+                          onClick={() => void requestCloseInventoryRecord(selectedInventoryRecord)}
+                          disabled={isPreparingInventoryClose || isClosingInventoryRecord}
                         >
-                          Finalizar inventario
+                          {isPreparingInventoryClose ? 'Revisando contagens...' : 'Finalizar inventario'}
                         </button>
                       </div>
                     ) : null}
@@ -56008,14 +56222,127 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
       ) : null}
 
       {inventoryCloseState ? (
-        <ConfirmationModal
-          title="Confirmar fechamento do inventario?"
-          message={`Centro ${inventoryCloseState.stockCenterName} • Data ${formatDateForDisplay(inventoryCloseState.countedAt)}. O saldo consolidado deste inventario entrara como movimentacao oficial de estoque. Se houver contagem ainda aberta, o fechamento sera bloqueado ate que ela seja fechada.`}
-          actionClass="warning-button"
-          actionLabel="Finalizar inventario"
-          onCancel={() => setInventoryCloseState(null)}
-          onConfirm={confirmCloseInventoryRecord}
-        />
+        <div className="modal-backdrop" role="presentation" onClick={() => !isClosingInventoryRecord && setInventoryCloseState(null)}>
+          <section
+            className="modal-card modal-card-full"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="inventory-close-review-title"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="section-heading">
+              <div>
+                <p className="kicker">Fechamento</p>
+                <h2 id="inventory-close-review-title">Revisao das contagens do inventario</h2>
+              </div>
+            </div>
+
+            <p className="confirm-copy">
+              Centro {inventoryCloseState.stockCenterName} • Data {formatDateForDisplay(inventoryCloseState.countedAt)}.
+              O webapp recarregou as contagens do servidor em {formatTimeForDisplay(inventoryCloseState.refreshedAt)}. As contagens fechadas entram na consolidacao. Para contagens abertas, escolha se elas devem ser fechadas e consolidadas ou descartadas.
+            </p>
+
+            <div className="inventory-close-summary-grid">
+              <div className="summary-metric-card">
+                <span>Contagens fechadas</span>
+                <strong>{String(inventoryCloseState.sessions.filter((sessionRecord) => sessionRecord.isClosed).length)}</strong>
+              </div>
+              <div className="summary-metric-card">
+                <span>Contagens abertas</span>
+                <strong>{String(inventoryCloseState.sessions.filter((sessionRecord) => !sessionRecord.isClosed).length)}</strong>
+              </div>
+              <div className="summary-metric-card">
+                <span>Itens contados</span>
+                <strong>{String(inventoryCloseState.sessions.reduce((sum, sessionRecord) => sum + sessionRecord.itemCount, 0))}</strong>
+              </div>
+            </div>
+
+            <div className="table-wrap">
+              <table className="product-table">
+                <thead>
+                  <tr>
+                    <th>Sessao</th>
+                    <th>Status</th>
+                    <th>Usuario</th>
+                    <th>Inicio</th>
+                    <th>Fechamento</th>
+                    <th>Itens</th>
+                    <th>Acao no fechamento</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {inventoryCloseState.sessions.length > 0 ? (
+                    inventoryCloseState.sessions.map((sessionRecord) => (
+                      <tr key={`inventory-close-session-${sessionRecord.id}`}>
+                        <td>{formatInventoryCountSessionCode(sessionRecord.id)}</td>
+                        <td>
+                          <span className={sessionRecord.isClosed ? 'status-pill status-active' : 'status-pill status-warning'}>
+                            {sessionRecord.isClosed ? 'FECHADA' : 'ABERTA'}
+                          </span>
+                        </td>
+                        <td>{sessionRecord.startedByUserName}</td>
+                        <td>{formatTimeForDisplay(sessionRecord.startedAt)}</td>
+                        <td>
+                          {sessionRecord.isClosed
+                            ? `${formatTimeForDisplay(sessionRecord.closedAt)} por ${sessionRecord.closedByUserName || '-'}`
+                            : '-'}
+                        </td>
+                        <td>{String(sessionRecord.itemCount)}</td>
+                        <td>
+                          {sessionRecord.isClosed ? (
+                            'Consolidar'
+                          ) : (
+                            <div className="inventory-close-session-actions">
+                              <label className="checkbox-row">
+                                <input
+                                  type="checkbox"
+                                  checked={inventoryCloseState.openSessionActions[sessionRecord.id] === 'close'}
+                                  onChange={() => updateInventoryCloseSessionAction(sessionRecord.id, 'close')}
+                                />
+                                <span>Fechar e consolidar</span>
+                              </label>
+                              <label className="checkbox-row">
+                                <input
+                                  type="checkbox"
+                                  checked={inventoryCloseState.openSessionActions[sessionRecord.id] === 'discard'}
+                                  onChange={() => updateInventoryCloseSessionAction(sessionRecord.id, 'discard')}
+                                />
+                                <span>Descartar</span>
+                              </label>
+                            </div>
+                          )}
+                        </td>
+                      </tr>
+                    ))
+                  ) : (
+                    <tr>
+                      <td colSpan={7}>Nenhuma sessao de contagem vinculada a este inventario.</td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+
+            <div className="modal-actions">
+              <button
+                className="ghost-button"
+                type="button"
+                onClick={() => setInventoryCloseState(null)}
+                disabled={isClosingInventoryRecord}
+              >
+                Cancelar
+              </button>
+              <button
+                className="warning-button"
+                type="button"
+                onClick={() => void confirmCloseInventoryRecord()}
+                disabled={isClosingInventoryRecord}
+              >
+                {isClosingInventoryRecord ? 'Finalizando...' : 'Finalizar inventario'}
+              </button>
+            </div>
+          </section>
+        </div>
       ) : null}
 
       {recipeExportState ? (

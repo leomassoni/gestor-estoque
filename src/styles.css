@@ -683,6 +683,11 @@ select {
   color: #b42318;
 }
 
+.status-warning {
+  background: rgba(245, 158, 11, 0.16);
+  color: #92400e;
+}
+
 .password-input-row {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 42px;
@@ -1069,6 +1074,42 @@ h3 {
   height: 16px;
   margin: 0;
   flex: 0 0 auto;
+}
+
+.inventory-close-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.summary-metric-card {
+  display: grid;
+  gap: 6px;
+  padding: 14px;
+  border: 1px solid rgba(20, 33, 61, 0.1);
+  border-radius: 8px;
+  background: rgba(248, 251, 255, 0.72);
+}
+
+.summary-metric-card span {
+  color: rgba(20, 33, 61, 0.66);
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
+.summary-metric-card strong {
+  color: #14213d;
+  font-size: 1.3rem;
+}
+
+.inventory-close-session-actions {
+  display: grid;
+  gap: 8px;
+  min-width: 220px;
+}
+
+.inventory-close-session-actions .checkbox-row {
+  margin-top: 0;
 }
 
 .manual-supply-line {
