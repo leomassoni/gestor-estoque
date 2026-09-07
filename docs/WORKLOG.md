@@ -1407,3 +1407,26 @@ Registrar um historico resumido do que foi feito, do que falhou e do que ficou p
   - fechamento de inventario agora bloqueia se houver sessao de contagem aberta, sem descartar itens automaticamente;
   - auditoria passou a registrar abrir/acessar inventario, iniciar/fechar sessao, criar/alterar item contado e finalizar inventario.
 - Recuperacao: os dados de Lorran nao aparecem no backend; se ainda existirem, a fonte provavel e o `localStorage` do navegador/dispositivo dele antes de nova sobrescrita/reload.
+
+### Forense complementar do inventario de 06/09/2026 - Lorran
+
+- Investigacao retomada em `2026-09-07` apos o usuario esclarecer que o registro recuperado anteriormente de `30/08/2026` nao atende a necessidade; a busca correta e pela contagem feita por Lorran em `06/09/2026`.
+- Evidencias preservadas:
+  - snapshot online: `auditorias/madre-inventory-lorran-20260906-forensics`;
+  - copia do localStorage Firefox do dominio online: `auditorias/browser-storage-snapshots-20260907/firefox-gestor-ls/data.sqlite`;
+  - JSONs decodificados do Firefox: `auditorias/browser-storage-snapshots-20260907/decoded`.
+- Resultado do online em `2026-09-07T14:29:00.537Z`:
+  - `INV-0094` (`companyId=13`, `stockCenterId=7`, `countedAt=2026-09-06`) tem `168` itens persistidos;
+  - todos os itens do `INV-0094` pertencem a `sessionId=92` e `createdByUserName=ADMINISTRADOR DO SISTEMA`;
+  - nao existe sessao persistida do Lorran para `INV-0094`;
+  - nao existe item persistido com `createdByUserId=8` ou `createdByUserName=LORRAN GALDINO DA SILVA` no inventario de `06/09/2026`;
+  - `INV-0094.discardedOpenSessionCount=1`, indicando que uma sessao aberta foi descartada no fechamento pelo comportamento antigo.
+- Resultado do localStorage Firefox desta maquina:
+  - os dados foram decodificados com Snappy;
+  - existem apenas registros de Lorran vinculados ao `INV-0092`, `CON-0088`, com `countedAt=2026-08-30`;
+  - nao ha `INV-0094`, `sessionId=93` ou contagem de Lorran em `06/09/2026` nesse cache local.
+- Resultado do Postgres local:
+  - container `gestor-estoque-postgres` continha somente inventarios antigos de Casa de mi Madre (`16/08/2026`);
+  - container `gestor-estoque-pg` inicializou base vazia/sem evidencias uteis;
+  - ambos nao servem para recuperar a contagem de `06/09/2026`.
+- Conclusao tecnica ate este ponto: sem backup point-in-time/log do provedor ou acesso ao armazenamento local do celular/navegador usado por Lorran, o conteudo de uma sessao fisicamente deletada por `/api/inventory-counts/:id` e `/api/inventory-count-sessions/:id` nao e recuperavel pelas tabelas atuais, porque nao havia tabela de tombstone nem auditoria do fluxo de inventario antes da correcao.
