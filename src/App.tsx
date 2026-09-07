@@ -4569,6 +4569,12 @@ export default function App() {
     if (!response.ok) {
       throw new Error('Falha ao registrar evento de auditoria.')
     }
+    const payload = (await response.json().catch(() => null)) as { auditLog?: unknown } | null
+    const savedRecord = normalizeAuditLogRecord(payload?.auditLog)
+    if (!savedRecord) {
+      throw new Error('Registro de auditoria retornado pelo servidor e invalido.')
+    }
+    return savedRecord
   }
   function registerAuditEvent({
     companyId = currentCompanyId,
@@ -4605,7 +4611,7 @@ export default function App() {
 
     const actor = getAuditActorSnapshot()
     const nextRecord: AuditLogRecord = {
-      id: getNextPersistedIntId(auditLogs.map((record) => record.id)),
+      id: 1,
       companyId,
       actorUserId: actor.actorUserId,
       actorUserName: actor.actorUserName,
@@ -4627,10 +4633,17 @@ export default function App() {
       occurredAt: new Date().toISOString(),
     }
 
-    setAuditLogs((current) => [nextRecord, ...current].sort((left, right) => right.occurredAt.localeCompare(left.occurredAt) || right.id - left.id))
-    void createAuditLogOnApi(nextRecord).catch((error) => {
-      console.error(error)
-    })
+    void createAuditLogOnApi(nextRecord)
+      .then((savedRecord) => {
+        setAuditLogs((current) =>
+          [savedRecord, ...current.filter((record) => record.id !== savedRecord.id)].sort(
+            (left, right) => right.occurredAt.localeCompare(left.occurredAt) || right.id - left.id,
+          ),
+        )
+      })
+      .catch((error) => {
+        console.error(error)
+      })
   }
   function getCatalogActionPastParticiple(action: ProductAction) {
     if (action === 'delete') {
@@ -6725,22 +6738,6 @@ export default function App() {
       : fallbackId
   }
 
-  async function fetchNextInventoryCountIdFromApi() {
-    const fallbackId = getNextPersistedIntId(inventoryCounts.map((record) => record.id))
-    const response = await fetch('/api/inventory-counts', { cache: 'no-store' })
-    if (!response.ok) {
-      return fallbackId
-    }
-
-    const payload = (await response.json().catch(() => null)) as { inventoryCounts?: unknown } | null
-    const remoteCounts = Array.isArray(payload?.inventoryCounts)
-      ? payload.inventoryCounts
-          .map(normalizeInventoryCountRecord)
-          .filter((record): record is InventoryCountRecord => record !== null)
-      : []
-    return getNextPersistedIntId([...inventoryCounts, ...remoteCounts].map((record) => record.id))
-  }
-
   async function upsertProductRecordOnApi(product: ProductRecord, previousId?: string | null) {
     const targetId = previousId ?? product.id
     const response = await fetch(previousId ? `/api/products/${encodeURIComponent(targetId)}` : '/api/products', {
@@ -7056,6 +7053,30 @@ export default function App() {
       const errorPayload = (await response.json().catch(() => null)) as { error?: string } | null
       throw new Error(errorPayload?.error || 'Nao foi possivel salvar o inventario no servidor.')
     }
+    const payload = (await response.json().catch(() => null)) as { inventoryRecord?: unknown } | null
+    const savedInventory = normalizeInventoryRecord(payload?.inventoryRecord)
+    if (!savedInventory) {
+      throw new Error('O inventario retornado pelo servidor e invalido.')
+    }
+    return savedInventory
+  }
+
+  async function createInventoryRecordOnApi(inventory: InventoryRecord) {
+    const response = await fetch('/api/inventories', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(inventory),
+    })
+    if (!response.ok) {
+      const errorPayload = (await response.json().catch(() => null)) as { error?: string } | null
+      throw new Error(errorPayload?.error || 'Nao foi possivel criar o inventario no servidor.')
+    }
+    const payload = (await response.json().catch(() => null)) as { inventoryRecord?: unknown } | null
+    const savedInventory = normalizeInventoryRecord(payload?.inventoryRecord)
+    if (!savedInventory) {
+      throw new Error('O inventario retornado pelo servidor e invalido.')
+    }
+    return savedInventory
   }
 
   async function deleteInventoryRecordOnApi(inventoryId: number) {
@@ -7098,6 +7119,30 @@ export default function App() {
       const errorPayload = (await response.json().catch(() => null)) as { error?: string } | null
       throw new Error(errorPayload?.error || 'Nao foi possivel salvar a sessao de contagem no servidor.')
     }
+    const payload = (await response.json().catch(() => null)) as { inventoryCountSession?: unknown } | null
+    const savedSession = normalizeInventoryCountSessionRecord(payload?.inventoryCountSession)
+    if (!savedSession) {
+      throw new Error('A sessao de contagem retornada pelo servidor e invalida.')
+    }
+    return savedSession
+  }
+
+  async function createInventoryCountSessionOnApi(session: InventoryCountSessionRecord) {
+    const response = await fetch('/api/inventory-count-sessions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(session),
+    })
+    if (!response.ok) {
+      const errorPayload = (await response.json().catch(() => null)) as { error?: string } | null
+      throw new Error(errorPayload?.error || 'Nao foi possivel criar a sessao de contagem no servidor.')
+    }
+    const payload = (await response.json().catch(() => null)) as { inventoryCountSession?: unknown } | null
+    const savedSession = normalizeInventoryCountSessionRecord(payload?.inventoryCountSession)
+    if (!savedSession) {
+      throw new Error('A sessao de contagem retornada pelo servidor e invalida.')
+    }
+    return savedSession
   }
 
   async function deleteInventoryCountSessionOnApi(sessionId: number) {
@@ -7130,19 +7175,45 @@ export default function App() {
     }
   }
 
-	  async function upsertInventoryCountOnApi(count: InventoryCountRecord) {
-	    const response = await fetch(`/api/inventory-counts/${count.id}`, {
-	      method: 'PUT',
-	      headers: { 'Content-Type': 'application/json' },
-	      body: JSON.stringify(count),
-	    })
-	    if (!response.ok) {
-	      const errorPayload = (await response.json().catch(() => null)) as { error?: string } | null
-	      const error = new Error(errorPayload?.error || 'Nao foi possivel salvar a contagem no servidor.') as ApiMutationError
-	      error.statusCode = response.status
-	      throw error
-	    }
-	  }
+  async function upsertInventoryCountOnApi(count: InventoryCountRecord) {
+    const response = await fetch(`/api/inventory-counts/${count.id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(count),
+    })
+    if (!response.ok) {
+      const errorPayload = (await response.json().catch(() => null)) as { error?: string } | null
+      const error = new Error(errorPayload?.error || 'Nao foi possivel salvar a contagem no servidor.') as ApiMutationError
+      error.statusCode = response.status
+      throw error
+    }
+    const payload = (await response.json().catch(() => null)) as { inventoryCount?: unknown } | null
+    const savedCount = normalizeInventoryCountRecord(payload?.inventoryCount)
+    if (!savedCount) {
+      throw new Error('A contagem retornada pelo servidor e invalida.')
+    }
+    return savedCount
+  }
+
+  async function createInventoryCountOnApi(count: InventoryCountRecord) {
+    const response = await fetch('/api/inventory-counts', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(count),
+    })
+    if (!response.ok) {
+      const errorPayload = (await response.json().catch(() => null)) as { error?: string } | null
+      const error = new Error(errorPayload?.error || 'Nao foi possivel criar a contagem no servidor.') as ApiMutationError
+      error.statusCode = response.status
+      throw error
+    }
+    const payload = (await response.json().catch(() => null)) as { inventoryCount?: unknown } | null
+    const savedCount = normalizeInventoryCountRecord(payload?.inventoryCount)
+    if (!savedCount) {
+      throw new Error('A contagem retornada pelo servidor e invalida.')
+    }
+    return savedCount
+  }
 
   async function upsertWasteSessionOnApi(session: WasteSessionRecord) {
     const response = await fetch(`/api/waste-sessions/${session.id}`, {
@@ -17135,15 +17206,12 @@ export default function App() {
         if (!isCancelled) {
           syncedInventoryCountMapRef.current = currentById
         }
-	      } catch (error) {
-	        console.error(error)
-	        if (!isCancelled) {
-	          if ((error as ApiMutationError).statusCode === 409) {
-	            syncedInventoryCountMapRef.current = currentById
-	          }
-	          logRemoteAppStateMessage('Falha ao sincronizar contagens por entidade com o servidor.')
-	        }
-	      }
+      } catch (error) {
+        console.error(error)
+        if (!isCancelled) {
+          logRemoteAppStateMessage('Falha ao sincronizar contagens por entidade com o servidor.')
+        }
+      }
     })()
 
     return () => {
@@ -21099,9 +21167,8 @@ export default function App() {
       editingInventoryCountId === null
         ? null
         : inventoryCounts.find((record) => record.id === editingInventoryCountId && record.companyId === currentCompanyId) ?? null
-    const nextInventoryCountId = existingRecord?.id ?? (await fetchNextInventoryCountIdFromApi())
     const nextRecord: InventoryCountRecord = {
-      id: nextInventoryCountId,
+      id: existingRecord?.id ?? 1,
       inventoryId: activeInventoryRecord.id,
       sessionId: activeCountSession.id,
       companyId: currentCompanyId,
@@ -21130,16 +21197,16 @@ export default function App() {
       createdByUserName: existingRecord?.createdByUserName ?? currentAppUser?.fullName ?? 'Administrador do sistema',
     }
     const isEditingCount = editingInventoryCountId !== null
-    const nextInventoryCounts = isEditingCount
-      ? inventoryCounts.map((record) => (record.id === editingInventoryCountId ? nextRecord : record))
-      : [nextRecord, ...inventoryCounts]
 
     setIsSavingInventoryCount(true)
-    let wasSavedLocally = false
     try {
+      const savedRecord = isEditingCount ? await upsertInventoryCountOnApi(nextRecord) : await createInventoryCountOnApi(nextRecord)
+      const nextInventoryCounts = isEditingCount
+        ? inventoryCounts.map((record) => (record.id === editingInventoryCountId ? savedRecord : record))
+        : [savedRecord, ...inventoryCounts]
+
       setInventoryCounts(nextInventoryCounts)
       saveInventoryCountsState(nextInventoryCounts)
-      wasSavedLocally = true
       setInventoryStorageLocations((current) => {
         const existingIndex = current.findIndex(
           (location) => location.companyId === currentCompanyId && location.name === normalizedLocation,
@@ -21175,8 +21242,40 @@ export default function App() {
         )
       }
       setInventoryErrors({})
-      await upsertInventoryCountOnApi(nextRecord)
       syncedInventoryCountMapRef.current = buildEntitySignatureMap(nextInventoryCounts, (record) => record.id)
+      registerAuditEvent({
+        companyId: currentCompanyId,
+        module: 'INVENTARIO',
+        actionKey: !isEditingCount ? 'INVENTORY_COUNT_ITEM_CREATED' : 'INVENTORY_COUNT_ITEM_UPDATED',
+        actionLabel: !isEditingCount ? 'Item contado' : 'Item de contagem alterado',
+        targetType: 'INVENTORY_COUNT',
+        targetId: String(savedRecord.id),
+        targetLabel: savedRecord.technicalSheetName,
+        summary: `${currentAppUser?.fullName ?? 'Administrador do sistema'} ${!isEditingCount ? 'registrou' : 'alterou'} ${savedRecord.technicalSheetName} na contagem.`,
+        impactSummary: `Quantidade consolidavel: ${savedRecord.totalCountedQuantity} ${savedRecord.totalCountedUnit}.`,
+        severity: 'LOW',
+        details: {
+          inventoryId: savedRecord.inventoryId,
+          sessionId: savedRecord.sessionId,
+          countId: savedRecord.id,
+          stockCenterId: savedRecord.stockCenterId,
+          storageLocation: savedRecord.storageLocation,
+          itemKind: savedRecord.technicalSheetKind,
+          technicalSheetId: savedRecord.technicalSheetId,
+          productId: savedRecord.productId,
+          serviceItemId: savedRecord.serviceItemId,
+          packageId: savedRecord.packageId,
+          recipientItemId: savedRecord.recipientItemId,
+          recipientLabel: savedRecord.recipientLabel,
+          totalCountedQuantity: savedRecord.totalCountedQuantity,
+          totalCountedUnit: savedRecord.totalCountedUnit,
+          closedItemsQuantity: savedRecord.closedItemsQuantity,
+          hasOpenItems: savedRecord.hasOpenItems,
+          openItemsGrossWeight: savedRecord.openItemsGrossWeight,
+          openItemsContainerQuantity: savedRecord.openItemsContainerQuantity,
+          openItemsNetQuantity: savedRecord.openItemsNetQuantity,
+        },
+      })
       setSaveFeedback({
         status: 'success',
         title: !isEditingCount ? 'Contagem registrada com sucesso' : 'Contagem atualizada com sucesso',
@@ -21189,10 +21288,9 @@ export default function App() {
       console.error(error)
       setSaveFeedback({
         status: 'error',
-        title: wasSavedLocally ? 'Item salvo no aparelho' : 'Falha ao salvar item da contagem',
-        message: wasSavedLocally
-          ? 'O item ficou preservado nesta contagem e sera reenviado ao servidor automaticamente. Nao feche o inventario antes da sincronizacao concluir.'
-          : error instanceof Error
+        title: 'Falha ao salvar item da contagem',
+        message:
+          error instanceof Error
             ? error.message
             : 'Nao foi possivel salvar o item da contagem no servidor.',
       })
@@ -21246,7 +21344,7 @@ export default function App() {
 
     const now = new Date().toISOString()
     const nextInventory: InventoryRecord = {
-      id: getNextPersistedIntId(inventoryRecords.map((record) => record.id)),
+      id: 1,
       companyId: currentCompanyId,
       stockCenterId: selectedCenter.id,
       countedAt: inventoryForm.countedAt,
@@ -21260,17 +21358,35 @@ export default function App() {
       discardedOpenSessionCount: 0,
       appliedPendingMovementCount: 0,
     }
-    const nextInventoryRecords = [nextInventory, ...inventoryRecords]
 
     setIsStartingInventoryRecord(true)
     try {
-      await upsertInventoryRecordOnApi(nextInventory)
+      const savedInventory = await createInventoryRecordOnApi(nextInventory)
+      const nextInventoryRecords = [savedInventory, ...inventoryRecords]
       syncedInventoryRecordMapRef.current = buildEntitySignatureMap(nextInventoryRecords, (record) => record.id)
       setInventoryRecords(nextInventoryRecords)
       saveInventoryRecordsState(nextInventoryRecords)
-      setSelectedInventoryId(nextInventory.id)
+      setSelectedInventoryId(savedInventory.id)
       setSelectedInventorySessionId(null)
       setInventoryErrors((current) => ({ ...current, stockCenterId: '', countedAt: '' }))
+      registerAuditEvent({
+        companyId: currentCompanyId,
+        module: 'INVENTARIO',
+        actionKey: 'INVENTORY_OPENED',
+        actionLabel: 'Inventario aberto',
+        targetType: 'INVENTORY',
+        targetId: String(savedInventory.id),
+        targetLabel: `${selectedCenter.name} - ${formatDateForDisplay(savedInventory.countedAt)}`,
+        summary: `${currentAppUser?.fullName ?? 'Administrador do sistema'} abriu o inventario de ${selectedCenter.name}.`,
+        impactSummary: 'Inventario disponivel para sessoes de contagem independentes.',
+        severity: 'MEDIUM',
+        details: {
+          inventoryId: savedInventory.id,
+          stockCenterId: savedInventory.stockCenterId,
+          stockCenterName: selectedCenter.name,
+          countedAt: savedInventory.countedAt,
+        },
+      })
       setSaveFeedback({
         status: 'success',
         title: 'Inventario iniciado com sucesso',
@@ -21304,6 +21420,24 @@ export default function App() {
     setSelectedInventoryId(targetInventory.id)
     setSelectedInventorySessionId(null)
     setInventoryErrors({})
+    registerAuditEvent({
+      companyId: currentCompanyId,
+      module: 'INVENTARIO',
+      actionKey: 'INVENTORY_JOINED',
+      actionLabel: 'Inventario acessado',
+      targetType: 'INVENTORY',
+      targetId: String(targetInventory.id),
+      targetLabel: `${inventoryStockCenterNameById.get(targetInventory.stockCenterId) ?? `CENTRO ${targetInventory.stockCenterId}`} - ${formatDateForDisplay(targetInventory.countedAt)}`,
+      summary: `${currentAppUser?.fullName ?? 'Administrador do sistema'} acessou um inventario aberto.`,
+      impactSummary: 'Usuario entrou no inventario para iniciar ou retomar contagem.',
+      severity: 'LOW',
+      details: {
+        inventoryId: targetInventory.id,
+        stockCenterId: targetInventory.stockCenterId,
+        stockCenterName: inventoryStockCenterNameById.get(targetInventory.stockCenterId) ?? '',
+        countedAt: targetInventory.countedAt,
+      },
+    })
     setSaveFeedback({
       status: 'success',
       title: 'Inventario aberto selecionado',
@@ -21377,14 +21511,17 @@ export default function App() {
             closedByUserName: '',
           }
         : existingSession
-      const nextSessions = inventoryCountSessions.map((sessionRecord) =>
+      let nextSessions = inventoryCountSessions.map((sessionRecord) =>
         sessionRecord.id === existingSession.id ? nextSession : sessionRecord,
       )
 
       setIsStartingInventoryCountSession(true)
       try {
         if (existingSession.isClosed) {
-          await upsertInventoryCountSessionOnApi(nextSession)
+          const savedSession = await upsertInventoryCountSessionOnApi(nextSession)
+          nextSessions = inventoryCountSessions.map((sessionRecord) =>
+            sessionRecord.id === existingSession.id ? savedSession : sessionRecord,
+          )
         }
         syncedInventoryCountSessionMapRef.current = buildEntitySignatureMap(nextSessions, (record) => record.id)
         setInventoryCountSessions(nextSessions)
@@ -21411,7 +21548,7 @@ export default function App() {
     }
 
     const nextSession: InventoryCountSessionRecord = {
-      id: getNextPersistedIntId(inventoryCountSessions.map((record) => record.id)),
+      id: 1,
       inventoryId: selectedInventoryRecord.id,
       companyId: currentCompanyId,
       stockCenterId: selectedInventoryRecord.stockCenterId,
@@ -21425,15 +21562,34 @@ export default function App() {
       closedByUserName: '',
     }
 
-    const nextSessions = [nextSession, ...inventoryCountSessions]
     setIsStartingInventoryCountSession(true)
     try {
-      await upsertInventoryCountSessionOnApi(nextSession)
+      const savedSession = await createInventoryCountSessionOnApi(nextSession)
+      const nextSessions = [savedSession, ...inventoryCountSessions]
       syncedInventoryCountSessionMapRef.current = buildEntitySignatureMap(nextSessions, (record) => record.id)
       setInventoryCountSessions(nextSessions)
       saveInventoryCountSessionsState(nextSessions)
-      setSelectedInventorySessionId(nextSession.id)
+      setSelectedInventorySessionId(savedSession.id)
       setInventoryErrors((current) => ({ ...current, stockCenterId: '', countedAt: '' }))
+      registerAuditEvent({
+        companyId: currentCompanyId,
+        module: 'INVENTARIO',
+        actionKey: 'INVENTORY_COUNT_SESSION_STARTED',
+        actionLabel: 'Contagem iniciada',
+        targetType: 'INVENTORY_COUNT_SESSION',
+        targetId: String(savedSession.id),
+        targetLabel: `${formatInventoryCountSessionCode(savedSession.id)} - ${inventoryStockCenterNameById.get(savedSession.stockCenterId) ?? `CENTRO ${savedSession.stockCenterId}`}`,
+        summary: `${currentAppUser?.fullName ?? 'Administrador do sistema'} iniciou uma contagem no inventario.`,
+        impactSummary: 'Sessao de contagem independente criada para consolidacao do inventario.',
+        severity: 'MEDIUM',
+        details: {
+          inventoryId: savedSession.inventoryId,
+          sessionId: savedSession.id,
+          stockCenterId: savedSession.stockCenterId,
+          stockCenterName: inventoryStockCenterNameById.get(savedSession.stockCenterId) ?? '',
+          countedAt: savedSession.countedAt,
+        },
+      })
       setSaveFeedback({
         status: 'success',
         title: 'Contagem iniciada com sucesso',
@@ -21475,15 +21631,15 @@ export default function App() {
         closedByUserId: null,
         closedByUserName: '',
       }
-      const nextSessions = inventoryCountSessions.map((sessionRecord) =>
-        sessionRecord.id === sessionId ? nextSession : sessionRecord,
-      )
       setIsStartingInventoryCountSession(true)
       try {
-        await upsertInventoryCountSessionOnApi(nextSession)
-        syncedInventoryCountSessionMapRef.current = buildEntitySignatureMap(nextSessions, (record) => record.id)
-        setInventoryCountSessions(nextSessions)
-        saveInventoryCountSessionsState(nextSessions)
+        const savedSession = await upsertInventoryCountSessionOnApi(nextSession)
+        const savedSessions = inventoryCountSessions.map((sessionRecord) =>
+          sessionRecord.id === sessionId ? savedSession : sessionRecord,
+        )
+        syncedInventoryCountSessionMapRef.current = buildEntitySignatureMap(savedSessions, (record) => record.id)
+        setInventoryCountSessions(savedSessions)
+        saveInventoryCountSessionsState(savedSessions)
       } catch (error) {
         console.error(error)
         setSaveFeedback({
@@ -21539,37 +21695,77 @@ export default function App() {
     })
   }
 
-  function confirmCloseInventoryCountSession() {
+  async function confirmCloseInventoryCountSession() {
     if (!inventorySessionCloseState) {
       return
     }
 
-    setInventoryCountSessions((current) =>
-      current.map((sessionRecord) =>
-        sessionRecord.id === inventorySessionCloseState.id
-          ? {
-              ...sessionRecord,
-              isClosed: true,
-              closedAt: new Date().toISOString(),
-              closedByUserId: currentAppUser?.id ?? null,
-              closedByUserName: currentAppUser?.fullName ?? 'Administrador do sistema',
-            }
-          : sessionRecord,
-      ),
-    )
+    const targetSession =
+      inventoryCountSessions.find((sessionRecord) => sessionRecord.id === inventorySessionCloseState.id) ?? null
+    if (!targetSession) {
+      setInventorySessionCloseState(null)
+      return
+    }
+
+    const sessionToClose: InventoryCountSessionRecord = {
+      ...targetSession,
+      isClosed: true,
+      closedAt: new Date().toISOString(),
+      closedByUserId: currentAppUser?.id ?? null,
+      closedByUserName: currentAppUser?.fullName ?? 'Administrador do sistema',
+    }
+
+    try {
+      const savedSession = await upsertInventoryCountSessionOnApi(sessionToClose)
+      const nextSessions = inventoryCountSessions.map((sessionRecord) =>
+        sessionRecord.id === savedSession.id ? savedSession : sessionRecord,
+      )
+      setInventoryCountSessions(nextSessions)
+      saveInventoryCountSessionsState(nextSessions)
+      syncedInventoryCountSessionMapRef.current = buildEntitySignatureMap(nextSessions, (record) => record.id)
+      registerAuditEvent({
+        companyId: savedSession.companyId,
+        module: 'INVENTARIO',
+        actionKey: 'INVENTORY_COUNT_SESSION_CLOSED',
+        actionLabel: 'Contagem fechada',
+        targetType: 'INVENTORY_COUNT_SESSION',
+        targetId: String(savedSession.id),
+        targetLabel: `${formatInventoryCountSessionCode(savedSession.id)} - ${inventoryStockCenterNameById.get(savedSession.stockCenterId) ?? `CENTRO ${savedSession.stockCenterId}`}`,
+        summary: `${currentAppUser?.fullName ?? 'Administrador do sistema'} fechou uma contagem de inventario.`,
+        impactSummary: 'Itens da sessao ficam disponiveis para consolidacao do inventario.',
+        severity: 'MEDIUM',
+        details: {
+          inventoryId: savedSession.inventoryId,
+          sessionId: savedSession.id,
+          stockCenterId: savedSession.stockCenterId,
+          stockCenterName: inventoryStockCenterNameById.get(savedSession.stockCenterId) ?? '',
+          countedAt: savedSession.countedAt,
+          itemCount: inventoryCounts.filter((record) => record.sessionId === savedSession.id).length,
+        },
+      })
+      setSaveFeedback({
+        status: 'success',
+        title: 'Contagem fechada com sucesso',
+        message: 'A contagem foi fechada. Enquanto o inventario permanecer aberto, ela ainda pode ser retomada pelo autor.',
+      })
+    } catch (error) {
+      console.error(error)
+      setSaveFeedback({
+        status: 'error',
+        title: 'Falha ao fechar contagem',
+        message: error instanceof Error ? error.message : 'Nao foi possivel fechar a contagem no servidor.',
+      })
+      return
+    }
+
     setSelectedInventorySessionId(null)
     setInventorySessionCloseState(null)
     setEditingInventoryCountId(null)
     setInventoryDraftBeforeEdit(null)
     setInventoryErrors({})
-    setSaveFeedback({
-      status: 'success',
-      title: 'Contagem fechada com sucesso',
-      message: 'A contagem foi fechada. Enquanto o inventario permanecer aberto, ela ainda pode ser retomada pelo autor.',
-    })
   }
 
-  function confirmCloseInventoryRecord() {
+  async function confirmCloseInventoryRecord() {
     if (!inventoryCloseState) {
       return
     }
@@ -21577,77 +21773,111 @@ export default function App() {
     const openSessionIds = inventoryCountSessions
       .filter((sessionRecord) => sessionRecord.inventoryId === inventoryCloseState.id && !sessionRecord.isClosed)
       .map((sessionRecord) => sessionRecord.id)
+    if (openSessionIds.length > 0) {
+      setInventoryCloseState(null)
+      setSaveFeedback({
+        status: 'error',
+        title: 'Inventario ainda tem contagens abertas',
+        message:
+          'Feche todas as sessoes de contagem vinculadas a este inventario antes de finalizar. Nenhuma contagem aberta sera descartada automaticamente.',
+      })
+      return
+    }
+
     const relatedPendingMovements = pendingInventoryMovements
       .filter((movement) => movement.companyId === currentCompanyId && movement.inventoryId === inventoryCloseState.id)
       .sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.id - b.id)
     const now = new Date()
     const closedAtIso = now.toISOString()
 
-    setInventoryRecords((current) =>
-      current.map((inventoryRecord) =>
-        inventoryRecord.id === inventoryCloseState.id
-          ? {
-              ...inventoryRecord,
-              isClosed: true,
-              closedAt: closedAtIso,
-              closedByUserId: currentAppUser?.id ?? null,
-              closedByUserName: currentAppUser?.fullName ?? 'Administrador do sistema',
-              discardedOpenSessionCount: openSessionIds.length,
-              appliedPendingMovementCount: relatedPendingMovements.length,
-            }
-          : inventoryRecord,
-      ),
-    )
-    if (openSessionIds.length > 0) {
-      setInventoryCountSessions((current) =>
-        current.filter((sessionRecord) => !openSessionIds.includes(sessionRecord.id)),
-      )
-      setInventoryCounts((current) =>
-        current.filter((record) => !openSessionIds.includes(record.sessionId)),
-      )
-      if (currentCompanyId !== null) {
-        setInventoryActiveSessionLinks((current) =>
-          current.map((link) =>
-            link.companyId === currentCompanyId && link.userKey === inventorySessionUserKey
-              ? { ...link, sessionId: null }
-              : link,
-          ),
-        )
-      }
+    const targetInventory =
+      inventoryRecords.find((inventoryRecord) => inventoryRecord.id === inventoryCloseState.id) ?? null
+    if (!targetInventory) {
+      setInventoryCloseState(null)
+      return
     }
-    if (relatedPendingMovements.length > 0) {
+
+    const inventoryToClose: InventoryRecord = {
+      ...targetInventory,
+      isClosed: true,
+      closedAt: closedAtIso,
+      closedByUserId: currentAppUser?.id ?? null,
+      closedByUserName: currentAppUser?.fullName ?? 'Administrador do sistema',
+      discardedOpenSessionCount: 0,
+      appliedPendingMovementCount: relatedPendingMovements.length,
+    }
+
+    try {
+      const savedInventory = await upsertInventoryRecordOnApi(inventoryToClose)
+      const nextInventoryRecords = inventoryRecords.map((inventoryRecord) =>
+        inventoryRecord.id === savedInventory.id ? savedInventory : inventoryRecord,
+      )
       const queuedSessions: InventoryCountSessionRecord[] = []
       const queuedRecords: InventoryCountRecord[] = []
-      relatedPendingMovements.forEach((movement, movementIndex) => {
-        const sessionId = getNextPersistedIntId([
-          ...inventoryCountSessions.map((record) => record.id),
-          ...inventoryCounts.map((record) => record.id),
-          ...queuedSessions.map((record) => record.id),
-          ...queuedRecords.map((record) => record.id),
-        ])
+
+      for (const [movementIndex, movement] of relatedPendingMovements.entries()) {
         const sessionTimestamp = new Date(now.getTime() + (movementIndex + 1) * 1000).toISOString()
-        queuedSessions.push({
+        const savedSession = await createInventoryCountSessionOnApi({
           ...movement.session,
-          id: sessionId,
+          id: 1,
           inventoryId: null,
           isClosed: true,
           closedAt: sessionTimestamp,
         })
-        movement.records.forEach((record, recordIndex) => {
-          queuedRecords.push({
+        queuedSessions.push(savedSession)
+
+        for (const record of movement.records) {
+          const savedRecord = await createInventoryCountOnApi({
             ...record,
-            id: sessionId + recordIndex + 1,
-            sessionId,
+            id: 1,
+            sessionId: savedSession.id,
             inventoryId: null,
           })
-        })
-      })
-      setInventoryCountSessions((current) => [...queuedSessions.reverse(), ...current])
-      setInventoryCounts((current) => [...queuedRecords.reverse(), ...current])
+          queuedRecords.push(savedRecord)
+        }
+      }
+
+      setInventoryRecords(nextInventoryRecords)
+      saveInventoryRecordsState(nextInventoryRecords)
+      syncedInventoryRecordMapRef.current = buildEntitySignatureMap(nextInventoryRecords, (record) => record.id)
+      if (queuedSessions.length > 0) {
+        setInventoryCountSessions((current) => [...queuedSessions.reverse(), ...current])
+        setInventoryCounts((current) => [...queuedRecords.reverse(), ...current])
+      }
       setPendingInventoryMovements((current) =>
         current.filter((movement) => !(movement.companyId === currentCompanyId && movement.inventoryId === inventoryCloseState.id)),
       )
+      registerAuditEvent({
+        companyId: savedInventory.companyId,
+        module: 'INVENTARIO',
+        actionKey: 'INVENTORY_CLOSED',
+        actionLabel: 'Inventario finalizado',
+        targetType: 'INVENTORY',
+        targetId: String(savedInventory.id),
+        targetLabel: `${inventoryStockCenterNameById.get(savedInventory.stockCenterId) ?? `CENTRO ${savedInventory.stockCenterId}`} - ${formatDateForDisplay(savedInventory.countedAt)}`,
+        summary: `${currentAppUser?.fullName ?? 'Administrador do sistema'} finalizou o inventario.`,
+        impactSummary: 'Saldo consolidado passou a valer como posicao oficial de estoque.',
+        severity: 'HIGH',
+        details: {
+          inventoryId: savedInventory.id,
+          stockCenterId: savedInventory.stockCenterId,
+          stockCenterName: inventoryStockCenterNameById.get(savedInventory.stockCenterId) ?? '',
+          countedAt: savedInventory.countedAt,
+          sessionCount: inventoryCountSessions.filter((sessionRecord) => sessionRecord.inventoryId === savedInventory.id).length,
+          itemCount: inventoryCounts.filter((record) => record.inventoryId === savedInventory.id).length,
+          appliedPendingMovementCount: relatedPendingMovements.length,
+        },
+      })
+    } catch (error) {
+      console.error(error)
+      setSaveFeedback({
+        status: 'error',
+        title: 'Falha ao finalizar inventario',
+        message: error instanceof Error ? error.message : 'Nao foi possivel finalizar o inventario no servidor.',
+      })
+      return
     }
+
     setSelectedInventoryId(null)
     setSelectedInventorySessionId(null)
     setInventoryCloseState(null)
@@ -21659,10 +21889,8 @@ export default function App() {
       title: 'Inventario finalizado com sucesso',
       message:
         relatedPendingMovements.length > 0
-          ? 'O inventario foi fechado, as contagens ainda abertas foram descartadas, o saldo consolidado passou a valer como movimento de estoque e as movimentacoes pendentes do centro foram aplicadas em seguida.'
-          : openSessionIds.length > 0
-            ? 'O inventario foi fechado, as contagens ainda abertas foram descartadas e o saldo consolidado passa a valer como movimento de estoque.'
-            : 'O inventario foi fechado e seu saldo consolidado passa a valer como movimento de estoque.',
+          ? 'O inventario foi fechado, o saldo consolidado passou a valer como movimento de estoque e as movimentacoes pendentes do centro foram aplicadas em seguida.'
+          : 'O inventario foi fechado e seu saldo consolidado passa a valer como movimento de estoque.',
     })
   }
 
@@ -55782,7 +56010,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
       {inventoryCloseState ? (
         <ConfirmationModal
           title="Confirmar fechamento do inventario?"
-          message={`Centro ${inventoryCloseState.stockCenterName} • Data ${formatDateForDisplay(inventoryCloseState.countedAt)}. O saldo consolidado deste inventario entrara como movimentacao oficial de estoque e qualquer contagem ainda aberta sera descartada. Se quiser manter alguma contagem para continuar depois, nao finalize o inventario agora.`}
+          message={`Centro ${inventoryCloseState.stockCenterName} • Data ${formatDateForDisplay(inventoryCloseState.countedAt)}. O saldo consolidado deste inventario entrara como movimentacao oficial de estoque. Se houver contagem ainda aberta, o fechamento sera bloqueado ate que ela seja fechada.`}
           actionClass="warning-button"
           actionLabel="Finalizar inventario"
           onCancel={() => setInventoryCloseState(null)}

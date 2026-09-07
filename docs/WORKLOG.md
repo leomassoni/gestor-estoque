@@ -1384,3 +1384,26 @@ Registrar um historico resumido do que foi feito, do que falhou e do que ficou p
   - `backups/online-before-madre-20260906-padro-vermouths-doses-20260906-135216`;
   - `auditorias/madre-20260906-padro-vermouths-doses-20260906-135216.json`.
 - Validacao pela API confirmou que nao houve produto, ficha, ingrediente ou custo divergente.
+
+### Inventario paralelo da Casa de mi Madre - BAR DE BAIXO
+
+- Incidente reportado em `2026-09-07`: inventario contado em paralelo no dia `2026-09-06` por master e Lorran no centro `BAR DE BAIXO` de `CASA DE MI MADRE LTDA` (`companyId=13`, `stockCenterId=7`) consolidou apenas a contagem do master.
+- Evidencia preservada em `auditorias/madre-inventory-94-forensics-20260907-103035.json`.
+- Estado online encontrado para `INV-0094`:
+  - inventario `id=94`, aberto em `2026-09-06T14:08:01.634Z`, fechado em `2026-09-06T20:17:51.460Z`;
+  - uma unica sessao persistida: `CON-0092`, autor `ADMINISTRADOR DO SISTEMA`;
+  - `168` itens persistidos, todos com `createdByUserName=ADMINISTRADOR DO SISTEMA`;
+  - nenhum registro persistido de sessao ou item criado por Lorran nesse inventario;
+  - painel master/API de auditoria nao continha eventos do fluxo de inventario/contagem.
+- Causa tecnica provavel:
+  - criacao de inventario e sessao ainda usava ID calculado no cliente (`max + 1` local), vulneravel a colisao entre navegadores;
+  - item de contagem novo tambem dependia de reserva por leitura de todos os itens e `max + 1`, ainda vulneravel a concorrencia;
+  - sincronizacao automatica marcava conflito `409` de contagem como sincronizado, escondendo falha de persistencia;
+  - fechamento do inventario descartava sessoes ainda abertas e seus itens em vez de bloquear o fechamento.
+- Correcao aplicada:
+  - servidor passou a criar IDs em `POST /api/inventories`, `POST /api/inventory-count-sessions`, `POST /api/inventory-counts` e `POST /api/audit-logs`;
+  - `PUT` de inventario, sessao e item de contagem ganhou guarda contra sobrescrita de fluxo/usuario diferente;
+  - frontend passou a criar inventarios, sessoes e itens via `POST` e so atualizar a tela apos retorno valido do servidor;
+  - fechamento de inventario agora bloqueia se houver sessao de contagem aberta, sem descartar itens automaticamente;
+  - auditoria passou a registrar abrir/acessar inventario, iniciar/fechar sessao, criar/alterar item contado e finalizar inventario.
+- Recuperacao: os dados de Lorran nao aparecem no backend; se ainda existirem, a fonte provavel e o `localStorage` do navegador/dispositivo dele antes de nova sobrescrita/reload.

@@ -668,15 +668,16 @@ app.get('/api/audit-logs', async (_request, response) => {
 })
 
 app.post('/api/audit-logs', async (request, response) => {
-  const auditLog = normalizeAuditLogPayload(request.body)
-  if (!auditLog) {
+  const saved = await createRecordWithServerId(
+    prisma.appAuditLogRecord,
+    normalizeAuditLogPayload,
+    request.body,
+  )
+  if (!saved) {
     response.status(400).json({ error: 'Payload de auditoria invalido.' })
     return
   }
 
-  const saved = await prisma.appAuditLogRecord.create({
-    data: auditLog,
-  })
   response.json({ auditLog: saved })
 })
 
@@ -1331,6 +1332,20 @@ app.get('/api/inventories', async (request, response) => {
   response.json({ inventoryRecords: inventories })
 })
 
+app.post('/api/inventories', async (request, response) => {
+  const saved = await createRecordWithServerId(
+    prisma.appInventoryRecord,
+    normalizeInventoryPayload,
+    request.body,
+  )
+  if (!saved) {
+    response.status(400).json({ error: 'Payload de inventario invalido.' })
+    return
+  }
+
+  response.json({ inventoryRecord: saved })
+})
+
 app.get('/api/inventory-active-record-links', async (request, response) => {
   await ensureAppInventoryRecordsSeeded()
   const companyId = parseIntegerParam(request.query.companyId)
@@ -1375,6 +1390,33 @@ app.put('/api/inventories/:id', async (request, response) => {
   const inventory = normalizeInventoryPayload({ ...request.body, id: inventoryId })
   if (inventoryId === null || !inventory) {
     response.status(400).json({ error: 'Payload de inventario invalido.' })
+    return
+  }
+
+  const existing = await prisma.appInventoryRecord.findUnique({
+    where: { id: inventoryId },
+    select: {
+      id: true,
+      companyId: true,
+      stockCenterId: true,
+      countedAt: true,
+      startedAt: true,
+      startedByUserId: true,
+      startedByUserName: true,
+    },
+  })
+  if (
+    existing &&
+    (existing.companyId !== inventory.companyId ||
+      existing.stockCenterId !== inventory.stockCenterId ||
+      existing.countedAt !== inventory.countedAt ||
+      existing.startedAt !== inventory.startedAt ||
+      existing.startedByUserId !== inventory.startedByUserId ||
+      existing.startedByUserName !== inventory.startedByUserName)
+  ) {
+    response.status(409).json({
+      error: 'ID de inventario ja pertence a outro fluxo. Recarregue a pagina e tente iniciar novamente.',
+    })
     return
   }
 
@@ -1454,11 +1496,52 @@ app.put('/api/inventory-count-sessions/:id', async (request, response) => {
     return
   }
 
+  const existing = await prisma.appInventoryCountSessionRecord.findUnique({
+    where: { id: sessionId },
+    select: {
+      id: true,
+      inventoryId: true,
+      companyId: true,
+      stockCenterId: true,
+      countedAt: true,
+      startedByUserId: true,
+      startedByUserName: true,
+    },
+  })
+  if (
+    existing &&
+    (existing.inventoryId !== session.inventoryId ||
+      existing.companyId !== session.companyId ||
+      existing.stockCenterId !== session.stockCenterId ||
+      existing.countedAt !== session.countedAt ||
+      existing.startedByUserId !== session.startedByUserId ||
+      existing.startedByUserName !== session.startedByUserName)
+  ) {
+    response.status(409).json({
+      error: 'ID de sessao de contagem ja pertence a outro usuario ou inventario. Recarregue a pagina e inicie uma nova contagem.',
+    })
+    return
+  }
+
   const saved = await prisma.appInventoryCountSessionRecord.upsert({
     where: { id: sessionId },
     create: session,
     update: session,
   })
+  response.json({ inventoryCountSession: saved })
+})
+
+app.post('/api/inventory-count-sessions', async (request, response) => {
+  const saved = await createRecordWithServerId(
+    prisma.appInventoryCountSessionRecord,
+    normalizeInventoryCountSessionPayload,
+    request.body,
+  )
+  if (!saved) {
+    response.status(400).json({ error: 'Payload de sessao de contagem invalido.' })
+    return
+  }
+
   response.json({ inventoryCountSession: saved })
 })
 
@@ -1493,13 +1576,22 @@ app.put('/api/inventory-counts/:id', async (request, response) => {
 
   const existing = await prisma.appInventoryCountRecord.findUnique({
     where: { id: countId },
-    select: { id: true, companyId: true, inventoryId: true, sessionId: true },
+    select: {
+      id: true,
+      companyId: true,
+      inventoryId: true,
+      sessionId: true,
+      createdByUserId: true,
+      createdByUserName: true,
+    },
   })
   if (
     existing &&
     (existing.companyId !== count.companyId ||
       existing.inventoryId !== count.inventoryId ||
-      existing.sessionId !== count.sessionId)
+      existing.sessionId !== count.sessionId ||
+      existing.createdByUserId !== count.createdByUserId ||
+      existing.createdByUserName !== count.createdByUserName)
   ) {
     response.status(409).json({
       error: 'ID de item de contagem ja pertence a outro inventario. Recarregue a pagina e tente registrar novamente.',
@@ -1512,6 +1604,20 @@ app.put('/api/inventory-counts/:id', async (request, response) => {
     create: count,
     update: count,
   })
+  response.json({ inventoryCount: serializeBigIntForJson(saved) })
+})
+
+app.post('/api/inventory-counts', async (request, response) => {
+  const saved = await createRecordWithServerId(
+    prisma.appInventoryCountRecord,
+    normalizeInventoryCountPayload,
+    request.body,
+  )
+  if (!saved) {
+    response.status(400).json({ error: 'Payload de contagem invalido.' })
+    return
+  }
+
   response.json({ inventoryCount: serializeBigIntForJson(saved) })
 })
 
@@ -1983,6 +2089,27 @@ function serializeBigIntForJson(value) {
     )
   }
   return value
+}
+
+async function createRecordWithServerId(modelDelegate, normalizePayload, payload) {
+  let lastError = null
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    const aggregate = await modelDelegate.aggregate({ _max: { id: true } })
+    const nextId = (aggregate._max.id ?? 0) + 1 + attempt
+    const normalized = normalizePayload({ ...payload, id: nextId })
+    if (!normalized) {
+      return null
+    }
+    try {
+      return await modelDelegate.create({ data: normalized })
+    } catch (error) {
+      if (error?.code !== 'P2002') {
+        throw error
+      }
+      lastError = error
+    }
+  }
+  throw lastError ?? new Error('Nao foi possivel gerar um ID interno unico.')
 }
 
 function isSafeInt32Id(value) {
