@@ -1457,3 +1457,9 @@ Registrar um historico resumido do que foi feito, do que falhou e do que ficou p
   - uma sessao aberta selecionada como `Descartar` teve seus itens e sessao removidos antes do fechamento;
   - uma sessao aberta sem decisao retornou bloqueio `409`;
   - cleanup confirmou `0` inventarios, `0` sessoes e `0` itens restantes da empresa de teste `987654`.
+- Deploy e validacao online:
+  - commit publicado: `16f15a4`;
+  - bundle online confirmado com o modal `Revisao das contagens do inventario`;
+  - rota online `POST /api/inventories/:id/close` confirmou resposta JSON;
+  - teste isolado com `companyId=1987654` confirmou os mesmos quatro cenarios em producao;
+  - cleanup online confirmou `0` inventarios, `0` sessoes e `0` itens restantes da empresa de teste.
