@@ -42,6 +42,20 @@ Registrar um historico resumido do que foi feito, do que falhou e do que ficou p
   - Playwright online em `https://gestor-estoque-zqw9.onrender.com/`: bundle `index-Kkc9W4dc.js`, login master, selecao de `MACAXEIRA POIS POIS`, abertura de `Cadastros > Produtos`, busca `GUARANA` com 2 linhas retornadas e sem erros de console.
 - Observacao encontrada na validacao online: um clique real em `Detalhar` pode ser interceptado pelas colunas fixas da tabela em algumas posicoes de rolagem horizontal. O handler do componente abriu o detalhe corretamente via clique direto no botao; a sobreposicao fica registrada como debito visual separado da extracao estrutural.
 
+### Extracao da lista de Itens
+
+- Terceiro bloco da compartimentacao estrutural do `src/App.tsx`.
+- Extraido `src/components/ServiceItemListPanel.tsx`, concentrando:
+  - cabecalho da lista de utensilios e recipientes;
+  - campo `Pesquisar item`;
+  - colunas ocultas;
+  - tabela de itens;
+  - acoes de editar, ativar/inativar e excluir.
+- Escopo preservado: busca, filtros, ordenacao, visibilidade de colunas, calculo de `visibleServiceItems`, formulario de cadastro, embalagens e salvamento permanecem no `App.tsx`.
+- Validacao executada:
+  - `npm run build`;
+  - Playwright local em `http://localhost:5174/`: login master, selecao de `MACAXEIRA POIS POIS`, abertura de `Cadastros > Utensilios e Recipientes`, busca `COPO` com 10 linhas retornadas, abertura de `Novo item`, retorno para lista e sem erros de console.
+
 ### Correcao de digitacao em campos de busca e input
 
 - Problema reportado: lentidao geral em campos digitaveis e perda de letras durante digitacao rapida, normalmente na terceira letra.

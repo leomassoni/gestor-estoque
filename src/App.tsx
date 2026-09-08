@@ -11,6 +11,7 @@ import {
 import { ExecutionPlanningList } from './components/ExecutionPlanningList'
 import { PreparationModeInput } from './components/PreparationModeInput'
 import { ProductListPanel } from './components/ProductListPanel'
+import { ServiceItemListPanel } from './components/ServiceItemListPanel'
 import {
   buildPreparationModeMetricParts,
   formatRecipeIngredientInputQuantity,
@@ -36,7 +37,6 @@ import {
   renderClosedInventoryColumnHeader,
   renderInventoryReviewColumnHeader,
   renderInventorySummaryColumnHeader,
-  renderItemColumnHeader,
   renderPurchaseDemandColumnHeader,
   renderReceiveReviewColumnHeader,
   renderRequisitionDraftColumnHeader,
@@ -42892,157 +42892,29 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
       )
       ) : activeSection === 'Itens' ? (
         itemScreenMode === 'list' ? (
-        <section className="panel">
-          <div className="section-heading">
-            <div>
-              <p className="kicker">Utensilios e Recipientes</p>
-              <h2>Itens cadastrados</h2>
-            </div>
-            <div className="toolbar-actions">
-              <button className="primary-button" type="button" onClick={() => openNewServiceItemForm()}>
-                Novo item
-              </button>
-            </div>
-          </div>
-
-          <div className="list-toolbar">
-            <label className="field search-field">
-              <span>Pesquisar item</span>
-              <NormalizedTextInput
-                list={serviceItemListId}
-                value={serviceItemSearch}
-                onChange={setServiceItemSearch}
-                commitMode="debounce"
-                placeholder="Busque por nome, ID interno, ID empresa ou cod. fabricante"
-              />
-              <datalist id={serviceItemListId}>
-                {serviceItemSuggestions.map((item) => (
-                  <option key={item} value={item} />
-                ))}
-              </datalist>
-            </label>
-          </div>
-
-          {hiddenServiceItemColumns.length > 0 ? (
-            <div className="hidden-columns">
-              <strong>Colunas ocultas</strong>
-              <div className="hidden-columns-list">
-                {hiddenServiceItemColumns.map(([key, label]) => (
-                  <button
-                    key={key}
-                    type="button"
-                    className="ghost-button hidden-column-chip"
-                    onClick={() =>
-                      setItemColumnVisibility((current) => ({
-                        ...current,
-                        [key]: true,
-                      }))
-                    }
-                  >
-                    {label}
-                  </button>
-                ))}
-              </div>
-            </div>
-          ) : null}
-
-          <div className="table-wrap">
-            <table className="product-table">
-              <thead>
-                <tr>
-                  {itemColumnVisibility.item
-                    ? renderItemColumnHeader('item', 'Item', openItemColumnMenu, setOpenItemColumnMenu, itemColumnFilters, distinctServiceItemColumnValues, setItemColumnFilters, setItemColumnVisibility, itemColumnSort, setItemColumnSort)
-                    : null}
-                  {itemColumnVisibility.internalId
-                    ? renderItemColumnHeader('internalId', 'ID interno', openItemColumnMenu, setOpenItemColumnMenu, itemColumnFilters, distinctServiceItemColumnValues, setItemColumnFilters, setItemColumnVisibility, itemColumnSort, setItemColumnSort)
-                    : null}
-                  {itemColumnVisibility.companyId
-                    ? renderItemColumnHeader('companyId', 'ID empresa', openItemColumnMenu, setOpenItemColumnMenu, itemColumnFilters, distinctServiceItemColumnValues, setItemColumnFilters, setItemColumnVisibility, itemColumnSort, setItemColumnSort)
-                    : null}
-                  {itemColumnVisibility.manufacturerCode
-                    ? renderItemColumnHeader('manufacturerCode', 'Cod. fabricante', openItemColumnMenu, setOpenItemColumnMenu, itemColumnFilters, distinctServiceItemColumnValues, setItemColumnFilters, setItemColumnVisibility, itemColumnSort, setItemColumnSort)
-                    : null}
-                  {itemColumnVisibility.sectors
-                    ? renderItemColumnHeader('sectors', 'Setores', openItemColumnMenu, setOpenItemColumnMenu, itemColumnFilters, distinctServiceItemColumnValues, setItemColumnFilters, setItemColumnVisibility, itemColumnSort, setItemColumnSort)
-                    : null}
-                  {itemColumnVisibility.kind
-                    ? renderItemColumnHeader('kind', 'Categoria', openItemColumnMenu, setOpenItemColumnMenu, itemColumnFilters, distinctServiceItemColumnValues, setItemColumnFilters, setItemColumnVisibility, itemColumnSort, setItemColumnSort)
-                    : null}
-                  {itemColumnVisibility.family
-                    ? renderItemColumnHeader('family', 'Tipo', openItemColumnMenu, setOpenItemColumnMenu, itemColumnFilters, distinctServiceItemColumnValues, setItemColumnFilters, setItemColumnVisibility, itemColumnSort, setItemColumnSort)
-                    : null}
-                  {itemColumnVisibility.subfamily
-                    ? renderItemColumnHeader('subfamily', 'Material', openItemColumnMenu, setOpenItemColumnMenu, itemColumnFilters, distinctServiceItemColumnValues, setItemColumnFilters, setItemColumnVisibility, itemColumnSort, setItemColumnSort)
-                    : null}
-                  {itemColumnVisibility.sizeCapacity
-                    ? renderItemColumnHeader('sizeCapacity', 'Tamanho/capacidade', openItemColumnMenu, setOpenItemColumnMenu, itemColumnFilters, distinctServiceItemColumnValues, setItemColumnFilters, setItemColumnVisibility, itemColumnSort, setItemColumnSort)
-                    : null}
-                  {itemColumnVisibility.packages
-                    ? renderItemColumnHeader('packages', 'Embalagens', openItemColumnMenu, setOpenItemColumnMenu, itemColumnFilters, distinctServiceItemColumnValues, setItemColumnFilters, setItemColumnVisibility, itemColumnSort, setItemColumnSort)
-                    : null}
-                  {itemColumnVisibility.status
-                    ? renderItemColumnHeader('status', 'Status', openItemColumnMenu, setOpenItemColumnMenu, itemColumnFilters, distinctServiceItemColumnValues, setItemColumnFilters, setItemColumnVisibility, itemColumnSort, setItemColumnSort)
-                    : null}
-                  <th className="sticky-actions">Acoes</th>
-                </tr>
-              </thead>
-              <tbody>
-                {visibleServiceItems.length > 0 ? (
-                  visibleServiceItems.map((item) => (
-                    <tr key={item.id}>
-                      {itemColumnVisibility.item ? <td className="sticky-product-cell"><strong>{item.name}</strong></td> : null}
-                      {itemColumnVisibility.internalId ? <td>{item.id}</td> : null}
-                      {itemColumnVisibility.companyId ? <td>{item.companyProductId || '-'}</td> : null}
-                      {itemColumnVisibility.manufacturerCode ? <td>{item.manufacturerCode || '-'}</td> : null}
-                      {itemColumnVisibility.sectors ? <td>{item.sectors.join(', ')}</td> : null}
-                      {itemColumnVisibility.kind ? <td>{getServiceItemColumnValue(item, 'kind')}</td> : null}
-                      {itemColumnVisibility.family ? <td>{item.family}</td> : null}
-                      {itemColumnVisibility.subfamily ? <td>{item.subfamily}</td> : null}
-                      {itemColumnVisibility.sizeCapacity ? <td>{formatServiceItemSize(item.sizeValue, item.sizeUnit) || '-'}</td> : null}
-                      {itemColumnVisibility.packages ? <td>{String(item.packages.length)}</td> : null}
-                      {itemColumnVisibility.status ? (
-                        <td>
-                          <span className={item.isActive ? 'package-chip package-chip-success' : 'package-chip package-chip-warning'}>
-                            {item.isActive ? 'Ativo' : 'Inativo'}
-                          </span>
-                        </td>
-                      ) : null}
-                      <td className="sticky-actions-cell">
-                        <div className="table-actions">
-                          <button className="icon-button icon-edit" type="button" aria-label="Editar item" onClick={() => openEditServiceItemForm(item.id)}>
-                            <span aria-hidden="true">✎</span>
-                          </button>
-                          <button
-                            className="icon-button icon-disable"
-                            type="button"
-                            aria-label={item.isActive ? 'Inativar item' : 'Ativar item'}
-                            onClick={() => setServiceItemActionState({ action: item.isActive ? 'disable' : 'enable', itemId: item.id })}
-                          >
-                            <span aria-hidden="true">{item.isActive ? '◐' : '◑'}</span>
-                          </button>
-                          {canDeleteRecords ? (
-                            <button className="icon-button icon-delete" type="button" aria-label="Excluir item" onClick={() => setServiceItemActionState({ action: 'delete', itemId: item.id })}>
-                              <span aria-hidden="true">🗑</span>
-                            </button>
-                          ) : null}
-                        </div>
-                      </td>
-                    </tr>
-                  ))
-                ) : (
-                  <tr>
-                    <td colSpan={Object.values(itemColumnVisibility).filter(Boolean).length + 1}>
-                      <div className="empty-state empty-state-inline">
-                        <strong>Nenhum item encontrado.</strong>
-                        <p>Ajuste a pesquisa ou os filtros para exibir outros registros.</p>
-                      </div>
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
-        </section>
+          <ServiceItemListPanel
+            canDeleteRecords={canDeleteRecords}
+            columnFilters={itemColumnFilters}
+            columnSort={itemColumnSort}
+            columnVisibility={itemColumnVisibility}
+            distinctColumnValues={distinctServiceItemColumnValues}
+            hiddenColumns={hiddenServiceItemColumns}
+            itemListId={serviceItemListId}
+            itemSearch={serviceItemSearch}
+            itemSuggestions={serviceItemSuggestions}
+            openColumnMenu={openItemColumnMenu}
+            visibleItems={visibleServiceItems}
+            formatServiceItemSize={formatServiceItemSize}
+            getServiceItemColumnValue={getServiceItemColumnValue}
+            onEditItem={openEditServiceItemForm}
+            onNewItem={() => openNewServiceItemForm()}
+            onSearchChange={setServiceItemSearch}
+            onServiceItemAction={(itemId, action) => setServiceItemActionState({ action, itemId })}
+            setColumnFilters={setItemColumnFilters}
+            setColumnSort={setItemColumnSort}
+            setColumnVisibility={setItemColumnVisibility}
+            setOpenColumnMenu={setOpenItemColumnMenu}
+          />
       ) : (
         <>
           <section className="panel">
