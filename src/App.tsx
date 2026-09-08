@@ -1,5 +1,4 @@
 import {
-  Fragment,
   useCallback,
   useEffect,
   useId,
@@ -11,6 +10,7 @@ import {
 } from 'react'
 import { ExecutionPlanningList } from './components/ExecutionPlanningList'
 import { PreparationModeInput } from './components/PreparationModeInput'
+import { ProductListPanel } from './components/ProductListPanel'
 import {
   buildPreparationModeMetricParts,
   formatRecipeIngredientInputQuantity,
@@ -34,7 +34,6 @@ import {
 import { NormalizedTextInput, NormalizedTextarea } from './components/NormalizedTextField'
 import {
   renderClosedInventoryColumnHeader,
-  renderColumnHeader,
   renderInventoryReviewColumnHeader,
   renderInventorySummaryColumnHeader,
   renderItemColumnHeader,
@@ -42525,442 +42524,51 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
 
 	      {activeSection === 'Produtos' ? (
 	        screenMode === 'list' ? (
-	          <section className="panel">
-          <div className="section-heading">
-            <div>
-              <p className="kicker">Produtos</p>
-              <h2>Produtos cadastrados</h2>
-            </div>
-            <div className="toolbar-actions">
-              <button className="primary-button" type="button" onClick={openNewProductForm}>
-                Novo produto
-              </button>
-            </div>
-          </div>
-
-          <div className="list-toolbar">
-            <label className="field search-field">
-              <span>Pesquisar produto</span>
-              <NormalizedTextInput
-                list={productListId}
-                value={productSearch}
-                onChange={setProductSearch}
-                commitMode="debounce"
-                placeholder="Busque por nome, ID interno ou ID da empresa"
-              />
-              <datalist id={productListId}>
-                {productSuggestions.map((item) => (
-                  <option key={item} value={item} />
-                ))}
-              </datalist>
-            </label>
-          </div>
-
-          {hiddenColumns.length > 0 ? (
-            <div className="hidden-columns">
-              <strong>Colunas ocultas</strong>
-              <div className="hidden-columns-list">
-                {hiddenColumns.map(([key, label]) => (
-                  <button
-                    key={key}
-                    type="button"
-                    className="ghost-button hidden-column-chip"
-                    onClick={() =>
-                      setColumnVisibility((current) => ({
-                        ...current,
-                        [key]: true,
-                      }))
-                    }
-                  >
-                    {label}
-                  </button>
-                ))}
-              </div>
-            </div>
-          ) : null}
-
-          <div className="table-wrap">
-            <table className="product-table">
-              <thead>
-                <tr>
-                  {columnVisibility.product
-                    ? renderColumnHeader(
-                        'product',
-                        'Produto',
-                        openColumnMenu,
-                        setOpenColumnMenu,
-                        columnFilters,
-                        distinctColumnValues,
-                        setColumnFilters,
-                        setColumnVisibility,
-                        columnSort,
-                        setColumnSort,
-                      )
-                    : null}
-                  {columnVisibility.internalId
-                    ? renderColumnHeader(
-                        'internalId',
-                        'ID interno',
-                        openColumnMenu,
-                        setOpenColumnMenu,
-                        columnFilters,
-                        distinctColumnValues,
-                        setColumnFilters,
-                        setColumnVisibility,
-                        columnSort,
-                        setColumnSort,
-                      )
-                    : null}
-                  {columnVisibility.companyId
-                    ? renderColumnHeader(
-                        'companyId',
-                        'ID empresa',
-                        openColumnMenu,
-                        setOpenColumnMenu,
-                        columnFilters,
-                        distinctColumnValues,
-                        setColumnFilters,
-                        setColumnVisibility,
-                        columnSort,
-                        setColumnSort,
-                      )
-                    : null}
-                  {columnVisibility.sectors
-                    ? renderColumnHeader(
-                        'sectors',
-                        'Setores',
-                        openColumnMenu,
-                        setOpenColumnMenu,
-                        columnFilters,
-                        distinctColumnValues,
-                        setColumnFilters,
-                        setColumnVisibility,
-                        columnSort,
-                        setColumnSort,
-                      )
-                    : null}
-                  {columnVisibility.family
-                    ? renderColumnHeader(
-                        'family',
-                        'Familia',
-                        openColumnMenu,
-                        setOpenColumnMenu,
-                        columnFilters,
-                        distinctColumnValues,
-                        setColumnFilters,
-                        setColumnVisibility,
-                        columnSort,
-                        setColumnSort,
-                      )
-                    : null}
-                  {columnVisibility.subfamily
-                    ? renderColumnHeader(
-                        'subfamily',
-                        'Subfamilia',
-                        openColumnMenu,
-                        setOpenColumnMenu,
-                        columnFilters,
-                        distinctColumnValues,
-                        setColumnFilters,
-                        setColumnVisibility,
-                        columnSort,
-                        setColumnSort,
-                      )
-                    : null}
-
-                  {columnVisibility.controlUnit
-                    ? renderColumnHeader(
-                        'controlUnit',
-                        'Unidade',
-                        openColumnMenu,
-                        setOpenColumnMenu,
-                        columnFilters,
-                        distinctColumnValues,
-                        setColumnFilters,
-                        setColumnVisibility,
-                        columnSort,
-                        setColumnSort,
-                      )
-                    : null}
-                  {columnVisibility.unitCost
-                    ? renderColumnHeader(
-                        'unitCost',
-                        'Custo unitario',
-                        openColumnMenu,
-                        setOpenColumnMenu,
-                        columnFilters,
-                        distinctColumnValues,
-                        setColumnFilters,
-                        setColumnVisibility,
-                        columnSort,
-                        setColumnSort,
-                      )
-                    : null}
-                  {columnVisibility.purchaseCost
-                    ? renderColumnHeader(
-                        'purchaseCost',
-                        'Custo de compra',
-                        openColumnMenu,
-                        setOpenColumnMenu,
-                        columnFilters,
-                        distinctColumnValues,
-                        setColumnFilters,
-                        setColumnVisibility,
-                        columnSort,
-                        setColumnSort,
-                      )
-                    : null}
-                  {columnVisibility.costStatus
-                    ? renderColumnHeader(
-                        'costStatus',
-                        'Status de custo',
-                        openColumnMenu,
-                        setOpenColumnMenu,
-                        columnFilters,
-                        distinctColumnValues,
-                        setColumnFilters,
-                        setColumnVisibility,
-                        columnSort,
-                        setColumnSort,
-                      )
-                    : null}
-                  {columnVisibility.executionYield
-                    ? renderColumnHeader(
-                        'executionYield',
-                        'Volume execucao',
-                        openColumnMenu,
-                        setOpenColumnMenu,
-                        columnFilters,
-                        distinctColumnValues,
-                        setColumnFilters,
-                        setColumnVisibility,
-                        columnSort,
-                        setColumnSort,
-                      )
-                    : null}
-                  {columnVisibility.packages
-                    ? renderColumnHeader(
-                        'packages',
-                        'Embalagens',
-                        openColumnMenu,
-                        setOpenColumnMenu,
-                        columnFilters,
-                        distinctColumnValues,
-                        setColumnFilters,
-                        setColumnVisibility,
-                        columnSort,
-                        setColumnSort,
-                      )
-                    : null}
-                  {columnVisibility.status
-                    ? renderColumnHeader(
-                        'status',
-                        'Status',
-                        openColumnMenu,
-                        setOpenColumnMenu,
-                        columnFilters,
-                        distinctColumnValues,
-                        setColumnFilters,
-                        setColumnVisibility,
-                        columnSort,
-                        setColumnSort,
-                      )
-                    : null}
-                  <th className="sticky-actions">Acoes</th>
-                </tr>
-              </thead>
-              <tbody>
-                {visibleProducts.length > 0 ? (
-                  visibleProducts.map((product) => {
-                    const activePackages = getActiveProductPackages(product)
-                    const isPackageDetailsExpanded = expandedProductPackageIds.has(product.id)
-                    return (
-                      <Fragment key={product.id}>
-                        <tr>
-                          {columnVisibility.product ? (
-                            <td className="sticky-product-cell">
-                              <strong>{product.name}</strong>
-                            </td>
-                          ) : null}
-                          {columnVisibility.internalId ? <td>{product.id}</td> : null}
-                          {columnVisibility.companyId ? <td>{product.companyProductId || '-'}</td> : null}
-                          {columnVisibility.sectors ? <td>{product.sectors.join(', ')}</td> : null}
-                          {columnVisibility.family ? <td>{product.family}</td> : null}
-                          {columnVisibility.subfamily ? <td>{product.subfamily}</td> : null}
-                          {columnVisibility.controlUnit ? (
-                            <td>{getProductColumnValue(product, 'controlUnit')}</td>
-                          ) : null}
-                          {columnVisibility.unitCost ? (
-                            <td>
-                              {getProductColumnValue(
-                                product,
-                                'unitCost',
-                                technicalSheets,
-                                products,
-                                serviceItems,
-                                currentCompanyCostContext,
-                              )}
-                            </td>
-                          ) : null}
-                          {columnVisibility.purchaseCost ? (
-                            <td>
-                              <div className="package-cost-cell">
-                                <span>
-                                  {getProductColumnValue(
-                                    product,
-                                    'purchaseCost',
-                                    technicalSheets,
-                                    products,
-                                    serviceItems,
-                                    currentCompanyCostContext,
-                                  )}
-                                </span>
-                                {activePackages.length > 1 ? (
-                                  <button
-                                    type="button"
-                                    className="link-button package-cost-toggle"
-                                    onClick={() =>
-                                      setExpandedProductPackageIds((current) => {
-                                        const next = new Set(current)
-                                        if (next.has(product.id)) {
-                                          next.delete(product.id)
-                                        } else {
-                                          next.add(product.id)
-                                        }
-                                        return next
-                                      })
-                                    }
-                                  >
-                                    {isPackageDetailsExpanded ? 'Ocultar' : 'Detalhar'}
-                                  </button>
-                                ) : null}
-                              </div>
-                            </td>
-                          ) : null}
-                          {columnVisibility.costStatus ? (
-                            <td>
-                              <span
-                                className={
-                                  getProductCostStatus(product, technicalSheets, products) === 'OK'
-                                    ? 'package-chip package-chip-success'
-                                    : 'package-chip package-chip-warning'
-                                }
-                              >
-                                {getProductCostStatus(product, technicalSheets, products)}
-                              </span>
-                            </td>
-                          ) : null}
-                          {columnVisibility.executionYield ? (
-                            <td>{getProductColumnValue(product, 'executionYield')}</td>
-                          ) : null}
-                          {columnVisibility.packages ? <td>{String(product.packages.length)}</td> : null}
-                          {columnVisibility.status ? (
-                            <td>
-                              <span
-                                className={
-                                  product.isActive
-                                    ? 'package-chip package-chip-success'
-                                    : 'package-chip package-chip-warning'
-                                }
-                              >
-                                {product.isActive ? 'Ativo' : 'Inativo'}
-                              </span>
-                            </td>
-                          ) : null}
-                          <td className="sticky-actions-cell">
-                            <div className="table-actions">
-                              <button
-                                className="icon-button icon-edit"
-                                type="button"
-                                aria-label="Editar produto"
-                                title="Editar produto"
-                                onClick={() =>
-                                  typeof product.technicalSheetId === 'number'
-                                    ? openEditTechnicalSheetForm(product.technicalSheetId)
-                                    : openEditProductForm(product.id)
-                                }
-                              >
-                                <span aria-hidden="true">✎</span>
-                              </button>
-                              <button
-                                className="icon-button"
-                                type="button"
-                                aria-label={typeof product.technicalSheetId === 'number' ? 'Copiar ficha tecnica' : 'Copiar produto'}
-                                title={typeof product.technicalSheetId === 'number' ? 'Copiar ficha tecnica' : 'Copiar produto'}
-                                onClick={() =>
-                                  typeof product.technicalSheetId === 'number'
-                                    ? openTechnicalSheetCopyModal(product.technicalSheetId)
-                                    : openCopyProductForm(product.id)
-                                }
-                              >
-                                <span aria-hidden="true">⧉</span>
-                              </button>
-                              <button
-                                className="icon-button icon-disable"
-                                type="button"
-                                aria-label={product.isActive ? 'Inativar produto' : 'Ativar produto'}
-                                title={product.isActive ? 'Inativar produto' : 'Ativar produto'}
-                                onClick={() =>
-                                  product.isActive
-                                    ? openProductDisableImpact(product.id)
-                                    : setProductActionState({
-                                        action: 'enable',
-                                        productId: product.id,
-                                      })
-                                }
-                              >
-                                <span aria-hidden="true">{product.isActive ? '◐' : '◑'}</span>
-                              </button>
-                              {canDeleteProducts ? (
-                                <button
-                                  className="icon-button icon-delete"
-                                  type="button"
-                                  aria-label="Excluir produto"
-                                  title="Excluir produto"
-                                  onClick={() => openProductDisableImpact(product.id, 'delete')}
-                                >
-                                  <span aria-hidden="true">🗑</span>
-                                </button>
-                              ) : null}
-                            </div>
-                          </td>
-                        </tr>
-                        {isPackageDetailsExpanded ? (
-                          <tr className="package-cost-detail-row">
-                            <td colSpan={Object.values(columnVisibility).filter(Boolean).length + 1}>
-                              <div className="package-cost-detail-panel">
-                                <strong>Embalagens ativas de {product.name}</strong>
-                                <div className="package-cost-detail-grid">
-                                  {activePackages.map((packageForm) => (
-                                    <article key={packageForm.id} className="package-cost-detail-card">
-                                      <span>{packageForm.internalCode || `EMB-${packageForm.id}`}</span>
-                                      <strong>
-                                        {formatProductPackagePurchasePriceLabel(packageForm)} / {formatProductPackageQuantityLabel(product, packageForm)}
-                                      </strong>
-                                    </article>
-                                  ))}
-                                </div>
-                              </div>
-                            </td>
-                          </tr>
-                        ) : null}
-                      </Fragment>
-                    )
-                  })
-                ) : (
-                  <tr>
-                    <td colSpan={Object.values(columnVisibility).filter(Boolean).length + 1}>
-                      <div className="empty-state empty-state-inline">
-                        <strong>Nenhum produto encontrado.</strong>
-                        <p>Ajuste a pesquisa ou os filtros para exibir outros registros.</p>
-                      </div>
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
-        </section>
+	          <ProductListPanel
+              canDeleteProducts={canDeleteProducts}
+              columnFilters={columnFilters}
+              columnSort={columnSort}
+              columnVisibility={columnVisibility}
+              distinctColumnValues={distinctColumnValues}
+              expandedProductPackageIds={expandedProductPackageIds}
+              hiddenColumns={hiddenColumns}
+              openColumnMenu={openColumnMenu}
+              productListId={productListId}
+              productSearch={productSearch}
+              productSuggestions={productSuggestions}
+              visibleProducts={visibleProducts}
+              getProductColumnValue={(product, key) =>
+                getProductColumnValue(product, key, technicalSheets, products, serviceItems, currentCompanyCostContext)
+              }
+              onCopyProduct={openCopyProductForm}
+              onCopyTechnicalSheet={openTechnicalSheetCopyModal}
+              onEditProduct={openEditProductForm}
+              onEditTechnicalSheet={openEditTechnicalSheetForm}
+              onNewProduct={openNewProductForm}
+              onProductAction={(productId, action) => {
+                if (action === 'enable') {
+                  setProductActionState({ action: 'enable', productId })
+                  return
+                }
+                openProductDisableImpact(productId, action)
+              }}
+              onSearchChange={setProductSearch}
+              onToggleProductPackageDetails={(productId) =>
+                setExpandedProductPackageIds((current) => {
+                  const next = new Set(current)
+                  if (next.has(productId)) {
+                    next.delete(productId)
+                  } else {
+                    next.add(productId)
+                  }
+                  return next
+                })
+              }
+              setColumnFilters={setColumnFilters}
+              setColumnSort={setColumnSort}
+              setColumnVisibility={setColumnVisibility}
+              setOpenColumnMenu={setOpenColumnMenu}
+            />
       ) : (
         <>
           <section className="panel">

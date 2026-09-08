@@ -24,6 +24,22 @@ Registrar um historico resumido do que foi feito, do que falhou e do que ficou p
   - Playwright local em `http://localhost:5174/`: login master, selecao de `MACAXEIRA POIS POIS`, abertura de `Cadastros`, navegacao para `Produtos`, digitacao de busca `GUARANA`, abertura de `Estoque` e navegacao para `Entrada de producoes`, sem erros de console.
   - Playwright online em `https://gestor-estoque-zqw9.onrender.com/`: bundle `index-BVzbKkf_.js`, mesmo roteiro de navegacao validado sem erros de console.
 
+### Extracao da lista de Produtos
+
+- Segundo bloco da compartimentacao estrutural do `src/App.tsx`.
+- Extraido `src/components/ProductListPanel.tsx`, concentrando:
+  - cabecalho da lista de produtos;
+  - campo `Pesquisar produto`;
+  - colunas ocultas;
+  - tabela de produtos;
+  - detalhe de embalagens;
+  - acoes de editar, copiar, ativar/inativar e excluir.
+- Escopo preservado: filtros, ordenacao, visibilidade de colunas, exportacao e calculo de `visibleProducts` permanecem no `App.tsx` nesta etapa para evitar misturar regra derivada com a extracao visual.
+- Validacao executada:
+  - `npm run build`;
+  - Playwright local em `http://localhost:5174/`: login master, selecao de `MACAXEIRA POIS POIS`, abertura de `Cadastros > Produtos`, busca `GUARANA` com 2 linhas retornadas e sem erros de console;
+  - Playwright local sem filtro: detalhe de embalagem aberto pela acao `Detalhar`, cabecalhos de tabela renderizados e sem erros de console.
+
 ### Correcao de digitacao em campos de busca e input
 
 - Problema reportado: lentidao geral em campos digitaveis e perda de letras durante digitacao rapida, normalmente na terceira letra.
