@@ -8,6 +8,21 @@ Registrar um historico resumido do que foi feito, do que falhou e do que ficou p
 
 ## 2026-09-08
 
+### Modularizacao inicial do shell do App.tsx
+
+- Primeiro bloco da retomada de compartimentacao do `src/App.tsx`, seguindo `docs/STRUCTURAL_MAP_2026-08-24.md`.
+- Extraido `src/components/AppNavigationShell.tsx` com:
+  - `AppSidebar`;
+  - `MobileTopbar`;
+  - `ActiveCompanyHero`;
+  - `getAppSectionDisplayLabel`.
+- `App.tsx` deixou de carregar diretamente o JSX da sidebar, topbar mobile e cabecalho de empresa ativa, mantendo-se como orquestrador de estado global.
+- Callbacks de navegacao do shell foram estabilizados com `useCallback`.
+- Escopo preservado: nenhuma mudanca em persistencia, endpoints, sync, modelo de dados ou regras operacionais.
+- Validacao executada:
+  - `npm run build`;
+  - Playwright local em `http://localhost:5174/`: login master, selecao de `MACAXEIRA POIS POIS`, abertura de `Cadastros`, navegacao para `Produtos`, digitacao de busca `GUARANA`, abertura de `Estoque` e navegacao para `Entrada de producoes`, sem erros de console.
+
 ### Correcao de digitacao em campos de busca e input
 
 - Problema reportado: lentidao geral em campos digitaveis e perda de letras durante digitacao rapida, normalmente na terceira letra.

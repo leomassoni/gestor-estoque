@@ -1,5 +1,6 @@
 import {
   Fragment,
+  useCallback,
   useEffect,
   useId,
   useMemo,
@@ -25,6 +26,11 @@ import {
   MultiSelectChips,
   SingleValueAutocomplete,
 } from './components/common'
+import {
+  ActiveCompanyHero,
+  AppSidebar,
+  MobileTopbar,
+} from './components/AppNavigationShell'
 import { NormalizedTextInput, NormalizedTextarea } from './components/NormalizedTextField'
 import {
   renderClosedInventoryColumnHeader,
@@ -3227,23 +3233,18 @@ export default function App() {
   const isCadastrosActive = cadastroSections.includes(activeSection)
   const hasEstoqueAccess = allowedEstoqueSections.length > 0
   const isEstoqueActive = estoqueSections.includes(activeSection)
-  const getSectionDisplayLabel = (section: AppSection) => {
-    if (section === 'FichasTecnicas') return 'Fichas Tecnicas'
-    if (section === 'Itens') return 'Utensilios e Recipientes'
-    if (section === 'CentrosEstoque') return 'Centros de estoque'
-    if (section === 'ConfiguracoesEstoque') return 'Importar vendas'
-    if (section === 'Requisicoes') return 'Requisicao'
-    if (section === 'Compras') return 'Compras'
-    if (section === 'RelatoriosEstoque') return 'Relatorios'
-    if (section === 'EntradaProducoes') return 'Entrada de producoes'
-    if (section === 'Desperdicio') return 'Desperdicio'
-    if (section === 'PainelMaster') return 'Painel master'
-    return section
-  }
-  const handleSectionNavigation = (section: AppSection) => {
+  const handleSectionNavigation = useCallback((section: AppSection) => {
     setActiveSection(section)
     setIsMobileSidebarOpen(false)
-  }
+  }, [])
+  const handleCloseMobileSidebar = useCallback(() => setIsMobileSidebarOpen(false), [])
+  const handleToggleMobileSidebar = useCallback(() => setIsMobileSidebarOpen((current) => !current), [])
+  const handleToggleCadastrosMenu = useCallback(() => setIsCadastrosMenuOpen((current) => !current), [])
+  const handleToggleEstoqueMenu = useCallback(() => setIsEstoqueMenuOpen((current) => !current), [])
+  const handleShowProductList = useCallback(() => setScreenMode('list'), [])
+  const handleShowItemList = useCallback(() => setItemScreenMode('list'), [])
+  const handleShowTechnicalSheetList = useCallback(() => setTechnicalSheetScreenMode('list'), [])
+  const handleSwitchCompanySelection = useCallback(() => setCurrentCompanyId(null), [])
   const preparationModeIngredientNames = useMemo(
     () =>
       normalizePreparationModeIngredientNames([
@@ -42485,175 +42486,42 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
 
   return (
     <div className={`app-shell${isMobileSidebarOpen ? ' mobile-sidebar-open' : ''}`}>
-      <div
-        className={`sidebar-backdrop${isMobileSidebarOpen ? ' open' : ''}`}
-        role="presentation"
-        onClick={() => setIsMobileSidebarOpen(false)}
+      <AppSidebar
+        activeSection={activeSection}
+        allowedSections={allowedSections}
+        allowedCadastroSections={allowedCadastroSections}
+        allowedEstoqueSections={allowedEstoqueSections}
+        hasCadastrosAccess={hasCadastrosAccess}
+        hasEstoqueAccess={hasEstoqueAccess}
+        isCadastrosActive={isCadastrosActive}
+        isEstoqueActive={isEstoqueActive}
+        isCadastrosMenuOpen={isCadastrosMenuOpen}
+        isEstoqueMenuOpen={isEstoqueMenuOpen}
+        isMobileSidebarOpen={isMobileSidebarOpen}
+        onCloseMobileSidebar={handleCloseMobileSidebar}
+        onNavigate={handleSectionNavigation}
+        onToggleCadastrosMenu={handleToggleCadastrosMenu}
+        onToggleEstoqueMenu={handleToggleEstoqueMenu}
+        onShowProductList={handleShowProductList}
+        onShowItemList={handleShowItemList}
+        onShowTechnicalSheetList={handleShowTechnicalSheetList}
+        onLogout={logout}
       />
-      <aside className={`sidebar${isMobileSidebarOpen ? ' open' : ''}`}>
-        <div className="sidebar-inner">
-          <div>
-            <p className="kicker auth-eyebrow sidebar-title">Gestor de Estoque</p>
-          </div>
-
-          <nav className="sidebar-nav" aria-label="Navegacao principal">
-            {(['PainelMaster'] as const)
-              .filter((section) => allowedSections.includes(section))
-              .map((section) => (
-                <button
-                  key={section}
-                  type="button"
-                  className={activeSection === section ? 'nav-item active' : 'nav-item'}
-                  onClick={() => handleSectionNavigation(section)}
-                >
-                  {getSectionDisplayLabel(section)}
-                </button>
-              ))}
-            {(['Receituarios'] as const)
-              .filter((section) => allowedSections.includes(section))
-              .map((section) => (
-                <button
-                  key={section}
-                  type="button"
-                  className={activeSection === section ? 'nav-item active' : 'nav-item'}
-                  onClick={() => handleSectionNavigation(section)}
-                >
-                  Receituarios
-                </button>
-              ))}
-            {hasCadastrosAccess ? (
-              <div className="sidebar-group">
-                <button
-                  type="button"
-                  className={isCadastrosActive ? 'nav-item active' : 'nav-item'}
-                  onClick={() => setIsCadastrosMenuOpen((current) => !current)}
-                  aria-expanded={isCadastrosMenuOpen}
-                >
-                  <span>Cadastros</span>
-                  <span className="nav-caret" aria-hidden="true">
-                    {isCadastrosMenuOpen ? '▾' : '▸'}
-                  </span>
-                </button>
-                {isCadastrosMenuOpen ? (
-                  <div className="sidebar-subnav">
-                    {allowedCadastroSections.map((section) => (
-                      <button
-                        key={section}
-                        type="button"
-                        className={activeSection === section ? 'nav-subitem active' : 'nav-subitem'}
-                        onClick={() => {
-                          handleSectionNavigation(section)
-                          if (section === 'Produtos') {
-                            setScreenMode('list')
-                          }
-                          if (section === 'Itens') {
-                            setItemScreenMode('list')
-                          }
-                          if (section === 'FichasTecnicas') {
-                            setTechnicalSheetScreenMode('list')
-                          }
-                        }}
-                      >
-                        {getSectionDisplayLabel(section)}
-                      </button>
-                    ))}
-                  </div>
-                ) : null}
-              </div>
-            ) : null}
-            {hasEstoqueAccess ? (
-              <div className="sidebar-group">
-                <button
-                  type="button"
-                  className={isEstoqueActive ? 'nav-item active' : 'nav-item'}
-                  onClick={() => setIsEstoqueMenuOpen((current) => !current)}
-                  aria-expanded={isEstoqueMenuOpen}
-                >
-                  <span>Estoque</span>
-                  <span className="nav-caret" aria-hidden="true">
-                    {isEstoqueMenuOpen ? '▾' : '▸'}
-                  </span>
-                </button>
-                {isEstoqueMenuOpen ? (
-                  <div className="sidebar-subnav">
-                    {allowedEstoqueSections.map((section) => (
-                      <button
-                        key={section}
-                        type="button"
-                        className={activeSection === section ? 'nav-subitem active' : 'nav-subitem'}
-                        onClick={() => handleSectionNavigation(section)}
-                      >
-                        {getSectionDisplayLabel(section)}
-                      </button>
-                    ))}
-                  </div>
-                ) : null}
-              </div>
-            ) : null}
-            {(['Empresa', 'Usuarios'] as const)
-              .filter((section) => allowedSections.includes(section))
-              .map((section) => (
-                <button
-                  key={section}
-                  type="button"
-                  className={activeSection === section ? 'nav-item active' : 'nav-item'}
-                  onClick={() => handleSectionNavigation(section)}
-                >
-                  {section}
-                </button>
-              ))}
-            <button
-              type="button"
-              className="nav-item sidebar-logout"
-              onClick={() => {
-                setIsMobileSidebarOpen(false)
-                logout()
-              }}
-            >
-              Sair
-            </button>
-          </nav>
-
-        </div>
-      </aside>
 
       <main className="content">
         <div className="shell">
-        <section className="mobile-topbar">
-          <button
-            type="button"
-            className="ghost-button mobile-menu-button"
-            onClick={() => setIsMobileSidebarOpen((current) => !current)}
-            aria-expanded={isMobileSidebarOpen}
-            aria-label={isMobileSidebarOpen ? 'Fechar menu principal' : 'Abrir menu principal'}
-          >
-            {isMobileSidebarOpen ? '✕' : '☰'}
-          </button>
-          <div className="mobile-topbar-copy">
-            <p className="kicker">Navegacao</p>
-            <strong>{getSectionDisplayLabel(activeSection)}</strong>
-          </div>
-        </section>
-        {currentCompany ? (
-          <section className="hero-panel">
-            <div>
-              <p className="kicker">Empresa ativa</p>
-              <h2>{currentCompany.tradeName}</h2>
-              <p className="hero-copy">{currentCompany.legalName}</p>
-              <div className="hero-details">
-                <span>{session?.user.fullName || session?.user.username || 'Usuario logado'}</span>
-                <span>{currentCompany.status}</span>
-              </div>
-            </div>
-            <div className="hero-meta">
-              {isSystemAdmin || currentAppUserCompanyIds.length > 1 ? (
-                <button type="button" className="ghost-button" onClick={() => setCurrentCompanyId(null)}>
-                  Trocar empresa
-                </button>
-              ) : null}
-            </div>
-          </section>
-        ) : null}
+        <MobileTopbar
+          activeSection={activeSection}
+          isMobileSidebarOpen={isMobileSidebarOpen}
+          onToggleMobileSidebar={handleToggleMobileSidebar}
+        />
+        <ActiveCompanyHero
+          currentCompany={currentCompany}
+          currentAppUserCompanyIds={currentAppUserCompanyIds}
+          isSystemAdmin={isSystemAdmin}
+          session={session}
+          onSwitchCompany={handleSwitchCompanySelection}
+        />
 
 	      {activeSection === 'Produtos' ? (
 	        screenMode === 'list' ? (
