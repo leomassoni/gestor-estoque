@@ -20,6 +20,8 @@ Registrar um historico resumido do que foi feito, do que falhou e do que ficou p
 - Escopo: correcao reduz a perda de caracteres nos campos ja extraidos para componentes reutilizaveis, sem tentar resolver nesta etapa o gargalo estrutural completo do `App.tsx`.
 - Validacao executada:
   - `npm run build`
+  - Playwright local em `http://localhost:5174/`: login, busca de produtos, formulario de novo produto, autocomplete/multi-select e campos numericos digitados rapidamente sem perda de caracteres;
+  - Playwright online em `https://gestor-estoque-zqw9.onrender.com/`: bundle `index-CTR9__hK.js`, busca digitada rapidamente preservando `ABCDEFGHI`, sem erros de console.
 
 ## 2026-09-01
 
