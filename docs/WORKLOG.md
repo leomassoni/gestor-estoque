@@ -22,6 +22,7 @@ Registrar um historico resumido do que foi feito, do que falhou e do que ficou p
 - Validacao executada:
   - `npm run build`;
   - Playwright local em `http://localhost:5174/`: login master, selecao de `MACAXEIRA POIS POIS`, abertura de `Cadastros`, navegacao para `Produtos`, digitacao de busca `GUARANA`, abertura de `Estoque` e navegacao para `Entrada de producoes`, sem erros de console.
+  - Playwright online em `https://gestor-estoque-zqw9.onrender.com/`: bundle `index-BVzbKkf_.js`, mesmo roteiro de navegacao validado sem erros de console.
 
 ### Correcao de digitacao em campos de busca e input
 
