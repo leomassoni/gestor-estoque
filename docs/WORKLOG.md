@@ -55,6 +55,7 @@ Registrar um historico resumido do que foi feito, do que falhou e do que ficou p
 - Validacao executada:
   - `npm run build`;
   - Playwright local em `http://localhost:5174/`: login master, selecao de `MACAXEIRA POIS POIS`, abertura de `Cadastros > Utensilios e Recipientes`, busca `COPO` com 10 linhas retornadas, abertura de `Novo item`, retorno para lista e sem erros de console.
+  - Playwright online em `https://gestor-estoque-zqw9.onrender.com/`: bundle `index-C47YfpX8.js`, mesmo roteiro validado sem erros de console.
 
 ### Correcao de digitacao em campos de busca e input
 
