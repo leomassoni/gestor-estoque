@@ -32,9 +32,68 @@ export function MultiSelectChips({
   const [isOpen, setIsOpen] = useState(false)
   const [activeOptionIndex, setActiveOptionIndex] = useState(-1)
   const closeTimeoutRef = useRef<number | null>(null)
+  const debounceRef = useRef<number | null>(null)
+  const focusedRef = useRef(false)
+  const [draftInputValue, setDraftInputValue] = useState(inputValue)
+  const draftInputValueRef = useRef(inputValue)
+  const lastCommittedInputValueRef = useRef(inputValue)
+
+  useEffect(() => {
+    if (
+      focusedRef.current &&
+      inputValue === lastCommittedInputValueRef.current &&
+      inputValue !== draftInputValueRef.current
+    ) {
+      return
+    }
+
+    if (inputValue !== draftInputValueRef.current) {
+      draftInputValueRef.current = inputValue
+      lastCommittedInputValueRef.current = inputValue
+      setDraftInputValue(inputValue)
+    }
+  }, [inputValue])
+
+  useEffect(
+    () => () => {
+      if (debounceRef.current !== null) {
+        window.clearTimeout(debounceRef.current)
+      }
+      if (closeTimeoutRef.current !== null) {
+        window.clearTimeout(closeTimeoutRef.current)
+      }
+    },
+    [],
+  )
+
+  function clearPendingInputCommit() {
+    if (debounceRef.current !== null) {
+      window.clearTimeout(debounceRef.current)
+      debounceRef.current = null
+    }
+  }
+
+  function commitInputValue(nextValue: string) {
+    clearPendingInputCommit()
+    lastCommittedInputValueRef.current = nextValue
+    if (nextValue !== inputValue) {
+      onInputChange(nextValue)
+    }
+  }
+
+  function updateDraftInput(nextValue: string) {
+    draftInputValueRef.current = nextValue
+    setDraftInputValue(nextValue)
+    clearPendingInputCommit()
+    debounceRef.current = window.setTimeout(() => {
+      debounceRef.current = null
+      lastCommittedInputValueRef.current = draftInputValueRef.current
+      onInputChange(draftInputValueRef.current)
+    }, 160)
+  }
 
   const filteredSuggestions = useMemo(() => {
-    const normalizedInput = normalizeRegistrationText(inputValue).toLowerCase()
+    const normalizedInput = normalizeRegistrationText(draftInputValue).toLowerCase()
     return suggestions.filter((item) => {
       if (selectedValues.includes(item)) {
         return false
@@ -42,12 +101,12 @@ export function MultiSelectChips({
 
       return normalizedInput === '' || normalizeRegistrationText(item).toLowerCase().includes(normalizedInput)
     })
-  }, [inputValue, selectedValues, suggestions])
+  }, [draftInputValue, selectedValues, suggestions])
 
   const exactMatchExists = suggestions.some(
-    (item) => normalizeRegistrationText(item).toLowerCase() === normalizeRegistrationText(inputValue).toLowerCase(),
+    (item) => normalizeRegistrationText(item).toLowerCase() === normalizeRegistrationText(draftInputValue).toLowerCase(),
   )
-  const canCreateOption = allowCreate && !exactMatchExists && inputValue.trim() !== ''
+  const canCreateOption = allowCreate && !exactMatchExists && draftInputValue.trim() !== ''
   const optionCount = filteredSuggestions.length + (canCreateOption ? 1 : 0)
   const effectiveActiveOptionIndex =
     isOpen && activeOptionIndex >= 0 && activeOptionIndex < optionCount ? activeOptionIndex : -1
@@ -65,7 +124,9 @@ export function MultiSelectChips({
     const resolvedValue = matchedSuggestion ?? normalized
 
     if (!allowCreate && matchedSuggestion === null) {
-      onInputChange('')
+      draftInputValueRef.current = ''
+      setDraftInputValue('')
+      commitInputValue('')
       setIsOpen(false)
       setActiveOptionIndex(-1)
       return
@@ -79,7 +140,9 @@ export function MultiSelectChips({
     }
 
     onChange([...selectedValues, resolvedValue])
-    onInputChange('')
+    draftInputValueRef.current = ''
+    setDraftInputValue('')
+    commitInputValue('')
     setIsOpen(false)
     setActiveOptionIndex(-1)
   }
@@ -128,19 +191,19 @@ export function MultiSelectChips({
           return
         }
 
-        commitValue(inputValue)
+        commitValue(draftInputValue)
         return
       }
 
-      if (filteredSuggestions.length > 0 && inputValue.trim() !== '') {
+      if (filteredSuggestions.length > 0 && draftInputValue.trim() !== '') {
         commitValue(filteredSuggestions[0])
         return
       }
 
-      commitValue(inputValue)
+      commitValue(draftInputValue)
     }
 
-    if (event.key === 'Backspace' && inputValue === '' && selectedValues.length > 0) {
+    if (event.key === 'Backspace' && draftInputValue === '' && selectedValues.length > 0) {
       event.preventDefault()
       removeValue(selectedValues[selectedValues.length - 1])
     }
@@ -166,19 +229,22 @@ export function MultiSelectChips({
           </span>
         ))}
         <input
-          value={inputValue}
+          value={draftInputValue}
           onChange={(event) => {
-            onInputChange(event.target.value)
+            updateDraftInput(event.target.value)
             setActiveOptionIndex(-1)
             setIsOpen(true)
           }}
           onFocus={() => {
+            focusedRef.current = true
             if (closeTimeoutRef.current !== null) {
               window.clearTimeout(closeTimeoutRef.current)
             }
             setIsOpen(true)
           }}
           onBlur={() => {
+            focusedRef.current = false
+            commitInputValue(draftInputValueRef.current)
             closeTimeoutRef.current = window.setTimeout(() => setIsOpen(false), 120)
           }}
           onKeyDown={handleKeyDown}
@@ -233,10 +299,10 @@ export function MultiSelectChips({
               onMouseEnter={() => setActiveOptionIndex(filteredSuggestions.length)}
               onMouseDown={(event) => {
                 event.preventDefault()
-                commitValue(inputValue)
+                commitValue(draftInputValue)
               }}
             >
-              Criar setor "{normalizeRegistrationText(inputValue.trim())}"
+              Criar setor "{normalizeRegistrationText(draftInputValue.trim())}"
             </button>
           ) : null}
         </div>
@@ -265,10 +331,69 @@ export function SingleValueAutocomplete({
   const [isOpen, setIsOpen] = useState(false)
   const [activeOptionIndex, setActiveOptionIndex] = useState(-1)
   const closeTimeoutRef = useRef<number | null>(null)
+  const debounceRef = useRef<number | null>(null)
+  const focusedRef = useRef(false)
+  const [draftValue, setDraftValue] = useState(value)
+  const draftValueRef = useRef(value)
+  const lastCommittedValueRef = useRef(value)
   const normalizedSuggestions = useMemo(() => normalizeSuggestionSet(suggestions), [suggestions])
 
+  useEffect(() => {
+    if (
+      focusedRef.current &&
+      value === lastCommittedValueRef.current &&
+      value !== draftValueRef.current
+    ) {
+      return
+    }
+
+    if (value !== draftValueRef.current) {
+      draftValueRef.current = value
+      lastCommittedValueRef.current = value
+      setDraftValue(value)
+    }
+  }, [value])
+
+  useEffect(
+    () => () => {
+      if (debounceRef.current !== null) {
+        window.clearTimeout(debounceRef.current)
+      }
+      if (closeTimeoutRef.current !== null) {
+        window.clearTimeout(closeTimeoutRef.current)
+      }
+    },
+    [],
+  )
+
+  function clearPendingCommit() {
+    if (debounceRef.current !== null) {
+      window.clearTimeout(debounceRef.current)
+      debounceRef.current = null
+    }
+  }
+
+  function commitChange(nextValue: string) {
+    clearPendingCommit()
+    lastCommittedValueRef.current = nextValue
+    if (nextValue !== value) {
+      onChange(nextValue)
+    }
+  }
+
+  function updateDraft(nextValue: string) {
+    draftValueRef.current = nextValue
+    setDraftValue(nextValue)
+    clearPendingCommit()
+    debounceRef.current = window.setTimeout(() => {
+      debounceRef.current = null
+      lastCommittedValueRef.current = draftValueRef.current
+      onChange(draftValueRef.current)
+    }, 160)
+  }
+
   const filteredSuggestions = useMemo(() => {
-    const normalizedInput = normalizeRegistrationText(value).toLowerCase()
+    const normalizedInput = normalizeRegistrationText(draftValue).toLowerCase()
     const hasExactMatch = normalizedSuggestions.some(
       (item) => normalizeRegistrationText(item).toLowerCase() === normalizedInput,
     )
@@ -280,12 +405,12 @@ export function SingleValueAutocomplete({
     return normalizedSuggestions.filter((item) => {
       return normalizedInput === '' || normalizeRegistrationText(item).toLowerCase().includes(normalizedInput)
     })
-  }, [normalizedSuggestions, value])
+  }, [draftValue, normalizedSuggestions])
 
   const exactMatchExists = normalizedSuggestions.some(
-    (item) => normalizeRegistrationText(item).toLowerCase() === normalizeRegistrationText(value).toLowerCase(),
+    (item) => normalizeRegistrationText(item).toLowerCase() === normalizeRegistrationText(draftValue).toLowerCase(),
   )
-  const canCreateOption = allowCreate && !exactMatchExists && value.trim() !== ''
+  const canCreateOption = allowCreate && !exactMatchExists && draftValue.trim() !== ''
   const optionCount = filteredSuggestions.length + (canCreateOption ? 1 : 0)
   const effectiveActiveOptionIndex =
     isOpen && activeOptionIndex >= 0 && activeOptionIndex < optionCount ? activeOptionIndex : -1
@@ -304,12 +429,16 @@ export function SingleValueAutocomplete({
     const resolvedValue = matchedSuggestion ?? normalized
 
     if (!allowCreate && matchedSuggestion === null) {
+      draftValueRef.current = value
+      setDraftValue(value)
       setIsOpen(false)
       setActiveOptionIndex(-1)
       return
     }
 
-    onChange(resolvedValue)
+    draftValueRef.current = resolvedValue
+    setDraftValue(resolvedValue)
+    commitChange(resolvedValue)
     setIsOpen(false)
     setActiveOptionIndex(-1)
   }
@@ -317,19 +446,22 @@ export function SingleValueAutocomplete({
   return (
     <div className="single-autocomplete">
       <input
-        value={value}
+        value={draftValue}
         onChange={(event) => {
-          onChange(event.target.value)
+          updateDraft(event.target.value)
           setActiveOptionIndex(-1)
           setIsOpen(true)
         }}
         onFocus={() => {
+          focusedRef.current = true
           if (closeTimeoutRef.current !== null) {
             window.clearTimeout(closeTimeoutRef.current)
           }
           setIsOpen(true)
         }}
         onBlur={() => {
+          focusedRef.current = false
+          commitChange(draftValueRef.current)
           closeTimeoutRef.current = window.setTimeout(() => setIsOpen(false), 120)
         }}
         onKeyDown={(event) => {
@@ -372,19 +504,19 @@ export function SingleValueAutocomplete({
                 return
               }
 
-              commitValue(value)
+              commitValue(draftValue)
               return
             }
 
-            if (allowCreate && !exactMatchExists && value.trim() !== '') {
-              commitValue(value)
+            if (allowCreate && !exactMatchExists && draftValue.trim() !== '') {
+              commitValue(draftValue)
               return
             }
-            if (filteredSuggestions.length > 0 && value.trim() !== '') {
+            if (filteredSuggestions.length > 0 && draftValue.trim() !== '') {
               commitValue(filteredSuggestions[0])
               return
             }
-            commitValue(value)
+            commitValue(draftValue)
           }
         }}
         placeholder={placeholder}
@@ -436,10 +568,10 @@ export function SingleValueAutocomplete({
               onMouseEnter={() => setActiveOptionIndex(filteredSuggestions.length)}
               onMouseDown={(event) => {
                 event.preventDefault()
-                commitValue(value)
+                commitValue(draftValue)
               }}
             >
-              {createLabel ?? 'Criar'} "{normalizeRegistrationText(value.trim())}"
+              {createLabel ?? 'Criar'} "{normalizeRegistrationText(draftValue.trim())}"
             </button>
           ) : null}
         </div>

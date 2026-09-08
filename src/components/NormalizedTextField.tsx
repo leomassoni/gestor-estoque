@@ -51,6 +51,7 @@ function useNormalizedDraftValue({
   const draftValueRef = useRef(normalizedValue)
   const focusedRef = useRef(false)
   const debounceRef = useRef<number | null>(null)
+  const lastCommittedValueRef = useRef(normalizedValue)
 
   useEffect(() => {
     if (focusedRef.current && commitMode === 'blur') {
@@ -58,7 +59,17 @@ function useNormalizedDraftValue({
     }
 
     const nextValue = normalizeValue(value)
+    if (
+      focusedRef.current &&
+      commitMode === 'debounce' &&
+      nextValue === lastCommittedValueRef.current &&
+      nextValue !== draftValueRef.current
+    ) {
+      return
+    }
+
     if (nextValue !== draftValueRef.current) {
+      lastCommittedValueRef.current = nextValue
       draftValueRef.current = nextValue
       setDraftValue(nextValue)
     }
@@ -82,6 +93,7 @@ function useNormalizedDraftValue({
 
   function commitValue(nextValue: string) {
     clearPendingCommit()
+    lastCommittedValueRef.current = nextValue
     if (nextValue !== normalizeValue(value)) {
       onChange(nextValue)
     }
@@ -92,6 +104,7 @@ function useNormalizedDraftValue({
     setDraftValue(nextValue)
 
     if (commitMode === 'change') {
+      lastCommittedValueRef.current = nextValue
       onChange(nextValue)
       return
     }
@@ -100,6 +113,7 @@ function useNormalizedDraftValue({
       clearPendingCommit()
       debounceRef.current = window.setTimeout(() => {
         debounceRef.current = null
+        lastCommittedValueRef.current = draftValueRef.current
         onChange(draftValueRef.current)
       }, debounceMs)
     }
@@ -125,7 +139,7 @@ type NormalizedTextInputProps = Omit<InputHTMLAttributes<HTMLInputElement>, 'val
 function NormalizedTextInputComponent({
   value,
   onChange,
-  commitMode = 'change',
+  commitMode = 'debounce',
   debounceMs = 180,
   onBlur,
   onFocus,

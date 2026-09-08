@@ -1,10 +1,25 @@
 # Worklog
 
- Ultima atualizacao: 2026-09-01
+ Ultima atualizacao: 2026-09-08
 
 ## Objetivo deste arquivo
 
 Registrar um historico resumido do que foi feito, do que falhou e do que ficou pendente.
+
+## 2026-09-08
+
+### Correcao de digitacao em campos de busca e input
+
+- Problema reportado: lentidao geral em campos digitaveis e perda de letras durante digitacao rapida, normalmente na terceira letra.
+- Causa tratada: componentes com rascunho local ainda podiam receber de volta um valor atrasado do estado global enquanto o campo estava em foco, sobrescrevendo caracteres recem digitados.
+- Ajustes aplicados:
+  - `NormalizedTextInput` passa a usar commit com debounce como padrao, mantendo visualizacao local imediata e commit ao sair do campo/Enter;
+  - `NormalizedTextInput` ignora ecos atrasados do proprio valor commitado enquanto o usuario continua digitando;
+  - `SingleValueAutocomplete` e `MultiSelectChips` passam a manter rascunho local e sincronizar com o estado principal por debounce, blur ou selecao;
+  - atalhos de teclado desses componentes usam o rascunho local, evitando confirmar valor stale.
+- Escopo: correcao reduz a perda de caracteres nos campos ja extraidos para componentes reutilizaveis, sem tentar resolver nesta etapa o gargalo estrutural completo do `App.tsx`.
+- Validacao executada:
+  - `npm run build`
 
 ## 2026-09-01
 
