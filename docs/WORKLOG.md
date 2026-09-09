@@ -86,6 +86,7 @@ Registrar um historico resumido do que foi feito, do que falhou e do que ficou p
 - Validacao executada:
   - `npm run build`;
   - Playwright local em `http://localhost:5174/`: login master, selecao de `MACAXEIRA POIS POIS`, abertura de `Estoque > Centros de estoque > Centros cadastrados`, busca `BAR` com 2 centros retornados, troca para aba `Centro de estoque`, retorno para `Centros cadastrados` e sem erros de console.
+  - Playwright online em `https://gestor-estoque-zqw9.onrender.com/`: bundle `index-41tLWwQV.js`, mesmo roteiro validado sem erros de console.
 
 ### Correcao de digitacao em campos de busca e input
 
