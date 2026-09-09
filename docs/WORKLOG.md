@@ -73,6 +73,20 @@ Registrar um historico resumido do que foi feito, do que falhou e do que ficou p
   - Playwright local em `http://localhost:5174/`: login master, selecao de `MACAXEIRA POIS POIS`, abertura de `Cadastros > Fichas Tecnicas`, busca `BATIDA` com 10 linhas retornadas, busca por insumo `CAJA` com 3 fichas encontradas, abertura de `Nova ficha`, retorno para lista e sem erros de console.
   - Playwright online em `https://gestor-estoque-zqw9.onrender.com/`: bundle `index-D3C-4PeJ.js`, mesmo roteiro validado sem erros de console.
 
+### Extracao da lista de Centros de Estoque
+
+- Quinto bloco da compartimentacao estrutural do `src/App.tsx`.
+- Extraido `src/components/StockCenterRegisteredListPanel.tsx`, concentrando:
+  - cabecalho da aba `Centros cadastrados`;
+  - campo `Buscar centro de estoque`;
+  - datalist de sugestoes;
+  - lista de centros com status, responsaveis, usuarios vinculados e minimos definidos;
+  - acoes de atualizar, ativar/inativar e excluir.
+- Escopo preservado: editor de centro, filtros derivados, persistencia, validacoes e acoes administrativas continuam orquestrados pelo `App.tsx`.
+- Validacao executada:
+  - `npm run build`;
+  - Playwright local em `http://localhost:5174/`: login master, selecao de `MACAXEIRA POIS POIS`, abertura de `Estoque > Centros de estoque > Centros cadastrados`, busca `BAR` com 2 centros retornados, troca para aba `Centro de estoque`, retorno para `Centros cadastrados` e sem erros de console.
+
 ### Correcao de digitacao em campos de busca e input
 
 - Problema reportado: lentidao geral em campos digitaveis e perda de letras durante digitacao rapida, normalmente na terceira letra.

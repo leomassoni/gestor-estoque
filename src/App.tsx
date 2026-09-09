@@ -12,6 +12,7 @@ import { ExecutionPlanningList } from './components/ExecutionPlanningList'
 import { PreparationModeInput } from './components/PreparationModeInput'
 import { ProductListPanel } from './components/ProductListPanel'
 import { ServiceItemListPanel } from './components/ServiceItemListPanel'
+import { StockCenterRegisteredListPanel } from './components/StockCenterRegisteredListPanel'
 import { TechnicalSheetListPanel } from './components/TechnicalSheetListPanel'
 import {
   buildPreparationModeMetricParts,
@@ -45494,86 +45495,16 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
             {stockCenterTab === 'center' ? (
               renderStockCenterEditor('create')
             ) : (
-              <>
-                <div className="section-heading section-heading-inline stock-center-subheading">
-                  <div>
-                    <p className="kicker">Estoque</p>
-                    <h2>Centros cadastrados</h2>
-                  </div>
-                </div>
-
-                <div className="list-toolbar">
-                  <label className="field search-field">
-                    <span>Buscar centro de estoque</span>
-                    <NormalizedTextInput
-                      list={stockCenterListId}
-                      value={stockCenterSearch}
-                      onChange={setStockCenterSearch}
-                      commitMode="debounce"
-                      placeholder="Busque por nome, codigo ou setor"
-                    />
-                    <datalist id={stockCenterListId}>
-                      {normalizeSuggestionSet(visibleStockCenters.flatMap((center) => [center.name, center.code, center.sector])).map((value) => (
-                        <option key={value} value={value} />
-                      ))}
-                    </datalist>
-                  </label>
-                </div>
-
-                {visibleStockCenters.length > 0 ? (
-                  <div className="selector-list company-management-list">
-                    {visibleStockCenters.map((center) => {
-                      const participantNames = center.userIds
-                        .map((userId) => companyUsers.find((user) => user.id === userId)?.fullName ?? null)
-                        .filter((value): value is string => Boolean(value))
-                      const responsibleNames = center.responsibleUserIds
-                        .map((userId) => companyUsers.find((user) => user.id === userId)?.fullName ?? null)
-                        .filter((value): value is string => Boolean(value))
-                      return (
-                        <article key={center.id} className="list-row user-list-row">
-                          <div className="user-row-header">
-                            <div className="user-title-group">
-                              <strong>{center.name}</strong>
-                              <span className={center.isActive ? 'status-pill status-active' : 'status-pill status-inactive'}>
-                                {center.isActive ? 'Ativo' : 'Inativo'}
-                              </span>
-                            </div>
-                            <div className="row-actions">
-                              <button type="button" className="ghost-button" onClick={() => editStockCenter(center.id)}>
-                                Atualizar
-                              </button>
-                              <button
-                                type="button"
-                                className={center.isActive ? 'warning-button' : 'ghost-button'}
-                                onClick={() => toggleStockCenterStatus(center.id)}
-                              >
-                                {center.isActive ? 'Inativar' : 'Ativar'}
-                              </button>
-                              <button type="button" className="danger-button" onClick={() => deleteStockCenter(center.id)}>
-                                Excluir
-                              </button>
-                            </div>
-                          </div>
-                          <div className="row-meta user-row-meta">
-                            <div className="user-meta-line">
-                              <span><strong className="meta-label">Codigo:</strong> {center.code}</span>
-                              <span><strong className="meta-label">Setor:</strong> {center.sector}</span>
-                                  <span><strong className="meta-label">Responsaveis:</strong> {responsibleNames.join(', ') || 'Nao definido'}</span>
-                              <span><strong className="meta-label">Usuarios:</strong> {participantNames.join(', ') || 'Nenhum usuario associado'}</span>
-                              <span><strong className="meta-label">Estoques minimos definidos:</strong> {String(center.minimumStocks.length)}</span>
-                            </div>
-                          </div>
-                        </article>
-                      )
-                    })}
-                  </div>
-                ) : (
-                  <div className="empty-state">
-                    <strong>Nenhum centro de estoque cadastrado.</strong>
-                    <p>Cadastre o estoque central, bares, cozinhas ou outras frentes que controlam saldo de forma independente.</p>
-                  </div>
-                )}
-              </>
+              <StockCenterRegisteredListPanel
+                centerListId={stockCenterListId}
+                centerSearch={stockCenterSearch}
+                companyUsers={companyUsers}
+                visibleCenters={visibleStockCenters}
+                onCenterSearchChange={setStockCenterSearch}
+                onDeleteCenter={deleteStockCenter}
+                onEditCenter={editStockCenter}
+                onToggleCenterStatus={toggleStockCenterStatus}
+              />
             )}
 
           </section>
