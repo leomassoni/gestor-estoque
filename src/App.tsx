@@ -12,6 +12,7 @@ import { ExecutionPlanningList } from './components/ExecutionPlanningList'
 import { PreparationModeInput } from './components/PreparationModeInput'
 import { ProductListPanel } from './components/ProductListPanel'
 import { ServiceItemListPanel } from './components/ServiceItemListPanel'
+import { TechnicalSheetListPanel } from './components/TechnicalSheetListPanel'
 import {
   buildPreparationModeMetricParts,
   formatRecipeIngredientInputQuantity,
@@ -44,7 +45,6 @@ import {
   renderRequisitionHistoryColumnHeader,
   renderStockCenterMinimumColumnHeader,
   renderStockReportColumnHeader,
-  renderTechnicalSheetColumnHeader,
   tableColumnFilterNoneValue,
 } from './components/tableColumnHeaders'
 import {
@@ -43332,280 +43332,66 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
         </>
       ) : activeSection === 'FichasTecnicas' ? (
         technicalSheetScreenMode === 'list' ? (
-          <section className="panel">
-            <div className="section-heading">
-              <div>
-                <p className="kicker">Fichas Tecnicas</p>
-                <h2>Fichas cadastradas</h2>
-              </div>
-              <div className="toolbar-actions">
-                <button className="ghost-button" type="button" onClick={openTechnicalSheetExportModal}>
-                  Exportar
-                </button>
-                <button className="primary-button" type="button" onClick={() => openNewTechnicalSheetForm('PREPARO')}>
-                  Nova ficha
-                </button>
-              </div>
-            </div>
-
-            <div className="list-toolbar technical-sheet-list-toolbar">
-              <label className="field search-field">
-                <span>Pesquisar ficha tecnica</span>
-                <NormalizedTextInput
-                  list={technicalSheetListId}
-                  value={technicalSheetSearch}
-                  onChange={setTechnicalSheetSearch}
-                  commitMode="debounce"
-                  placeholder="Busque por nome, ID interno ou ID da empresa"
-                />
-                <datalist id={technicalSheetListId}>
-                  {technicalSheetSuggestions.map((item) => (
-                    <option key={item} value={item} />
-                  ))}
-                </datalist>
-              </label>
-              <label className="field search-field">
-                <span>Buscar por insumo</span>
-                <NormalizedTextInput
-                  list={technicalSheetIngredientListId}
-                  value={technicalSheetIngredientSearch}
-                  onChange={setTechnicalSheetIngredientSearch}
-                  commitMode="debounce"
-                  placeholder="Busque um ingrediente ou pre-preparo usado"
-                />
-                <datalist id={technicalSheetIngredientListId}>
-                  {technicalSheetIngredientSuggestions.map((item) => (
-                    <option key={item} value={item} />
-                  ))}
-                </datalist>
-              </label>
-              <label className="field technical-sheet-ingredient-search-mode">
-                <span>Alcance do insumo</span>
-                <select
-                  value={technicalSheetIngredientSearchMode}
-                  onChange={(event) =>
-                    setTechnicalSheetIngredientSearchMode(event.target.value as TechnicalSheetIngredientSearchMode)
-                  }
-                >
-                  <option value="expanded">Inclui subfichas</option>
-                  <option value="direct">Somente direto</option>
-                </select>
-              </label>
-            </div>
-            {technicalSheetIngredientSearchSummary ? (
-              <div className="list-summary-row">
-                <span>{technicalSheetIngredientSearchSummary}</span>
-              </div>
-            ) : null}
-
-            {hiddenTechnicalSheetColumns.length > 0 ? (
-              <div className="hidden-columns">
-                <strong>Colunas ocultas</strong>
-                <div className="hidden-columns-list">
-                  {hiddenTechnicalSheetColumns.map(([key, label]) => (
-                    <button
-                      key={key}
-                      type="button"
-                      className="ghost-button hidden-column-chip"
-                      onClick={() =>
-                        setTechnicalSheetColumnVisibility((current) => ({
-                          ...current,
-                          [key]: true,
-                        }))
-                      }
-                    >
-                      {label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            ) : null}
-
-            <div className="table-wrap">
-              <table className="product-table">
-                <thead>
-                  <tr>
-                    {orderedVisibleTechnicalSheetColumns.map((key) =>
-                      renderTechnicalSheetColumnHeader(
-                        key,
-                        technicalSheetColumnOptions.find(([optionKey]) => optionKey === key)?.[1] ?? key,
-                        openTechnicalSheetColumnMenu,
-                        setOpenTechnicalSheetColumnMenu,
-                        technicalSheetColumnFilters,
-                        distinctTechnicalSheetColumnValues,
-                        setTechnicalSheetColumnFilters,
-                        setTechnicalSheetColumnVisibility,
-                        technicalSheetColumnSort,
-                        setTechnicalSheetColumnSort,
-                        {
-                          draggable: key !== 'product',
-                          isDragging: draggedTechnicalSheetColumn === key,
-                          isDropTarget: technicalSheetColumnDropTarget === key,
-                          onDragStart: () => {
-                            if (key !== 'product') {
-                              setDraggedTechnicalSheetColumn(key)
-                              setTechnicalSheetColumnDropTarget(null)
-                            }
-                          },
-                          onDragEnd: () => {
-                            setDraggedTechnicalSheetColumn(null)
-                            setTechnicalSheetColumnDropTarget(null)
-                          },
-                          onDragOver: (event) => {
-                            if (key !== 'product' && draggedTechnicalSheetColumn && draggedTechnicalSheetColumn !== key) {
-                              event.preventDefault()
-                              setTechnicalSheetColumnDropTarget(key)
-                            }
-                          },
-                          onDragLeave: () => {
-                            if (technicalSheetColumnDropTarget === key) {
-                              setTechnicalSheetColumnDropTarget(null)
-                            }
-                          },
-                          onDrop: (event) => {
-                            event.preventDefault()
-                            if (!draggedTechnicalSheetColumn || draggedTechnicalSheetColumn === key || key === 'product') {
-                              setDraggedTechnicalSheetColumn(null)
-                              setTechnicalSheetColumnDropTarget(null)
-                              return
-                            }
-
-                            setTechnicalSheetColumnOrder((current) => {
-                              const next = current.filter((columnKey) => columnKey !== draggedTechnicalSheetColumn)
-                              const targetIndex = next.indexOf(key)
-                              if (targetIndex < 0) {
-                                return current
-                              }
-                              next.splice(targetIndex, 0, draggedTechnicalSheetColumn)
-                              return next
-                            })
-                            setDraggedTechnicalSheetColumn(null)
-                            setTechnicalSheetColumnDropTarget(null)
-                          },
-                        },
-                      ),
-                    )}
-                    <th className="sticky-actions">Acoes</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {visibleTechnicalSheetsFiltered.length > 0 ? (
-                    visibleTechnicalSheetsFiltered.map((sheet) => (
-                        <tr key={sheet.id}>
-                          {orderedVisibleTechnicalSheetColumns.map((key) => {
-                            if (key === 'product') {
-                              const ingredientMatchPath = technicalSheetIngredientMatchPaths.get(sheet.id) ?? ''
-                              return (
-                                <td key={`${sheet.id}-${key}`} className="sticky-product-cell">
-                                  <strong>{sheet.name}</strong>
-                                  {hasTechnicalSheetIngredientSearch && ingredientMatchPath ? (
-                                    <span className="technical-sheet-ingredient-match">
-                                      Insumo: {ingredientMatchPath}
-                                    </span>
-                                  ) : null}
-                                </td>
-                              )
-                            }
-                            if (key === 'status') {
-                              return (
-                                <td key={`${sheet.id}-${key}`}>
-                                  <span
-                                    className={
-                                      sheet.isActive
-                                        ? 'package-chip package-chip-success'
-                                        : 'package-chip package-chip-warning'
-                                    }
-                                  >
-                                    {sheet.isActive ? 'Ativa' : 'Inativa'}
-                                  </span>
-                                </td>
-                              )
-                            }
-                            if (key === 'yield') {
-                              return (
-                                <td key={`${sheet.id}-${key}`}>
-                                  {formatDecimal(calculateTechnicalSheetEffectiveYield(sheet))} {getTechnicalSheetYieldUnitLabel(sheet, technicalSheets, products)}
-                                </td>
-                              )
-                            }
-                            if (key === 'ingredients') {
-                              return <td key={`${sheet.id}-${key}`}>{String(sheet.ingredients.filter((ingredient) => ingredient.isActive).length)}</td>
-                            }
-
-                            return (
-                              <td key={`${sheet.id}-${key}`}>
-                                {getTechnicalSheetColumnValue(
-                                  sheet,
-                                  key,
-                                  technicalSheets,
-                                  products,
-                                  stockCenters,
-                                  companies,
-                                  serviceItems,
-                                  currentCompanyCostContext,
-                                ) || '-'}
-                              </td>
-                            )
-                          })}
-                          <td className="sticky-actions-cell">
-                            <div className="table-actions">
-                              <button
-                                className="icon-button icon-edit"
-                                type="button"
-                                aria-label="Editar ficha tecnica"
-                                onClick={() => openEditTechnicalSheetForm(sheet.id)}
-                              >
-                                <span aria-hidden="true">✎</span>
-                              </button>
-                              <button
-                                className="icon-button"
-                                type="button"
-                                aria-label="Copiar ficha tecnica"
-                                title="Copiar ficha tecnica"
-                                onClick={() => openTechnicalSheetCopyModal(sheet.id)}
-                              >
-                                <span aria-hidden="true">⧉</span>
-                              </button>
-                              <button
-                                className="icon-button icon-disable"
-                                type="button"
-                                aria-label={sheet.isActive ? 'Inativar ficha tecnica' : 'Ativar ficha tecnica'}
-                                onClick={() =>
-                                  sheet.isActive
-                                    ? openTechnicalSheetDisableImpact(sheet.id)
-                                    : setTechnicalSheetActionState({
-                                        action: 'enable',
-                                        technicalSheetId: sheet.id,
-                                      })
-                                }
-                              >
-                                <span aria-hidden="true">{sheet.isActive ? '◐' : '◑'}</span>
-                              </button>
-                              {canDeleteTechnicalSheets ? (
-                                <button
-                                  className="icon-button icon-delete"
-                                  type="button"
-                                  aria-label="Excluir ficha tecnica"
-                                  onClick={() => openTechnicalSheetDisableImpact(sheet.id, 'delete')}
-                                >
-                                  <span aria-hidden="true">🗑</span>
-                                </button>
-                              ) : null}
-                            </div>
-                          </td>
-                        </tr>
-                      ))
-                  ) : (
-                    <tr>
-                      <td colSpan={orderedVisibleTechnicalSheetColumns.length + 1}>
-                        Nenhuma ficha tecnica encontrada com os filtros atuais.
-                      </td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
-          </section>
+          <TechnicalSheetListPanel
+            canDeleteTechnicalSheets={canDeleteTechnicalSheets}
+            columnFilters={technicalSheetColumnFilters}
+            columnOptions={technicalSheetColumnOptions}
+            columnSort={technicalSheetColumnSort}
+            distinctColumnValues={distinctTechnicalSheetColumnValues}
+            draggedColumn={draggedTechnicalSheetColumn}
+            dropTargetColumn={technicalSheetColumnDropTarget}
+            hasIngredientSearch={hasTechnicalSheetIngredientSearch}
+            hiddenColumns={hiddenTechnicalSheetColumns}
+            ingredientListId={technicalSheetIngredientListId}
+            ingredientMatchPaths={technicalSheetIngredientMatchPaths}
+            ingredientSearch={technicalSheetIngredientSearch}
+            ingredientSearchMode={technicalSheetIngredientSearchMode}
+            ingredientSearchSuggestions={technicalSheetIngredientSuggestions}
+            ingredientSearchSummary={technicalSheetIngredientSearchSummary}
+            openColumnMenu={openTechnicalSheetColumnMenu}
+            orderedVisibleColumns={orderedVisibleTechnicalSheetColumns}
+            sheetListId={technicalSheetListId}
+            sheetSearch={technicalSheetSearch}
+            sheetSuggestions={technicalSheetSuggestions}
+            visibleSheets={visibleTechnicalSheetsFiltered}
+            formatYieldLabel={(sheet) =>
+              `${formatDecimal(calculateTechnicalSheetEffectiveYield(sheet))} ${getTechnicalSheetYieldUnitLabel(sheet, technicalSheets, products)}`
+            }
+            getTechnicalSheetColumnValue={(sheet, key) =>
+              getTechnicalSheetColumnValue(
+                sheet,
+                key,
+                technicalSheets,
+                products,
+                stockCenters,
+                companies,
+                serviceItems,
+                currentCompanyCostContext,
+              )
+            }
+            onCopyTechnicalSheet={openTechnicalSheetCopyModal}
+            onDeleteTechnicalSheet={(technicalSheetId) => openTechnicalSheetDisableImpact(technicalSheetId, 'delete')}
+            onDisableTechnicalSheet={openTechnicalSheetDisableImpact}
+            onEditTechnicalSheet={openEditTechnicalSheetForm}
+            onEnableTechnicalSheet={(technicalSheetId) =>
+              setTechnicalSheetActionState({
+                action: 'enable',
+                technicalSheetId,
+              })
+            }
+            onExport={openTechnicalSheetExportModal}
+            onIngredientSearchChange={setTechnicalSheetIngredientSearch}
+            onIngredientSearchModeChange={setTechnicalSheetIngredientSearchMode}
+            onNewTechnicalSheet={() => openNewTechnicalSheetForm('PREPARO')}
+            onSheetSearchChange={setTechnicalSheetSearch}
+            setColumnFilters={setTechnicalSheetColumnFilters}
+            setColumnOrder={setTechnicalSheetColumnOrder}
+            setColumnSort={setTechnicalSheetColumnSort}
+            setColumnVisibility={setTechnicalSheetColumnVisibility}
+            setDraggedColumn={setDraggedTechnicalSheetColumn}
+            setDropTargetColumn={setTechnicalSheetColumnDropTarget}
+            setOpenColumnMenu={setOpenTechnicalSheetColumnMenu}
+          />
         ) : (
           <div className={getTechnicalSheetWorkspaceClassName(technicalSheetForm.kind)}>
             <section className="panel">

@@ -57,6 +57,21 @@ Registrar um historico resumido do que foi feito, do que falhou e do que ficou p
   - Playwright local em `http://localhost:5174/`: login master, selecao de `MACAXEIRA POIS POIS`, abertura de `Cadastros > Utensilios e Recipientes`, busca `COPO` com 10 linhas retornadas, abertura de `Novo item`, retorno para lista e sem erros de console.
   - Playwright online em `https://gestor-estoque-zqw9.onrender.com/`: bundle `index-C47YfpX8.js`, mesmo roteiro validado sem erros de console.
 
+### Extracao da lista de Fichas Tecnicas
+
+- Quarto bloco da compartimentacao estrutural do `src/App.tsx`.
+- Extraido `src/components/TechnicalSheetListPanel.tsx`, concentrando:
+  - cabecalho da lista de fichas;
+  - acao de exportacao e criacao de nova ficha;
+  - busca por ficha;
+  - busca por insumo e seletor de alcance;
+  - colunas ocultas;
+  - tabela de fichas com ordenacao, filtros, drag/drop de colunas e acoes.
+- Escopo preservado: calculos de fichas, filtro derivado, busca por insumo, drag/drop state, exportacao, formulario de ficha, copia, inativacao e exclusao permanecem orquestrados pelo `App.tsx`.
+- Validacao executada:
+  - `npm run build`;
+  - Playwright local em `http://localhost:5174/`: login master, selecao de `MACAXEIRA POIS POIS`, abertura de `Cadastros > Fichas Tecnicas`, busca `BATIDA` com 10 linhas retornadas, busca por insumo `CAJA` com 3 fichas encontradas, abertura de `Nova ficha`, retorno para lista e sem erros de console.
+
 ### Correcao de digitacao em campos de busca e input
 
 - Problema reportado: lentidao geral em campos digitaveis e perda de letras durante digitacao rapida, normalmente na terceira letra.
