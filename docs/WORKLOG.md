@@ -1589,3 +1589,11 @@ Registrar um historico resumido do que foi feito, do que falhou e do que ficou p
   - `/api/users` autenticado nao retornou `passwordHash` e retornou `password` vazio;
   - usuario comum temporario conseguiu logar e recebeu `403` em `/api/state`;
   - smoke browser local passou sem erro de console em login, selecao de empresa, produtos, busca e usuarios.
+- Deploy e validacao online:
+  - commit publicado: `f5b4c30`;
+  - bundle online confirmado: `index-BkpBbs4T.js`;
+  - API online bloqueou `/api/users` e `/api/state` sem token com `401`;
+  - login master online retornou token valido;
+  - `/api/users` autenticado online nao retornou `passwordHash` e retornou `password` vazio;
+  - `/api/state` autenticado como master retornou `200`;
+  - smoke browser online passou sem erro de console em login, selecao de `MACAXEIRA POIS POIS`, produtos, busca `GUARANA` e usuarios.
