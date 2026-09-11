@@ -1560,3 +1560,32 @@ Registrar um historico resumido do que foi feito, do que falhou e do que ficou p
   - rota online `POST /api/inventories/:id/close` confirmou resposta JSON;
   - teste isolado com `companyId=1987654` confirmou os mesmos quatro cenarios em producao;
   - cleanup online confirmou `0` inventarios, `0` sessoes e `0` itens restantes da empresa de teste.
+
+### Sprint minimo de seguranca para uso assistido
+
+- Correcao aplicada em `2026-09-11` para reduzir o bloqueio critico antes de uso client-facing assistido.
+- Ajustes aplicados:
+  - credencial master deixou de ser importada pelo frontend;
+  - login passou para `/api/auth/login`, com validacao server-side e token assinado;
+  - usuarios do app passaram a ter `passwordHash` opcional em `AppUserRecord`;
+  - senhas legadas em texto sao aceitas apenas no primeiro login valido e migradas para hash;
+  - criacao e edicao de usuarios gravam hash e nunca retornam `passwordHash` ao frontend;
+  - respostas de usuarios retornam `password: ''`, preservando compatibilidade visual sem expor segredo;
+  - frontend injeta `Authorization: Bearer` em chamadas `/api/*` de mesma origem;
+  - `/api/users`, produtos, fichas, inventarios, compras e demais rotas sob `/api` passaram a exigir token;
+  - `/api/state` ficou restrito ao master autenticado, por ser legado/snapshot global;
+  - CORS passou a aceitar somente origens configuradas/local/online conhecida.
+- Impacto esperado em usuarios existentes:
+  - usuarios ativos continuam entrando com a senha atual;
+  - no primeiro login valido, a senha e convertida para hash automaticamente;
+  - edicao de usuario permite deixar `Nova senha` vazia para preservar a senha atual;
+  - painel de usuarios exibe apenas `Senha: protegida`.
+- Validacao local:
+  - `npm run build` passou;
+  - `node --check server/server.js` passou;
+  - `git diff --check` passou;
+  - API local bloqueou `/api/users` e `/api/state` sem token com `401`;
+  - login master local retornou token valido;
+  - `/api/users` autenticado nao retornou `passwordHash` e retornou `password` vazio;
+  - usuario comum temporario conseguiu logar e recebeu `403` em `/api/state`;
+  - smoke browser local passou sem erro de console em login, selecao de empresa, produtos, busca e usuarios.

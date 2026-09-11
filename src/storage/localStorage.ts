@@ -4,6 +4,7 @@ export const listViewStorageKey = 'gestor-estoque:list-view'
 export const itemListViewStorageKey = 'gestor-estoque:item-list-view'
 export const technicalSheetListViewStorageKey = 'gestor-estoque:technical-sheet-list-view'
 export const authStorageKey = 'gestor-estoque:auth'
+export const authTokenStorageKey = 'gestor-estoque:auth-token'
 export const companiesStorageKey = 'gestor-estoque:companies'
 export const productsStorageKey = 'gestor-estoque:products'
 export const serviceItemsStorageKey = 'gestor-estoque:service-items'
@@ -55,11 +56,6 @@ export type SyncedAppStorageKey = (typeof syncedAppStorageKeys)[number]
 export type RemoteAppStatePayload = {
   version: 1
   entries: Partial<Record<SyncedAppStorageKey, string>>
-}
-
-export const masterCredentials = {
-  username: 'igarape.aeb',
-  password: 'Leo180613*',
 }
 
 export const defaultFlavorProfileNames = ['Doce', 'Azedo', 'Amargo', 'Salgado', 'Umami'] as const

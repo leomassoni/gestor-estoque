@@ -5,12 +5,42 @@ import './styles.css'
 import {
   accessProfilesStorageKey,
   companiesStorageKey,
+  authTokenStorageKey,
   syncedAppStorageKeys,
   usersStorageKey,
 } from './storage/localStorage'
 
 const clientCacheVersionStorageKey = 'gestor-estoque:client-cache-version'
 const clientCacheVersion = '2026-07-25-receitas-cache-reset'
+
+function installAuthenticatedApiFetch() {
+  if (typeof window === 'undefined') {
+    return
+  }
+
+  const originalFetch = window.fetch.bind(window)
+  window.fetch = (input, init) => {
+    const requestUrl = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url
+    const parsedUrl = new URL(requestUrl, window.location.origin)
+    const isSameOriginApi = parsedUrl.origin === window.location.origin && parsedUrl.pathname.startsWith('/api/')
+
+    if (!isSameOriginApi) {
+      return originalFetch(input, init)
+    }
+
+    const token = window.sessionStorage.getItem(authTokenStorageKey) || window.localStorage.getItem(authTokenStorageKey)
+    if (!token) {
+      return originalFetch(input, init)
+    }
+
+    const headers = new Headers(init?.headers ?? (typeof input === 'object' && 'headers' in input ? input.headers : undefined))
+    if (!headers.has('Authorization')) {
+      headers.set('Authorization', `Bearer ${token}`)
+    }
+
+    return originalFetch(input, { ...init, headers })
+  }
+}
 
 function renderLocalStorageRescueIfRequested() {
   if (typeof window === 'undefined') {
@@ -186,6 +216,7 @@ class AppErrorBoundary extends React.Component<
 }
 
 if (!didRenderLocalStorageRescue) {
+  installAuthenticatedApiFetch()
   resetIncompatibleLocalCache()
 
   ReactDOM.createRoot(document.getElementById('root')!).render(

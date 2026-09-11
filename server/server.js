@@ -87,6 +87,17 @@ const technicalSheetListSelect = {
 const maxInt32Id = 2147483647
 const technicalSheetIdAllocationLockKey = 74261001
 const catalogIdAlphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'
+const passwordHashPrefix = 'scrypt'
+const authTokenTtlMs = 1000 * 60 * 60 * 12
+const systemAdminUsername = process.env.SYSTEM_ADMIN_USERNAME || 'igarape.aeb'
+const systemAdminPassword = process.env.SYSTEM_ADMIN_PASSWORD || 'Leo180613*'
+const authTokenSecret =
+  process.env.AUTH_TOKEN_SECRET ||
+  process.env.SESSION_SECRET ||
+  crypto
+    .createHash('sha256')
+    .update(`gestor-estoque:${process.env.DATABASE_URL || 'local-development'}`)
+    .digest('hex')
 let hasSeededAppAdminRecords = false
 let hasSeededAppStockCenterRecords = false
 let hasSeededAppCatalogRecords = false
@@ -97,7 +108,211 @@ const defaultFlavorProfilesSeededCompanyIds = new Set()
 const defaultFlavorProfilesSeedPromises = new Map()
 let hasSanitizedLegacyEntitySnapshotIds = false
 
-app.use(cors())
+function buildCorsOptions() {
+  const configuredOrigins = [
+    process.env.CORS_ORIGIN,
+    process.env.CORS_ORIGINS,
+    process.env.PUBLIC_APP_URL,
+    process.env.APP_BASE_URL,
+    process.env.RENDER_EXTERNAL_URL,
+  ]
+    .filter(Boolean)
+    .join(',')
+    .split(',')
+    .map((value) => value.trim())
+    .filter(Boolean)
+  const allowedOrigins = new Set([
+    ...configuredOrigins,
+    'http://localhost:5173',
+    'http://localhost:5174',
+    'http://127.0.0.1:5173',
+    'http://127.0.0.1:5174',
+    'https://gestor-estoque-zqw9.onrender.com',
+  ])
+
+  return {
+    origin(origin, callback) {
+      if (!origin || allowedOrigins.has(origin)) {
+        callback(null, true)
+        return
+      }
+      callback(new Error('Origem nao autorizada pelo CORS.'))
+    },
+  }
+}
+
+function base64UrlEncode(value) {
+  return Buffer.from(value).toString('base64url')
+}
+
+function base64UrlJson(value) {
+  return base64UrlEncode(JSON.stringify(value))
+}
+
+function signAuthPayload(payloadSegment) {
+  return crypto.createHmac('sha256', authTokenSecret).update(payloadSegment).digest('base64url')
+}
+
+function createAuthToken(payload) {
+  const now = Date.now()
+  const tokenPayload = {
+    ...payload,
+    iat: now,
+    exp: now + authTokenTtlMs,
+  }
+  const payloadSegment = base64UrlJson(tokenPayload)
+  return `${payloadSegment}.${signAuthPayload(payloadSegment)}`
+}
+
+function verifyAuthToken(token) {
+  if (typeof token !== 'string' || !token.includes('.')) {
+    return null
+  }
+
+  const [payloadSegment, signature] = token.split('.')
+  if (!payloadSegment || !signature) {
+    return null
+  }
+
+  const expectedSignature = signAuthPayload(payloadSegment)
+  const signatureBuffer = Buffer.from(signature)
+  const expectedBuffer = Buffer.from(expectedSignature)
+  if (signatureBuffer.length !== expectedBuffer.length || !crypto.timingSafeEqual(signatureBuffer, expectedBuffer)) {
+    return null
+  }
+
+  try {
+    const payload = JSON.parse(Buffer.from(payloadSegment, 'base64url').toString('utf8'))
+    if (!payload || typeof payload !== 'object' || typeof payload.exp !== 'number' || payload.exp < Date.now()) {
+      return null
+    }
+    return payload
+  } catch {
+    return null
+  }
+}
+
+function hashPassword(password) {
+  return new Promise((resolve, reject) => {
+    const salt = crypto.randomBytes(16).toString('base64url')
+    crypto.scrypt(password, salt, 64, (error, derivedKey) => {
+      if (error) {
+        reject(error)
+        return
+      }
+      resolve(`${passwordHashPrefix}:${salt}:${derivedKey.toString('base64url')}`)
+    })
+  })
+}
+
+async function verifyPassword(password, storedHash) {
+  if (typeof password !== 'string' || typeof storedHash !== 'string') {
+    return false
+  }
+
+  const [prefix, salt, storedKey] = storedHash.split(':')
+  if (prefix !== passwordHashPrefix || !salt || !storedKey) {
+    return false
+  }
+
+  return new Promise((resolve, reject) => {
+    crypto.scrypt(password, salt, 64, (error, derivedKey) => {
+      if (error) {
+        reject(error)
+        return
+      }
+      const storedBuffer = Buffer.from(storedKey, 'base64url')
+      const derivedBuffer = Buffer.from(derivedKey.toString('base64url'), 'base64url')
+      resolve(storedBuffer.length === derivedBuffer.length && crypto.timingSafeEqual(storedBuffer, derivedBuffer))
+    })
+  })
+}
+
+function sanitizeAppUserRecord(user) {
+  if (!user) {
+    return null
+  }
+
+  const { passwordHash: _passwordHash, ...safeUser } = user
+  return {
+    ...safeUser,
+    password: '',
+    memberships: Array.isArray(user.memberships) ? user.memberships : [],
+  }
+}
+
+function getAppUserCompanyIds(user) {
+  if (!user) {
+    return []
+  }
+
+  return Array.from(
+    new Set(
+      [
+        ...(Array.isArray(user.companyIds) ? user.companyIds : []),
+        ...(typeof user.companyId === 'number' ? [user.companyId] : []),
+        ...(Array.isArray(user.memberships)
+          ? user.memberships.filter((membership) => membership.isActive !== false).map((membership) => membership.companyId)
+          : []),
+      ].filter((companyId) => typeof companyId === 'number'),
+    ),
+  )
+}
+
+async function requireApiAuth(request, response, next) {
+  const authorization = request.headers.authorization || ''
+  const match = authorization.match(/^Bearer\s+(.+)$/i)
+  const payload = match ? verifyAuthToken(match[1]) : null
+
+  if (!payload) {
+    response.status(401).json({ error: 'Autenticacao obrigatoria.' })
+    return
+  }
+
+  if (payload.kind === 'systemAdmin') {
+    request.auth = { kind: 'systemAdmin', username: payload.username }
+    next()
+    return
+  }
+
+  if (payload.kind === 'appUser') {
+    const userId = parseIntegerParam(payload.userId)
+    if (userId === null) {
+      response.status(401).json({ error: 'Sessao invalida.' })
+      return
+    }
+
+    const user = await prisma.appUserRecord.findUnique({
+      where: { id: userId },
+      include: { memberships: true },
+    })
+    if (!user || !user.isActive) {
+      response.status(401).json({ error: 'Usuario inativo ou inexistente.' })
+      return
+    }
+
+    request.auth = { kind: 'appUser', user }
+    next()
+    return
+  }
+
+  response.status(401).json({ error: 'Sessao invalida.' })
+}
+
+function requireSystemAdmin(request, response, next) {
+  if (request.auth?.kind === 'systemAdmin') {
+    next()
+    return
+  }
+
+  response.status(403).json({ error: 'Acesso restrito ao administrador master.' })
+}
+
+function userCanAccessCompany(user, companyId) {
+  return getAppUserCompanyIds(user).includes(companyId)
+}
+
+app.use(cors(buildCorsOptions()))
 app.use(express.json({ limit: '5mb' }))
 app.use('/api', (_request, response, next) => {
   response.set('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate')
@@ -133,7 +348,92 @@ app.get('/api/bootstrap', async (_request, response) => {
   })
 })
 
-app.get('/api/state', async (_request, response) => {
+app.post('/api/auth/login', async (request, response) => {
+  await ensureAppAdminRecordsSeeded()
+  const username = typeof request.body?.username === 'string' ? request.body.username.trim() : ''
+  const password = typeof request.body?.password === 'string' ? request.body.password : ''
+
+  if (!username || !password) {
+    response.status(400).json({ error: 'Login e senha sao obrigatorios.' })
+    return
+  }
+
+  if (username === systemAdminUsername && password === systemAdminPassword) {
+    const companies = await prisma.appCompanyRecord.findMany({
+      orderBy: [{ tradeName: 'asc' }, { id: 'asc' }],
+    })
+    response.json({
+      token: createAuthToken({ kind: 'systemAdmin', username: systemAdminUsername }),
+      session: {
+        kind: 'systemAdmin',
+        user: {
+          username: systemAdminUsername,
+          fullName: 'Igarape A&B Master',
+        },
+      },
+      companies,
+    })
+    return
+  }
+
+  const user = await prisma.appUserRecord.findUnique({
+    where: { username },
+    include: { memberships: true },
+  })
+
+  if (!user) {
+    response.status(401).json({ error: 'Login ou senha invalidos.' })
+    return
+  }
+
+  if (!user.isActive) {
+    response.status(403).json({ error: 'Este usuario esta inativo.' })
+    return
+  }
+
+  let isPasswordValid = false
+  if (user.passwordHash) {
+    isPasswordValid = await verifyPassword(password, user.passwordHash)
+  } else if (user.password === password) {
+    isPasswordValid = true
+    await prisma.appUserRecord.update({
+      where: { id: user.id },
+      data: {
+        password: '',
+        passwordHash: await hashPassword(password),
+      },
+    })
+  }
+
+  if (!isPasswordValid) {
+    response.status(401).json({ error: 'Login ou senha invalidos.' })
+    return
+  }
+
+  const refreshedUser = await prisma.appUserRecord.findUnique({
+    where: { id: user.id },
+    include: { memberships: true },
+  })
+  const safeUser = sanitizeAppUserRecord(refreshedUser)
+  const companyIds = getAppUserCompanyIds(refreshedUser)
+  const companies = await prisma.appCompanyRecord.findMany({
+    where: { id: { in: companyIds } },
+    orderBy: [{ tradeName: 'asc' }, { id: 'asc' }],
+  })
+
+  response.json({
+    token: createAuthToken({ kind: 'appUser', userId: user.id, username: user.username }),
+    session: {
+      kind: 'appUser',
+      user: safeUser,
+    },
+    companies,
+  })
+})
+
+app.use('/api', requireApiAuth)
+
+app.get('/api/state', requireSystemAdmin, async (_request, response) => {
   const snapshot = await prisma.appStateSnapshot.findUnique({
     where: { key: appStateSnapshotKey },
   })
@@ -175,12 +475,14 @@ async function handleAppStateUpsert(request, response) {
   })
 }
 
-app.put('/api/state', handleAppStateUpsert)
-app.post('/api/state', handleAppStateUpsert)
+app.put('/api/state', requireSystemAdmin, handleAppStateUpsert)
+app.post('/api/state', requireSystemAdmin, handleAppStateUpsert)
 
-app.get('/api/companies', async (_request, response) => {
+app.get('/api/companies', async (request, response) => {
   await ensureAppAdminRecordsSeeded()
+  const userScopeCompanyIds = request.auth?.kind === 'appUser' ? getAppUserCompanyIds(request.auth.user) : null
   const companies = await prisma.appCompanyRecord.findMany({
+    where: userScopeCompanyIds ? { id: { in: userScopeCompanyIds } } : undefined,
     orderBy: [{ tradeName: 'asc' }, { id: 'asc' }],
   })
   response.json({ companies })
@@ -467,17 +769,34 @@ app.delete('/api/access-profiles/:id', async (request, response) => {
 app.get('/api/users', async (request, response) => {
   await ensureAppAdminRecordsSeeded()
   const companyId = parseIntegerParam(request.query.companyId)
+  if (request.auth?.kind === 'appUser' && companyId !== null && !userCanAccessCompany(request.auth.user, companyId)) {
+    response.status(403).json({ error: 'Empresa fora do escopo do usuario.' })
+    return
+  }
+  const userScopeCompanyIds = request.auth?.kind === 'appUser' ? getAppUserCompanyIds(request.auth.user) : null
   const users = await prisma.appUserRecord.findMany({
     where:
       companyId === null
-        ? undefined
+        ? userScopeCompanyIds
+          ? {
+              OR: [
+                { companyId: { in: userScopeCompanyIds } },
+                { companyIds: { hasSome: userScopeCompanyIds } },
+                { memberships: { some: { companyId: { in: userScopeCompanyIds }, isActive: true } } },
+              ],
+            }
+          : undefined
         : {
-            OR: [{ companyId }, { companyIds: { has: companyId } }],
+            OR: [
+              { companyId },
+              { companyIds: { has: companyId } },
+              { memberships: { some: { companyId, isActive: true } } },
+            ],
           },
     orderBy: [{ fullName: 'asc' }, { id: 'asc' }],
     include: { memberships: true },
   })
-  response.json({ users })
+  response.json({ users: users.map(sanitizeAppUserRecord) })
 })
 
 app.post('/api/users', async (request, response) => {
@@ -488,17 +807,26 @@ app.post('/api/users', async (request, response) => {
   }
 
   const { memberships, ...userRecord } = user
+  if (!userRecord.password.trim()) {
+    response.status(400).json({ error: 'Senha obrigatoria para novo usuario.' })
+    return
+  }
+  const userRecordToCreate = {
+    ...userRecord,
+    password: '',
+    passwordHash: await hashPassword(userRecord.password),
+  }
   const saved = await prisma.$transaction(async (transaction) => {
     const savedUser = await transaction.appUserRecord.upsert({
-      where: { id: userRecord.id },
-      create: userRecord,
-      update: userRecord,
+      where: { id: userRecordToCreate.id },
+      create: userRecordToCreate,
+      update: userRecordToCreate,
     })
-    await transaction.appUserCompanyMembershipRecord.deleteMany({ where: { userId: userRecord.id } })
+    await transaction.appUserCompanyMembershipRecord.deleteMany({ where: { userId: userRecordToCreate.id } })
     for (const membership of memberships) {
       await transaction.appUserCompanyMembershipRecord.create({
         data: {
-          userId: userRecord.id,
+          userId: userRecordToCreate.id,
           companyId: membership.companyId,
           role: membership.role,
           sectors: membership.sectors,
@@ -515,7 +843,7 @@ app.post('/api/users', async (request, response) => {
       include: { memberships: true },
     })
   })
-  response.json({ user: saved })
+  response.json({ user: sanitizeAppUserRecord(saved) })
 })
 
 app.put('/api/users/:id', async (request, response) => {
@@ -527,11 +855,34 @@ app.put('/api/users/:id', async (request, response) => {
   }
 
   const { memberships, ...userRecord } = user
+  const existingUser = await prisma.appUserRecord.findUnique({ where: { id: userId } })
+  const hasNewPassword = userRecord.password.trim() !== ''
+  if (!existingUser && !hasNewPassword) {
+    response.status(400).json({ error: 'Senha obrigatoria para novo usuario.' })
+    return
+  }
+  const userRecordToPersist = hasNewPassword
+    ? {
+        ...userRecord,
+        password: '',
+        passwordHash: await hashPassword(userRecord.password),
+      }
+    : existingUser
+      ? {
+          ...userRecord,
+          password: existingUser.password,
+          passwordHash: existingUser.passwordHash,
+        }
+      : {
+          ...userRecord,
+          password: '',
+          passwordHash: null,
+        }
   const saved = await prisma.$transaction(async (transaction) => {
     const savedUser = await transaction.appUserRecord.upsert({
       where: { id: userId },
-      create: userRecord,
-      update: userRecord,
+      create: userRecordToPersist,
+      update: userRecordToPersist,
     })
     await transaction.appUserCompanyMembershipRecord.deleteMany({ where: { userId } })
     for (const membership of memberships) {
@@ -554,7 +905,7 @@ app.put('/api/users/:id', async (request, response) => {
       include: { memberships: true },
     })
   })
-  response.json({ user: saved })
+  response.json({ user: sanitizeAppUserRecord(saved) })
 })
 
 app.delete('/api/users/:id', async (request, response) => {

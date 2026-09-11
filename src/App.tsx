@@ -145,6 +145,7 @@ import {
   accessProfilesStorageKey,
   auditLogsStorageKey,
   authStorageKey,
+  authTokenStorageKey,
   companiesStorageKey,
   flavorProfilesStorageKey,
   inventoryActiveRecordsStorageKey,
@@ -157,7 +158,6 @@ import {
   listViewStorageKey,
   logRemoteAppStateMessage,
   manualProductionRequestsStorageKey,
-  masterCredentials,
   normalizeRemoteAppStatePayload,
   pendingInventoryMovementsStorageKey,
   productionInProgressDraftsStorageKey,
@@ -2566,6 +2566,7 @@ export default function App() {
   const [isImportingRemoteSnapshot, setIsImportingRemoteSnapshot] = useState(false)
 
   const [session, setSession] = useState<Session>(() => loadAuthState().session)
+  const [authToken, setAuthToken] = useState<string | null>(() => loadAuthState().authToken)
   const [currentCompanyId, setCurrentCompanyId] = useState<number | null>(() => loadAuthState().currentCompanyId)
   const [companies, setCompanies] = useState<CompanyRecord[]>(() => loadCompaniesState())
   const [users, setUsers] = useState<AppUserRecord[]>(() => loadUsersState())
@@ -3051,7 +3052,6 @@ export default function App() {
   const [userPanelTab, setUserPanelTab] = useState<UserPanelTab>('users')
   const [userSectorInput, setUserSectorInput] = useState('')
   const [isUserPasswordVisible, setIsUserPasswordVisible] = useState(false)
-  const [visibleUserPasswords, setVisibleUserPasswords] = useState<Record<number, boolean>>({})
   const [editingUserId, setEditingUserId] = useState<number | null>(null)
   const [userActionState, setUserActionState] =
     useState<{ action: 'disable' | 'enable' | 'delete'; userId: number } | null>(null)
@@ -7341,21 +7341,13 @@ export default function App() {
     const body = JSON.stringify({ payload })
     const signature = getRemoteAppStatePayloadSignature(payload)
 
-    if (options?.useBeacon && typeof navigator !== 'undefined' && typeof navigator.sendBeacon === 'function') {
-      const sent = navigator.sendBeacon('/api/state', new Blob([body], { type: 'application/json' }))
-      if (sent) {
-        lastRemoteAppStatePayloadSignatureRef.current = signature
-      }
-      return
-    }
-
     const response = await fetch('/api/state', {
       method: 'PUT',
       headers: {
         'Content-Type': 'application/json',
       },
       body,
-      keepalive: options?.keepalive ?? false,
+      keepalive: options?.useBeacon || options?.keepalive || false,
     })
 
     if (!response.ok) {
@@ -7427,6 +7419,11 @@ export default function App() {
     let isCancelled = false
 
     async function bootstrapRemoteAppState() {
+      if (!authToken || session?.kind !== 'systemAdmin') {
+        setIsRemoteAppStateReady(true)
+        return
+      }
+
       if (!remoteSnapshotSyncEnabled) {
         if (!isCancelled) {
           logRemoteAppStateMessage('Sincronizacao de snapshot remoto desativada. O app usara apenas APIs por entidade.')
@@ -7489,9 +7486,13 @@ export default function App() {
     return () => {
       isCancelled = true
     }
-  }, [])
+  }, [authToken, session?.kind])
 
   useEffect(() => {
+    if (!session || !authToken) {
+      return
+    }
+
     let isCancelled = false
 
     const loadInitialCoreRecords = async () => {
@@ -7514,10 +7515,10 @@ export default function App() {
     return () => {
       isCancelled = true
     }
-  }, [])
+  }, [authToken, session])
 
   useEffect(() => {
-    if (currentCompanyId === null) {
+    if (!authToken || currentCompanyId === null) {
       return
     }
 
@@ -7539,9 +7540,13 @@ export default function App() {
     return () => {
       isCancelled = true
     }
-  }, [currentCompanyId])
+  }, [authToken, currentCompanyId])
 
   useEffect(() => {
+    if (!authToken) {
+      return
+    }
+
     let isCancelled = false
 
     const load = async () => {
@@ -7581,7 +7586,7 @@ export default function App() {
       window.removeEventListener('focus', handleFocus)
       document.removeEventListener('visibilitychange', handleVisibilityChange)
     }
-  }, [activeSection])
+  }, [activeSection, authToken])
 
   useEffect(() => {
     if (
@@ -7647,6 +7652,10 @@ export default function App() {
   ])
 
   useEffect(() => {
+    if (!authToken) {
+      return
+    }
+
     let isCancelled = false
 
     const load = async () => {
@@ -7686,9 +7695,13 @@ export default function App() {
       window.removeEventListener('focus', handleFocus)
       document.removeEventListener('visibilitychange', handleVisibilityChange)
     }
-  }, [activeSection])
+  }, [activeSection, authToken])
 
   useEffect(() => {
+    if (!authToken) {
+      return
+    }
+
     let isCancelled = false
 
     const load = async () => {
@@ -7728,9 +7741,13 @@ export default function App() {
       window.removeEventListener('focus', handleFocus)
       document.removeEventListener('visibilitychange', handleVisibilityChange)
     }
-  }, [activeSection])
+  }, [activeSection, authToken])
 
   useEffect(() => {
+    if (!authToken) {
+      return
+    }
+
     let isCancelled = false
 
     const load = async () => {
@@ -7770,9 +7787,13 @@ export default function App() {
       window.removeEventListener('focus', handleFocus)
       document.removeEventListener('visibilitychange', handleVisibilityChange)
     }
-  }, [activeSection])
+  }, [activeSection, authToken])
 
   useEffect(() => {
+    if (!authToken) {
+      return
+    }
+
     let isCancelled = false
 
     const load = async () => {
@@ -7812,9 +7833,13 @@ export default function App() {
       window.removeEventListener('focus', handleFocus)
       document.removeEventListener('visibilitychange', handleVisibilityChange)
     }
-  }, [activeSection])
+  }, [activeSection, authToken])
 
   useEffect(() => {
+    if (!authToken) {
+      return
+    }
+
     let isCancelled = false
 
     const load = async () => {
@@ -7854,9 +7879,13 @@ export default function App() {
       window.removeEventListener('focus', handleFocus)
       document.removeEventListener('visibilitychange', handleVisibilityChange)
     }
-  }, [activeSection])
+  }, [activeSection, authToken])
 
   useEffect(() => {
+    if (!authToken) {
+      return
+    }
+
     let isCancelled = false
 
     const load = async () => {
@@ -7896,9 +7925,13 @@ export default function App() {
       window.removeEventListener('focus', handleFocus)
       document.removeEventListener('visibilitychange', handleVisibilityChange)
     }
-  }, [activeSection])
+  }, [activeSection, authToken])
 
   useEffect(() => {
+    if (!authToken) {
+      return
+    }
+
     let isCancelled = false
 
     const load = async () => {
@@ -7934,7 +7967,7 @@ export default function App() {
       window.removeEventListener('focus', handleFocus)
       document.removeEventListener('visibilitychange', handleVisibilityChange)
     }
-  }, [])
+  }, [authToken])
 
   useEffect(() => {
     const currentDefinition = stockReportTabDefinitions.find((definition) => definition.key === stockReportTab) ?? null
@@ -16817,9 +16850,10 @@ export default function App() {
   useEffect(() => {
     saveAuthState({
       session,
+      authToken,
       currentCompanyId,
     })
-  }, [currentCompanyId, session])
+  }, [authToken, currentCompanyId, session])
 
   useEffect(() => {
     saveCompaniesState(companies)
@@ -16872,7 +16906,7 @@ export default function App() {
   }, [requisitionNotifications])
 
   useEffect(() => {
-    if (!isRemoteAppStateReady) {
+    if (!isRemoteAppStateReady || !authToken || session?.kind !== 'systemAdmin') {
       return
     }
 
@@ -18234,6 +18268,7 @@ export default function App() {
     }
   }, [
     accessProfiles,
+    authToken,
     companies,
     inventoryActiveRecordLinks,
     inventoryActiveSessionLinks,
@@ -18252,10 +18287,11 @@ export default function App() {
     technicalSheetSettingsRecords,
     technicalSheets,
     users,
+    session?.kind,
   ])
 
   useEffect(() => {
-    if (!isRemoteAppStateReady) {
+    if (!isRemoteAppStateReady || !authToken || session?.kind !== 'systemAdmin') {
       return
     }
 
@@ -18287,7 +18323,7 @@ export default function App() {
       window.removeEventListener('focus', poll)
       window.removeEventListener('beforeunload', handleVisibilityChange)
     }
-  }, [isRemoteAppStateReady])
+  }, [authToken, isRemoteAppStateReady, session?.kind])
 
   useEffect(() => {
     setTechnicalSheetSettingsDraft((current) =>
@@ -18377,7 +18413,6 @@ export default function App() {
     if (
       refreshedUser.fullName !== session.user.fullName ||
       refreshedUser.username !== session.user.username ||
-      refreshedUser.password !== session.user.password ||
       refreshedUser.role !== session.user.role ||
       refreshedUser.companyId !== session.user.companyId ||
       refreshedUser.companyIds.join('|') !== session.user.companyIds.join('|') ||
@@ -19411,37 +19446,72 @@ export default function App() {
     setTechnicalSheetScreenMode('list')
   }
 
-  function handleLogin(event: FormEvent<HTMLFormElement>) {
+  async function handleLogin(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     const username = loginForm.username.trim()
     const password = loginForm.password
 
-    if (
-      username === masterCredentials.username &&
-      password === masterCredentials.password
-    ) {
-      setSession({
-        kind: 'systemAdmin',
-        user: {
-          username: masterCredentials.username,
-          fullName: 'Igarape A&B Master',
-        },
+    if (!username || !password) {
+      setLoginError('Informe login e senha.')
+      return
+    }
+
+    let nextToken = ''
+    let nextSession: Session = null
+    let loginData: unknown = null
+    try {
+      const response = await fetch('/api/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username, password }),
       })
+      const data = await response.json().catch(() => null)
+      loginData = data
+      if (!response.ok) {
+        throw new Error(typeof data?.error === 'string' ? data.error : 'Login ou senha invalidos.')
+      }
+      nextToken = typeof data?.token === 'string' ? data.token : ''
+      nextSession = data?.session ?? null
+    } catch (error) {
+      setLoginError(error instanceof Error ? error.message : 'Login ou senha invalidos.')
+      return
+    }
+
+    if (!nextToken || !nextSession) {
+      setLoginError('Sessao invalida retornada pelo servidor.')
+      return
+    }
+
+    const loginCompanies = Array.isArray((loginData as { companies?: unknown[] } | null)?.companies)
+      ? ((loginData as { companies: unknown[] }).companies)
+          .map(normalizeCompanyRecord)
+          .filter((company): company is CompanyRecord => company !== null)
+      : []
+
+    if (loginCompanies.length > 0) {
+      setCompanies(loginCompanies)
+    }
+
+    const persistAuthToken = () => {
+      try {
+        window.sessionStorage.setItem(authTokenStorageKey, nextToken)
+        window.localStorage.setItem(authTokenStorageKey, nextToken)
+      } catch {
+        // The React state below is still enough for this tab.
+      }
+      setAuthToken(nextToken)
+    }
+
+    if (nextSession.kind === 'systemAdmin') {
+      persistAuthToken()
+      setSession(nextSession)
       setLoginError('')
       return
     }
 
-    const appUser = users.find(
-      (item) => item.username.trim() === username && item.password === password,
-    )
-
+    const appUser = normalizeSessionUser(nextSession.user)
     if (!appUser) {
-      setLoginError('Login ou senha invalidos.')
-      return
-    }
-
-    if (!appUser.isActive) {
-      setLoginError('Este usuario esta inativo.')
+      setLoginError('Sessao de usuario invalida retornada pelo servidor.')
       return
     }
 
@@ -19462,7 +19532,8 @@ export default function App() {
       return
     }
 
-    const linkedCompanies = companies.filter((item) => linkedCompanyIds.includes(item.id))
+    const availableCompanies = loginCompanies.length > 0 ? loginCompanies : companies
+    const linkedCompanies = availableCompanies.filter((item) => linkedCompanyIds.includes(item.id))
     if (linkedCompanies.length === 0) {
       setLoginError('A empresa vinculada a este usuario nao esta disponivel.')
       return
@@ -19474,6 +19545,7 @@ export default function App() {
       return
     }
 
+    persistAuthToken()
     setSession({ kind: 'appUser', user: appUser })
     setCurrentCompanyId(activeLinkedCompanies.length === 1 ? activeLinkedCompanies[0].id : null)
     setLoginError('')
@@ -19484,6 +19556,7 @@ export default function App() {
 
   function logout() {
     setSession(null)
+    setAuthToken(null)
     setCurrentCompanyId(null)
     setLoginForm({ username: '', password: '' })
     setLoginError('')
@@ -32259,7 +32332,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
     if (!username) {
       errors.push('login obrigatorio')
     }
-    if (!password) {
+    if (editingUserId === null && !password) {
       errors.push('senha obrigatoria')
     }
     if (selectedCompanyIds.length === 0 || companyId === null) {
@@ -32403,7 +32476,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
     setUserForm({
       fullName: targetUser.fullName,
       username: targetUser.username,
-      password: targetUser.password,
+      password: '',
       role: targetUser.role,
       companyIds: targetCompanyIds,
       sectors: targetUser.sectors,
@@ -50246,7 +50319,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
               />
             </label>
             <label className="field company-field-wide">
-              <span>Senha</span>
+              <span>{editingUserId === null ? 'Senha' : 'Nova senha'}</span>
               <div className="password-input-row">
                 <input
                   name="app-user-password"
@@ -50254,6 +50327,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                   type={isUserPasswordVisible ? 'text' : 'password'}
                   value={userForm.password}
                   onChange={(event) => setUserForm((current) => ({ ...current, password: event.target.value }))}
+                  placeholder={editingUserId === null ? undefined : 'Deixe em branco para manter a senha atual'}
                 />
                 <button
                   type="button"
@@ -50415,25 +50489,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                   <div className="row-meta user-row-meta">
                     <div className="user-meta-line">
                       <span><strong className="meta-label">Login:</strong> {item.username}</span>
-                      <div className="password-row">
-                        <span>
-                          <strong className="meta-label">Senha:</strong> {visibleUserPasswords[item.id] ? item.password : '••••••••'}
-                        </span>
-                        <button
-                          type="button"
-                          className="icon-button password-toggle"
-                          aria-label={visibleUserPasswords[item.id] ? 'Ocultar senha' : 'Exibir senha'}
-                          title={visibleUserPasswords[item.id] ? 'Ocultar senha' : 'Exibir senha'}
-                          onClick={() =>
-                            setVisibleUserPasswords((current) => ({
-                              ...current,
-                              [item.id]: !current[item.id],
-                            }))
-                          }
-                        >
-                          {visibleUserPasswords[item.id] ? '🙈' : '👁'}
-                        </button>
-                      </div>
+                      <span><strong className="meta-label">Senha:</strong> protegida</span>
                       <span><strong className="meta-label">Setores:</strong> {effectiveUser.sectors.join(', ') || 'Sem setores vinculados'}</span>
                       <span>
                         <strong className="meta-label">Perfil:</strong>{' '}
@@ -57668,23 +57724,32 @@ function sanitizeTechnicalSheetColumnSort(
 
 function loadAuthState(): {
   session: Session
+  authToken: string | null
   currentCompanyId: number | null
 } {
   if (typeof window === 'undefined') {
-    return { session: null, currentCompanyId: null }
+    return { session: null, authToken: null, currentCompanyId: null }
   }
 
   try {
     const raw = window.localStorage.getItem(authStorageKey)
     if (!raw) {
-      return { session: null, currentCompanyId: null }
+      return { session: null, authToken: null, currentCompanyId: null }
     }
 
     const parsed = JSON.parse(raw) as Partial<{
       session: Session
+      authToken: string | null
       companies: CompanyRecord[]
       currentCompanyId: number | null
     }>
+    const authToken =
+      typeof parsed.authToken === 'string' && parsed.authToken.trim()
+        ? parsed.authToken
+        : window.sessionStorage.getItem(authTokenStorageKey) || window.localStorage.getItem(authTokenStorageKey)
+    if (!authToken) {
+      return { session: null, authToken: null, currentCompanyId: null }
+    }
 
     let session: Session = null
     if (parsed.session?.kind === 'systemAdmin') {
@@ -57697,16 +57762,18 @@ function loadAuthState(): {
 
     return {
       session,
+      authToken,
       currentCompanyId:
         typeof parsed.currentCompanyId === 'number' ? parsed.currentCompanyId : null,
     }
   } catch {
-    return { session: null, currentCompanyId: null }
+    return { session: null, authToken: null, currentCompanyId: null }
   }
 }
 
 function saveAuthState(state: {
   session: Session
+  authToken: string | null
   currentCompanyId: number | null
 }) {
   if (typeof window === 'undefined') {
@@ -57715,6 +57782,13 @@ function saveAuthState(state: {
 
   try {
     window.localStorage.setItem(authStorageKey, JSON.stringify(state))
+    if (state.authToken) {
+      window.sessionStorage.setItem(authTokenStorageKey, state.authToken)
+      window.localStorage.setItem(authTokenStorageKey, state.authToken)
+    } else {
+      window.sessionStorage.removeItem(authTokenStorageKey)
+      window.localStorage.removeItem(authTokenStorageKey)
+    }
   } catch {
     return
   }

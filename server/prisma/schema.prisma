@@ -329,6 +329,7 @@ model AppUserRecord {
   fullName       String
   username       String   @unique
   password       String
+  passwordHash   String?
   role           String
   companyId      Int?
   companyIds     Int[]
