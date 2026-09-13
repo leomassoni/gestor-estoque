@@ -1630,3 +1630,41 @@ Registrar um historico resumido do que foi feito, do que falhou e do que ficou p
   - API online confirmou `200` em `GET /api/auth/session` com token valido;
   - `/api/users` autenticado online nao retornou `passwordHash` e retornou `password` vazio;
   - smoke browser online confirmou login master e acesso a `CASA DE MI MADRE` sem erro de console.
+
+### Validacao pre-contagem multiusuario da Casa de mi Madre
+
+- Validacao feita em `2026-09-13` para reduzir risco operacional antes da contagem multiusuario planejada para `2026-09-14` no `BAR DE BAIXO` de `CASA DE MI MADRE LTDA`.
+- Build/checks locais:
+  - `npm run build` passou;
+  - `node --check server/server.js` passou;
+  - `git diff --check` passou.
+- Bundle online confirmado: `index-CpNYZD58.js`.
+- API online sem token confirmou `401 Autenticacao obrigatoria` em:
+  - `/api/inventory-counts`;
+  - `/api/inventory-count-sessions`;
+  - `/api/products`;
+  - `/api/users`.
+- API online autenticada confirmou `200` nas rotas que sustentam contagem, requisicao, producao, compras derivadas de requisicao, importacao de vendas e auditoria:
+  - `/api/inventories`;
+  - `/api/inventory-count-sessions`;
+  - `/api/inventory-counts`;
+  - `/api/pending-inventory-movements`;
+  - `/api/requisitions`;
+  - `/api/manual-production-requests`;
+  - `/api/production-drafts`;
+  - `/api/sales-import-templates`;
+  - `/api/sales-import-batches`;
+  - `/api/sales-import-rows`;
+  - `/api/audit-logs`.
+- Teste isolado online de concorrencia:
+  - criado inventario temporario de teste no online;
+  - criadas `2` sessoes de contagem no mesmo inventario, simulando usuarios diferentes;
+  - criados `4` itens de contagem, `2` em cada sessao;
+  - ambas as sessoes foram fechadas;
+  - fechamento do inventario preservou as `2` sessoes e os `4` itens;
+  - cleanup confirmou `0` inventarios, `0` sessoes e `0` itens restantes do teste.
+- Smoke browser online em `CASA DE MI MADRE LTDA`:
+  - login master com token novo passou;
+  - empresa abriu sem erro;
+  - paineis `Inventario`, `Requisicao`, `Suprimentos`, `Compras`, `Entrada de producoes` e `Importar vendas` carregaram sem aviso de sessao expirada/autenticacao obrigatoria;
+  - aba atual do browser nao registrou erros de console durante o smoke.
