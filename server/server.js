@@ -2108,111 +2108,150 @@ app.delete('/api/inventory-counts/:id', async (request, response) => {
   response.json({ ok: true })
 })
 
-app.post('/api/admin/repair-inventory-counted-at', requireSystemAdmin, async (request, response) => {
-  const inventoryId = parseIntegerParam(request.body?.inventoryId)
+app.post('/api/admin/merge-inventory-sessions', requireSystemAdmin, async (request, response) => {
   const companyId = parseIntegerParam(request.body?.companyId)
-  const fromDate = typeof request.body?.fromDate === 'string' ? request.body.fromDate.trim() : ''
-  const toDate = typeof request.body?.toDate === 'string' ? request.body.toDate.trim() : ''
-  const expectedSessionIds = Array.isArray(request.body?.expectedSessionIds)
-    ? request.body.expectedSessionIds.map(parseIntegerParam).filter((id) => id !== null)
+  const sourceInventoryId = parseIntegerParam(request.body?.sourceInventoryId)
+  const targetInventoryId = parseIntegerParam(request.body?.targetInventoryId)
+  const targetDate = typeof request.body?.targetDate === 'string' ? request.body.targetDate.trim() : ''
+  const expectedSourceSessionIds = Array.isArray(request.body?.expectedSourceSessionIds)
+    ? request.body.expectedSourceSessionIds.map(parseIntegerParam).filter((id) => id !== null)
     : []
-  const expectedCountItems = parseIntegerParam(request.body?.expectedCountItems)
+  const expectedSourceCountItems = parseIntegerParam(request.body?.expectedSourceCountItems)
+  const expectedTargetCountItemsBefore = parseIntegerParam(request.body?.expectedTargetCountItemsBefore)
   const datePattern = /^\d{4}-\d{2}-\d{2}$/
 
   if (
-    inventoryId === null ||
     companyId === null ||
-    expectedCountItems === null ||
-    expectedSessionIds.length === 0 ||
-    !datePattern.test(fromDate) ||
-    !datePattern.test(toDate) ||
-    fromDate === toDate
+    sourceInventoryId === null ||
+    targetInventoryId === null ||
+    sourceInventoryId === targetInventoryId ||
+    expectedSourceCountItems === null ||
+    expectedTargetCountItemsBefore === null ||
+    expectedSourceSessionIds.length === 0 ||
+    !datePattern.test(targetDate)
   ) {
-    response.status(400).json({ error: 'Payload de correcao de data de inventario invalido.' })
+    response.status(400).json({ error: 'Payload de mescla de inventario invalido.' })
     return
   }
 
-  const [inventory, sessions, countItems, pendingMovements] = await Promise.all([
-    prisma.appInventoryRecord.findUnique({ where: { id: inventoryId } }),
-    prisma.appInventoryCountSessionRecord.findMany({
-      where: { inventoryId, companyId },
-      orderBy: [{ id: 'asc' }],
-    }),
-    prisma.appInventoryCountRecord.findMany({
-      where: { inventoryId, companyId },
-      select: { id: true, sessionId: true, countedAt: true },
-      orderBy: [{ id: 'asc' }],
-    }),
-    prisma.appPendingInventoryMovementRecord.count({
-      where: { inventoryId, companyId },
-    }),
-  ])
+  const [sourceInventory, targetInventory, sourceSessions, sourceCountItems, targetCountItemsBefore, pendingMovements] =
+    await Promise.all([
+      prisma.appInventoryRecord.findUnique({ where: { id: sourceInventoryId } }),
+      prisma.appInventoryRecord.findUnique({ where: { id: targetInventoryId } }),
+      prisma.appInventoryCountSessionRecord.findMany({
+        where: { inventoryId: sourceInventoryId, companyId },
+        orderBy: [{ id: 'asc' }],
+      }),
+      prisma.appInventoryCountRecord.findMany({
+        where: { inventoryId: sourceInventoryId, companyId },
+        select: { id: true, sessionId: true },
+        orderBy: [{ id: 'asc' }],
+      }),
+      prisma.appInventoryCountRecord.count({
+        where: { inventoryId: targetInventoryId, companyId },
+      }),
+      prisma.appPendingInventoryMovementRecord.count({
+        where: { companyId, inventoryId: { in: [sourceInventoryId, targetInventoryId] } },
+      }),
+    ])
 
-  if (!inventory || inventory.companyId !== companyId) {
-    response.status(404).json({ error: 'Inventario nao encontrado para a empresa informada.' })
+  if (!sourceInventory || sourceInventory.companyId !== companyId) {
+    response.status(404).json({ error: 'Inventario de origem nao encontrado para a empresa informada.' })
     return
   }
 
-  if (inventory.countedAt !== fromDate) {
-    response.status(409).json({ error: 'A data atual do inventario nao corresponde a data esperada.' })
+  if (!targetInventory || targetInventory.companyId !== companyId) {
+    response.status(404).json({ error: 'Inventario de destino nao encontrado para a empresa informada.' })
     return
   }
 
-  const sessionIds = sessions.map((session) => session.id)
-  const expectedSessionIdSet = new Set(expectedSessionIds)
-  const sessionMismatch =
-    sessionIds.length !== expectedSessionIds.length ||
-    sessionIds.some((sessionId) => !expectedSessionIdSet.has(sessionId))
-
-  if (sessionMismatch) {
-    response.status(409).json({ error: 'As sessoes atuais do inventario nao correspondem as sessoes esperadas.' })
+  if (sourceInventory.stockCenterId !== targetInventory.stockCenterId) {
+    response.status(409).json({ error: 'Inventarios de origem e destino pertencem a centros diferentes.' })
     return
   }
 
-  if (sessions.some((session) => session.countedAt !== fromDate)) {
-    response.status(409).json({ error: 'Ha sessao do inventario com data diferente da data esperada.' })
+  if (targetInventory.countedAt !== targetDate) {
+    response.status(409).json({ error: 'A data do inventario de destino nao corresponde a data esperada.' })
     return
   }
 
-  if (countItems.length !== expectedCountItems) {
-    response.status(409).json({ error: 'A quantidade atual de itens de contagem nao corresponde a quantidade esperada.' })
+  const expectedSourceSessionIdSet = new Set(expectedSourceSessionIds)
+  const currentSourceSessionIds = sourceSessions.map((session) => session.id)
+  const sourceSessionMismatch =
+    currentSourceSessionIds.length !== expectedSourceSessionIds.length ||
+    currentSourceSessionIds.some((sessionId) => !expectedSourceSessionIdSet.has(sessionId))
+
+  if (sourceSessionMismatch) {
+    response.status(409).json({ error: 'As sessoes atuais do inventario de origem nao correspondem as sessoes esperadas.' })
     return
   }
 
-  if (countItems.some((count) => count.countedAt !== fromDate || !expectedSessionIdSet.has(count.sessionId))) {
-    response.status(409).json({ error: 'Ha item de contagem fora da data ou das sessoes esperadas.' })
+  if (sourceCountItems.length !== expectedSourceCountItems) {
+    response.status(409).json({ error: 'A quantidade de itens do inventario de origem nao corresponde a quantidade esperada.' })
+    return
+  }
+
+  if (sourceCountItems.some((count) => !expectedSourceSessionIdSet.has(count.sessionId))) {
+    response.status(409).json({ error: 'Ha item de contagem da origem fora das sessoes esperadas.' })
+    return
+  }
+
+  if (targetCountItemsBefore !== expectedTargetCountItemsBefore) {
+    response.status(409).json({ error: 'A quantidade atual de itens do inventario de destino nao corresponde a quantidade esperada.' })
+    return
+  }
+
+  if (pendingMovements > 0) {
+    response.status(409).json({ error: 'Existem movimentos pendentes ligados aos inventarios envolvidos.' })
     return
   }
 
   const result = await prisma.$transaction(async (transaction) => {
-    const updatedInventory = await transaction.appInventoryRecord.update({
-      where: { id: inventoryId },
-      data: { countedAt: toDate },
-    })
     const updatedSessions = await transaction.appInventoryCountSessionRecord.updateMany({
-      where: { inventoryId, companyId, id: { in: expectedSessionIds }, countedAt: fromDate },
-      data: { countedAt: toDate },
+      where: { inventoryId: sourceInventoryId, companyId, id: { in: expectedSourceSessionIds } },
+      data: { inventoryId: targetInventoryId, countedAt: targetDate },
     })
-    const updatedCounts = await transaction.appInventoryCountRecord.updateMany({
-      where: { inventoryId, companyId, sessionId: { in: expectedSessionIds }, countedAt: fromDate },
-      data: { countedAt: toDate },
+    const updatedCountItems = await transaction.appInventoryCountRecord.updateMany({
+      where: {
+        inventoryId: sourceInventoryId,
+        companyId,
+        sessionId: { in: expectedSourceSessionIds },
+      },
+      data: { inventoryId: targetInventoryId, countedAt: targetDate },
+    })
+    await transaction.appInventoryActiveRecordLinkRecord.updateMany({
+      where: { companyId, inventoryId: sourceInventoryId },
+      data: { inventoryId: targetInventoryId },
+    })
+    await transaction.appInventoryActiveSessionLinkRecord.deleteMany({
+      where: { companyId, sessionId: { in: expectedSourceSessionIds } },
+    })
+    await transaction.appInventoryRecord.delete({ where: { id: sourceInventoryId } })
+
+    const targetSessionCount = await transaction.appInventoryCountSessionRecord.count({
+      where: { inventoryId: targetInventoryId, companyId },
+    })
+    const targetCountItemCount = await transaction.appInventoryCountRecord.count({
+      where: { inventoryId: targetInventoryId, companyId },
     })
 
     return {
-      inventoryRecord: updatedInventory,
       updatedSessions: updatedSessions.count,
-      updatedCountItems: updatedCounts.count,
+      updatedCountItems: updatedCountItems.count,
+      targetSessionCount,
+      targetCountItemCount,
     }
   })
 
   response.json({
     ok: true,
-    inventoryId,
     companyId,
-    fromDate,
-    toDate,
-    expectedSessionIds,
-    pendingMovements,
+    sourceInventoryId,
+    targetInventoryId,
+    targetDate,
+    expectedSourceSessionIds,
+    expectedSourceCountItems,
+    expectedTargetCountItemsBefore,
     ...result,
   })
 })
