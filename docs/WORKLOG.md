@@ -1690,3 +1690,33 @@ Registrar um historico resumido do que foi feito, do que falhou e do que ficou p
   - bundle online confirmado: `index-HoxLndyY.js`;
   - API online confirmou `401` sem token em `/api/inventory-counts`, `/api/products` e `/api/users`;
   - Playwright online confirmou busca de produto `guarana` como `GUARANA` e busca de ficha `batida` como `BATIDA`, sem perda de caracteres e sem erros de console.
+
+### Correcao operacional de inventario da Casa de mi Madre
+
+- Correcao aplicada em `2026-09-13` no ambiente online apos identificacao de que as contagens feitas hoje no `BAR DE BAIXO` de `CASA DE MI MADRE LTDA` estavam divididas entre dois inventarios.
+- Diagnostico inicial:
+  - `INV-0092` estava fechado, com `countedAt=2026-08-30`, mas `closedAt=2026-09-13T21:52:56.838Z`;
+  - `INV-0092` possuia `3` sessoes: `CON-0088`, `CON-0089` e `CON-0094`;
+  - as sessoes somavam `429` itens de contagem;
+  - os `429` itens estavam com `updatedAt` em `2026-09-13`;
+  - `INV-0095`, de `2026-09-13`, possuia `1` sessao (`CON-0093`) com `6` itens;
+  - os `6` itens do `INV-0095` nao duplicavam os itens do `INV-0092`;
+  - nao havia movimentos pendentes ligados a `INV-0092`, `INV-0093` ou `INV-0095`.
+- Execucao:
+  - primeiro foi criada temporariamente rota administrativa restrita a master para corrigir `countedAt` de `INV-0092`, suas sessoes e seus itens de `2026-08-30` para `2026-09-13`;
+  - apos esclarecimento operacional, foi criada temporariamente rota administrativa restrita a master para mesclar sessoes de inventario com travas de `companyId`, origem, destino, sessoes esperadas e quantidade esperada de itens;
+  - as sessoes `CON-0088`, `CON-0089` e `CON-0094` foram movidas de `INV-0092` para `INV-0095`;
+  - os `429` itens dessas sessoes tambem foram movidos para `INV-0095`;
+  - `INV-0092` foi removido apos ficar sem sessoes/itens;
+  - validacao posterior confirmou `INV-0095` com `4` sessoes e `435` itens, todos com `countedAt=2026-09-13`.
+- Estado apos a correcao:
+  - `INV-0095` e o inventario oficial de `2026-09-13` para `BAR DE BAIXO`;
+  - sessoes `CON-0088`, `CON-0089` e `CON-0094` estao fechadas dentro do `INV-0095`;
+  - sessao `CON-0093`, dos `6` itens originais do `INV-0095`, permanece aberta;
+  - `INV-0095` permanece aberto ate fechamento normal pelo fluxo do webapp.
+- Evidencias locais:
+  - auditoria antes da correcao: `auditorias/madre-inventory-date-audit-2026-09-13T2200.json`;
+  - resposta da primeira correcao de data: `auditorias/madre-inventory-date-repair-2026-09-13T2209.json`;
+  - validacao posterior da data: `auditorias/madre-inventory-date-postcheck-2026-09-13T2209.json`;
+  - resposta da mescla `INV-0092 -> INV-0095`: `auditorias/madre-inventory-92-into-95-merge-2026-09-13T2216.json`;
+  - validacao posterior da mescla: `auditorias/madre-inventory-92-into-95-postcheck-2026-09-13T2217.json`.
