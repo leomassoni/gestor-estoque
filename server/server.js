@@ -433,6 +433,40 @@ app.post('/api/auth/login', async (request, response) => {
 
 app.use('/api', requireApiAuth)
 
+app.get('/api/auth/session', async (request, response) => {
+  if (request.auth?.kind === 'systemAdmin') {
+    const companies = await prisma.appCompanyRecord.findMany({
+      orderBy: [{ tradeName: 'asc' }, { id: 'asc' }],
+    })
+    response.json({
+      session: {
+        kind: 'systemAdmin',
+        user: {
+          username: systemAdminUsername,
+          fullName: 'Igarape A&B Master',
+        },
+      },
+      companies,
+    })
+    return
+  }
+
+  const safeUser = sanitizeAppUserRecord(request.auth?.user)
+  const companyIds = getAppUserCompanyIds(request.auth?.user)
+  const companies = await prisma.appCompanyRecord.findMany({
+    where: { id: { in: companyIds } },
+    orderBy: [{ tradeName: 'asc' }, { id: 'asc' }],
+  })
+
+  response.json({
+    session: {
+      kind: 'appUser',
+      user: safeUser,
+    },
+    companies,
+  })
+})
+
 app.get('/api/state', requireSystemAdmin, async (_request, response) => {
   const snapshot = await prisma.appStateSnapshot.findUnique({
     where: { key: appStateSnapshotKey },

@@ -4,6 +4,7 @@ import App from './App'
 import './styles.css'
 import {
   accessProfilesStorageKey,
+  authStorageKey,
   companiesStorageKey,
   authTokenStorageKey,
   syncedAppStorageKeys,
@@ -19,7 +20,7 @@ function installAuthenticatedApiFetch() {
   }
 
   const originalFetch = window.fetch.bind(window)
-  window.fetch = (input, init) => {
+  window.fetch = async (input, init) => {
     const requestUrl = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url
     const parsedUrl = new URL(requestUrl, window.location.origin)
     const isSameOriginApi = parsedUrl.origin === window.location.origin && parsedUrl.pathname.startsWith('/api/')
@@ -28,17 +29,21 @@ function installAuthenticatedApiFetch() {
       return originalFetch(input, init)
     }
 
-    const token = window.sessionStorage.getItem(authTokenStorageKey) || window.localStorage.getItem(authTokenStorageKey)
-    if (!token) {
-      return originalFetch(input, init)
-    }
-
     const headers = new Headers(init?.headers ?? (typeof input === 'object' && 'headers' in input ? input.headers : undefined))
-    if (!headers.has('Authorization')) {
+    const token = window.sessionStorage.getItem(authTokenStorageKey) || window.localStorage.getItem(authTokenStorageKey)
+    if (token && !headers.has('Authorization')) {
       headers.set('Authorization', `Bearer ${token}`)
     }
 
-    return originalFetch(input, { ...init, headers })
+    const response = await originalFetch(input, token ? { ...init, headers } : init)
+    if (response.status === 401 && parsedUrl.pathname !== '/api/auth/login') {
+      window.sessionStorage.removeItem(authTokenStorageKey)
+      window.localStorage.removeItem(authTokenStorageKey)
+      window.localStorage.removeItem(authStorageKey)
+      window.dispatchEvent(new CustomEvent('gestor-estoque:auth-expired'))
+    }
+
+    return response
   }
 }
 

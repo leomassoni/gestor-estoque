@@ -1597,3 +1597,29 @@ Registrar um historico resumido do que foi feito, do que falhou e do que ficou p
   - `/api/users` autenticado online nao retornou `passwordHash` e retornou `password` vazio;
   - `/api/state` autenticado como master retornou `200`;
   - smoke browser online passou sem erro de console em login, selecao de `MACAXEIRA POIS POIS`, produtos, busca `GUARANA` e usuarios.
+
+### Sessao expirada apos hardening de autenticacao
+
+- Correcao aplicada em `2026-09-13` apos uso real indicar que uma sessao visual salva podia continuar ativa sem token valido e receber `401 Autenticacao obrigatoria` ao editar cadastros.
+- Ajustes aplicados:
+  - wrapper global de `fetch` passou a tratar qualquer `401` de `/api/*` protegida como sessao expirada, mesmo quando o token ja estava ausente;
+  - token salvo passou a ser validado no carregamento pelo payload `exp`;
+  - sessao salva so e restaurada visualmente apos confirmacao server-side em `GET /api/auth/session`;
+  - enquanto a sessao salva nao e confirmada, o app mostra `Validando sessao...` e nao monta a area operacional;
+  - em expiracao, o app limpa apenas sessao/token e mostra `Sua sessao expirou. Entre novamente para continuar.`;
+  - autosyncs por entidade passaram a exigir `authToken` antes de tentar mutacao no backend;
+  - sincronizacao/polling de `/api/state` permanece restrita a master autenticado.
+- Garantia para inventario/contagem:
+  - item de contagem, sessao de contagem e inventario continuam atualizando estado local apenas depois de resposta `ok` e payload valido do backend;
+  - token expirado/invalido bloqueia novos salvamentos e força novo login;
+  - chaves locais de inventario, sessoes e contagens nao sao removidas pelo fluxo de expiracao;
+  - apos novo login, os dados de inventario sao recarregados pelas rotas de entidade e os vinculos ativos podem retomar inventario/contagem aberta persistidos no banco.
+- Validacao local:
+  - `npm run build` passou;
+  - `node --check server/server.js` passou;
+  - `git diff --check` passou;
+  - API local confirmou `401` sem token em `/api/inventory-counts` e `/api/inventory-count-sessions`;
+  - API local confirmou `200` em `GET /api/auth/session` e `/api/inventory-counts` com token valido;
+  - smoke browser local confirmou restauracao de sessao valida sem novo login;
+  - smoke browser local confirmou que token vencido/invalido nao monta `EMPRESA ATIVA`, limpa token, mostra aviso de sessao expirada e preserva os totais locais de inventarios, sessoes e contagens;
+  - smoke browser local confirmou login normal master em `CASA DE MI MADRE`.

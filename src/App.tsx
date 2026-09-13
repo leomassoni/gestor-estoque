@@ -2565,9 +2565,13 @@ export default function App() {
   const [isRemoteAppStateReady, setIsRemoteAppStateReady] = useState(false)
   const [isImportingRemoteSnapshot, setIsImportingRemoteSnapshot] = useState(false)
 
-  const [session, setSession] = useState<Session>(() => loadAuthState().session)
-  const [authToken, setAuthToken] = useState<string | null>(() => loadAuthState().authToken)
-  const [currentCompanyId, setCurrentCompanyId] = useState<number | null>(() => loadAuthState().currentCompanyId)
+  const [initialAuthState] = useState(() => loadAuthState())
+  const [session, setSession] = useState<Session>(null)
+  const [authToken, setAuthToken] = useState<string | null>(null)
+  const [currentCompanyId, setCurrentCompanyId] = useState<number | null>(() => initialAuthState.currentCompanyId)
+  const [isRestoringAuthSession, setIsRestoringAuthSession] = useState(
+    () => initialAuthState.session !== null && initialAuthState.authToken !== null,
+  )
   const [companies, setCompanies] = useState<CompanyRecord[]>(() => loadCompaniesState())
   const [users, setUsers] = useState<AppUserRecord[]>(() => loadUsersState())
   const [accessProfiles, setAccessProfiles] = useState<AccessProfileRecord[]>(() => loadAccessProfilesState())
@@ -2575,7 +2579,7 @@ export default function App() {
     () => loadTechnicalSheetSettingsState(),
   )
   const [loginForm, setLoginForm] = useState({ username: '', password: '' })
-  const [loginError, setLoginError] = useState('')
+  const [loginError, setLoginError] = useState(initialAuthState.loginError)
   const [isLoginPasswordVisible, setIsLoginPasswordVisible] = useState(false)
   const [companyForm, setCompanyForm] = useState<CompanyFormState>(emptyCompanyForm())
   const [companyLinkedInput, setCompanyLinkedInput] = useState('')
@@ -16848,12 +16852,118 @@ export default function App() {
   ])
 
   useEffect(() => {
+    if (!initialAuthState.session || !initialAuthState.authToken) {
+      setIsRestoringAuthSession(false)
+      return
+    }
+
+    let isCancelled = false
+
+    async function restoreAuthSession() {
+      const restoredAuthToken = initialAuthState.authToken
+      if (!restoredAuthToken) {
+        setIsRestoringAuthSession(false)
+        return
+      }
+
+      try {
+        const response = await fetch('/api/auth/session', {
+          cache: 'no-store',
+          headers: {
+            Authorization: `Bearer ${restoredAuthToken}`,
+          },
+        })
+        const data = (await response.json().catch(() => null)) as {
+          session?: Session
+          companies?: unknown[]
+          error?: string
+        } | null
+
+        if (!response.ok) {
+          throw new Error(data?.error || 'Sessao expirada.')
+        }
+
+        const restoredSession =
+          data?.session?.kind === 'systemAdmin'
+            ? data.session
+            : data?.session?.kind === 'appUser' && normalizeSessionUser(data.session.user)
+              ? ({ kind: 'appUser', user: normalizeSessionUser(data.session.user) as AppUserRecord } satisfies Session)
+              : null
+        if (!restoredSession) {
+          throw new Error('Sessao invalida retornada pelo servidor.')
+        }
+
+        const restoredCompanies = Array.isArray(data?.companies)
+          ? data.companies
+              .map(normalizeCompanyRecord)
+              .filter((company): company is CompanyRecord => company !== null)
+          : []
+        const restoredCompanyId =
+          initialAuthState.currentCompanyId !== null &&
+          (restoredSession.kind === 'systemAdmin' ||
+            restoredCompanies.some((company) => company.id === initialAuthState.currentCompanyId))
+            ? initialAuthState.currentCompanyId
+            : null
+
+        if (isCancelled) {
+          return
+        }
+
+        if (restoredCompanies.length > 0) {
+          setCompanies(restoredCompanies)
+        }
+        try {
+          window.sessionStorage.setItem(authTokenStorageKey, restoredAuthToken)
+          window.localStorage.setItem(authTokenStorageKey, restoredAuthToken)
+        } catch {
+          // The React state below is still enough for this tab.
+        }
+        setSession(restoredSession)
+        setAuthToken(restoredAuthToken)
+        setCurrentCompanyId(restoredCompanyId)
+        setLoginError('')
+      } catch {
+        window.sessionStorage.removeItem(authTokenStorageKey)
+        window.localStorage.removeItem(authTokenStorageKey)
+        window.localStorage.removeItem(authStorageKey)
+        if (!isCancelled) {
+          setSession(null)
+          setAuthToken(null)
+          setLoginError('Sua sessao expirou. Entre novamente para continuar.')
+        }
+      } finally {
+        if (!isCancelled) {
+          setIsRestoringAuthSession(false)
+        }
+      }
+    }
+
+    void restoreAuthSession()
+
+    return () => {
+      isCancelled = true
+    }
+  }, [initialAuthState])
+
+  useEffect(() => {
     saveAuthState({
       session,
       authToken,
       currentCompanyId,
     })
   }, [authToken, currentCompanyId, session])
+
+  useEffect(() => {
+    function handleAuthExpired() {
+      setSession(null)
+      setAuthToken(null)
+      setIsRestoringAuthSession(false)
+      setLoginError('Sua sessao expirou. Entre novamente para continuar.')
+    }
+
+    window.addEventListener('gestor-estoque:auth-expired', handleAuthExpired)
+    return () => window.removeEventListener('gestor-estoque:auth-expired', handleAuthExpired)
+  }, [])
 
   useEffect(() => {
     saveCompaniesState(companies)
@@ -16906,7 +17016,7 @@ export default function App() {
   }, [requisitionNotifications])
 
   useEffect(() => {
-    if (!isRemoteAppStateReady || !authToken || session?.kind !== 'systemAdmin') {
+    if (!isRemoteAppStateReady || !authToken) {
       return
     }
 
@@ -16940,10 +17050,10 @@ export default function App() {
     return () => {
       isCancelled = true
     }
-  }, [isRemoteAppStateReady, requisitions])
+  }, [authToken, isRemoteAppStateReady, requisitions, session?.kind])
 
   useEffect(() => {
-    if (!isRemoteAppStateReady) {
+    if (!isRemoteAppStateReady || !authToken) {
       return
     }
 
@@ -16979,7 +17089,7 @@ export default function App() {
     return () => {
       isCancelled = true
     }
-  }, [isRemoteAppStateReady, requisitionNotifications])
+  }, [authToken, isRemoteAppStateReady, requisitionNotifications])
 
   useEffect(() => {
     saveManualProductionRequestsState(manualProductionRequests)
@@ -16994,7 +17104,7 @@ export default function App() {
   }, [executionProductionPlanningRows])
 
   useEffect(() => {
-    if (!isRemoteAppStateReady) {
+    if (!isRemoteAppStateReady || !authToken) {
       return
     }
 
@@ -17030,14 +17140,14 @@ export default function App() {
     return () => {
       isCancelled = true
     }
-  }, [isRemoteAppStateReady, manualProductionRequests])
+  }, [authToken, isRemoteAppStateReady, manualProductionRequests])
 
   useEffect(() => {
     saveProductionInProgressDraftsState(productionInProgressDrafts)
   }, [productionInProgressDrafts])
 
   useEffect(() => {
-    if (!isRemoteAppStateReady) {
+    if (!isRemoteAppStateReady || !authToken) {
       return
     }
 
@@ -17074,14 +17184,14 @@ export default function App() {
     return () => {
       isCancelled = true
     }
-  }, [isRemoteAppStateReady, productionInProgressDrafts])
+  }, [authToken, isRemoteAppStateReady, productionInProgressDrafts])
 
   useEffect(() => {
     saveInventoryRecordsState(inventoryRecords)
   }, [inventoryRecords])
 
   useEffect(() => {
-    if (!isRemoteAppStateReady) {
+    if (!isRemoteAppStateReady || !authToken) {
       return
     }
 
@@ -17115,14 +17225,14 @@ export default function App() {
     return () => {
       isCancelled = true
     }
-  }, [inventoryRecords, isRemoteAppStateReady])
+  }, [authToken, inventoryRecords, isRemoteAppStateReady])
 
   useEffect(() => {
     saveInventoryActiveRecordLinksState(inventoryActiveRecordLinks)
   }, [inventoryActiveRecordLinks])
 
   useEffect(() => {
-    if (!isRemoteAppStateReady) {
+    if (!isRemoteAppStateReady || !authToken) {
       return
     }
 
@@ -17164,14 +17274,14 @@ export default function App() {
     return () => {
       isCancelled = true
     }
-  }, [inventoryActiveRecordLinks, isRemoteAppStateReady])
+  }, [authToken, inventoryActiveRecordLinks, isRemoteAppStateReady])
 
   useEffect(() => {
     saveInventoryCountSessionsState(inventoryCountSessions)
   }, [inventoryCountSessions])
 
   useEffect(() => {
-    if (!isRemoteAppStateReady) {
+    if (!isRemoteAppStateReady || !authToken) {
       return
     }
 
@@ -17207,14 +17317,14 @@ export default function App() {
     return () => {
       isCancelled = true
     }
-  }, [inventoryCountSessions, isRemoteAppStateReady])
+  }, [authToken, inventoryCountSessions, isRemoteAppStateReady])
 
   useEffect(() => {
     saveInventoryActiveSessionLinksState(inventoryActiveSessionLinks)
   }, [inventoryActiveSessionLinks])
 
   useEffect(() => {
-    if (!isRemoteAppStateReady) {
+    if (!isRemoteAppStateReady || !authToken) {
       return
     }
 
@@ -17256,14 +17366,14 @@ export default function App() {
     return () => {
       isCancelled = true
     }
-  }, [inventoryActiveSessionLinks, isRemoteAppStateReady])
+  }, [authToken, inventoryActiveSessionLinks, isRemoteAppStateReady])
 
   useEffect(() => {
     saveInventoryCountsState(inventoryCounts)
   }, [inventoryCounts])
 
   useEffect(() => {
-    if (!isRemoteAppStateReady) {
+    if (!isRemoteAppStateReady || !authToken) {
       return
     }
 
@@ -17297,14 +17407,14 @@ export default function App() {
     return () => {
       isCancelled = true
     }
-  }, [inventoryCounts, isRemoteAppStateReady])
+  }, [authToken, inventoryCounts, isRemoteAppStateReady])
 
   useEffect(() => {
     saveWasteSessionsState(wasteSessions)
   }, [wasteSessions])
 
   useEffect(() => {
-    if (!isRemoteAppStateReady) {
+    if (!isRemoteAppStateReady || !authToken) {
       return
     }
 
@@ -17338,14 +17448,14 @@ export default function App() {
     return () => {
       isCancelled = true
     }
-  }, [isRemoteAppStateReady, wasteSessions])
+  }, [authToken, isRemoteAppStateReady, wasteSessions])
 
   useEffect(() => {
     saveWasteRecordsState(wasteRecords)
   }, [wasteRecords])
 
   useEffect(() => {
-    if (!isRemoteAppStateReady) {
+    if (!isRemoteAppStateReady || !authToken) {
       return
     }
 
@@ -17379,14 +17489,14 @@ export default function App() {
     return () => {
       isCancelled = true
     }
-  }, [isRemoteAppStateReady, wasteRecords])
+  }, [authToken, isRemoteAppStateReady, wasteRecords])
 
   useEffect(() => {
     savePendingInventoryMovementsState(pendingInventoryMovements)
   }, [pendingInventoryMovements])
 
   useEffect(() => {
-    if (!isRemoteAppStateReady) {
+    if (!isRemoteAppStateReady || !authToken) {
       return
     }
 
@@ -17424,7 +17534,7 @@ export default function App() {
     return () => {
       isCancelled = true
     }
-  }, [isRemoteAppStateReady, pendingInventoryMovements])
+  }, [authToken, isRemoteAppStateReady, pendingInventoryMovements])
 
   useEffect(() => {
     saveStockModuleSettingsState(stockModuleSettings)
@@ -17699,7 +17809,7 @@ export default function App() {
   }, [inventoryStorageLocations])
 
   useEffect(() => {
-    if (!isRemoteAppStateReady) {
+    if (!isRemoteAppStateReady || !authToken) {
       return
     }
 
@@ -17740,7 +17850,7 @@ export default function App() {
     return () => {
       isCancelled = true
     }
-  }, [inventoryStorageLocations, isRemoteAppStateReady])
+  }, [authToken, inventoryStorageLocations, isRemoteAppStateReady])
 
   useEffect(() => {
     if (currentCompanyId === null) {
@@ -18243,7 +18353,7 @@ export default function App() {
   }, [technicalSheets])
 
   useEffect(() => {
-    if (!isRemoteAppStateReady) {
+    if (!isRemoteAppStateReady || !authToken || session?.kind !== 'systemAdmin') {
       return
     }
 
@@ -41289,6 +41399,18 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
     setTechnicalSheetDisableImpactState(null)
   }
 
+  if (isRestoringAuthSession) {
+    return (
+      <main className="auth-shell">
+        <section className="auth-card">
+          <p className="kicker auth-eyebrow">Gestor de Estoque</p>
+          <p className="brand-signature">by Igarape A&amp;B</p>
+          <p className="compact-feedback">Validando sessao...</p>
+        </section>
+      </main>
+    )
+  }
+
   if (!session) {
     return (
       <main className="auth-shell">
@@ -57722,19 +57844,60 @@ function sanitizeTechnicalSheetColumnSort(
   return { key: key as TechnicalSheetColumnKey, direction }
 }
 
+function isAuthTokenUsable(token: string | null) {
+  if (!token) {
+    return false
+  }
+
+  const [payloadSegment] = token.split('.')
+  if (!payloadSegment) {
+    return false
+  }
+
+  try {
+    const normalizedPayload = payloadSegment.replace(/-/g, '+').replace(/_/g, '/')
+    const paddedPayload = normalizedPayload.padEnd(
+      normalizedPayload.length + ((4 - (normalizedPayload.length % 4)) % 4),
+      '=',
+    )
+    const payload = JSON.parse(window.atob(paddedPayload)) as { exp?: unknown }
+    return typeof payload.exp === 'number' && payload.exp > Date.now()
+  } catch {
+    return false
+  }
+}
+
 function loadAuthState(): {
   session: Session
   authToken: string | null
   currentCompanyId: number | null
+  loginError: string
 } {
+  const emptyAuthState = {
+    session: null,
+    authToken: null,
+    currentCompanyId: null,
+    loginError: '',
+  }
+  const expiredAuthState = {
+    ...emptyAuthState,
+    loginError: 'Sua sessao expirou. Entre novamente para continuar.',
+  }
+
   if (typeof window === 'undefined') {
-    return { session: null, authToken: null, currentCompanyId: null }
+    return emptyAuthState
   }
 
   try {
     const raw = window.localStorage.getItem(authStorageKey)
+    const storedToken = window.sessionStorage.getItem(authTokenStorageKey) || window.localStorage.getItem(authTokenStorageKey)
     if (!raw) {
-      return { session: null, authToken: null, currentCompanyId: null }
+      if (storedToken && !isAuthTokenUsable(storedToken)) {
+        window.sessionStorage.removeItem(authTokenStorageKey)
+        window.localStorage.removeItem(authTokenStorageKey)
+        return expiredAuthState
+      }
+      return emptyAuthState
     }
 
     const parsed = JSON.parse(raw) as Partial<{
@@ -57746,9 +57909,12 @@ function loadAuthState(): {
     const authToken =
       typeof parsed.authToken === 'string' && parsed.authToken.trim()
         ? parsed.authToken
-        : window.sessionStorage.getItem(authTokenStorageKey) || window.localStorage.getItem(authTokenStorageKey)
-    if (!authToken) {
-      return { session: null, authToken: null, currentCompanyId: null }
+        : storedToken
+    if (!isAuthTokenUsable(authToken)) {
+      window.sessionStorage.removeItem(authTokenStorageKey)
+      window.localStorage.removeItem(authTokenStorageKey)
+      window.localStorage.removeItem(authStorageKey)
+      return expiredAuthState
     }
 
     let session: Session = null
@@ -57765,9 +57931,11 @@ function loadAuthState(): {
       authToken,
       currentCompanyId:
         typeof parsed.currentCompanyId === 'number' ? parsed.currentCompanyId : null,
+      loginError: '',
     }
   } catch {
-    return { session: null, authToken: null, currentCompanyId: null }
+    window.localStorage.removeItem(authStorageKey)
+    return expiredAuthState
   }
 }
 
