@@ -1668,3 +1668,25 @@ Registrar um historico resumido do que foi feito, do que falhou e do que ficou p
   - empresa abriu sem erro;
   - paineis `Inventario`, `Requisicao`, `Suprimentos`, `Compras`, `Entrada de producoes` e `Importar vendas` carregaram sem aviso de sessao expirada/autenticacao obrigatoria;
   - aba atual do browser nao registrou erros de console durante o smoke.
+
+### Correcao de digitacao em autocompletes e buscas operacionais
+
+- Correcao aplicada em `2026-09-13` apos relato de lentidao e perda de letras em campos de busca, principalmente no campo `Item` da contagem de inventario.
+- Ajustes aplicados:
+  - `SingleValueAutocomplete` agora mantem o texto digitado em estado local normalizado em maiusculas desde o primeiro caractere;
+  - por padrao, o autocomplete deixou de confirmar o valor no estado operacional a cada tecla e passa a confirmar em commit real, como blur, Enter ou clique na opcao;
+  - `MultiSelectChips` tambem normaliza o texto local para maiusculas imediatamente;
+  - campos de item/ficha e recipiente do fluxo de desperdicio passaram de `input + datalist` para `SingleValueAutocomplete`, seguindo o mesmo comportamento estavel.
+- Validacao local:
+  - `npm run build` passou;
+  - `node --check server/server.js` passou;
+  - `git diff --check` passou;
+  - Playwright local confirmou busca de produto digitada como `guarana` resultando em `GUARANA`;
+  - Playwright local confirmou busca de ficha digitada como `batida` resultando em `BATIDA`;
+  - Playwright local confirmou o campo `Item` da contagem com a sequencia `G > GU > GUA > GUAR > GUARA > GUARAN > GUARANA`, sem perda de caracteres;
+  - inventario local temporario `INV-0089` usado no teste foi removido junto com a sessao/link ativo de teste.
+- Deploy e validacao online:
+  - commit publicado: `3dd7293`;
+  - bundle online confirmado: `index-HoxLndyY.js`;
+  - API online confirmou `401` sem token em `/api/inventory-counts`, `/api/products` e `/api/users`;
+  - Playwright online confirmou busca de produto `guarana` como `GUARANA` e busca de ficha `batida` como `BATIDA`, sem perda de caracteres e sem erros de console.
