@@ -2108,6 +2108,115 @@ app.delete('/api/inventory-counts/:id', async (request, response) => {
   response.json({ ok: true })
 })
 
+app.post('/api/admin/repair-inventory-counted-at', requireSystemAdmin, async (request, response) => {
+  const inventoryId = parseIntegerParam(request.body?.inventoryId)
+  const companyId = parseIntegerParam(request.body?.companyId)
+  const fromDate = typeof request.body?.fromDate === 'string' ? request.body.fromDate.trim() : ''
+  const toDate = typeof request.body?.toDate === 'string' ? request.body.toDate.trim() : ''
+  const expectedSessionIds = Array.isArray(request.body?.expectedSessionIds)
+    ? request.body.expectedSessionIds.map(parseIntegerParam).filter((id) => id !== null)
+    : []
+  const expectedCountItems = parseIntegerParam(request.body?.expectedCountItems)
+  const datePattern = /^\d{4}-\d{2}-\d{2}$/
+
+  if (
+    inventoryId === null ||
+    companyId === null ||
+    expectedCountItems === null ||
+    expectedSessionIds.length === 0 ||
+    !datePattern.test(fromDate) ||
+    !datePattern.test(toDate) ||
+    fromDate === toDate
+  ) {
+    response.status(400).json({ error: 'Payload de correcao de data de inventario invalido.' })
+    return
+  }
+
+  const [inventory, sessions, countItems, pendingMovements] = await Promise.all([
+    prisma.appInventoryRecord.findUnique({ where: { id: inventoryId } }),
+    prisma.appInventoryCountSessionRecord.findMany({
+      where: { inventoryId, companyId },
+      orderBy: [{ id: 'asc' }],
+    }),
+    prisma.appInventoryCountRecord.findMany({
+      where: { inventoryId, companyId },
+      select: { id: true, sessionId: true, countedAt: true },
+      orderBy: [{ id: 'asc' }],
+    }),
+    prisma.appPendingInventoryMovementRecord.count({
+      where: { inventoryId, companyId },
+    }),
+  ])
+
+  if (!inventory || inventory.companyId !== companyId) {
+    response.status(404).json({ error: 'Inventario nao encontrado para a empresa informada.' })
+    return
+  }
+
+  if (inventory.countedAt !== fromDate) {
+    response.status(409).json({ error: 'A data atual do inventario nao corresponde a data esperada.' })
+    return
+  }
+
+  const sessionIds = sessions.map((session) => session.id)
+  const expectedSessionIdSet = new Set(expectedSessionIds)
+  const sessionMismatch =
+    sessionIds.length !== expectedSessionIds.length ||
+    sessionIds.some((sessionId) => !expectedSessionIdSet.has(sessionId))
+
+  if (sessionMismatch) {
+    response.status(409).json({ error: 'As sessoes atuais do inventario nao correspondem as sessoes esperadas.' })
+    return
+  }
+
+  if (sessions.some((session) => session.countedAt !== fromDate)) {
+    response.status(409).json({ error: 'Ha sessao do inventario com data diferente da data esperada.' })
+    return
+  }
+
+  if (countItems.length !== expectedCountItems) {
+    response.status(409).json({ error: 'A quantidade atual de itens de contagem nao corresponde a quantidade esperada.' })
+    return
+  }
+
+  if (countItems.some((count) => count.countedAt !== fromDate || !expectedSessionIdSet.has(count.sessionId))) {
+    response.status(409).json({ error: 'Ha item de contagem fora da data ou das sessoes esperadas.' })
+    return
+  }
+
+  const result = await prisma.$transaction(async (transaction) => {
+    const updatedInventory = await transaction.appInventoryRecord.update({
+      where: { id: inventoryId },
+      data: { countedAt: toDate },
+    })
+    const updatedSessions = await transaction.appInventoryCountSessionRecord.updateMany({
+      where: { inventoryId, companyId, id: { in: expectedSessionIds }, countedAt: fromDate },
+      data: { countedAt: toDate },
+    })
+    const updatedCounts = await transaction.appInventoryCountRecord.updateMany({
+      where: { inventoryId, companyId, sessionId: { in: expectedSessionIds }, countedAt: fromDate },
+      data: { countedAt: toDate },
+    })
+
+    return {
+      inventoryRecord: updatedInventory,
+      updatedSessions: updatedSessions.count,
+      updatedCountItems: updatedCounts.count,
+    }
+  })
+
+  response.json({
+    ok: true,
+    inventoryId,
+    companyId,
+    fromDate,
+    toDate,
+    expectedSessionIds,
+    pendingMovements,
+    ...result,
+  })
+})
+
 app.get('/api/waste-sessions', async (request, response) => {
   const companyId = parseIntegerParam(request.query.companyId)
   const sessions = await prisma.appWasteSessionRecord.findMany({
