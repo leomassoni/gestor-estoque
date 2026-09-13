@@ -34,23 +34,25 @@ export function MultiSelectChips({
   const closeTimeoutRef = useRef<number | null>(null)
   const debounceRef = useRef<number | null>(null)
   const focusedRef = useRef(false)
-  const [draftInputValue, setDraftInputValue] = useState(inputValue)
-  const draftInputValueRef = useRef(inputValue)
-  const lastCommittedInputValueRef = useRef(inputValue)
+  const normalizedInitialInputValue = normalizeRegistrationText(inputValue)
+  const [draftInputValue, setDraftInputValue] = useState(normalizedInitialInputValue)
+  const draftInputValueRef = useRef(normalizedInitialInputValue)
+  const lastCommittedInputValueRef = useRef(normalizedInitialInputValue)
 
   useEffect(() => {
+    const normalizedInputValue = normalizeRegistrationText(inputValue)
     if (
       focusedRef.current &&
-      inputValue === lastCommittedInputValueRef.current &&
-      inputValue !== draftInputValueRef.current
+      normalizedInputValue === lastCommittedInputValueRef.current &&
+      normalizedInputValue !== draftInputValueRef.current
     ) {
       return
     }
 
-    if (inputValue !== draftInputValueRef.current) {
-      draftInputValueRef.current = inputValue
-      lastCommittedInputValueRef.current = inputValue
-      setDraftInputValue(inputValue)
+    if (normalizedInputValue !== draftInputValueRef.current) {
+      draftInputValueRef.current = normalizedInputValue
+      lastCommittedInputValueRef.current = normalizedInputValue
+      setDraftInputValue(normalizedInputValue)
     }
   }, [inputValue])
 
@@ -74,16 +76,18 @@ export function MultiSelectChips({
   }
 
   function commitInputValue(nextValue: string) {
+    const normalizedValue = normalizeRegistrationText(nextValue)
     clearPendingInputCommit()
-    lastCommittedInputValueRef.current = nextValue
-    if (nextValue !== inputValue) {
-      onInputChange(nextValue)
+    lastCommittedInputValueRef.current = normalizedValue
+    if (normalizedValue !== normalizeRegistrationText(inputValue)) {
+      onInputChange(normalizedValue)
     }
   }
 
   function updateDraftInput(nextValue: string) {
-    draftInputValueRef.current = nextValue
-    setDraftInputValue(nextValue)
+    const normalizedValue = normalizeRegistrationText(nextValue)
+    draftInputValueRef.current = normalizedValue
+    setDraftInputValue(normalizedValue)
     clearPendingInputCommit()
     debounceRef.current = window.setTimeout(() => {
       debounceRef.current = null
@@ -319,6 +323,7 @@ export function SingleValueAutocomplete({
   onDeleteSuggestion,
   createLabel,
   allowCreate = true,
+  commitOnInput = false,
 }: {
   value: string
   suggestions: string[]
@@ -327,30 +332,33 @@ export function SingleValueAutocomplete({
   onDeleteSuggestion?: (value: string) => void
   createLabel?: string
   allowCreate?: boolean
+  commitOnInput?: boolean
 }) {
   const [isOpen, setIsOpen] = useState(false)
   const [activeOptionIndex, setActiveOptionIndex] = useState(-1)
   const closeTimeoutRef = useRef<number | null>(null)
   const debounceRef = useRef<number | null>(null)
   const focusedRef = useRef(false)
-  const [draftValue, setDraftValue] = useState(value)
-  const draftValueRef = useRef(value)
-  const lastCommittedValueRef = useRef(value)
+  const normalizedInitialValue = normalizeRegistrationText(value)
+  const [draftValue, setDraftValue] = useState(normalizedInitialValue)
+  const draftValueRef = useRef(normalizedInitialValue)
+  const lastCommittedValueRef = useRef(normalizedInitialValue)
   const normalizedSuggestions = useMemo(() => normalizeSuggestionSet(suggestions), [suggestions])
 
   useEffect(() => {
+    const normalizedValue = normalizeRegistrationText(value)
     if (
       focusedRef.current &&
-      value === lastCommittedValueRef.current &&
-      value !== draftValueRef.current
+      normalizedValue === lastCommittedValueRef.current &&
+      normalizedValue !== draftValueRef.current
     ) {
       return
     }
 
-    if (value !== draftValueRef.current) {
-      draftValueRef.current = value
-      lastCommittedValueRef.current = value
-      setDraftValue(value)
+    if (normalizedValue !== draftValueRef.current) {
+      draftValueRef.current = normalizedValue
+      lastCommittedValueRef.current = normalizedValue
+      setDraftValue(normalizedValue)
     }
   }, [value])
 
@@ -374,17 +382,22 @@ export function SingleValueAutocomplete({
   }
 
   function commitChange(nextValue: string) {
+    const normalizedValue = normalizeRegistrationText(nextValue)
     clearPendingCommit()
-    lastCommittedValueRef.current = nextValue
-    if (nextValue !== value) {
-      onChange(nextValue)
+    lastCommittedValueRef.current = normalizedValue
+    if (normalizedValue !== normalizeRegistrationText(value)) {
+      onChange(normalizedValue)
     }
   }
 
   function updateDraft(nextValue: string) {
-    draftValueRef.current = nextValue
-    setDraftValue(nextValue)
+    const normalizedValue = normalizeRegistrationText(nextValue)
+    draftValueRef.current = normalizedValue
+    setDraftValue(normalizedValue)
     clearPendingCommit()
+    if (!commitOnInput) {
+      return
+    }
     debounceRef.current = window.setTimeout(() => {
       debounceRef.current = null
       lastCommittedValueRef.current = draftValueRef.current
@@ -429,8 +442,9 @@ export function SingleValueAutocomplete({
     const resolvedValue = matchedSuggestion ?? normalized
 
     if (!allowCreate && matchedSuggestion === null) {
-      draftValueRef.current = value
-      setDraftValue(value)
+      const normalizedCurrentValue = normalizeRegistrationText(value)
+      draftValueRef.current = normalizedCurrentValue
+      setDraftValue(normalizedCurrentValue)
       setIsOpen(false)
       setActiveOptionIndex(-1)
       return

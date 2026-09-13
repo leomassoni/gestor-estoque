@@ -2539,7 +2539,6 @@ export default function App() {
   const technicalSheetServiceItemListId = useId()
   const stockCenterListId = useId()
   const stockCenterMinimumListId = useId()
-  const wasteTechnicalSheetListId = useId()
   const packageListId = useId()
   const replacementSectorListId = useId()
   const replacementTaxonomyListId = useId()
@@ -47144,34 +47143,26 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                     <form className="form-grid company-form-grid" onSubmit={(event) => event.preventDefault()}>
                       <label className="field company-field-wide">
                         <span>Item ou ficha de execucao *</span>
-                        <input
-                          list={wasteTechnicalSheetListId}
+                        <SingleValueAutocomplete
                           value={wasteForm.technicalSheetLabel}
-                          onChange={(event) => updateWasteFormField('technicalSheetLabel', event.target.value)}
+                          suggestions={wasteTechnicalSheetSuggestions}
+                          onChange={(value) => updateWasteFormField('technicalSheetLabel', value)}
                           placeholder="Busque por nome, ID interno ou ID empresa"
+                          allowCreate={false}
                         />
-                        <datalist id={wasteTechnicalSheetListId}>
-                          {wasteTechnicalSheetSuggestions.map((value) => (
-                            <option key={value} value={value} />
-                          ))}
-                        </datalist>
                         {wasteErrors.technicalSheetLabel ? <p className="compact-feedback feedback error">{wasteErrors.technicalSheetLabel}</p> : null}
                       </label>
 
                       {selectedWasteCountableItem && selectedWasteCountableItem.kind !== 'EXECUCAO' ? (
                         <label className="field company-field-wide">
                           <span>{selectedWasteCountableItem.kind === 'PRODUTO' ? 'Embalagem' : selectedWasteCountableItem.kind === 'ITEM' ? 'Unidade/embalagem' : 'Recipiente'}</span>
-                          <input
-                            list={packageListId}
+                          <SingleValueAutocomplete
                             value={wasteForm.recipientLabel}
-                            onChange={(event) => updateWasteFormField('recipientLabel', event.target.value)}
+                            suggestions={wasteRecipientOptions.map((option) => option.label)}
+                            onChange={(value) => updateWasteFormField('recipientLabel', value)}
                             placeholder={selectedWasteCountableItem.kind === 'PRODUTO' ? 'Selecione a embalagem' : 'Selecione a referencia'}
+                            allowCreate={false}
                           />
-                          <datalist id={packageListId}>
-                            {wasteRecipientOptions.map((option) => (
-                              <option key={option.id} value={option.label} />
-                            ))}
-                          </datalist>
                           {wasteErrors.recipientLabel ? <p className="compact-feedback feedback error">{wasteErrors.recipientLabel}</p> : null}
                         </label>
                       ) : null}
