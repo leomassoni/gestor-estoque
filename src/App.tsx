@@ -2557,6 +2557,7 @@ export default function App() {
   const syncedInventoryActiveRecordLinkMapRef = useRef<Map<string, string>>(new Map())
   const syncedInventoryCountSessionMapRef = useRef<Map<number, string>>(new Map())
   const syncedInventoryActiveSessionLinkMapRef = useRef<Map<string, string>>(new Map())
+  const suppressedInventoryActiveSessionRestoreKeysRef = useRef<Set<string>>(new Set())
   const syncedInventoryCountMapRef = useRef<Map<number, string>>(new Map())
   const syncedWasteSessionMapRef = useRef<Map<number, string>>(new Map())
   const syncedWasteRecordMapRef = useRef<Map<number, string>>(new Map())
@@ -9368,6 +9369,10 @@ export default function App() {
             (link) => link.companyId === currentCompanyId && link.userKey === inventorySessionUserKey,
           )?.sessionId ?? null,
     [currentCompanyId, inventoryActiveSessionLinks, inventorySessionUserKey],
+  )
+  const getInventoryActiveSessionRestoreKey = useCallback(
+    (sessionId: number) => (currentCompanyId === null ? '' : `${currentCompanyId}:${inventorySessionUserKey}:${sessionId}`),
+    [currentCompanyId, inventorySessionUserKey],
   )
   const selectedInventoryCountSession = useMemo(
     () =>
@@ -18127,13 +18132,21 @@ export default function App() {
       return
     }
 
-    if (
-      !selectedInventoryRecord ||
-      selectedSession.inventoryId !== selectedInventoryRecord.id ||
-      String(selectedSession.stockCenterId) !== inventoryForm.stockCenterId ||
-      selectedSession.countedAt !== inventoryForm.countedAt
-    ) {
+    if (!selectedInventoryRecord) {
+      return
+    }
+
+    if (selectedSession.inventoryId !== selectedInventoryRecord.id) {
       setSelectedInventorySessionId(null)
+      return
+    }
+
+    if (String(selectedSession.stockCenterId) !== inventoryForm.stockCenterId || selectedSession.countedAt !== inventoryForm.countedAt) {
+      setInventoryForm((current) => ({
+        ...current,
+        stockCenterId: String(selectedSession.stockCenterId),
+        countedAt: selectedSession.countedAt,
+      }))
     }
   }, [currentCompanyId, inventoryCountSessions, inventoryForm.countedAt, inventoryForm.stockCenterId, selectedInventoryRecord, selectedInventorySessionId])
 
@@ -18174,8 +18187,13 @@ export default function App() {
       return
     }
 
+    const restoreKey = getInventoryActiveSessionRestoreKey(persistedSession.id)
+    if (restoreKey && suppressedInventoryActiveSessionRestoreKeysRef.current.has(restoreKey)) {
+      return
+    }
+
     setSelectedInventorySessionId(persistedSession.id)
-  }, [currentCompanyId, inventoryCountSessions, persistedInventoryActiveSessionId, selectedInventorySessionId])
+  }, [currentCompanyId, getInventoryActiveSessionRestoreKey, inventoryCountSessions, persistedInventoryActiveSessionId, selectedInventorySessionId])
 
   useEffect(() => {
     if (!selectedInventoryCountSession) {
@@ -18260,6 +18278,17 @@ export default function App() {
       )
       const existingLink = existingIndex >= 0 ? current[existingIndex] : null
       if (!selectedInventoryCountSession && existingLink?.sessionId !== null && existingLink?.sessionId !== undefined) {
+        const restoreKey = getInventoryActiveSessionRestoreKey(existingLink.sessionId)
+        if (restoreKey && suppressedInventoryActiveSessionRestoreKeysRef.current.has(restoreKey)) {
+          const nextLink: InventoryActiveSessionLinkRecord = {
+            companyId: currentCompanyId,
+            userKey: inventorySessionUserKey,
+            sessionId: null,
+          }
+
+          return current.map((link, index) => (index === existingIndex ? nextLink : link))
+        }
+
         const linkedSessionStillOpen = inventoryCountSessions.some(
           (sessionRecord) =>
             sessionRecord.id === existingLink.sessionId &&
@@ -18288,7 +18317,7 @@ export default function App() {
 
 	      return current.map((link, index) => (index === existingIndex ? nextLink : link))
 	    })
-  }, [currentCompanyId, inventoryCountSessions, inventorySessionUserKey, isInventoryRemoteStateReady, selectedInventoryCountSession])
+  }, [currentCompanyId, getInventoryActiveSessionRestoreKey, inventoryCountSessions, inventorySessionUserKey, isInventoryRemoteStateReady, selectedInventoryCountSession])
 
   useEffect(() => {
     if (technicalSheetScreenMode !== 'form' || isTechnicalSheetProductModalOpen) {
@@ -21680,6 +21709,12 @@ export default function App() {
     }
 
     if (currentCompanyId !== null) {
+      if (selectedInventoryCountSession) {
+        const restoreKey = getInventoryActiveSessionRestoreKey(selectedInventoryCountSession.id)
+        if (restoreKey) {
+          suppressedInventoryActiveSessionRestoreKeysRef.current.add(restoreKey)
+        }
+      }
       setInventoryActiveRecordLinks((current) =>
         current.map((link) =>
           link.companyId === currentCompanyId && link.userKey === inventorySessionUserKey
@@ -21755,6 +21790,10 @@ export default function App() {
         syncedInventoryCountSessionMapRef.current = buildEntitySignatureMap(nextSessions, (record) => record.id)
         setInventoryCountSessions(nextSessions)
         saveInventoryCountSessionsState(nextSessions)
+        const restoreKey = getInventoryActiveSessionRestoreKey(existingSession.id)
+        if (restoreKey) {
+          suppressedInventoryActiveSessionRestoreKeysRef.current.delete(restoreKey)
+        }
         setSelectedInventorySessionId(existingSession.id)
         setSaveFeedback({
           status: 'success',
@@ -21798,6 +21837,10 @@ export default function App() {
       syncedInventoryCountSessionMapRef.current = buildEntitySignatureMap(nextSessions, (record) => record.id)
       setInventoryCountSessions(nextSessions)
       saveInventoryCountSessionsState(nextSessions)
+      const restoreKey = getInventoryActiveSessionRestoreKey(savedSession.id)
+      if (restoreKey) {
+        suppressedInventoryActiveSessionRestoreKeysRef.current.delete(restoreKey)
+      }
       setSelectedInventorySessionId(savedSession.id)
       setInventoryErrors((current) => ({ ...current, stockCenterId: '', countedAt: '' }))
       registerAuditEvent({
@@ -21882,6 +21925,10 @@ export default function App() {
       setIsStartingInventoryCountSession(false)
     }
 
+    const restoreKey = getInventoryActiveSessionRestoreKey(sessionId)
+    if (restoreKey) {
+      suppressedInventoryActiveSessionRestoreKeysRef.current.delete(restoreKey)
+    }
     setSelectedInventorySessionId(sessionId)
     setSaveFeedback({
       status: 'success',
@@ -21898,6 +21945,10 @@ export default function App() {
     }
 
     if (currentCompanyId !== null) {
+      const restoreKey = getInventoryActiveSessionRestoreKey(selectedInventoryCountSession.id)
+      if (restoreKey) {
+        suppressedInventoryActiveSessionRestoreKeysRef.current.add(restoreKey)
+      }
       setInventoryActiveSessionLinks((current) =>
         current.map((link) =>
           link.companyId === currentCompanyId && link.userKey === inventorySessionUserKey
