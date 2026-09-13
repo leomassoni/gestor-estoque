@@ -1623,3 +1623,10 @@ Registrar um historico resumido do que foi feito, do que falhou e do que ficou p
   - smoke browser local confirmou restauracao de sessao valida sem novo login;
   - smoke browser local confirmou que token vencido/invalido nao monta `EMPRESA ATIVA`, limpa token, mostra aviso de sessao expirada e preserva os totais locais de inventarios, sessoes e contagens;
   - smoke browser local confirmou login normal master em `CASA DE MI MADRE`.
+- Deploy e validacao online:
+  - commit publicado: `0cb2ba4`;
+  - bundle online confirmado: `index-CpNYZD58.js`;
+  - API online confirmou `401` sem token em `/api/inventory-counts`, `/api/inventory-count-sessions`, `/api/products` e `/api/users`;
+  - API online confirmou `200` em `GET /api/auth/session` com token valido;
+  - `/api/users` autenticado online nao retornou `passwordHash` e retornou `password` vazio;
+  - smoke browser online confirmou login master e acesso a `CASA DE MI MADRE` sem erro de console.
