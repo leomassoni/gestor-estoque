@@ -1720,3 +1720,42 @@ Registrar um historico resumido do que foi feito, do que falhou e do que ficou p
   - validacao posterior da data: `auditorias/madre-inventory-date-postcheck-2026-09-13T2209.json`;
   - resposta da mescla `INV-0092 -> INV-0095`: `auditorias/madre-inventory-92-into-95-merge-2026-09-13T2216.json`;
   - validacao posterior da mescla: `auditorias/madre-inventory-92-into-95-postcheck-2026-09-13T2217.json`.
+
+### Auditoria de duplicidades no inventario 95 da Casa de mi Madre
+
+- Checagem realizada em `2026-09-13` apos fechamento do inventario oficial `INV-0095`.
+- Estado confirmado:
+  - `INV-0095` fechado em `2026-09-13T22:39:21.806Z`;
+  - `435` itens de contagem consolidados;
+  - sessoes fechadas: `CON-0088`, `CON-0089`, `CON-0093` e `CON-0094`.
+- Resultado sobre a suspeita principal:
+  - `CON-0088` do Lorran possui `30` itens em `GELADEIRA 01`;
+  - `CON-0094` do Lorran possui `31` itens em `ADEGA`;
+  - nao ha duplicidade exata entre `CON-0088` e `CON-0094`;
+  - nao ha mesmo item/local/recipiente com quantidade diferente entre `CON-0088` e `CON-0094`.
+- Datas reais de criacao dos itens no banco online:
+  - `CON-0088`: os `30` itens possuem `createdAtRecord` em `2026-09-13`, entre `12:48:23` e `12:48:24` no horario de Sao Paulo;
+  - `CON-0094`: os `31` itens possuem `createdAtRecord` em `2026-09-13`, entre `12:50:53` e `13:23:37` no horario de Sao Paulo;
+  - o `updatedAt` dos itens ficou em `2026-09-13 19:16:59`, refletindo a correcao/mescla operacional posterior, portanto nao deve ser usado como hora original do input.
+- Pontos suspeitos encontrados:
+  - `CON-0094` tem `3` duplicidades exatas contra `CON-0089`: `TEQUILA EL JIMANDOR REPOSADO`, `HIDROMEL BORBULHANTE ABELHA JATAI` e `VODKA SMIRNOFF 21`;
+  - `CON-0094` tem `1` duplicidade exata interna: `FLOR DE CANA 12 ULTRA PREMIUM`;
+  - ha sobreposicoes de mesmo item com quantidade diferente entre sessoes, que precisam de revisao operacional antes de qualquer exclusao automatica.
+- Nenhum dado foi removido nesta auditoria.
+- Evidencia local: `auditorias/madre-inventory-95-lorran-duplicate-check-2026-09-13T2242.json`.
+
+### Ajuste da data sugerida para novo inventario
+
+- Correcao aplicada em `2026-09-14`.
+- Regra definida:
+  - ao preparar a abertura de um novo inventario, a data sugerida deve ser sempre a data vigente local;
+  - o usuario ainda pode alterar manualmente a data quando tiver permissao operacional para inventario retroativo;
+  - a data de um inventario selecionado, em andamento ou reaberto, continua sendo preservada durante a operacao desse inventario.
+- Causa encontrada:
+  - apos finalizar um inventario, a selecao era limpa, mas o formulario podia permanecer com a data do inventario finalizado;
+  - isso fazia a proxima abertura sugerir uma data antiga, como `2026-08-30`, mesmo em outro dia.
+- Ajuste aplicado:
+  - o fechamento normal do inventario agora reseta o formulario de abertura com `getTodayDateInputValue()`, preservando apenas o centro de estoque selecionado.
+- Validacao local:
+  - `node --check server/server.js` passou;
+  - `npm run build` passou.

@@ -1673,6 +1673,11 @@ const emptyInventoryForm = (): InventoryFormState => ({
   openItemsContainerQuantity: '',
 })
 
+const resetInventoryOpeningForm = (current: InventoryFormState): InventoryFormState => ({
+  ...emptyInventoryForm(),
+  stockCenterId: current.stockCenterId,
+})
+
 const initialProducts: ProductRecord[] = [
   {
     companyId: 1,
@@ -22338,6 +22343,7 @@ export default function App() {
     setEditingInventoryCountId(null)
     setInventoryDraftBeforeEdit(null)
     setInventoryErrors({})
+    setInventoryForm((current) => resetInventoryOpeningForm(current))
     setIsClosingInventoryRecord(false)
     setSaveFeedback({
       status: 'success',
