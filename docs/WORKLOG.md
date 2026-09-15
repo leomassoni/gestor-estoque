@@ -1,10 +1,35 @@
 # Worklog
 
- Ultima atualizacao: 2026-09-08
+ Ultima atualizacao: 2026-09-15
 
 ## Objetivo deste arquivo
 
 Registrar um historico resumido do que foi feito, do que falhou e do que ficou pendente.
+
+## 2026-09-15
+
+### Relatorio de transferencias entre empresas
+
+- Criada a aba `Transferencias entre empresas` em `Relatorios de estoque`.
+- Objetivo: permitir auditoria das movimentacoes em que um centro de estoque de uma empresa abastece centro de outra empresa, especialmente producoes feitas por `LABORATORIO` em `COMPLEXO VILA ANALIA` para consumo em empresas Macaxeira.
+- Escopo do relatorio:
+  - mostra apenas requisicoes interempresa ja enviadas ao fluxo de suprimentos, prontas para receber ou recebidas;
+  - restringe a exibicao a transferencias em que a empresa ativa participa como origem ou destino;
+  - respeita acesso do usuario aos centros quando nao for master;
+  - inclui empresa/centro de origem, empresa/centro de destino, requisicao, status da requisicao, status de recebimento, origem da necessidade, usuario de envio/preparo e usuario de recebimento/recusa.
+- Custos exibidos por linha:
+  - custo base unitario;
+  - percentual de acrescimo por compartilhamento;
+  - acrescimo unitario;
+  - custo final unitario;
+  - custo base total;
+  - acrescimo total;
+  - custo final total.
+- O custo de `PREPARO` compartilhado usa a regra existente de `calculateSharedPreparationSaleFeeInfo`, calculando primeiro o custo base sem acrescimo e aplicando o percentual da relacao origem/destino quando existir.
+- A exportacao PDF/XLSX usa as mesmas colunas visiveis da tabela, portanto os detalhes de origem/destino/custo saem no arquivo exportado.
+- Validacao local:
+  - `npm run build` passou;
+  - `node --check server/server.js` passou.
 
 ## 2026-09-08
 

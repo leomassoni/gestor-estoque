@@ -1032,9 +1032,15 @@ const stockReportColumnOptions: Array<[StockReportColumnKey, string]> = [
   ['packageId', 'ID embalagem'],
   ['kind', 'Tipo'],
   ['family', 'Familia'],
+  ['sourceCompany', 'Empresa origem'],
+  ['sourceCenter', 'Centro origem'],
+  ['destinationCompany', 'Empresa destino'],
+  ['destinationCenter', 'Centro destino'],
   ['center', 'Centro'],
+  ['requisition', 'Requisicao'],
   ['date', 'Data'],
   ['status', 'Status'],
+  ['receipt', 'Recebimento'],
   ['operation', 'Operacao'],
   ['recorded', 'Registrado'],
   ['quantity', 'Quantidade'],
@@ -1045,7 +1051,14 @@ const stockReportColumnOptions: Array<[StockReportColumnKey, string]> = [
   ['position', 'Posicao no momento'],
   ['minimum', 'Minimo definido'],
   ['unitCost', 'Custo unitario'],
+  ['baseUnitCost', 'Custo base unitario'],
+  ['sharingFee', 'Acrescimo %'],
+  ['sharingUnitAddedCost', 'Acrescimo unitario'],
+  ['finalUnitCost', 'Custo final unitario'],
   ['totalCost', 'Custo total'],
+  ['baseTotalCost', 'Custo base total'],
+  ['sharingTotalAddedCost', 'Acrescimo total'],
+  ['finalTotalCost', 'Custo final total'],
   ['unit', 'Unidade'],
   ['user', 'Usuario'],
 ]
@@ -1056,9 +1069,15 @@ const defaultStockReportColumnVisibility: Record<StockReportColumnKey, boolean> 
   packageId: true,
   kind: true,
   family: true,
+  sourceCompany: true,
+  sourceCenter: true,
+  destinationCompany: true,
+  destinationCenter: true,
   center: true,
+  requisition: true,
   date: true,
   status: true,
+  receipt: true,
   operation: true,
   recorded: true,
   quantity: true,
@@ -1069,7 +1088,14 @@ const defaultStockReportColumnVisibility: Record<StockReportColumnKey, boolean> 
   position: true,
   minimum: false,
   unitCost: true,
+  baseUnitCost: true,
+  sharingFee: true,
+  sharingUnitAddedCost: true,
+  finalUnitCost: true,
   totalCost: true,
+  baseTotalCost: true,
+  sharingTotalAddedCost: true,
+  finalTotalCost: true,
   unit: true,
   user: true,
 }
@@ -1155,6 +1181,11 @@ const stockReportTabDefinitions: Array<{ key: StockReportTab; label: string; des
     description: 'Linhas transferidas via suprimentos entre centros de estoque.',
   },
   {
+    key: 'TRANSFERENCIAS_INTEREMPRESAS',
+    label: 'Transferencias entre empresas',
+    description: 'Rastreia suprimentos entre empresas vinculadas, com custo base, acrescimo de compartilhamento e custo final.',
+  },
+  {
     key: 'PRODUCOES',
     label: 'Historico de producoes',
     description: 'Historico das producoes ja confirmadas e integradas ao estoque.',
@@ -1202,6 +1233,7 @@ const stockReportTabsWithDateRange = new Set<StockReportTab>([
   'DIVERGENCIA',
   'REQUISICOES',
   'TRANSFERENCIAS',
+  'TRANSFERENCIAS_INTEREMPRESAS',
   'PRODUCOES',
   'OCORRENCIAS',
   'PRODUTIVIDADE',
@@ -1239,6 +1271,7 @@ const stockReportAllowedColumnsByTab: Record<StockReportTab, StockReportColumnKe
   VALORIZACAO: ['main', 'date', 'center', 'internalId', 'companyId', 'packageId', 'kind', 'family', 'status', 'quantity', 'unit', 'unitCost', 'totalCost'],
   REQUISICOES: ['main', 'date', 'center', 'family', 'status', 'quantity', 'totalCost', 'user'],
   TRANSFERENCIAS: ['main', 'date', 'center', 'internalId', 'companyId', 'packageId', 'kind', 'family', 'status', 'quantity', 'unit', 'position', 'unitCost', 'totalCost', 'user'],
+  TRANSFERENCIAS_INTEREMPRESAS: ['date', 'requisition', 'main', 'internalId', 'companyId', 'kind', 'family', 'sourceCompany', 'sourceCenter', 'destinationCompany', 'destinationCenter', 'status', 'receipt', 'operation', 'recorded', 'quantity', 'unit', 'baseUnitCost', 'sharingFee', 'sharingUnitAddedCost', 'finalUnitCost', 'baseTotalCost', 'sharingTotalAddedCost', 'finalTotalCost', 'user'],
   PRODUCOES: ['main', 'date', 'center', 'internalId', 'companyId', 'kind', 'family', 'status', 'yieldExpected', 'quantity', 'yieldDifference', 'unit', 'ph', 'brix', 'position', 'unitCost', 'totalCost', 'user'],
   OCORRENCIAS: ['main', 'date', 'center', 'status', 'operation', 'recorded', 'quantity', 'position', 'user'],
   PRODUTIVIDADE: ['main', 'date', 'center', 'status', 'operation', 'recorded', 'quantity', 'position', 'user'],
@@ -13827,6 +13860,246 @@ export default function App() {
         .sort((a, b) => String(b.sortValues?.date ?? '').localeCompare(String(a.sortValues?.date ?? ''))),
     [currentCompanyId, inventoryAggregationMetadataByKey, latestInventoryQuantityByCenterAndAggregation, products, reportStockCenterById, requisitions, stockUnitCostByAggregationKey, technicalSheets],
   )
+  const stockIntercompanyTransferReportRows = useMemo(() => {
+    if (!isStockReportSectionActive || currentCompanyId === null) {
+      return [] as StockReportRow[]
+    }
+
+    const companyScopeIds = new Set(getCompanyLinkScopeIds(currentCompanyId))
+    const stockCenterById = new Map(stockCenters.map((center) => [center.id, center] as const))
+    const productByIdForReport = new Map(products.map((product) => [product.id, product] as const))
+    const serviceItemByIdForReport = new Map(serviceItems.map((item) => [item.id, item] as const))
+    const sheetByIdForReport = new Map(technicalSheets.map((sheet) => [sheet.id, sheet] as const))
+    const userVisibleCenterIds = new Set([
+      ...requisitionApprovalCenters.map((center) => center.id),
+      ...requisitionEligibleStockCenters.map((center) => center.id),
+      ...supplyResponsibleCenters.map((center) => center.id),
+    ])
+
+    function canSeeIntercompanyTransfer(sourceCenterId: number | null, destinationCenterId: number | null) {
+      if (isSystemAdmin) {
+        return true
+      }
+      if (!currentAppUser) {
+        return false
+      }
+      return (
+        (typeof sourceCenterId === 'number' && userVisibleCenterIds.has(sourceCenterId)) ||
+        (typeof destinationCenterId === 'number' && userVisibleCenterIds.has(destinationCenterId))
+      )
+    }
+
+    function getReceiptStatusLabel(line: RequisitionLineRecord) {
+      if (line.receiptStatus === 'RECEIVED') {
+        return 'Recebido'
+      }
+      if (line.receiptStatus === 'NOT_RECEIVED') {
+        return 'Nao recebido'
+      }
+      return 'Pendente'
+    }
+
+    function getLineCostDetails(line: RequisitionLineRecord, destinationCompanyId: number, movedQuantity: number) {
+      if (line.kind === 'PREPARO' && typeof line.technicalSheetId === 'number') {
+        const sheet = sheetByIdForReport.get(line.technicalSheetId) ?? null
+        if (!sheet) {
+          return { baseUnitCost: 0, sharingFeePercentage: 0, sharingUnitAddedCost: 0, finalUnitCost: 0, baseTotalCost: 0, sharingTotalAddedCost: 0, finalTotalCost: 0 }
+        }
+
+        const baseCostContext: TechnicalSheetCostContext = {
+          consumerCompanyId: destinationCompanyId,
+          sharingSaleFees: catalogSharingSaleFees,
+          suppressSharedPreparationSaleFee: true,
+        }
+        const baseRecipeCost = calculateTechnicalSheetCost(sheet, technicalSheets, products, new Set<number>(), serviceItems, baseCostContext)
+        const effectiveYield = calculateTechnicalSheetEffectiveYield(sheet)
+        const baseUnitCost = effectiveYield > 0 ? baseRecipeCost / effectiveYield : baseRecipeCost
+        const sharingSaleFeeInfo = calculateSharedPreparationSaleFeeInfo(baseUnitCost, sheet, {
+          consumerCompanyId: destinationCompanyId,
+          sharingSaleFees: catalogSharingSaleFees,
+        })
+        const sharingFeePercentage = sharingSaleFeeInfo?.percentage ?? 0
+        const sharingUnitAddedCost = sharingSaleFeeInfo?.addedCost ?? 0
+        const finalUnitCost = sharingSaleFeeInfo?.adjustedCost ?? baseUnitCost
+        return {
+          baseUnitCost,
+          sharingFeePercentage,
+          sharingUnitAddedCost,
+          finalUnitCost,
+          baseTotalCost: baseUnitCost * movedQuantity,
+          sharingTotalAddedCost: sharingUnitAddedCost * movedQuantity,
+          finalTotalCost: finalUnitCost * movedQuantity,
+        }
+      }
+
+      if (line.kind === 'PRODUTO') {
+        const product = productByIdForReport.get(line.productId) ?? null
+        const baseUnitCost = product
+          ? calculateProductUnitCost(product, technicalSheets, products, serviceItems, {
+              consumerCompanyId: destinationCompanyId,
+              sharingSaleFees: catalogSharingSaleFees,
+            })
+          : 0
+        return {
+          baseUnitCost,
+          sharingFeePercentage: 0,
+          sharingUnitAddedCost: 0,
+          finalUnitCost: baseUnitCost,
+          baseTotalCost: baseUnitCost * movedQuantity,
+          sharingTotalAddedCost: 0,
+          finalTotalCost: baseUnitCost * movedQuantity,
+        }
+      }
+
+      if (line.kind === 'ITEM') {
+        const serviceItem = serviceItemByIdForReport.get(line.serviceItemId) ?? null
+        const baseUnitCost = serviceItem ? calculateServiceItemUnitCost(serviceItem) : 0
+        return {
+          baseUnitCost,
+          sharingFeePercentage: 0,
+          sharingUnitAddedCost: 0,
+          finalUnitCost: baseUnitCost,
+          baseTotalCost: baseUnitCost * movedQuantity,
+          sharingTotalAddedCost: 0,
+          finalTotalCost: baseUnitCost * movedQuantity,
+        }
+      }
+
+      return { baseUnitCost: 0, sharingFeePercentage: 0, sharingUnitAddedCost: 0, finalUnitCost: 0, baseTotalCost: 0, sharingTotalAddedCost: 0, finalTotalCost: 0 }
+    }
+
+    return requisitions
+      .filter((record) => {
+        if (
+          record.status !== 'SENT_TO_SUPPLIES' &&
+          record.status !== 'READY_TO_RECEIVE' &&
+          record.status !== 'RECEIVED'
+        ) {
+          return false
+        }
+        const sourceCenter = typeof record.supplyCenterId === 'number' ? stockCenterById.get(record.supplyCenterId) ?? null : null
+        const destinationCenter = stockCenterById.get(record.stockCenterId) ?? null
+        const sourceCompanyId = record.supplyCompanyId ?? sourceCenter?.companyId ?? null
+        const destinationCompanyId = record.companyId
+        return (
+          sourceCompanyId !== null &&
+          sourceCompanyId !== destinationCompanyId &&
+          (sourceCompanyId === currentCompanyId || destinationCompanyId === currentCompanyId) &&
+          companyScopeIds.has(sourceCompanyId) &&
+          companyScopeIds.has(destinationCompanyId) &&
+          canSeeIntercompanyTransfer(record.supplyCenterId, record.stockCenterId) &&
+          destinationCenter !== null
+        )
+      })
+      .flatMap((record) => {
+        const sourceCenter = typeof record.supplyCenterId === 'number' ? stockCenterById.get(record.supplyCenterId) ?? null : null
+        const destinationCenter = stockCenterById.get(record.stockCenterId) ?? null
+        const sourceCompanyId = record.supplyCompanyId ?? sourceCenter?.companyId ?? null
+        const sourceCompanyName =
+          record.supplyCompanyName ||
+          (typeof sourceCompanyId === 'number' ? getCompanyTradeName(sourceCompanyId) : '')
+        const destinationCompanyName = getCompanyTradeName(record.companyId)
+        const sourceCenterName = record.supplyCenterName || sourceCenter?.name || ''
+        const destinationCenterName = record.stockCenterName || destinationCenter?.name || ''
+        const rawDate = (record.preparedAt || record.sentAt || record.receivedAt || record.countedAt || record.createdAt).slice(0, 10)
+
+        return record.lines
+          .filter((line) => (parseDecimal(line.requestedQuantity) ?? 0) > 0)
+          .map((line, lineIndex) => {
+            const movementConfig = getRequisitionStockMovementConfig(line)
+            const requestedQuantity = parseDecimal(line.requestedQuantity) ?? 0
+            const movedQuantity = requestedQuantity * movementConfig.multiplier
+            const costDetails = getLineCostDetails(line, record.companyId, movedQuantity)
+            const sourceDetails = getLineSourceAllocations(line, record, movedQuantity)
+              .map((allocation) => allocation.sourcePath || `${allocation.originCompanyName} > ${allocation.originCenterName}`)
+              .filter(Boolean)
+              .join(' | ')
+            const sheet = line.kind === 'PREPARO' && typeof line.technicalSheetId === 'number' ? sheetByIdForReport.get(line.technicalSheetId) ?? null : null
+            const product = line.kind === 'PRODUTO' ? productByIdForReport.get(line.productId) ?? null : null
+            const serviceItem = line.kind === 'ITEM' ? serviceItemByIdForReport.get(line.serviceItemId) ?? null : null
+            const packageCode =
+              line.kind === 'PRODUTO' && product && line.packageId !== null
+                ? product.packages.find((packageForm) => packageForm.id === line.packageId)?.internalCode || `EMB-${line.packageId}`
+                : line.kind === 'ITEM' && serviceItem && line.packageId !== null
+                  ? serviceItem.packages.find((packageForm) => packageForm.id === line.packageId)?.internalCode || `EMB-${line.packageId}`
+                  : ''
+            const receiptUser = line.receiptResolvedByUserName || record.receivedByUserName || ''
+
+            return {
+              id: `intercompany-transfer-${record.id}-${line.key}-${lineIndex}`,
+              main: line.itemName,
+              secondary: sourceDetails,
+              internalId:
+                line.kind === 'PREPARO'
+                  ? sheet?.productId ?? ''
+                  : line.kind === 'PRODUTO'
+                    ? line.productId
+                    : line.serviceItemId,
+              companyId:
+                line.kind === 'PREPARO'
+                  ? sheet ? getTechnicalSheetCompanyProductId(sheet, record.companyId) : ''
+                  : line.kind === 'PRODUTO'
+                    ? product?.companyProductId ?? ''
+                    : serviceItem?.companyProductId ?? '',
+              packageId: packageCode,
+              kind: line.itemTypeLabel || (line.kind === 'PREPARO' ? 'Pre-preparo' : line.kind === 'PRODUTO' ? 'Produto' : 'Item'),
+              family: line.family || sheet?.family || product?.family || serviceItem?.family || '',
+              sourceCompany: sourceCompanyName,
+              sourceCenter: sourceCenterName,
+              destinationCompany: destinationCompanyName,
+              destinationCenter: destinationCenterName,
+              center: `${sourceCenterName} -> ${destinationCenterName}`,
+              requisition: `#${record.id}`,
+              date: rawDate ? formatDateForDisplay(rawDate) : '',
+              status: getRequisitionHistoryStatusLabel(record.status),
+              receipt: getReceiptStatusLabel(line),
+              operation: sourceDetails,
+              recorded: receiptUser,
+              quantity: formatDecimal(movedQuantity),
+              unitCost: formatCurrencyLabel(costDetails.finalUnitCost),
+              baseUnitCost: formatCurrencyLabel(costDetails.baseUnitCost),
+              sharingFee: `${formatDecimal(costDetails.sharingFeePercentage)}%`,
+              sharingUnitAddedCost: formatCurrencyLabel(costDetails.sharingUnitAddedCost),
+              finalUnitCost: formatCurrencyLabel(costDetails.finalUnitCost),
+              totalCost: formatCurrencyLabel(costDetails.finalTotalCost),
+              baseTotalCost: formatCurrencyLabel(costDetails.baseTotalCost),
+              sharingTotalAddedCost: formatCurrencyLabel(costDetails.sharingTotalAddedCost),
+              finalTotalCost: formatCurrencyLabel(costDetails.finalTotalCost),
+              unit: formatControlUnitShort(movementConfig.totalUnit),
+              user: record.preparedByUserName || record.sentByUserName || record.createdByUserName,
+              sortValues: {
+                quantity: movedQuantity,
+                unitCost: costDetails.finalUnitCost,
+                baseUnitCost: costDetails.baseUnitCost,
+                sharingFee: costDetails.sharingFeePercentage,
+                sharingUnitAddedCost: costDetails.sharingUnitAddedCost,
+                finalUnitCost: costDetails.finalUnitCost,
+                totalCost: costDetails.finalTotalCost,
+                baseTotalCost: costDetails.baseTotalCost,
+                sharingTotalAddedCost: costDetails.sharingTotalAddedCost,
+                finalTotalCost: costDetails.finalTotalCost,
+                date: rawDate,
+              },
+            } satisfies StockReportRow
+          })
+      })
+      .sort((a, b) => String(b.sortValues?.date ?? '').localeCompare(String(a.sortValues?.date ?? '')))
+  }, [
+    catalogSharingSaleFees,
+    companies,
+    currentAppUser,
+    currentCompanyId,
+    isStockReportSectionActive,
+    isSystemAdmin,
+    products,
+    requisitionApprovalCenters,
+    requisitionEligibleStockCenters,
+    requisitions,
+    serviceItems,
+    stockCenters,
+    supplyResponsibleCenters,
+    technicalSheets,
+  ])
   const stockProductionReportRows = useMemo(() => {
     const producedRows = inventoryCounts
       .filter(
@@ -14509,6 +14782,7 @@ export default function App() {
       VALORIZACAO: stockValuationReportRows,
       REQUISICOES: stockRequisitionReportRows,
       TRANSFERENCIAS: stockTransferReportRows,
+      TRANSFERENCIAS_INTEREMPRESAS: stockIntercompanyTransferReportRows,
       PRODUCOES: stockProductionReportRows,
       OCORRENCIAS: stockInventoryOccurrenceReportRows,
       PRODUTIVIDADE: stockInventoryProductivityReportRows,
@@ -14531,6 +14805,7 @@ export default function App() {
       stockInventoryProductivityReportRows,
       stockInventoryReportRows,
       stockInventoryProductsByPackageReportRows,
+      stockIntercompanyTransferReportRows,
       stockMinimumReportRows,
       stockMovementReportRows,
       stockPositionReportRows,
@@ -14603,9 +14878,24 @@ export default function App() {
           const search = normalizeFreeText(stockReportSearch)
           const matchesSearch =
             search === '' ||
-            [row.main, row.secondary, row.kind, row.family, row.center, row.status, row.user, row.operation ?? '', row.recorded ?? '', row.position ?? ''].some((value) =>
-              normalizeFreeText(value).includes(search),
-            )
+            [
+              row.main,
+              row.secondary,
+              row.kind,
+              row.family,
+              row.sourceCompany ?? '',
+              row.sourceCenter ?? '',
+              row.destinationCompany ?? '',
+              row.destinationCenter ?? '',
+              row.center,
+              row.requisition ?? '',
+              row.status,
+              row.receipt ?? '',
+              row.user,
+              row.operation ?? '',
+              row.recorded ?? '',
+              row.position ?? '',
+            ].some((value) => normalizeFreeText(value).includes(search))
           const matchesFilters = allowedStockReportColumnOptions.every(([key]) => {
             const selectedValues = normalizedStockReportColumnFilters[key]
             if (!selectedValues || selectedValues.size === 0) {
@@ -57054,12 +57344,24 @@ function getStockReportColumnValue(row: StockReportRow, key: StockReportColumnKe
       return row.kind
     case 'family':
       return row.family
+    case 'sourceCompany':
+      return row.sourceCompany ?? ''
+    case 'sourceCenter':
+      return row.sourceCenter ?? ''
+    case 'destinationCompany':
+      return row.destinationCompany ?? ''
+    case 'destinationCenter':
+      return row.destinationCenter ?? ''
     case 'center':
       return row.center
+    case 'requisition':
+      return row.requisition ?? ''
     case 'date':
       return row.date
     case 'status':
       return row.status
+    case 'receipt':
+      return row.receipt ?? ''
     case 'operation':
       return row.operation ?? ''
     case 'recorded':
@@ -57080,8 +57382,22 @@ function getStockReportColumnValue(row: StockReportRow, key: StockReportColumnKe
       return row.minimum ?? ''
     case 'unitCost':
       return row.unitCost ?? ''
+    case 'baseUnitCost':
+      return row.baseUnitCost ?? ''
+    case 'sharingFee':
+      return row.sharingFee ?? ''
+    case 'sharingUnitAddedCost':
+      return row.sharingUnitAddedCost ?? ''
+    case 'finalUnitCost':
+      return row.finalUnitCost ?? ''
     case 'totalCost':
       return row.totalCost ?? ''
+    case 'baseTotalCost':
+      return row.baseTotalCost ?? ''
+    case 'sharingTotalAddedCost':
+      return row.sharingTotalAddedCost ?? ''
+    case 'finalTotalCost':
+      return row.finalTotalCost ?? ''
     case 'unit':
       return row.unit
     case 'user':
@@ -57127,7 +57443,17 @@ function getStockReportColumnSortableValue(row: StockReportRow, key: StockReport
     return parseDecimal(row.minimum ?? '') ?? 0
   }
 
-  if (key === 'unitCost' || key === 'totalCost') {
+  if (
+    key === 'unitCost' ||
+    key === 'baseUnitCost' ||
+    key === 'sharingFee' ||
+    key === 'sharingUnitAddedCost' ||
+    key === 'finalUnitCost' ||
+    key === 'totalCost' ||
+    key === 'baseTotalCost' ||
+    key === 'sharingTotalAddedCost' ||
+    key === 'finalTotalCost'
+  ) {
     return explicitValue ?? 0
   }
 
@@ -57285,6 +57611,42 @@ function getStockReportColumnLabel(key: StockReportColumnKey, tab: StockReportTa
 
   if (tab === 'PRODUTIVIDADE' && key === 'position') {
     return 'Fechamento'
+  }
+
+  if (tab === 'TRANSFERENCIAS_INTEREMPRESAS' && key === 'main') {
+    return 'Ficha/produto'
+  }
+
+  if (tab === 'TRANSFERENCIAS_INTEREMPRESAS' && key === 'date') {
+    return 'Data envio'
+  }
+
+  if (tab === 'TRANSFERENCIAS_INTEREMPRESAS' && key === 'companyId') {
+    return 'ID empresa destino'
+  }
+
+  if (tab === 'TRANSFERENCIAS_INTEREMPRESAS' && key === 'status') {
+    return 'Status requisicao'
+  }
+
+  if (tab === 'TRANSFERENCIAS_INTEREMPRESAS' && key === 'operation') {
+    return 'Origem da necessidade'
+  }
+
+  if (tab === 'TRANSFERENCIAS_INTEREMPRESAS' && key === 'recorded') {
+    return 'Recebido/recusado por'
+  }
+
+  if (tab === 'TRANSFERENCIAS_INTEREMPRESAS' && key === 'quantity') {
+    return 'Quantidade movimentada'
+  }
+
+  if (tab === 'TRANSFERENCIAS_INTEREMPRESAS' && key === 'unit') {
+    return 'Unidade estoque'
+  }
+
+  if (tab === 'TRANSFERENCIAS_INTEREMPRESAS' && key === 'user') {
+    return 'Enviado/preparado por'
   }
 
   return stockReportColumnOptions.find(([columnKey]) => columnKey === key)?.[1] ?? key

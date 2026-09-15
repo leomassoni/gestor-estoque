@@ -1198,6 +1198,7 @@ export type StockReportTab =
   | 'VALORIZACAO'
   | 'REQUISICOES'
   | 'TRANSFERENCIAS'
+  | 'TRANSFERENCIAS_INTEREMPRESAS'
   | 'PRODUCOES'
   | 'OCORRENCIAS'
   | 'PRODUTIVIDADE'
@@ -1213,9 +1214,15 @@ export type StockReportColumnKey =
   | 'packageId'
   | 'kind'
   | 'family'
+  | 'sourceCompany'
+  | 'sourceCenter'
+  | 'destinationCompany'
+  | 'destinationCenter'
   | 'center'
+  | 'requisition'
   | 'date'
   | 'status'
+  | 'receipt'
   | 'operation'
   | 'recorded'
   | 'quantity'
@@ -1226,7 +1233,14 @@ export type StockReportColumnKey =
   | 'position'
   | 'minimum'
   | 'unitCost'
+  | 'baseUnitCost'
+  | 'sharingFee'
+  | 'sharingUnitAddedCost'
+  | 'finalUnitCost'
   | 'totalCost'
+  | 'baseTotalCost'
+  | 'sharingTotalAddedCost'
+  | 'finalTotalCost'
   | 'unit'
   | 'user'
 
@@ -1241,9 +1255,15 @@ export type StockReportRow = {
   packageId: string
   kind: string
   family: string
+  sourceCompany?: string
+  sourceCenter?: string
+  destinationCompany?: string
+  destinationCenter?: string
   center: string
+  requisition?: string
   date: string
   status: string
+  receipt?: string
   operation?: string
   recorded?: string
   quantity: string
@@ -1254,7 +1274,14 @@ export type StockReportRow = {
   position?: string
   minimum?: string
   unitCost?: string
+  baseUnitCost?: string
+  sharingFee?: string
+  sharingUnitAddedCost?: string
+  finalUnitCost?: string
   totalCost?: string
+  baseTotalCost?: string
+  sharingTotalAddedCost?: string
+  finalTotalCost?: string
   unit: string
   user: string
   sortValues?: Partial<Record<StockReportColumnKey, string | number>>
