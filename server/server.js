@@ -2548,6 +2548,23 @@ function parseBigIntParam(value) {
   }
 }
 
+function parseAppDecimal(value) {
+  const compact = String(value ?? '').replace(/\s/g, '')
+  if (!compact) {
+    return null
+  }
+  let normalized = compact
+  if (compact.includes(',') && compact.includes('.')) {
+    normalized = compact.replace(/\./g, '').replace(',', '.')
+  } else if (compact.includes(',')) {
+    normalized = compact.replace(',', '.')
+  } else if (/^\d{1,3}(\.\d{3})+$/.test(compact)) {
+    normalized = compact.replace(/\./g, '')
+  }
+  const parsed = Number(normalized)
+  return Number.isFinite(parsed) ? parsed : null
+}
+
 function serializeBigIntForJson(value) {
   if (typeof value === 'bigint') {
     const asNumber = Number(value)
@@ -4171,6 +4188,7 @@ function normalizeStockCenterPayload(value) {
             record.salesImportSettings.distributorPurchaseRequestAutomation === 'APPROVE_AND_SEND'
               ? record.salesImportSettings.distributorPurchaseRequestAutomation
               : 'MANUAL',
+          allowNegativeSupplyShipment: record.salesImportSettings.allowNegativeSupplyShipment === true,
         }
       : {
           historyMode: 'ROLLING_MONTHS',
@@ -4187,6 +4205,7 @@ function normalizeStockCenterPayload(value) {
           duplicateRowPolicy: 'BLOCK',
           productionSupplyRequestAutomation: 'MANUAL',
           distributorPurchaseRequestAutomation: 'MANUAL',
+          allowNegativeSupplyShipment: false,
         }
 
   if (
@@ -4354,6 +4373,363 @@ function preserveExistingRequisitionLineSourceAllocations(existing, requisition,
   }
 }
 
+function buildServerInventoryAggregationKey(target) {
+  if (target.kind === 'PREPARO') {
+    return `PREPARO:${target.technicalSheetId ?? ''}`
+  }
+
+  if (target.kind === 'PRODUTO') {
+    return `PRODUTO:${target.productId ?? ''}`
+  }
+
+  if (target.kind === 'ITEM') {
+    return `ITEM:${target.serviceItemId ?? ''}`
+  }
+
+  return `VENDA:${target.technicalSheetId ?? ''}`
+}
+
+function isServerOperationalInventoryMovementLocation(value) {
+  const normalizedValue = normalizeRegistrationText(value)
+  return (
+    normalizedValue === 'ENTRADA DE PRODUCAO' ||
+    normalizedValue === 'SAIDA PARA PRODUCAO' ||
+    normalizedValue === 'SAIDA PARA REQUISICAO' ||
+    normalizedValue === 'SAIDA POR VENDAS IMPORTADAS' ||
+    normalizedValue === 'ESTORNO DE VENDAS IMPORTADAS' ||
+    normalizedValue === 'RECEBIMENTO DE REQUISICAO' ||
+    normalizedValue.startsWith('SAIDA POR DESPERDICIO')
+  )
+}
+
+function isServerOutboundOperationalInventoryMovementLocation(value) {
+  const normalizedValue = normalizeRegistrationText(value)
+  return (
+    normalizedValue === 'SAIDA PARA PRODUCAO' ||
+    normalizedValue === 'SAIDA PARA REQUISICAO' ||
+    normalizedValue === 'SAIDA POR VENDAS IMPORTADAS' ||
+    normalizedValue.startsWith('SAIDA POR DESPERDICIO')
+  )
+}
+
+function formatServerDecimal(value) {
+  if (!Number.isFinite(value)) {
+    return '0'
+  }
+  return String(Math.round(value * 1000) / 1000).replace('.', ',')
+}
+
+function getServerInventoryTrackedMovementQuantity(record) {
+  const quantity = parseAppDecimal(record?.totalCountedQuantity) ?? 0
+  return Math.abs(quantity)
+}
+
+function getServerTechnicalSheetBaseYield(sheet) {
+  const declaredYield = parseAppDecimal(sheet?.outputQuantity) ?? 0
+  return declaredYield > 0 ? declaredYield : 1
+}
+
+function getServerStockCenterBaseQuantity(sheet) {
+  if (sheet?.outputUnit === 'UNIT') {
+    return 1
+  }
+
+  const portionBase = parseAppDecimal(sheet?.portionSize) ?? 0
+  return portionBase > 0 ? portionBase : getServerTechnicalSheetBaseYield(sheet)
+}
+
+function calculateServerNormalizedPackageQuantity(packageRecord, controlUnit) {
+  const quantity = parseAppDecimal(packageRecord?.packageQuantity) ?? 0
+  if (quantity <= 0) {
+    return 0
+  }
+
+  if (controlUnit === 'UNIT' || controlUnit === 'COMBO') {
+    return quantity
+  }
+
+  if (controlUnit === 'MILLILITER') {
+    return packageRecord?.packageUnit === 'LITER' ? quantity * 1000 : quantity
+  }
+
+  return packageRecord?.packageUnit === 'KILOGRAM' ? quantity * 1000 : quantity
+}
+
+function getServerInventoryTotalUnit(controlUnit) {
+  if (controlUnit === 'GRAM') {
+    return 'GRAM'
+  }
+  if (controlUnit === 'UNIT') {
+    return 'UNIT'
+  }
+  return 'MILLILITER'
+}
+
+function findServerPackageById(packages, packageId) {
+  if (!Array.isArray(packages) || packageId === null || packageId === undefined || packageId === '') {
+    return null
+  }
+  return packages.find((item) => String(item?.id) === String(packageId)) ?? null
+}
+
+function getServerRequisitionStockMovementConfig(line, context) {
+  if (line?.kind === 'PREPARO' && typeof line.technicalSheetId === 'number') {
+    const sheet = context.technicalSheetById.get(line.technicalSheetId) ?? null
+    if (!sheet) {
+      return { multiplier: 1, totalUnit: 'MILLILITER' }
+    }
+    return {
+      multiplier: getServerStockCenterBaseQuantity(sheet),
+      totalUnit: getServerInventoryTotalUnit(sheet.outputUnit),
+    }
+  }
+
+  if (line?.kind === 'PRODUTO') {
+    const product = context.productById.get(line.productId) ?? null
+    if (!product) {
+      return { multiplier: 1, totalUnit: 'MILLILITER' }
+    }
+    const selectedPackage = findServerPackageById(product.packages, line.packageId)
+    return {
+      multiplier: selectedPackage ? calculateServerNormalizedPackageQuantity(selectedPackage, product.controlUnit) : 1,
+      totalUnit: getServerInventoryTotalUnit(product.controlUnit),
+    }
+  }
+
+  if (line?.kind === 'ITEM') {
+    const serviceItem = context.serviceItemById.get(line.serviceItemId) ?? null
+    const selectedPackage = findServerPackageById(serviceItem?.packages, line.packageId)
+    return {
+      multiplier: selectedPackage ? parseAppDecimal(selectedPackage.packageQuantity) ?? 1 : 1,
+      totalUnit: 'UNIT',
+    }
+  }
+
+  return { multiplier: 1, totalUnit: 'MILLILITER' }
+}
+
+async function getServerCurrentInventoryBalanceByAggregationKey(stockCenter) {
+  const [inventoryRecords, inventoryCountSessions, inventoryCounts] = await Promise.all([
+    prisma.appInventoryRecord.findMany({
+      where: {
+        companyId: stockCenter.companyId,
+        stockCenterId: stockCenter.id,
+        isClosed: true,
+      },
+    }),
+    prisma.appInventoryCountSessionRecord.findMany({
+      where: {
+        companyId: stockCenter.companyId,
+        stockCenterId: stockCenter.id,
+      },
+      select: {
+        id: true,
+        closedAt: true,
+      },
+    }),
+    prisma.appInventoryCountRecord.findMany({
+      where: {
+        companyId: stockCenter.companyId,
+        stockCenterId: stockCenter.id,
+      },
+    }),
+  ])
+  const sessionClosedAtById = new Map(inventoryCountSessions.map((record) => [record.id, record.closedAt]))
+  const events = [
+    ...inventoryRecords.map((inventoryRecord) => ({
+      kind: 'INVENTORY',
+      countedAt: inventoryRecord.countedAt,
+      eventTimestamp: inventoryRecord.startedAt || inventoryRecord.closedAt || inventoryRecord.countedAt,
+      sortId: inventoryRecord.id,
+      inventoryRecord,
+    })),
+    ...inventoryCounts
+      .filter((record) => isServerOperationalInventoryMovementLocation(record.storageLocation))
+      .map((record) => ({
+        kind: 'RECORD',
+        countedAt: record.countedAt,
+        eventTimestamp: sessionClosedAtById.get(record.sessionId) || record.countedAt,
+        sortId: record.id,
+        record,
+      })),
+  ].sort(
+    (left, right) =>
+      String(left.countedAt).localeCompare(String(right.countedAt)) ||
+      String(left.eventTimestamp).localeCompare(String(right.eventTimestamp)) ||
+      left.sortId - right.sortId,
+  )
+
+  let balanceByAggregation = new Map()
+  events.forEach((event) => {
+    if (event.kind === 'INVENTORY') {
+      const countedQuantities = new Map()
+      inventoryCounts
+        .filter(
+          (record) =>
+            record.inventoryId === event.inventoryRecord.id &&
+            !isServerOperationalInventoryMovementLocation(record.storageLocation),
+        )
+        .forEach((record) => {
+          const aggregationKey = buildServerInventoryAggregationKey({
+            kind: record.technicalSheetKind === 'VENDA' ? 'PREPARO' : record.technicalSheetKind,
+            technicalSheetId: record.technicalSheetId,
+            productId: record.productId,
+            serviceItemId: record.serviceItemId,
+          })
+          countedQuantities.set(
+            aggregationKey,
+            (countedQuantities.get(aggregationKey) ?? 0) + (parseAppDecimal(record.totalCountedQuantity) ?? 0),
+          )
+        })
+
+      const nextBalance = new Map()
+      const relevantKeys = new Set([...balanceByAggregation.keys(), ...countedQuantities.keys()])
+      relevantKeys.forEach((aggregationKey) => {
+        nextBalance.set(aggregationKey, countedQuantities.get(aggregationKey) ?? 0)
+      })
+      balanceByAggregation = nextBalance
+      return
+    }
+
+    const aggregationKey = buildServerInventoryAggregationKey({
+      kind: event.record.technicalSheetKind === 'VENDA' ? 'PREPARO' : event.record.technicalSheetKind,
+      technicalSheetId: event.record.technicalSheetId,
+      productId: event.record.productId,
+      serviceItemId: event.record.serviceItemId,
+    })
+    const previousQuantity = balanceByAggregation.get(aggregationKey) ?? 0
+    const movementQuantity = getServerInventoryTrackedMovementQuantity(event.record)
+    const nextQuantity = isServerOutboundOperationalInventoryMovementLocation(event.record.storageLocation)
+      ? previousQuantity - movementQuantity
+      : previousQuantity + movementQuantity
+    balanceByAggregation.set(aggregationKey, nextQuantity)
+  })
+
+  return balanceByAggregation
+}
+
+async function getServerSupplyRequisitionStockShortages(requisition, sourceCenter) {
+  const lines = Array.isArray(requisition.lines) ? requisition.lines : []
+  const technicalSheetIds = Array.from(
+    new Set(lines.map((line) => (line?.kind === 'PREPARO' ? parseIntegerParam(line.technicalSheetId) : null)).filter((id) => id !== null)),
+  )
+  const productIds = Array.from(
+    new Set(
+      lines
+        .map((line) => (line?.kind === 'PRODUTO' && typeof line.productId === 'string' ? normalizeRegistrationText(line.productId) : ''))
+        .filter(Boolean),
+    ),
+  )
+  const serviceItemIds = Array.from(
+    new Set(
+      lines
+        .map((line) => (line?.kind === 'ITEM' && typeof line.serviceItemId === 'string' ? normalizeRegistrationText(line.serviceItemId) : ''))
+        .filter(Boolean),
+    ),
+  )
+
+  const [technicalSheets, products, serviceItems, balanceByAggregationKey] = await Promise.all([
+    technicalSheetIds.length > 0
+      ? prisma.appTechnicalSheetRecord.findMany({ where: { id: { in: technicalSheetIds } } })
+      : Promise.resolve([]),
+    productIds.length > 0
+      ? prisma.appProductRecord.findMany({ where: { id: { in: productIds } } })
+      : Promise.resolve([]),
+    serviceItemIds.length > 0
+      ? prisma.appServiceItemRecord.findMany({ where: { id: { in: serviceItemIds } } })
+      : Promise.resolve([]),
+    getServerCurrentInventoryBalanceByAggregationKey(sourceCenter),
+  ])
+  const context = {
+    technicalSheetById: new Map(technicalSheets.map((record) => [record.id, record])),
+    productById: new Map(products.map((record) => [record.id, record])),
+    serviceItemById: new Map(serviceItems.map((record) => [record.id, record])),
+  }
+  const requestedByAggregation = new Map()
+
+  lines.forEach((line) => {
+    const kind = line?.kind
+    const aggregationKey = buildServerInventoryAggregationKey({
+      kind,
+      technicalSheetId: kind === 'PREPARO' ? parseIntegerParam(line.technicalSheetId) : null,
+      productId: kind === 'PRODUTO' && typeof line.productId === 'string' ? normalizeRegistrationText(line.productId) : '',
+      serviceItemId: kind === 'ITEM' && typeof line.serviceItemId === 'string' ? normalizeRegistrationText(line.serviceItemId) : '',
+    })
+    const movementConfig = getServerRequisitionStockMovementConfig(line, context)
+    const requestedQuantity = (parseAppDecimal(line?.requestedQuantity) ?? 0) * movementConfig.multiplier
+    if (requestedQuantity <= 0) {
+      return
+    }
+
+    const key = `${aggregationKey}:${movementConfig.totalUnit}`
+    const current = requestedByAggregation.get(key) ?? {
+      key,
+      itemName: typeof line?.itemName === 'string' ? line.itemName : aggregationKey,
+      requestedQuantity: 0,
+      availableQuantity: balanceByAggregationKey.get(aggregationKey) ?? 0,
+      totalUnit: movementConfig.totalUnit,
+    }
+    current.requestedQuantity += requestedQuantity
+    requestedByAggregation.set(key, current)
+  })
+
+  return Array.from(requestedByAggregation.values())
+    .map((detail) => ({
+      ...detail,
+      shortageQuantity: detail.requestedQuantity - detail.availableQuantity,
+      finalQuantity: detail.availableQuantity - detail.requestedQuantity,
+    }))
+    .filter((detail) => detail.shortageQuantity > 0)
+}
+
+async function assertSupplyShipmentStockAllowed(requisition, existing) {
+  if (
+    requisition.status !== 'READY_TO_RECEIVE' ||
+    existing?.status === 'READY_TO_RECEIVE' ||
+    requisition.supplyCenterId === null
+  ) {
+    return
+  }
+
+  const sourceCenter = await prisma.appStockCenterRecord.findUnique({
+    where: { id: requisition.supplyCenterId },
+    select: {
+      id: true,
+      companyId: true,
+      name: true,
+      salesImportSettings: true,
+    },
+  })
+  if (!sourceCenter) {
+    return
+  }
+
+  const salesImportSettings =
+    sourceCenter.salesImportSettings && typeof sourceCenter.salesImportSettings === 'object'
+      ? sourceCenter.salesImportSettings
+      : {}
+  if (salesImportSettings.allowNegativeSupplyShipment === true) {
+    return
+  }
+
+  const shortages = await getServerSupplyRequisitionStockShortages(requisition, sourceCenter)
+  if (shortages.length === 0) {
+    return
+  }
+
+  const shortageMessage = shortages
+    .slice(0, 8)
+    .map(
+      (shortage) =>
+        `${shortage.itemName}: faltam ${formatServerDecimal(shortage.shortageQuantity)} ${shortage.totalUnit}`,
+    )
+    .join(' | ')
+  const extraMessage = shortages.length > 8 ? ` | Mais ${shortages.length - 8} item(ns) sem saldo suficiente.` : ''
+  const error = new Error(`Estoque insuficiente para mover requisicao. ${shortageMessage}${extraMessage}`)
+  error.statusCode = 409
+  throw error
+}
+
 async function saveRequisitionWithCancellationGuard(requisitionId, requisition, options = {}) {
   const [existing, deletedRecord] = await Promise.all([
     prisma.appRequisitionRecord.findUnique({
@@ -4396,6 +4772,8 @@ async function saveRequisitionWithCancellationGuard(requisitionId, requisition, 
     error.statusCode = 409
     throw error
   }
+
+  await assertSupplyShipmentStockAllowed(requisition, existing)
 
   return prisma.$transaction(async (transaction) => {
     const requisitionToSave = preserveExistingRequisitionLineSourceAllocations(existing, requisition, options)

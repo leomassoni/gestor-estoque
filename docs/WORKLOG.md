@@ -1759,3 +1759,22 @@ Registrar um historico resumido do que foi feito, do que falhou e do que ficou p
 - Validacao local:
   - `node --check server/server.js` passou;
   - `npm run build` passou.
+
+### Permissao opcional para envio de suprimento com estoque negativo
+
+- Implementacao aplicada em `2026-09-15`.
+- Regra definida:
+  - por padrao, o envio de suprimentos entre estoques continua bloqueando itens sem saldo suficiente no centro de origem;
+  - cada centro produtor/distribuidor pode ativar a permissao `Permitir envio de suprimentos sem saldo suficiente`;
+  - quando a permissao estiver ativa, o usuario ainda precisa confirmar explicitamente o envio em uma janela de impacto;
+  - a confirmacao mostra item, saldo atual, quantidade enviada e saldo final negativo;
+  - a acao fica registrada no painel master com `negativeSupplyShipmentAuthorized`, `negativeStockShortages` e resumo do impacto.
+- Ajuste aplicado:
+  - a checagem de saldo passou a agregar linhas repetidas por item/unidade antes de comparar com o saldo disponivel;
+  - suprimento manual passou a listar itens mesmo com saldo zerado quando a permissao do centro de origem estiver ativa;
+  - a API replica a regra de bloqueio na transicao da requisicao para `READY_TO_RECEIVE`, evitando bypass do frontend;
+  - a API nao reaplica o bloqueio em regravacoes de requisicoes que ja estavam em `READY_TO_RECEIVE`, evitando falso bloqueio apos a baixa de estoque ja registrada.
+- Validacao local:
+  - `node --check server/server.js` passou;
+  - `git diff --check` passou;
+  - `npm run build` passou.

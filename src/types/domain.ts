@@ -521,6 +521,7 @@ export type StockCenterSalesImportSettings = {
   duplicateRowPolicy: 'BLOCK' | 'SKIP'
   productionSupplyRequestAutomation: ProductionSupplyRequestAutomationMode
   distributorPurchaseRequestAutomation: DistributorPurchaseRequestAutomationMode
+  allowNegativeSupplyShipment: boolean
 }
 
 export type StockCenterMinimumStock = {

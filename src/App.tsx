@@ -804,6 +804,21 @@ type PurchaseProductOption = {
 }
 type PurchasePanelTab = 'demand' | 'supplies'
 type ApiMutationError = Error & { statusCode?: number }
+type SupplyStockShortageDetail = {
+  key: string
+  itemName: string
+  requestedQuantity: number
+  availableQuantity: number
+  shortageQuantity: number
+  finalQuantity: number
+  unitLabel: string
+}
+type NegativeSupplyShipmentConfirmationState = {
+  requisitionId: number
+  sourceCenterName: string
+  destinationCenterName: string
+  shortages: SupplyStockShortageDetail[]
+}
 function formatPurchaseDemandQuantity(quantity: number, row: PurchaseDemandRow) {
   if (row.packageBaseQuantity !== null && row.packageBaseQuantity > 0 && row.packageLabel) {
     return formatOperationalPackageQuantity(quantity / row.packageBaseQuantity)
@@ -1650,6 +1665,7 @@ const emptyStockCenterForm = (): StockCenterFormState => ({
     duplicateRowPolicy: 'BLOCK',
     productionSupplyRequestAutomation: 'MANUAL',
     distributorPurchaseRequestAutomation: 'MANUAL',
+    allowNegativeSupplyShipment: false,
   },
 })
 
@@ -2245,6 +2261,7 @@ function normalizeStockCenterSalesImportSettings(value: unknown): StockCenterSal
       record.distributorPurchaseRequestAutomation === 'APPROVE_AND_SEND'
         ? record.distributorPurchaseRequestAutomation
         : 'MANUAL',
+    allowNegativeSupplyShipment: record.allowNegativeSupplyShipment === true,
   }
 }
 
@@ -2867,6 +2884,8 @@ export default function App() {
   const [supplyDraftLines, setSupplyDraftLines] = useState<RequisitionDraftLine[]>([])
   const [supplyConfirmedLineKeys, setSupplyConfirmedLineKeys] = useState<Set<string>>(new Set())
   const [supplyDraftSearch, setSupplyDraftSearch] = useState('')
+  const [negativeSupplyShipmentConfirmationState, setNegativeSupplyShipmentConfirmationState] =
+    useState<NegativeSupplyShipmentConfirmationState | null>(null)
   const [isSupplyEditModalOpen, setIsSupplyEditModalOpen] = useState(false)
   const [receiveReviewRequisitionId, setReceiveReviewRequisitionId] = useState<number | null>(null)
   const [receiveDraftLines, setReceiveDraftLines] = useState<RequisitionDraftLine[]>([])
@@ -11494,7 +11513,7 @@ export default function App() {
           const availableBaseQuantity =
             latestInventoryQuantityByCenterAndAggregation.get(`${manualSupplySourceCenter.id}:${aggregationKey}`) ?? 0
 
-          return availableBaseQuantity > 0
+          return manualSupplySourceCenter.salesImportSettings.allowNegativeSupplyShipment || availableBaseQuantity > 0
         })
         .map((row) => {
           const aggregationKey = buildInventoryAggregationKey({
@@ -22817,6 +22836,9 @@ export default function App() {
         distributorPurchaseRequestAutomation: stockCenterForm.isDistributor
           ? stockCenterForm.salesImportSettings.distributorPurchaseRequestAutomation
           : 'MANUAL',
+        allowNegativeSupplyShipment:
+          (stockCenterForm.isProducer || stockCenterForm.isDistributor) &&
+          stockCenterForm.salesImportSettings.allowNegativeSupplyShipment,
       },
       isActive: existingCenter?.isActive ?? true,
     }
@@ -23957,32 +23979,71 @@ export default function App() {
     )
   }
 
-  function getSupplyRequisitionStockShortageMessage(record: RequisitionRecord) {
+  function getSupplyRequisitionStockShortages(record: RequisitionRecord): SupplyStockShortageDetail[] {
     if (record.supplyCenterId === null) {
-      return ''
+      return []
     }
 
-    const shortages = record.lines
-      .map((line) => {
-        const aggregationKey = buildInventoryAggregationKey({
-          kind: line.kind,
-          technicalSheetId: line.kind === 'PREPARO' ? line.technicalSheetId : null,
-          productId: line.kind === 'PRODUTO' ? line.productId : '',
-          serviceItemId: line.kind === 'ITEM' ? line.serviceItemId : '',
-        })
-        const availableQuantity =
-          latestInventoryQuantityByCenterAndAggregation.get(`${record.supplyCenterId}:${aggregationKey}`) ?? 0
-        const movementConfig = getRequisitionStockMovementConfig(line)
-        const requestedQuantity = (parseDecimal(line.requestedQuantity) ?? 0) * movementConfig.multiplier
-        const shortage = requestedQuantity - availableQuantity
-        if (shortage <= 0) {
-          return ''
-        }
-        return `${line.itemName}: faltam ${formatDecimal(shortage)} ${formatControlUnitShort(movementConfig.totalUnit)}`
+    const requestedByAggregation = new Map<string, SupplyStockShortageDetail>()
+    record.lines.forEach((line) => {
+      const aggregationKey = buildInventoryAggregationKey({
+        kind: line.kind,
+        technicalSheetId: line.kind === 'PREPARO' ? line.technicalSheetId : null,
+        productId: line.kind === 'PRODUTO' ? line.productId : '',
+        serviceItemId: line.kind === 'ITEM' ? line.serviceItemId : '',
       })
-      .filter(Boolean)
+      const movementConfig = getRequisitionStockMovementConfig(line)
+      const requestedQuantity = (parseDecimal(line.requestedQuantity) ?? 0) * movementConfig.multiplier
+      if (requestedQuantity <= 0) {
+        return
+      }
 
-    return shortages.join(' | ')
+      const key = `${aggregationKey}:${movementConfig.totalUnit}`
+      const current = requestedByAggregation.get(key) ?? {
+        key,
+        itemName: line.itemName,
+        requestedQuantity: 0,
+        availableQuantity:
+          latestInventoryQuantityByCenterAndAggregation.get(`${record.supplyCenterId}:${aggregationKey}`) ?? 0,
+        shortageQuantity: 0,
+        finalQuantity: 0,
+        unitLabel: formatControlUnitShort(movementConfig.totalUnit),
+      }
+      current.requestedQuantity += requestedQuantity
+      requestedByAggregation.set(key, current)
+    })
+
+    return Array.from(requestedByAggregation.values())
+      .map((detail) => {
+        const shortageQuantity = detail.requestedQuantity - detail.availableQuantity
+        return {
+          ...detail,
+          shortageQuantity,
+          finalQuantity: detail.availableQuantity - detail.requestedQuantity,
+        }
+      })
+      .filter((detail) => detail.shortageQuantity > 0)
+  }
+
+  function formatSupplyRequisitionStockShortageMessage(shortages: SupplyStockShortageDetail[]) {
+    return shortages
+      .map(
+        (shortage) =>
+          `${shortage.itemName}: faltam ${formatDecimal(shortage.shortageQuantity)} ${shortage.unitLabel}`,
+      )
+      .join(' | ')
+  }
+
+  function formatNegativeSupplyShipmentImpactMessage(shortages: SupplyStockShortageDetail[]) {
+    const shortageSummary = shortages
+      .slice(0, 6)
+      .map(
+        (shortage) =>
+          `${shortage.itemName}: saldo ${formatDecimal(shortage.availableQuantity)} ${shortage.unitLabel}, envio ${formatDecimal(shortage.requestedQuantity)} ${shortage.unitLabel}, ficara ${formatDecimal(shortage.finalQuantity)} ${shortage.unitLabel}`,
+      )
+      .join(' | ')
+    const extraCount = shortages.length > 6 ? ` | Mais ${shortages.length - 6} item(ns) com saldo negativo.` : ''
+    return `${shortageSummary}${extraCount}`
   }
 
   function notifyRequisitionStakeholders(record: RequisitionRecord, message: string) {
@@ -25671,6 +25732,7 @@ export default function App() {
     setSupplyDraftLines([])
     setSupplyConfirmedLineKeys(new Set())
     setSupplyDraftSearch('')
+    setNegativeSupplyShipmentConfirmationState(null)
     setIsSupplyEditModalOpen(false)
   }
 
@@ -25889,7 +25951,10 @@ export default function App() {
     return 'queued' as const
   }
 
-  async function moveRequisitionToReceive(requisitionId: number) {
+  async function moveRequisitionToReceive(
+    requisitionId: number,
+    options: { allowNegativeSupplyShipment?: boolean } = {},
+  ) {
     let latestRequisitions: RequisitionRecord[]
     try {
       latestRequisitions = await loadLatestRequisitionsForMutation()
@@ -25992,18 +26057,33 @@ export default function App() {
       ...targetRequisition,
       lines: sentLines,
     }
-    const shortageMessage = getSupplyRequisitionStockShortageMessage(shipmentRequisition)
-    if (shortageMessage) {
-      setSaveFeedback({
-        status: 'error',
-        title: 'Estoque insuficiente para mover requisicao',
-        message: `O centro de suprimentos ainda nao possui saldo suficiente para esta separacao. ${shortageMessage}`,
-      })
+    const sourceCenterId = targetRequisition.supplyCenterId
+    const sourceCenterName = targetRequisition.supplyCenterName
+    const sourceCenter = typeof sourceCenterId === 'number'
+      ? stockCenters.find((center) => center.id === sourceCenterId) ?? null
+      : null
+    const stockShortages = getSupplyRequisitionStockShortages(shipmentRequisition)
+    const canAllowNegativeShipment = sourceCenter?.salesImportSettings.allowNegativeSupplyShipment === true
+    const isNegativeShipmentAuthorized = stockShortages.length > 0 && options.allowNegativeSupplyShipment === true
+    if (stockShortages.length > 0 && (!canAllowNegativeShipment || !options.allowNegativeSupplyShipment)) {
+      const shortageMessage = formatSupplyRequisitionStockShortageMessage(stockShortages)
+      if (canAllowNegativeShipment) {
+        setNegativeSupplyShipmentConfirmationState({
+          requisitionId,
+          sourceCenterName: sourceCenterName || sourceCenter?.name || 'CENTRO DE SUPRIMENTOS',
+          destinationCenterName: targetRequisition.stockCenterName,
+          shortages: stockShortages,
+        })
+      } else {
+        setSaveFeedback({
+          status: 'error',
+          title: 'Estoque insuficiente para mover requisicao',
+          message: `O centro de suprimentos ainda nao possui saldo suficiente para esta separacao. ${shortageMessage}`,
+        })
+      }
       return
     }
 
-    const sourceCenterId = targetRequisition.supplyCenterId
-    const sourceCenterName = targetRequisition.supplyCenterName
     const shouldDeductSourceInventory = typeof sourceCenterId === 'number' && sourceCenterId > 0
     const countedAt = shouldDeductSourceInventory
       ? latestInventoryDateByCenterId.get(sourceCenterId) ?? getTodayDateInputValue()
@@ -26068,7 +26148,9 @@ export default function App() {
           status: 'success',
           title: 'Requisicao pronta para recebimento',
           message:
-            `O centro ${sourceCenterName} esta com inventario aberto. A baixa de estoque foi registrada como pendente e sera aplicada quando esse inventario for finalizado.`,
+            isNegativeShipmentAuthorized
+              ? `O centro ${sourceCenterName} esta com inventario aberto. A baixa foi registrada como pendente e, quando aplicada, deixara item(ns) com saldo negativo.`
+              : `O centro ${sourceCenterName} esta com inventario aberto. A baixa de estoque foi registrada como pendente e sera aplicada quando esse inventario for finalizado.`,
         })
       }
     }
@@ -26138,7 +26220,9 @@ export default function App() {
         message: remainingLines.length > 0
           ? `Os itens conferidos foram movidos para receber e o saldo nao atendido continua pendente no centro ${sourceCenterName}.`
           : shouldDeductSourceInventory
-            ? `A requisicao foi movida para receber no centro solicitante e o estoque do centro ${sourceCenterName} foi baixado.`
+            ? isNegativeShipmentAuthorized
+              ? `A requisicao foi movida para receber e o estoque do centro ${sourceCenterName} foi baixado, gerando saldo negativo autorizado.`
+              : `A requisicao foi movida para receber no centro solicitante e o estoque do centro ${sourceCenterName} foi baixado.`
             : 'A requisicao foi movida para receber no centro solicitante.',
       })
     }
@@ -26153,7 +26237,9 @@ export default function App() {
       targetLabel: `${targetRequisition.stockCenterName} • ${formatDateForDisplay(targetRequisition.countedAt)}`,
       summary: `Requisicao do centro ${targetRequisition.stockCenterName} foi preparada para recebimento.`,
       impactSummary: shouldDeductSourceInventory
-        ? `Estoque do centro ${sourceCenterName} baixado para abastecer a requisicao.`
+        ? isNegativeShipmentAuthorized
+          ? `Estoque do centro ${sourceCenterName} baixado com saldo negativo autorizado.`
+          : `Estoque do centro ${sourceCenterName} baixado para abastecer a requisicao.`
         : 'Fluxo tratado como compras, sem baixa previa em centro de origem.',
       severity: 'HIGH',
       result: 'SUCCESS',
@@ -26170,6 +26256,17 @@ export default function App() {
         readyRequisitionId: readyRequisition.id,
         sentLineCount: sentLines.length,
         hasResidualDemand: remainingLines.length > 0,
+        negativeSupplyShipmentAuthorized: isNegativeShipmentAuthorized,
+        negativeStockShortages: stockShortages.map((shortage) => ({
+          itemName: shortage.itemName,
+          requestedQuantity: formatDecimal(shortage.requestedQuantity),
+          availableQuantity: formatDecimal(shortage.availableQuantity),
+          finalQuantity: formatDecimal(shortage.finalQuantity),
+          unit: shortage.unitLabel,
+        })),
+        negativeStockImpact: isNegativeShipmentAuthorized
+          ? formatNegativeSupplyShipmentImpactMessage(stockShortages)
+          : '',
       },
     })
   }
@@ -28835,7 +28932,11 @@ export default function App() {
         const requestedQuantity = roundedLine.requestedQuantity
         const requestedQuantityNumber = parseDecimal(requestedQuantity) ?? 0
         const availableQuantityNumber = parseDecimal(selectedOption.line.currentQuantity) ?? 0
-        if (requestedQuantityNumber <= 0 || requestedQuantityNumber > availableQuantityNumber) {
+        if (
+          requestedQuantityNumber <= 0 ||
+          (!manualSupplySourceCenter.salesImportSettings.allowNegativeSupplyShipment &&
+            requestedQuantityNumber > availableQuantityNumber)
+        ) {
           return accumulator
         }
 
@@ -28852,7 +28953,9 @@ export default function App() {
       setSaveFeedback({
         status: 'error',
         title: 'Quantidade invalida',
-        message: 'Informe pelo menos um item valido com quantidade maior que zero e dentro do estoque disponivel para criar o suprimento.',
+        message: manualSupplySourceCenter.salesImportSettings.allowNegativeSupplyShipment
+          ? 'Informe pelo menos um item valido com quantidade maior que zero para criar o suprimento.'
+          : 'Informe pelo menos um item valido com quantidade maior que zero e dentro do estoque disponivel para criar o suprimento.',
       })
       return
     }
@@ -31277,6 +31380,23 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                       Este modo envia a necessidade para Compras sem revisao humana do distribuidor. Se o estoque ou os compromissos do centro estiverem desatualizados, o pedido de compra pode ficar incorreto.
                     </p>
                   ) : null}
+                </>
+              ) : null}
+              {stockCenterForm.isProducer || stockCenterForm.isDistributor ? (
+                <>
+                  <label className="checkbox-row field-span-all">
+                    <input
+                      type="checkbox"
+                      checked={stockCenterForm.salesImportSettings.allowNegativeSupplyShipment}
+                      onChange={(event) =>
+                        updateStockCenterSalesImportSettingsField('allowNegativeSupplyShipment', event.target.checked)
+                      }
+                    />
+                    <span>Permitir envio de suprimentos sem saldo suficiente, gerando estoque negativo quando confirmado.</span>
+                  </label>
+                  <p className="field-helper field-span-all">
+                    Desligado por padrao. Quando ligado, o usuario ainda recebera uma confirmacao antes do envio informando quais itens ficarao negativos e os impactos no fluxo.
+                  </p>
                 </>
               ) : null}
             </>
@@ -48496,6 +48616,23 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                   Desligado por padrao: o centro consumidor recebe o minimo sugerido e o centro produtor/distribuidor acompanha a demanda consolidada sem inflar seu estoque minimo.
                 </p>
 
+                <label className="checkbox-row field-span-all">
+                  <input
+                    type="checkbox"
+                    checked={selectedStockImportSettingsCenter.salesImportSettings.allowNegativeSupplyShipment}
+                    onChange={(event) =>
+                      updateSelectedStockImportSettingsCenter((current) => ({
+                        ...current,
+                        allowNegativeSupplyShipment: event.target.checked,
+                      }))
+                    }
+                  />
+                  <span>Permitir envio de suprimentos sem saldo suficiente, gerando estoque negativo quando confirmado.</span>
+                </label>
+                <p className="field-helper field-span-all">
+                  Desligado por padrao. Quando ligado, o envio com falta de saldo exige confirmacao explicita e fica registrado no painel master.
+                </p>
+
                 <div className="field field-span-all">
                   <div className="empty-state empty-state-inline">
                     <strong>O minimo sugerido considera consumo direto, dependencias e tempo de preparo.</strong>
@@ -52214,6 +52351,69 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
               </button>
               <button type="button" className="primary-button" onClick={saveRequisitionDraft}>
                 Salvar alteracoes da requisicao
+              </button>
+            </div>
+          </section>
+        </div>
+      ) : null}
+
+      {negativeSupplyShipmentConfirmationState ? (
+        <div className="modal-backdrop modal-backdrop-front" role="presentation" onClick={() => setNegativeSupplyShipmentConfirmationState(null)}>
+          <section
+            className="modal-card modal-card-compact"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="negative-supply-shipment-title"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="section-heading">
+              <div>
+                <p className="kicker">Suprimentos</p>
+                <h2 id="negative-supply-shipment-title">Confirmar envio com estoque negativo?</h2>
+              </div>
+            </div>
+            <p className="confirm-copy">
+              O centro {negativeSupplyShipmentConfirmationState.sourceCenterName} nao possui saldo suficiente para abastecer {negativeSupplyShipmentConfirmationState.destinationCenterName}. Confirmar este envio pode deixar saldo negativo, afetar relatorios de estoque, sugestoes de compras, requisicoes futuras e auditoria operacional.
+            </p>
+            <div className="table-wrap">
+              <table className="product-table">
+                <thead>
+                  <tr>
+                    <th>Item</th>
+                    <th>Saldo atual</th>
+                    <th>Envio</th>
+                    <th>Saldo final</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {negativeSupplyShipmentConfirmationState.shortages.map((shortage) => (
+                    <tr key={shortage.key}>
+                      <td className="sticky-product-cell"><strong>{shortage.itemName}</strong></td>
+                      <td>{formatDecimal(shortage.availableQuantity)} {shortage.unitLabel}</td>
+                      <td>{formatDecimal(shortage.requestedQuantity)} {shortage.unitLabel}</td>
+                      <td>{formatDecimal(shortage.finalQuantity)} {shortage.unitLabel}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <p className="field-helper">
+              Confirme apenas se a saida fisica ocorreu ou ocorrera mesmo sem saldo suficiente registrado no sistema.
+            </p>
+            <div className="modal-actions">
+              <button type="button" className="ghost-button" onClick={() => setNegativeSupplyShipmentConfirmationState(null)}>
+                Cancelar
+              </button>
+              <button
+                type="button"
+                className="warning-button"
+                onClick={() => {
+                  const requisitionId = negativeSupplyShipmentConfirmationState.requisitionId
+                  setNegativeSupplyShipmentConfirmationState(null)
+                  void moveRequisitionToReceive(requisitionId, { allowNegativeSupplyShipment: true })
+                }}
+              >
+                Enviar mesmo assim
               </button>
             </div>
           </section>
