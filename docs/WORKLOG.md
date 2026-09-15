@@ -30,6 +30,11 @@ Registrar um historico resumido do que foi feito, do que falhou e do que ficou p
 - Validacao local:
   - `npm run build` passou;
   - `node --check server/server.js` passou.
+- Deploy e validacao online:
+  - publicado no Render via commit `7fa8fb4`;
+  - bundle online confirmado: `index-DBVmjaib.js`;
+  - o bundle publicado contem `Transferencias entre empresas`, `Origem da necessidade` e `Custo final total`;
+  - API online sem token confirmou `401 Autenticacao obrigatoria` em `/api/inventory-counts`, `/api/inventory-count-sessions`, `/api/products`, `/api/users` e `/api/requisitions`.
 
 ## 2026-09-08
 
