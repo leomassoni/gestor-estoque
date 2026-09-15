@@ -1778,3 +1778,25 @@ Registrar um historico resumido do que foi feito, do que falhou e do que ficou p
   - `node --check server/server.js` passou;
   - `git diff --check` passou;
   - `npm run build` passou.
+
+### Habilitacao da permissao no grupo Complexo Vila Analia
+
+- Alteracao operacional aplicada no ambiente online em `2026-09-15`.
+- Escopo:
+  - empresa raiz `COMPLEXO VILA ANALIA` (`id=2`);
+  - empresas vinculadas ao grupo: `MACAXEIRA POIS POIS`, `TRATTORIA TEMPERANI`, `URU MAR E PARILLA`, `FAZENDA MACAXEIRA`, `BOTECO MACAXEIRA`, `AL MARE`, `LOJA DE CACHACA` e `EMPORIO CAUIM`.
+- Centros atualizados com `salesImportSettings.allowNegativeSupplyShipment=true`:
+  - `BAR ARAIS`, `BAR MII`, `ESTOQUE` e `LABORATORIO` em `COMPLEXO VILA ANALIA`;
+  - `BAR MACAXEIRA POIS POIS` e `ESTOQUE` em `MACAXEIRA POIS POIS`;
+  - `BAR TRATTORIA` em `TRATTORIA TEMPERANI`;
+  - `BAR URU` em `URU MAR E PARILLA`;
+  - `BAR FAZENDA MACAXEIRA` em `FAZENDA MACAXEIRA`;
+  - dois cadastros `BAR BOTECO MACAXERIA` em `BOTECO MACAXEIRA`.
+- Validacao:
+  - `11` centros encontrados no escopo;
+  - `11` centros atualizados;
+  - `0` falhas na verificacao posterior via API.
+- Evidencias locais:
+  - backup antes da alteracao: `backups/online-before-cpxva-negative-supply-shipment-20260915T152235Z`;
+  - relatorio/auditoria local: `auditorias/cpxva-negative-supply-shipment-20260915T152235Z.json`;
+  - log criado no painel master: `AUD-2239`.
