@@ -95,6 +95,7 @@ import {
   isCommercialTechnicalSheetProduct,
   isExecutionTechnicalSheetKind,
   isLegacyImportedProduct,
+  isProductionTechnicalSheetKind,
   isSharedPreparationSaleBoundary,
   isTechnicalSheetCatalogProduct,
   resolvePackageGrossWeight,
@@ -413,21 +414,21 @@ const technicalSheetConfigurationFieldDefinitions: Array<{
   kinds: TechnicalSheetKind[]
   block: string
 }> = [
-  { key: 'companyProductId', label: 'ID empresa', kinds: ['PREPARO', 'EXECUCAO', 'VENDA'], block: 'Base' },
-  { key: 'sectors', label: 'Setores', kinds: ['PREPARO', 'EXECUCAO', 'VENDA'], block: 'Base' },
-  { key: 'name', label: 'Nome do item montado', kinds: ['PREPARO', 'EXECUCAO', 'VENDA'], block: 'Base' },
-  { key: 'family', label: 'Familia', kinds: ['PREPARO', 'EXECUCAO', 'VENDA'], block: 'Base' },
-  { key: 'subfamily', label: 'Subfamilia', kinds: ['PREPARO', 'EXECUCAO', 'VENDA'], block: 'Base' },
-  { key: 'outputQuantity', label: 'Rendimento final', kinds: ['PREPARO'], block: 'Base' },
-  { key: 'outputUnit', label: 'Unidade final', kinds: ['PREPARO', 'VENDA'], block: 'Base' },
-  { key: 'portionSize', label: 'Porcao base', kinds: ['PREPARO'], block: 'Base' },
+  { key: 'companyProductId', label: 'ID empresa', kinds: ['PREPARO', 'PRODUTO_INTERNO', 'EXECUCAO', 'VENDA'], block: 'Base' },
+  { key: 'sectors', label: 'Setores', kinds: ['PREPARO', 'PRODUTO_INTERNO', 'EXECUCAO', 'VENDA'], block: 'Base' },
+  { key: 'name', label: 'Nome do item montado', kinds: ['PREPARO', 'PRODUTO_INTERNO', 'EXECUCAO', 'VENDA'], block: 'Base' },
+  { key: 'family', label: 'Familia', kinds: ['PREPARO', 'PRODUTO_INTERNO', 'EXECUCAO', 'VENDA'], block: 'Base' },
+  { key: 'subfamily', label: 'Subfamilia', kinds: ['PREPARO', 'PRODUTO_INTERNO', 'EXECUCAO', 'VENDA'], block: 'Base' },
+  { key: 'outputQuantity', label: 'Rendimento final', kinds: ['PREPARO', 'PRODUTO_INTERNO'], block: 'Base' },
+  { key: 'outputUnit', label: 'Unidade final', kinds: ['PREPARO', 'PRODUTO_INTERNO', 'VENDA'], block: 'Base' },
+  { key: 'portionSize', label: 'Porcao base', kinds: ['PREPARO', 'PRODUTO_INTERNO'], block: 'Base' },
   { key: 'colorTagOne', label: 'Cor 1', kinds: ['PREPARO'], block: 'Base' },
   { key: 'colorTagTwo', label: 'Cor 2', kinds: ['PREPARO'], block: 'Base' },
   { key: 'imageDataUrl', label: 'Imagem do drink', kinds: ['EXECUCAO'], block: 'Base' },
-  { key: 'productionCenters', label: 'Centros produtores e estoque minimo', kinds: ['PREPARO'], block: 'Producao' },
-  { key: 'ingredients', label: 'Produtos de entrada', kinds: ['PREPARO', 'EXECUCAO', 'VENDA'], block: 'Composicao' },
-  { key: 'ingredientManipulatedQuantity', label: 'Manipulado em produtos de entrada', kinds: ['PREPARO', 'EXECUCAO'], block: 'Composicao' },
-  { key: 'serviceItems', label: 'Recipientes vinculados', kinds: ['PREPARO', 'EXECUCAO', 'VENDA'], block: 'Composicao' },
+  { key: 'productionCenters', label: 'Centros produtores e estoque minimo', kinds: ['PREPARO', 'PRODUTO_INTERNO'], block: 'Producao' },
+  { key: 'ingredients', label: 'Produtos de entrada', kinds: ['PREPARO', 'PRODUTO_INTERNO', 'EXECUCAO', 'VENDA'], block: 'Composicao' },
+  { key: 'ingredientManipulatedQuantity', label: 'Manipulado em produtos de entrada', kinds: ['PREPARO', 'PRODUTO_INTERNO', 'EXECUCAO'], block: 'Composicao' },
+  { key: 'serviceItems', label: 'Recipientes vinculados', kinds: ['PREPARO', 'PRODUTO_INTERNO', 'EXECUCAO', 'VENDA'], block: 'Composicao' },
   { key: 'garnishIngredients', label: 'Guarnicoes', kinds: ['EXECUCAO'], block: 'Composicao' },
   { key: 'densitySampleVolume', label: 'Volume da amostra', kinds: ['PREPARO'], block: 'Opcional' },
   { key: 'densitySampleWeight', label: 'Peso da amostra', kinds: ['PREPARO'], block: 'Opcional' },
@@ -440,11 +441,11 @@ const technicalSheetConfigurationFieldDefinitions: Array<{
   { key: 'storytelling', label: 'Storytelling', kinds: ['EXECUCAO'], block: 'Narrativa' },
   { key: 'salesArguments', label: 'Argumentos de venda', kinds: ['EXECUCAO'], block: 'Narrativa' },
   { key: 'harmonization', label: 'Harmonizacao', kinds: ['EXECUCAO'], block: 'Narrativa' },
-  { key: 'preparationMode', label: 'Modo de preparo', kinds: ['PREPARO', 'EXECUCAO'], block: 'Manipulacao' },
-  { key: 'preparationLeadTimeDays', label: 'Tempo de preparo (dias)', kinds: ['PREPARO'], block: 'Manipulacao' },
-  { key: 'shelfLifeRoom', label: 'Validade in natura', kinds: ['PREPARO'], block: 'Manipulacao' },
-  { key: 'shelfLifeRefrigerated', label: 'Validade refrigerado', kinds: ['PREPARO'], block: 'Manipulacao' },
-  { key: 'shelfLifeFrozen', label: 'Validade congelado', kinds: ['PREPARO'], block: 'Manipulacao' },
+  { key: 'preparationMode', label: 'Modo de preparo', kinds: ['PREPARO', 'PRODUTO_INTERNO', 'EXECUCAO'], block: 'Manipulacao' },
+  { key: 'preparationLeadTimeDays', label: 'Tempo de preparo (dias)', kinds: ['PREPARO', 'PRODUTO_INTERNO'], block: 'Manipulacao' },
+  { key: 'shelfLifeRoom', label: 'Validade in natura', kinds: ['PREPARO', 'PRODUTO_INTERNO'], block: 'Manipulacao' },
+  { key: 'shelfLifeRefrigerated', label: 'Validade refrigerado', kinds: ['PREPARO', 'PRODUTO_INTERNO'], block: 'Manipulacao' },
+  { key: 'shelfLifeFrozen', label: 'Validade congelado', kinds: ['PREPARO', 'PRODUTO_INTERNO'], block: 'Manipulacao' },
 ]
 const recipeExecutionBlockDefinitions: Array<{ key: RecipeExecutionBlockKey; label: string }> = [
   { key: 'baseSummary', label: 'Cabecalho tecnico' },
@@ -565,6 +566,7 @@ function buildDefaultTechnicalSheetKindConfiguration(kind: TechnicalSheetKind): 
 function buildDefaultTechnicalSheetFormSettings(): TechnicalSheetFormSettings {
   return {
     PREPARO: buildDefaultTechnicalSheetKindConfiguration('PREPARO'),
+    PRODUTO_INTERNO: buildDefaultTechnicalSheetKindConfiguration('PRODUTO_INTERNO'),
     EXECUCAO: buildDefaultTechnicalSheetKindConfiguration('EXECUCAO'),
     VENDA: buildDefaultTechnicalSheetKindConfiguration('VENDA'),
   }
@@ -2113,6 +2115,10 @@ function getProductLinkedTechnicalSheet(product: ProductRecord, technicalSheets:
     : null
 }
 
+function isProductionStockKind(kind: string): kind is 'PREPARO' | 'PRODUTO_INTERNO' {
+  return kind === 'PREPARO' || kind === 'PRODUTO_INTERNO'
+}
+
 function isTechnicalSheetCompositionIngredientAllowed(
   parentKind: TechnicalSheetKind,
   parentOutputUnit: ControlUnit,
@@ -2123,7 +2129,11 @@ function isTechnicalSheetCompositionIngredientAllowed(
   }
 
   if (linkedTechnicalSheet.kind === 'PREPARO') {
-    return parentKind === 'PREPARO' || parentKind === 'EXECUCAO'
+    return parentKind === 'PREPARO' || parentKind === 'PRODUTO_INTERNO' || parentKind === 'EXECUCAO'
+  }
+
+  if (linkedTechnicalSheet.kind === 'PRODUTO_INTERNO') {
+    return parentKind === 'VENDA'
   }
 
   if (linkedTechnicalSheet.kind === 'EXECUCAO') {
@@ -2143,7 +2153,11 @@ function getTechnicalSheetCompositionRuleError(
   }
 
   if (linkedTechnicalSheet.kind === 'PREPARO') {
-    return 'ficha de venda nao pode usar ficha de pre-preparo na composicao'
+    return 'ficha de pre-preparo so pode compor pre-preparo, produto interno ou execucao'
+  }
+
+  if (linkedTechnicalSheet.kind === 'PRODUTO_INTERNO') {
+    return 'produto interno so pode compor ficha de venda'
   }
 
   if (linkedTechnicalSheet.kind === 'EXECUCAO') {
@@ -2160,7 +2174,7 @@ function syncTechnicalSheetsForStockCenterChange(
   centerToSave: StockCenterRecord,
 ): TechnicalSheetRecord[] {
   return currentSheets.map((sheet) => {
-    if (sheet.kind !== 'PREPARO') {
+    if (!isProductionTechnicalSheetKind(sheet.kind)) {
       return sheet
     }
 
@@ -2172,7 +2186,7 @@ function syncTechnicalSheetsForStockCenterChange(
     )
     const prepMinimumQuantity =
       centerToSave.minimumStocks.find(
-        (item) => item.kind === 'PREPARO' && item.technicalSheetId === sheet.id,
+        (item) => isProductionStockKind(item.kind) && item.technicalSheetId === sheet.id,
       )?.minimumQuantity ?? ''
 
     if (!centerToSave.isProducer || !centerToSave.producedTechnicalSheetIds.includes(sheet.id)) {
@@ -2204,10 +2218,10 @@ function syncStockCentersForTechnicalSheetChange(
   return currentCenters.map((center) => {
     const remainingProducedIds = center.producedTechnicalSheetIds.filter((sheetId) => sheetId !== technicalSheetToSave.id)
     const remainingMinimumStocks = center.minimumStocks.filter(
-      (item) => !(item.kind === 'PREPARO' && item.technicalSheetId === technicalSheetToSave.id),
+      (item) => !(isProductionStockKind(item.kind) && item.technicalSheetId === technicalSheetToSave.id),
     )
     const productionAssignment =
-      technicalSheetToSave.kind === 'PREPARO'
+      isProductionTechnicalSheetKind(technicalSheetToSave.kind)
         ? technicalSheetToSave.productionCenters.find((item) => item.stockCenterId === center.id) ?? null
         : null
 
@@ -2227,7 +2241,7 @@ function syncStockCentersForTechnicalSheetChange(
         ? [
             ...remainingMinimumStocks,
             {
-              kind: 'PREPARO',
+              kind: technicalSheetToSave.kind as StockCountableKind,
               technicalSheetId: technicalSheetToSave.id,
               productId: '',
               serviceItemId: '',
@@ -4960,7 +4974,7 @@ export default function App() {
           (record.planningSourceSheetId === sheet.id ||
             (typeof record.planningRootRequestId === 'number' &&
               impactedManualRootRequestIds.has(record.planningRootRequestId)) ||
-            record.lines.some((line) => line.kind === 'PREPARO' && line.technicalSheetId === sheet.id)),
+            record.lines.some((line) => isProductionStockKind(line.kind) && line.technicalSheetId === sheet.id)),
       )
       .map((record) => ({
         id: record.id,
@@ -8874,7 +8888,7 @@ export default function App() {
         .map((line) => {
           const product = line.kind === 'PRODUTO' ? productById.get(line.productId) ?? null : null
           const preparation =
-            line.kind === 'PREPARO' && typeof line.technicalSheetId === 'number'
+            isProductionStockKind(line.kind) && typeof line.technicalSheetId === 'number'
               ? technicalSheets.find((sheet) => sheet.id === line.technicalSheetId && sheet.kind === 'PREPARO') ?? null
               : null
           const requestedQuantity = parseDecimal(line.requestedQuantity) ?? 0
@@ -9946,7 +9960,7 @@ export default function App() {
           (sheet) =>
             isTechnicalSheetVisibleForCompany(sheet, currentCompanyId) &&
             sheet.isActive &&
-            sheet.kind === 'PREPARO' &&
+            isProductionTechnicalSheetKind(sheet.kind) &&
             isTechnicalSheetStockTracked(sheet, products) &&
             (sheet.productionCenters ?? []).length > 0,
         )
@@ -10282,7 +10296,7 @@ export default function App() {
   const selectedInventoryCountableItem = useMemo(() => {
     if (inventoryForm.technicalSheetId !== null) {
       return inventoryCountableItems.find(
-        (item) => item.kind === 'PREPARO' && item.technicalSheetId === inventoryForm.technicalSheetId,
+        (item) => isProductionStockKind(item.kind) && item.technicalSheetId === inventoryForm.technicalSheetId,
       ) ?? null
     }
     if (inventoryForm.productId) {
@@ -10353,7 +10367,7 @@ export default function App() {
     }
     if (wasteForm.technicalSheetId !== null) {
       return wasteCountableItems.find(
-        (item) => item.kind === 'PREPARO' && item.technicalSheetId === wasteForm.technicalSheetId,
+        (item) => isProductionStockKind(item.kind) && item.technicalSheetId === wasteForm.technicalSheetId,
       ) ?? null
     }
     if (wasteForm.productId) {
@@ -11115,7 +11129,7 @@ export default function App() {
         .filter(
           (sheet) =>
             isTechnicalSheetVisibleForCompany(sheet, currentCompanyId) &&
-            sheet.kind === 'PREPARO' &&
+            isProductionTechnicalSheetKind(sheet.kind) &&
             sheet.isActive,
         )
         .sort((a, b) => a.name.localeCompare(b.name, 'pt-BR')),
@@ -11149,7 +11163,7 @@ export default function App() {
           (center) =>
             center.isActive &&
             (center.companyId === currentCompanyId ||
-              (technicalSheetForm.kind === 'PREPARO' &&
+              (isProductionTechnicalSheetKind(technicalSheetForm.kind) &&
                 technicalSheetForm.sharedCompanyIds.includes(center.companyId))),
         )
         .sort((a, b) => a.name.localeCompare(b.name, 'pt-BR')),
@@ -11183,7 +11197,7 @@ export default function App() {
           (center) =>
             center.isActive &&
             (center.companyId === currentCompanyId ||
-              (technicalSheetForm.kind === 'PREPARO' && technicalSheetForm.sharedCompanyIds.includes(center.companyId))),
+              (isProductionTechnicalSheetKind(technicalSheetForm.kind) && technicalSheetForm.sharedCompanyIds.includes(center.companyId))),
         )
         .sort((left, right) => {
           if (left.companyId !== right.companyId) {
@@ -11218,7 +11232,7 @@ export default function App() {
           (sheet) =>
             isTechnicalSheetVisibleForCompany(sheet, companyId) &&
             sheet.isActive &&
-            sheet.kind === 'PREPARO' &&
+            isProductionTechnicalSheetKind(sheet.kind) &&
             isTechnicalSheetStockTracked(sheet, products),
         )
         .sort((a, b) => a.name.localeCompare(b.name, 'pt-BR'))
@@ -11241,15 +11255,15 @@ export default function App() {
           (sheet) =>
             ({
               key: buildStockCenterMinimumEntryKey({
-                kind: 'PREPARO',
+                kind: sheet.kind as StockCountableKind,
                 technicalSheetId: sheet.id,
                 productId: '',
                 serviceItemId: '',
                 packageId: null,
               }),
-              kind: 'PREPARO',
+              kind: sheet.kind as StockCountableKind,
               name: sheet.name,
-              typeLabel: 'Pre-preparo',
+              typeLabel: getTechnicalSheetKindLabel(sheet.kind),
               family: sheet.family,
               referenceLabel: 'PORCAO BASE',
               baseQuantity: getStockCenterBaseQuantity(sheet),
@@ -11346,11 +11360,11 @@ export default function App() {
     [currentCompanyId, isProductVisibleForCompany, isTechnicalSheetVisibleForCompany, products, serviceItems, stockCenterPreviewRecord?.companyId, technicalSheets],
   )
   const getStockCenterConsolidatedMinimumText = (row: StockCenterMinimumRow) => {
-    if (!stockCenterPreviewRecord || row.kind !== 'PREPARO' || row.technicalSheetId === null) {
+    if (!stockCenterPreviewRecord || !isProductionStockKind(row.kind) || row.technicalSheetId === null) {
       return ''
     }
     const technicalSheet =
-      technicalSheets.find((sheet) => sheet.id === row.technicalSheetId && sheet.kind === 'PREPARO') ?? null
+      technicalSheets.find((sheet) => sheet.id === row.technicalSheetId && isProductionTechnicalSheetKind(sheet.kind)) ?? null
     if (!technicalSheet) {
       return ''
     }
@@ -11371,12 +11385,12 @@ export default function App() {
           (sheet) =>
             isTechnicalSheetVisibleForCompany(sheet, center.companyId) &&
             sheet.isActive &&
-            sheet.kind === 'PREPARO' &&
+            isProductionTechnicalSheetKind(sheet.kind) &&
             isTechnicalSheetStockTracked(sheet, products),
         )
         .forEach((sheet) => {
           const key = buildStockCenterMinimumEntryKey({
-            kind: 'PREPARO',
+            kind: sheet.kind as StockCountableKind,
             technicalSheetId: sheet.id,
             productId: '',
             serviceItemId: '',
@@ -11386,9 +11400,9 @@ export default function App() {
             key,
             {
               key,
-              kind: 'PREPARO',
+              kind: sheet.kind as StockCountableKind,
               name: sheet.name,
-              typeLabel: 'Pre-preparo',
+              typeLabel: getTechnicalSheetKindLabel(sheet.kind),
               family: sheet.family,
               referenceLabel: 'PORCAO BASE',
               baseQuantity: getStockCenterBaseQuantity(sheet),
@@ -11527,11 +11541,11 @@ export default function App() {
             }
           }
 
-          if (row.kind === 'PREPARO') {
+          if (isProductionStockKind(row.kind)) {
             const technicalSheet =
               row.technicalSheetId === null
                 ? null
-                : technicalSheets.find((sheet) => sheet.id === row.technicalSheetId && sheet.kind === 'PREPARO') ?? null
+                : technicalSheets.find((sheet) => sheet.id === row.technicalSheetId && isProductionTechnicalSheetKind(sheet.kind)) ?? null
             if (!technicalSheet || !doesCenterProduceTechnicalSheet(manualSupplySourceCenter, technicalSheet)) {
               return false
             }
@@ -11562,7 +11576,7 @@ export default function App() {
           const line: RequisitionLineRecord = {
             key: row.key,
             kind: row.kind,
-            technicalSheetId: row.kind === 'PREPARO' ? row.technicalSheetId : null,
+            technicalSheetId: isProductionStockKind(row.kind) ? row.technicalSheetId : null,
             productId: row.kind === 'PRODUTO' ? row.productId : '',
             serviceItemId: row.kind === 'ITEM' ? row.serviceItemId : '',
             packageId: row.kind === 'PRODUTO' || row.kind === 'ITEM' ? row.packageId : null,
@@ -11575,13 +11589,13 @@ export default function App() {
             requestUnitLabel,
             currentUnitLabel: requestUnitLabel,
             minimumDefinitionLabel: '-',
-            destinationType: row.kind === 'PREPARO' ? 'PRODUCOES' : 'SUPRIMENTOS',
+            destinationType: isProductionStockKind(row.kind) ? 'PRODUCOES' : 'SUPRIMENTOS',
             destinationLabel:
-              row.kind === 'PREPARO'
+              isProductionStockKind(row.kind)
                 ? manualSupplyTargetCenter?.name ?? ''
                 : manualSupplyTargetCenter?.name ?? '',
-            destinationCenterId: row.kind === 'PREPARO' ? manualSupplyTargetCenter?.id ?? null : null,
-            destinationCenterName: row.kind === 'PREPARO' ? manualSupplyTargetCenter?.name ?? '' : '',
+            destinationCenterId: isProductionStockKind(row.kind) ? manualSupplyTargetCenter?.id ?? null : null,
+            destinationCenterName: isProductionStockKind(row.kind) ? manualSupplyTargetCenter?.name ?? '' : '',
             supplierCenterId: row.kind === 'PRODUTO' || row.kind === 'ITEM' ? manualSupplySourceCenter?.id ?? null : null,
             supplierCenterName: row.kind === 'PRODUTO' || row.kind === 'ITEM' ? manualSupplySourceCenter?.name ?? '' : '',
             supplierCompanyId:
@@ -11873,13 +11887,13 @@ export default function App() {
               `${event.record.storageLocation || event.record.recipientLabel} • ` +
               `Anterior ${formatDecimal(previousQuantity)} ${metadata.unit}`,
             internalId:
-              event.record.technicalSheetKind === 'PREPARO'
+              isProductionStockKind(event.record.technicalSheetKind)
                 ? technicalSheets.find((sheet) => sheet.id === event.record.technicalSheetId)?.productId ?? ''
                 : event.record.technicalSheetKind === 'PRODUTO'
                   ? event.record.productId
                   : event.record.serviceItemId,
             companyId:
-              event.record.technicalSheetKind === 'PREPARO'
+              isProductionStockKind(event.record.technicalSheetKind)
                 ? technicalSheets.find((sheet) => sheet.id === event.record.technicalSheetId)?.companyProductId ?? ''
                 : event.record.technicalSheetKind === 'PRODUTO'
                   ? products.find((product) => product.id === event.record.productId)?.companyProductId ?? ''
@@ -11981,13 +11995,13 @@ export default function App() {
           main: entry.record.technicalSheetName,
           secondary: `${entry.locationLabel} • ${entry.historyTitle}`,
           internalId:
-            entry.record.technicalSheetKind === 'PREPARO'
+            isProductionStockKind(entry.record.technicalSheetKind)
               ? technicalSheets.find((sheet) => sheet.id === entry.record.technicalSheetId)?.productId ?? ''
               : entry.record.technicalSheetKind === 'PRODUTO'
                 ? entry.record.productId
                 : entry.record.serviceItemId,
           companyId:
-            entry.record.technicalSheetKind === 'PREPARO'
+            isProductionStockKind(entry.record.technicalSheetKind)
               ? technicalSheets.find((sheet) => sheet.id === entry.record.technicalSheetId)?.companyProductId ?? ''
               : entry.record.technicalSheetKind === 'PRODUTO'
                 ? products.find((product) => product.id === entry.record.productId)?.companyProductId ?? ''
@@ -12070,13 +12084,13 @@ export default function App() {
           reportStockCenterById.get(entry.record.stockCenterId)?.name ??
           `CENTRO ${entry.record.stockCenterId}`
         const internalId =
-          entry.record.technicalSheetKind === 'PREPARO'
+          isProductionStockKind(entry.record.technicalSheetKind)
             ? technicalSheets.find((sheet) => sheet.id === entry.record.technicalSheetId)?.productId ?? ''
             : entry.record.technicalSheetKind === 'PRODUTO'
               ? entry.record.productId
               : entry.record.serviceItemId
         const companyId =
-          entry.record.technicalSheetKind === 'PREPARO'
+          isProductionStockKind(entry.record.technicalSheetKind)
             ? technicalSheets.find((sheet) => sheet.id === entry.record.technicalSheetId)?.companyProductId ?? ''
             : entry.record.technicalSheetKind === 'PRODUTO'
               ? products.find((product) => product.id === entry.record.productId)?.companyProductId ?? ''
@@ -13802,7 +13816,7 @@ export default function App() {
                   latestInventoryQuantityByCenterAndAggregation.get(`${record.stockCenterId}:${aggregationKey}`) ?? 0
                 const positionUnit =
                   inventoryAggregationMetadataByKey.get(aggregationKey)?.unit ??
-                  (line.kind === 'PREPARO'
+                  (isProductionStockKind(line.kind)
                     ? formatControlUnitShort(
                         technicalSheets.find((sheet) => sheet.id === line.technicalSheetId)?.outputUnit ?? 'MILLILITER',
                       )
@@ -13816,13 +13830,13 @@ export default function App() {
                   main: line.itemName,
                   secondary: line.destinationLabel,
                   internalId:
-                    line.kind === 'PREPARO'
+                    isProductionStockKind(line.kind)
                       ? technicalSheets.find((sheet) => sheet.id === line.technicalSheetId)?.productId ?? ''
                       : line.kind === 'PRODUTO'
                         ? line.productId
                         : line.serviceItemId,
                   companyId:
-                    line.kind === 'PREPARO'
+                    isProductionStockKind(line.kind)
                       ? technicalSheets.find((sheet) => sheet.id === line.technicalSheetId)?.companyProductId ?? ''
                       : line.kind === 'PRODUTO'
                         ? products.find((product) => product.id === line.productId)?.companyProductId ?? ''
@@ -13900,7 +13914,7 @@ export default function App() {
     }
 
     function getLineCostDetails(line: RequisitionLineRecord, destinationCompanyId: number, movedQuantity: number) {
-      if (line.kind === 'PREPARO' && typeof line.technicalSheetId === 'number') {
+      if (isProductionStockKind(line.kind) && typeof line.technicalSheetId === 'number') {
         const sheet = sheetByIdForReport.get(line.technicalSheetId) ?? null
         if (!sheet) {
           return { baseUnitCost: 0, sharingFeePercentage: 0, sharingUnitAddedCost: 0, finalUnitCost: 0, baseTotalCost: 0, sharingTotalAddedCost: 0, finalTotalCost: 0 }
@@ -14014,7 +14028,7 @@ export default function App() {
               .map((allocation) => allocation.sourcePath || `${allocation.originCompanyName} > ${allocation.originCenterName}`)
               .filter(Boolean)
               .join(' | ')
-            const sheet = line.kind === 'PREPARO' && typeof line.technicalSheetId === 'number' ? sheetByIdForReport.get(line.technicalSheetId) ?? null : null
+            const sheet = isProductionStockKind(line.kind) && typeof line.technicalSheetId === 'number' ? sheetByIdForReport.get(line.technicalSheetId) ?? null : null
             const product = line.kind === 'PRODUTO' ? productByIdForReport.get(line.productId) ?? null : null
             const serviceItem = line.kind === 'ITEM' ? serviceItemByIdForReport.get(line.serviceItemId) ?? null : null
             const packageCode =
@@ -14030,19 +14044,19 @@ export default function App() {
               main: line.itemName,
               secondary: sourceDetails,
               internalId:
-                line.kind === 'PREPARO'
+                isProductionStockKind(line.kind)
                   ? sheet?.productId ?? ''
                   : line.kind === 'PRODUTO'
                     ? line.productId
                     : line.serviceItemId,
               companyId:
-                line.kind === 'PREPARO'
+                isProductionStockKind(line.kind)
                   ? sheet ? getTechnicalSheetCompanyProductId(sheet, record.companyId) : ''
                   : line.kind === 'PRODUTO'
                     ? product?.companyProductId ?? ''
                     : serviceItem?.companyProductId ?? '',
               packageId: packageCode,
-              kind: line.itemTypeLabel || (line.kind === 'PREPARO' ? 'Pre-preparo' : line.kind === 'PRODUTO' ? 'Produto' : 'Item'),
+              kind: line.itemTypeLabel || (isProductionStockKind(line.kind) ? 'Pre-preparo' : line.kind === 'PRODUTO' ? 'Produto' : 'Item'),
               family: line.family || sheet?.family || product?.family || serviceItem?.family || '',
               sourceCompany: sourceCompanyName,
               sourceCenter: sourceCenterName,
@@ -16279,6 +16293,9 @@ export default function App() {
     () => ({
       PREPARO: technicalSheets
         .filter((sheet) => sheet.kind === 'PREPARO' && isTechnicalSheetVisibleForCompany(sheet, currentCompanyId))
+        .sort((left, right) => left.name.localeCompare(right.name, 'pt-BR')),
+      PRODUTO_INTERNO: technicalSheets
+        .filter((sheet) => sheet.kind === 'PRODUTO_INTERNO' && isTechnicalSheetVisibleForCompany(sheet, currentCompanyId))
         .sort((left, right) => left.name.localeCompare(right.name, 'pt-BR')),
       EXECUCAO: technicalSheets
         .filter((sheet) => sheet.kind === 'EXECUCAO' && isTechnicalSheetVisibleForCompany(sheet, currentCompanyId))
@@ -23461,22 +23478,22 @@ export default function App() {
           (sheet) =>
             isTechnicalSheetVisibleForCompany(sheet, center.companyId) &&
             sheet.isActive &&
-            sheet.kind === 'PREPARO' &&
+            isProductionTechnicalSheetKind(sheet.kind) &&
             isTechnicalSheetStockTracked(sheet, products),
         )
         .map(
           (sheet) =>
             ({
               key: buildStockCenterMinimumEntryKey({
-                kind: 'PREPARO',
+                kind: sheet.kind as StockCountableKind,
                 technicalSheetId: sheet.id,
                 productId: '',
                 serviceItemId: '',
                 packageId: null,
               }),
-              kind: 'PREPARO',
+              kind: sheet.kind as StockCountableKind,
               name: sheet.name,
-              typeLabel: 'Pre-preparo',
+              typeLabel: getTechnicalSheetKindLabel(sheet.kind),
               family: sheet.family,
               referenceLabel: 'PORCAO BASE',
                   baseQuantity: getStockCenterBaseQuantity(sheet),
@@ -23577,18 +23594,19 @@ export default function App() {
     const baseLines = centerMinimumRows
       .filter((row) => row.kind !== 'ITEM' || row.baseUnit === 'UNIT')
       .filter((row) => {
-        if (row.kind !== 'PREPARO' || row.technicalSheetId === null) {
-          return true
-        }
-        const technicalSheet = technicalSheets.find((sheet) => sheet.id === row.technicalSheetId && sheet.kind === 'PREPARO') ?? null
-        return !technicalSheet || !doesCenterProduceTechnicalSheet(center, technicalSheet)
-      })
-      .filter((row) => {
-        if (row.kind !== 'PREPARO' || row.technicalSheetId === null) {
+        if (!isProductionStockKind(row.kind) || row.technicalSheetId === null) {
           return true
         }
         const technicalSheet =
-          technicalSheets.find((sheet) => sheet.id === row.technicalSheetId && sheet.kind === 'PREPARO') ?? null
+          technicalSheets.find((sheet) => sheet.id === row.technicalSheetId && isProductionTechnicalSheetKind(sheet.kind)) ?? null
+        return !technicalSheet || !doesCenterProduceTechnicalSheet(center, technicalSheet)
+      })
+      .filter((row) => {
+        if (!isProductionStockKind(row.kind) || row.technicalSheetId === null) {
+          return true
+        }
+        const technicalSheet =
+          technicalSheets.find((sheet) => sheet.id === row.technicalSheetId && isProductionTechnicalSheetKind(sheet.kind)) ?? null
         if (!technicalSheet) {
           return false
         }
@@ -23610,7 +23628,7 @@ export default function App() {
         const effectiveMinimumStock = minimumStock ?? productUnitMinimumStock
         const shouldRoundOperationalRow =
           (row.kind === 'PRODUTO' && row.packageId !== null && row.baseQuantity > 0) ||
-          (row.kind === 'PREPARO' && row.baseQuantity > 0)
+          (isProductionStockKind(row.kind) && row.baseQuantity > 0)
         const getProductPackageMinimumQuantity = (entry: StockCenterMinimumStock | null, rawQuantity: string) => {
           if (!entry || !rawQuantity.trim()) {
             return 0
@@ -23656,15 +23674,15 @@ export default function App() {
             ? resolveProductDemandDestination(center, row.productId)
             : null
         const targetPreparationSheet =
-          row.kind === 'PREPARO' && row.technicalSheetId !== null
-            ? technicalSheets.find((sheet) => sheet.id === row.technicalSheetId && sheet.kind === 'PREPARO') ?? null
+          isProductionStockKind(row.kind) && row.technicalSheetId !== null
+            ? technicalSheets.find((sheet) => sheet.id === row.technicalSheetId && isProductionTechnicalSheetKind(sheet.kind)) ?? null
             : null
         const preparationSupplyResolution =
-          row.kind === 'PREPARO' && targetPreparationSheet
+          isProductionStockKind(row.kind) && targetPreparationSheet
             ? resolveTechnicalSheetSupplyRoute(targetPreparationSheet, center)
             : null
         const destinationType =
-          row.kind === 'PREPARO'
+          isProductionStockKind(row.kind)
             ? 'PRODUCOES'
             : productDemandDestination?.destinationType ?? 'COMPRAS'
         const producerCandidates = preparationSupplyResolution?.producerCandidates ?? []
@@ -23703,7 +23721,7 @@ export default function App() {
           requestUnitLabel: getRequisitionRequestUnitLabel(row),
           currentQuantity: shouldRoundOperationalRow ? formatEditableDecimal(currentRowQuantity) : formatDecimal(currentRowQuantity),
           currentUnitLabel:
-            row.kind === 'PREPARO'
+            isProductionStockKind(row.kind)
               ? getRequisitionRequestUnitLabel(row)
               : shouldRoundOperationalRow
                 ? packageUnitLabel
@@ -24278,7 +24296,7 @@ export default function App() {
     record.lines.forEach((line) => {
       const aggregationKey = buildInventoryAggregationKey({
         kind: line.kind,
-        technicalSheetId: line.kind === 'PREPARO' ? line.technicalSheetId : null,
+        technicalSheetId: isProductionStockKind(line.kind) ? line.technicalSheetId : null,
         productId: line.kind === 'PRODUTO' ? line.productId : '',
         serviceItemId: line.kind === 'ITEM' ? line.serviceItemId : '',
       })
@@ -25034,14 +25052,14 @@ export default function App() {
 
         const availableByAggregationKey = buildAvailableInventoryByAggregationKeyForCenter(producerCenter.id)
         const shortageLines = productionRequisition.lines.flatMap((line) => {
-          if (line.destinationType !== 'PRODUCOES' || line.kind !== 'PREPARO' || typeof line.technicalSheetId !== 'number') {
+          if (line.destinationType !== 'PRODUCOES' || !isProductionStockKind(line.kind) || typeof line.technicalSheetId !== 'number') {
             return [] as RequisitionLineRecord[]
           }
           const sheet =
             technicalSheets.find(
               (item) =>
                 item.id === line.technicalSheetId &&
-                item.kind === 'PREPARO' &&
+                isProductionTechnicalSheetKind(item.kind) &&
                 item.isActive &&
                 isTechnicalSheetVisibleForCompany(item, producerCenter.companyId),
             ) ?? null
@@ -25051,7 +25069,7 @@ export default function App() {
           const requestedQuantity = parseDecimal(line.requestedQuantity) ?? 0
           const requiredYield = requestedQuantity * Math.max(getStockCenterBaseQuantity(sheet), 1)
           const aggregationKey = buildInventoryAggregationKey({
-            kind: 'PREPARO',
+            kind: line.kind,
             technicalSheetId: sheet.id,
             productId: '',
             serviceItemId: '',
@@ -25309,10 +25327,10 @@ export default function App() {
         return [] as ManualProductionRequestRecord[]
       }
 
-      const availableByAggregationKey = buildAvailableInventoryByAggregationKeyForCenter(producerCenter.id)
-      const dependencyRequestsByKey = new Map<string, ManualProductionRequestRecord>()
-      const directRequests = productionRequisition.lines.flatMap((line) => {
-        if (line.destinationType !== 'PRODUCOES' || line.kind !== 'PREPARO' || typeof line.technicalSheetId !== 'number') {
+        const availableByAggregationKey = buildAvailableInventoryByAggregationKeyForCenter(producerCenter.id)
+        const dependencyRequestsByKey = new Map<string, ManualProductionRequestRecord>()
+        const directRequests = productionRequisition.lines.flatMap((line) => {
+        if (line.destinationType !== 'PRODUCOES' || !isProductionStockKind(line.kind) || typeof line.technicalSheetId !== 'number') {
           return [] as ManualProductionRequestRecord[]
         }
 
@@ -25320,7 +25338,7 @@ export default function App() {
           technicalSheets.find(
             (item) =>
               item.id === line.technicalSheetId &&
-              item.kind === 'PREPARO' &&
+              isProductionTechnicalSheetKind(item.kind) &&
               item.isActive &&
               isTechnicalSheetVisibleForCompany(item, producerCenter.companyId),
           ) ?? null
@@ -25331,7 +25349,7 @@ export default function App() {
         const requestedQuantity = parseDecimal(line.requestedQuantity) ?? 0
         const requiredYield = requestedQuantity * Math.max(getStockCenterBaseQuantity(sheet), 1)
         const aggregationKey = buildInventoryAggregationKey({
-          kind: 'PREPARO',
+          kind: line.kind,
           technicalSheetId: sheet.id,
           productId: '',
           serviceItemId: '',
@@ -26409,7 +26427,7 @@ export default function App() {
           stockCenterId: sourceCenterId,
           countedAt,
           storageLocation: 'SAIDA PARA REQUISICAO',
-          technicalSheetId: line.kind === 'PREPARO' ? line.technicalSheetId : null,
+          technicalSheetId: isProductionStockKind(line.kind) ? line.technicalSheetId : null,
           productId: line.kind === 'PRODUTO' ? line.productId : '',
           serviceItemId: line.kind === 'ITEM' ? line.serviceItemId : '',
           packageId: line.kind === 'PRODUTO' || line.kind === 'ITEM' ? line.packageId : null,
@@ -27195,13 +27213,13 @@ export default function App() {
         }
 
         const countableItem =
-          record.technicalSheetKind === 'PREPARO'
-            ? inventoryCountableItems.find((item) => item.kind === 'PREPARO' && item.technicalSheetId === record.technicalSheetId) ?? null
+          isProductionStockKind(record.technicalSheetKind)
+            ? inventoryCountableItems.find((item) => isProductionStockKind(item.kind) && item.technicalSheetId === record.technicalSheetId) ?? null
             : record.technicalSheetKind === 'PRODUTO'
               ? inventoryCountableItems.find((item) => item.kind === 'PRODUTO' && item.productId === record.productId) ?? null
               : inventoryCountableItems.find((item) => item.kind === 'ITEM' && item.serviceItemId === record.serviceItemId) ?? null
         const sheet =
-          record.technicalSheetKind === 'PREPARO' && record.technicalSheetId !== null
+          isProductionStockKind(record.technicalSheetKind) && record.technicalSheetId !== null
             ? inventoryCountableSheets.find((item) => item.id === record.technicalSheetId) ?? null
             : null
         const product = record.technicalSheetKind === 'PRODUTO' ? productById.get(record.productId) ?? null : null
@@ -27233,7 +27251,7 @@ export default function App() {
           throw new Error(`Selecione unidade ou uma embalagem valida para ${record.technicalSheetName}.`)
         }
 
-        if (record.technicalSheetKind === 'PREPARO' && hasRecipientOptions && !selectedRecipient) {
+        if (isProductionStockKind(record.technicalSheetKind) && hasRecipientOptions && !selectedRecipient) {
           throw new Error(`Selecione um recipiente valido para ${record.technicalSheetName}.`)
         }
 
@@ -27339,13 +27357,13 @@ export default function App() {
         }
 
         const countableItem =
-          record.technicalSheetKind === 'PREPARO'
-            ? inventoryCountableItems.find((item) => item.kind === 'PREPARO' && item.technicalSheetId === record.technicalSheetId) ?? null
+          isProductionStockKind(record.technicalSheetKind)
+            ? inventoryCountableItems.find((item) => isProductionStockKind(item.kind) && item.technicalSheetId === record.technicalSheetId) ?? null
             : record.technicalSheetKind === 'PRODUTO'
               ? inventoryCountableItems.find((item) => item.kind === 'PRODUTO' && item.productId === record.productId) ?? null
               : inventoryCountableItems.find((item) => item.kind === 'ITEM' && item.serviceItemId === record.serviceItemId) ?? null
         const sheet =
-          record.technicalSheetKind === 'PREPARO' && record.technicalSheetId !== null
+          isProductionStockKind(record.technicalSheetKind) && record.technicalSheetId !== null
             ? inventoryCountableSheets.find((item) => item.id === record.technicalSheetId) ?? null
             : null
         const product = record.technicalSheetKind === 'PRODUTO' ? productById.get(record.productId) ?? null : null
@@ -27374,7 +27392,7 @@ export default function App() {
         if (record.technicalSheetKind === 'ITEM' && !selectedRecipient) {
           throw new Error(`Selecione unidade ou uma embalagem valida para ${record.technicalSheetName}.`)
         }
-        if (record.technicalSheetKind === 'PREPARO' && hasRecipientOptions && !selectedRecipient) {
+        if (isProductionStockKind(record.technicalSheetKind) && hasRecipientOptions && !selectedRecipient) {
           throw new Error(`Selecione um recipiente valido para ${record.technicalSheetName}.`)
         }
         if ((parseDecimal(draft.closedItemsQuantity) ?? 0) < 0) {
@@ -27479,13 +27497,13 @@ export default function App() {
         }
 
         const countableItem =
-          record.technicalSheetKind === 'PREPARO'
-            ? inventoryCountableItems.find((item) => item.kind === 'PREPARO' && item.technicalSheetId === record.technicalSheetId) ?? null
+          isProductionStockKind(record.technicalSheetKind)
+            ? inventoryCountableItems.find((item) => isProductionStockKind(item.kind) && item.technicalSheetId === record.technicalSheetId) ?? null
             : record.technicalSheetKind === 'PRODUTO'
               ? inventoryCountableItems.find((item) => item.kind === 'PRODUTO' && item.productId === record.productId) ?? null
               : inventoryCountableItems.find((item) => item.kind === 'ITEM' && item.serviceItemId === record.serviceItemId) ?? null
         const sheet =
-          record.technicalSheetKind === 'PREPARO' && record.technicalSheetId !== null
+          isProductionStockKind(record.technicalSheetKind) && record.technicalSheetId !== null
             ? inventoryCountableSheets.find((item) => item.id === record.technicalSheetId) ?? null
             : null
         const product = record.technicalSheetKind === 'PRODUTO' ? productById.get(record.productId) ?? null : null
@@ -27517,7 +27535,7 @@ export default function App() {
           throw new Error(`Selecione unidade ou uma embalagem valida para ${record.technicalSheetName}.`)
         }
 
-        if (record.technicalSheetKind === 'PREPARO' && hasRecipientOptions && !selectedRecipient) {
+        if (isProductionStockKind(record.technicalSheetKind) && hasRecipientOptions && !selectedRecipient) {
           throw new Error(`Selecione um recipiente valido para ${record.technicalSheetName}.`)
         }
 
@@ -27634,12 +27652,12 @@ export default function App() {
         }
 
         const countableItem =
-          row.kind === 'PREPARO'
-            ? inventoryCountableItems.find((item) => item.kind === 'PREPARO' && item.technicalSheetId === record.technicalSheetId) ?? null
+          isProductionStockKind(row.kind)
+            ? inventoryCountableItems.find((item) => isProductionStockKind(item.kind) && item.technicalSheetId === record.technicalSheetId) ?? null
             : row.kind === 'PRODUTO'
               ? inventoryCountableItems.find((item) => item.kind === 'PRODUTO' && item.productId === record.productId) ?? null
               : inventoryCountableItems.find((item) => item.kind === 'ITEM' && item.serviceItemId === record.serviceItemId) ?? null
-        const sheet = row.kind === 'PREPARO' && record.technicalSheetId !== null ? inventoryCountableSheets.find((item) => item.id === record.technicalSheetId) ?? null : null
+        const sheet = isProductionStockKind(row.kind) && record.technicalSheetId !== null ? inventoryCountableSheets.find((item) => item.id === record.technicalSheetId) ?? null : null
         const product = row.kind === 'PRODUTO' ? productById.get(record.productId) ?? null : null
         const serviceItem = row.kind === 'ITEM' ? serviceItemsById.get(record.serviceItemId) ?? null : null
         const recipientOptions = buildInventoryRecipientOptionsForContext({
@@ -27669,7 +27687,7 @@ export default function App() {
           throw new Error(`Selecione unidade ou uma embalagem valida para ${record.technicalSheetName}.`)
         }
 
-        if (row.kind === 'PREPARO' && hasRecipientOptions && !selectedRecipient) {
+        if (isProductionStockKind(row.kind) && hasRecipientOptions && !selectedRecipient) {
           throw new Error(`Selecione um recipiente valido para ${record.technicalSheetName}.`)
         }
 
@@ -27756,12 +27774,12 @@ export default function App() {
         }
 
         const countableItem =
-          row.kind === 'PREPARO'
-            ? inventoryCountableItems.find((item) => item.kind === 'PREPARO' && item.technicalSheetId === row.stockRow?.technicalSheetId) ?? null
+          isProductionStockKind(row.kind)
+            ? inventoryCountableItems.find((item) => isProductionStockKind(item.kind) && item.technicalSheetId === row.stockRow?.technicalSheetId) ?? null
             : row.kind === 'PRODUTO'
               ? inventoryCountableItems.find((item) => item.kind === 'PRODUTO' && item.productId === row.stockRow?.productId) ?? null
               : inventoryCountableItems.find((item) => item.kind === 'ITEM' && item.serviceItemId === row.stockRow?.serviceItemId) ?? null
-        const sheet = row.kind === 'PREPARO' && row.stockRow?.technicalSheetId !== null ? inventoryCountableSheets.find((item) => item.id === row.stockRow?.technicalSheetId) ?? null : null
+        const sheet = isProductionStockKind(row.kind) && row.stockRow?.technicalSheetId !== null ? inventoryCountableSheets.find((item) => item.id === row.stockRow?.technicalSheetId) ?? null : null
         const product = row.kind === 'PRODUTO' ? productById.get(row.stockRow?.productId ?? '') ?? null : null
         const serviceItem = row.kind === 'ITEM' ? serviceItemsById.get(row.stockRow?.serviceItemId ?? '') ?? null : null
         const recipientOptions = buildInventoryRecipientOptionsForContext({
@@ -27788,7 +27806,7 @@ export default function App() {
           throw new Error(`Selecione unidade ou uma embalagem valida para ${itemName}.`)
         }
 
-        if (row.kind === 'PREPARO' && hasRecipientOptions && !selectedRecipient) {
+        if (isProductionStockKind(row.kind) && hasRecipientOptions && !selectedRecipient) {
           throw new Error(`Selecione um recipiente valido para ${itemName}.`)
         }
 
@@ -27943,7 +27961,7 @@ export default function App() {
           stockCenterId: targetRequisition.stockCenterId,
           countedAt: receiptDate,
           storageLocation: 'RECEBIMENTO DE REQUISICAO',
-          technicalSheetId: line.kind === 'PREPARO' ? line.technicalSheetId : null,
+          technicalSheetId: isProductionStockKind(line.kind) ? line.technicalSheetId : null,
           productId: line.kind === 'PRODUTO' ? line.productId : '',
           serviceItemId: line.kind === 'ITEM' ? line.serviceItemId : '',
           packageId: line.kind === 'PRODUTO' || line.kind === 'ITEM' ? line.packageId : null,
@@ -28118,7 +28136,10 @@ export default function App() {
 
     const targetSheet =
       technicalSheets.find(
-        (sheet) => isTechnicalSheetVisibleForCompany(sheet, currentCompanyId) && sheet.kind === 'PREPARO' && sheet.id === sheetId,
+        (sheet) =>
+          isTechnicalSheetVisibleForCompany(sheet, currentCompanyId) &&
+          isProductionTechnicalSheetKind(sheet.kind) &&
+          sheet.id === sheetId,
       ) ?? null
     const desiredYield =
       typeof desiredYieldOverride === 'number' && desiredYieldOverride > 0
@@ -28183,7 +28204,7 @@ export default function App() {
       technicalSheets.find(
         (sheet) =>
           isTechnicalSheetVisibleForCompany(sheet, currentCompanyId) &&
-          sheet.kind === 'PREPARO' &&
+          isProductionTechnicalSheetKind(sheet.kind) &&
           String(sheet.id) === resolvedSheetId,
       ) ?? null
     const baseYield = targetSheet ? getTechnicalSheetBaseYield(targetSheet) : 0
@@ -28199,7 +28220,7 @@ export default function App() {
       technicalSheets.find(
         (sheet) =>
           isTechnicalSheetVisibleForCompany(sheet, currentCompanyId) &&
-          sheet.kind === 'PREPARO' &&
+          isProductionTechnicalSheetKind(sheet.kind) &&
           String(sheet.id) === manualProductionSheetId,
       ) ?? null
     const baseYield = targetSheet ? getTechnicalSheetBaseYield(targetSheet) : 0
@@ -28217,7 +28238,7 @@ export default function App() {
       technicalSheets.find(
         (sheet) =>
           isTechnicalSheetVisibleForCompany(sheet, currentCompanyId) &&
-          sheet.kind === 'PREPARO' &&
+          isProductionTechnicalSheetKind(sheet.kind) &&
           String(sheet.id) === manualProductionSheetId,
       ) ?? null
     const baseYield = targetSheet ? getTechnicalSheetBaseYield(targetSheet) : 0
@@ -28241,7 +28262,7 @@ export default function App() {
       technicalSheets.find(
         (sheet) =>
           isTechnicalSheetVisibleForCompany(sheet, currentCompanyId) &&
-          sheet.kind === 'PREPARO' &&
+          isProductionTechnicalSheetKind(sheet.kind) &&
           String(sheet.id) === nextSheetId,
       ) ?? null
     setManualProductionDesiredYield(nextSheet ? formatDecimal(getTechnicalSheetBaseYield(nextSheet)) : '')
@@ -28318,7 +28339,7 @@ export default function App() {
   }
 
   function isRoundedOperationalRequisitionLine(line: Pick<RequisitionLineRecord, 'kind' | 'productId' | 'packageId' | 'requestUnitLabel'>) {
-    if (line.kind === 'PREPARO') {
+    if (isProductionStockKind(line.kind)) {
       return true
     }
     if (line.kind !== 'PRODUTO') {
@@ -28392,7 +28413,7 @@ export default function App() {
         technicalSheets.find(
           (sheet) =>
             isTechnicalSheetVisibleForCompany(sheet, stockCenterCompanyId) &&
-            sheet.kind === 'PREPARO' &&
+            isProductionTechnicalSheetKind(sheet.kind) &&
             sheet.id === sheetId,
         ) ?? null
 
@@ -28886,7 +28907,8 @@ export default function App() {
 
     Array.from(rootPreparationRequests.values()).forEach((request) => {
       const targetCenter = stockCenters.find((center) => center.id === request.centerId) ?? null
-      const targetSheet = technicalSheets.find((sheet) => sheet.id === request.sheetId && sheet.kind === 'PREPARO') ?? null
+      const targetSheet =
+        technicalSheets.find((sheet) => sheet.id === request.sheetId && isProductionTechnicalSheetKind(sheet.kind)) ?? null
       if (!targetCenter || !targetSheet) {
         return
       }
@@ -28938,7 +28960,7 @@ export default function App() {
       technicalSheets.find(
         (sheet) =>
           isTechnicalSheetVisibleForCompany(sheet, currentCompanyId) &&
-          sheet.kind === 'PREPARO' &&
+          isProductionTechnicalSheetKind(sheet.kind) &&
           sheet.id === Number(manualProductionSheetId),
       ) ?? null
     if (!targetSheet || currentCompanyId === null) {
@@ -28998,7 +29020,7 @@ export default function App() {
     centerName: string
     shortageLines: RequisitionLineRecord[]
     planningRootRequestId?: number | null
-    planningSourceKind?: 'PREPARO' | 'EXECUCAO'
+    planningSourceKind?: 'PREPARO' | 'PRODUTO_INTERNO' | 'EXECUCAO'
     planningSourceCenterId?: number | null
     planningSourceCenterName?: string
     planningSourceSheetId?: number | null
@@ -30832,7 +30854,7 @@ export default function App() {
   }
 
   function getRequisitionEffectiveQuantityConfig(line: RequisitionLineRecord) {
-    if (line.kind === 'PREPARO' && typeof line.technicalSheetId === 'number') {
+    if (isProductionStockKind(line.kind) && typeof line.technicalSheetId === 'number') {
       const sheet = technicalSheets.find((item) => item.id === line.technicalSheetId) ?? null
       if (!sheet) {
         return { multiplier: 1, unitLabel: line.requestUnitLabel }
@@ -30874,7 +30896,7 @@ export default function App() {
   }
 
 function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
-  if (line.kind === 'PREPARO' && typeof line.technicalSheetId === 'number') {
+  if (isProductionStockKind(line.kind) && typeof line.technicalSheetId === 'number') {
     const sheet = technicalSheets.find((item) => item.id === line.technicalSheetId) ?? null
     if (!sheet) {
       return { multiplier: 1, totalUnit: 'MILLILITER' as InventoryCountRecord['totalCountedUnit'] }
@@ -30939,7 +30961,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
       }
       return `${formatDecimal(quantity)} x ${config.unitLabel}`
     }
-    if (line.kind === 'PREPARO') {
+    if (isProductionStockKind(line.kind)) {
       return `${formatDecimal(quantity * config.multiplier)} x ${config.unitLabel}`
     }
     return `${formatDecimal(quantity * config.multiplier)} ${config.unitLabel}`
@@ -30974,7 +30996,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
   }
 
   function getManualSupplyQuantityUnitLabel(line: RequisitionLineRecord) {
-    if (line.kind === 'PREPARO') {
+    if (isProductionStockKind(line.kind)) {
       return getRequisitionEffectiveQuantityConfig(line).unitLabel
     }
 
@@ -31004,7 +31026,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
 
     const aggregationKey = buildInventoryAggregationKey({
       kind: line.kind,
-      technicalSheetId: line.kind === 'PREPARO' ? line.technicalSheetId : null,
+      technicalSheetId: isProductionStockKind(line.kind) ? line.technicalSheetId : null,
       productId: line.kind === 'PRODUTO' ? line.productId : '',
       serviceItemId: line.kind === 'ITEM' ? line.serviceItemId : '',
     })
@@ -31015,7 +31037,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
     const displayQuantity =
       movementConfig.multiplier > 0 ? availableBaseQuantity / movementConfig.multiplier : availableBaseQuantity
 
-    if (line.kind === 'PREPARO' || line.packageId !== null) {
+    if (isProductionStockKind(line.kind) || line.packageId !== null) {
       return `${formatDecimal(displayQuantity)} x ${effectiveConfig.unitLabel}`
     }
 
@@ -31023,7 +31045,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
   }
 
   function getManualSupplyDisplayedQuantityValue(line: RequisitionLineRecord, storedQuantityValue: string) {
-    if (line.kind === 'PREPARO') {
+    if (isProductionStockKind(line.kind)) {
       return getRequisitionEffectiveQuantityInputValue(line, storedQuantityValue)
     }
 
@@ -31031,7 +31053,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
   }
 
   function getManualSupplyStoredQuantityValue(line: RequisitionLineRecord, displayedQuantityValue: string) {
-    if (line.kind === 'PREPARO') {
+    if (isProductionStockKind(line.kind)) {
       return convertEffectiveQuantityToRequestedQuantity(line, displayedQuantityValue)
     }
 
@@ -35445,7 +35467,9 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
             )
         : []
     const normalizedServiceItems =
-      technicalSheetForm.kind === 'EXECUCAO' || technicalSheetForm.kind === 'PREPARO' || technicalSheetForm.kind === 'VENDA'
+      technicalSheetForm.kind === 'EXECUCAO' ||
+      isProductionTechnicalSheetKind(technicalSheetForm.kind) ||
+      technicalSheetForm.kind === 'VENDA'
         ? technicalSheetServiceItems
             .map((item) => ({
               ...item,
@@ -35475,7 +35499,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
       })
       .filter(Boolean)
     const normalizedProductionCenters =
-      technicalSheetForm.kind === 'PREPARO'
+      isProductionTechnicalSheetKind(technicalSheetForm.kind)
         ? technicalSheetForm.productionCenters
             .filter((item) =>
               activeProducerStockCenters.some((center) => center.id === item.stockCenterId) ||
@@ -35491,7 +35515,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
             }))
         : []
     const normalizedSupplyRoutes =
-      technicalSheetForm.kind === 'PREPARO'
+      isProductionTechnicalSheetKind(technicalSheetForm.kind)
         ? Array.from(
             new Map(
               (technicalSheetForm.supplyRoutes ?? [])
@@ -35704,7 +35728,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
       normalizedIngredients,
       normalizedGarnishIngredients,
       editingTechnicalSheetId,
-      technicalSheetForm.kind === 'PREPARO' && typeof technicalSheetForm.yieldDifferenceByproductTechnicalSheetId === 'number'
+          technicalSheetForm.kind === 'PREPARO' && typeof technicalSheetForm.yieldDifferenceByproductTechnicalSheetId === 'number'
         ? [technicalSheetForm.yieldDifferenceByproductTechnicalSheetId]
         : [],
     )
@@ -35870,7 +35894,9 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
       harmonization: technicalSheetForm.kind === 'EXECUCAO' ? normalizeFreeText(technicalSheetForm.harmonization.trim()) : '',
       preparationMode: technicalSheetForm.kind === 'VENDA' ? '' : normalizeFreeText(technicalSheetForm.preparationMode.trim()),
       preparationLeadTimeDays:
-        technicalSheetForm.kind === 'PREPARO' ? normalizeRegistrationText(technicalSheetForm.preparationLeadTimeDays.trim()) : '',
+        isProductionTechnicalSheetKind(technicalSheetForm.kind)
+          ? normalizeRegistrationText(technicalSheetForm.preparationLeadTimeDays.trim())
+          : '',
       shelfLifeRoom: isCommercialTechnicalSheetKind(technicalSheetForm.kind) ? '' : normalizeRegistrationText(technicalSheetForm.shelfLifeRoom.trim()),
       shelfLifeRefrigerated:
         isCommercialTechnicalSheetKind(technicalSheetForm.kind) ? '' : normalizeRegistrationText(technicalSheetForm.shelfLifeRefrigerated.trim()),
@@ -35950,7 +35976,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
         subfamily: normalizedSubfamily,
         sectors: normalizedSectors,
         alcoholPercentage:
-          technicalSheetForm.kind === 'PREPARO'
+          isProductionTechnicalSheetKind(technicalSheetForm.kind)
             ? formatDecimal(calculateTechnicalSheetAlcoholPercentage(sheetToSave, nextTechnicalSheets, products))
             : '',
         densitySampleVolume: isCommercialTechnicalSheetKind(technicalSheetForm.kind) ? '' : technicalSheetForm.densitySampleVolume.trim(),
@@ -36495,6 +36521,9 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
     if (kind === 'PREPARO') {
       return 'Pre-preparo'
     }
+    if (kind === 'PRODUTO_INTERNO') {
+      return 'Produto interno'
+    }
     if (kind === 'EXECUCAO') {
       return 'Execucao'
     }
@@ -36505,6 +36534,9 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
     if (kind === 'PREPARO') {
       return 'Produto intermediario / pre-preparo'
     }
+    if (kind === 'PRODUTO_INTERNO') {
+      return 'Produto interno'
+    }
     if (kind === 'EXECUCAO') {
       return 'Produto de execucao'
     }
@@ -36513,6 +36545,9 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
 
   function getTechnicalSheetWorkspaceClassName(kind: TechnicalSheetKind) {
     if (kind === 'PREPARO') {
+      return 'technical-sheet-workspace technical-sheet-workspace-preparo'
+    }
+    if (kind === 'PRODUTO_INTERNO') {
       return 'technical-sheet-workspace technical-sheet-workspace-preparo'
     }
     if (kind === 'EXECUCAO') {
@@ -42149,9 +42184,9 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
 
   const renderPreparoIdentityFields = (mode: 'main' | 'nested') => (
     <>
-      {isTechnicalSheetFieldVisible('PREPARO', 'companyProductId') ? (
+      {isTechnicalSheetFieldVisible(technicalSheetForm.kind, 'companyProductId') ? (
         <label className="field">
-          <span>ID empresa{isTechnicalSheetFieldRequired('PREPARO', 'companyProductId') ? ' *' : ''}</span>
+          <span>ID empresa{isTechnicalSheetFieldRequired(technicalSheetForm.kind, 'companyProductId') ? ' *' : ''}</span>
           <NormalizedTextInput
             value={technicalSheetForm.companyProductId}
             onChange={(value) => updateTechnicalSheetForm('companyProductId', value)}
@@ -42160,9 +42195,9 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
           />
         </label>
       ) : null}
-      {isTechnicalSheetFieldVisible('PREPARO', 'sectors') ? (
+      {isTechnicalSheetFieldVisible(technicalSheetForm.kind, 'sectors') ? (
         <div className="field field-wide">
-          <span>Setores{isTechnicalSheetFieldRequired('PREPARO', 'sectors') ? ' *' : ''}</span>
+          <span>Setores{isTechnicalSheetFieldRequired(technicalSheetForm.kind, 'sectors') ? ' *' : ''}</span>
           <MultiSelectChips
             selectedValues={technicalSheetForm.sectors}
             suggestions={technicalSheetSectorSuggestions}
@@ -42176,9 +42211,9 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
         </div>
       ) : null}
       {renderTechnicalSheetSharedCompanyField()}
-      {isTechnicalSheetFieldVisible('PREPARO', 'name') ? (
+      {isTechnicalSheetFieldVisible(technicalSheetForm.kind, 'name') ? (
         <label className="field field-wide">
-          <span>Nome do item montado{isTechnicalSheetFieldRequired('PREPARO', 'name') ? ' *' : ''}</span>
+          <span>Nome do item montado{isTechnicalSheetFieldRequired(technicalSheetForm.kind, 'name') ? ' *' : ''}</span>
           <NormalizedTextInput
             value={technicalSheetForm.name}
             onChange={(value) => updateTechnicalSheetForm('name', value)}
@@ -42187,9 +42222,9 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
           />
         </label>
       ) : null}
-      {isTechnicalSheetFieldVisible('PREPARO', 'family') ? (
+      {isTechnicalSheetFieldVisible(technicalSheetForm.kind, 'family') ? (
         <label className="field">
-          <span>Familia{isTechnicalSheetFieldRequired('PREPARO', 'family') ? ' *' : ''}</span>
+          <span>Familia{isTechnicalSheetFieldRequired(technicalSheetForm.kind, 'family') ? ' *' : ''}</span>
           <SingleValueAutocomplete
             value={technicalSheetForm.family}
             suggestions={mode === 'nested' ? dynamicFamilySuggestions : technicalSheetFamilySuggestions}
@@ -42200,9 +42235,9 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
           />
         </label>
       ) : null}
-      {isTechnicalSheetFieldVisible('PREPARO', 'subfamily') ? (
+      {isTechnicalSheetFieldVisible(technicalSheetForm.kind, 'subfamily') ? (
         <label className="field">
-          <span>Subfamilia{isTechnicalSheetFieldRequired('PREPARO', 'subfamily') ? ' *' : ''}</span>
+          <span>Subfamilia{isTechnicalSheetFieldRequired(technicalSheetForm.kind, 'subfamily') ? ' *' : ''}</span>
           <SingleValueAutocomplete
             value={technicalSheetForm.subfamily}
             suggestions={mode === 'nested' ? dynamicSubfamilySuggestions : technicalSheetSubfamilySuggestions}
@@ -42213,9 +42248,9 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
           />
         </label>
       ) : null}
-      {isTechnicalSheetFieldVisible('PREPARO', 'outputQuantity') ? (
+      {isTechnicalSheetFieldVisible(technicalSheetForm.kind, 'outputQuantity') ? (
         <label className="field">
-          <span>Rendimento final{isTechnicalSheetFieldRequired('PREPARO', 'outputQuantity') ? ' *' : ''}</span>
+          <span>Rendimento final{isTechnicalSheetFieldRequired(technicalSheetForm.kind, 'outputQuantity') ? ' *' : ''}</span>
           <NormalizedTextInput
             value={technicalSheetForm.outputQuantity}
             onChange={(value) => updateTechnicalSheetForm('outputQuantity', value)}
@@ -42229,9 +42264,9 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
           </p>
         </label>
       ) : null}
-      {isTechnicalSheetFieldVisible('PREPARO', 'outputUnit') ? (
+      {isTechnicalSheetFieldVisible(technicalSheetForm.kind, 'outputUnit') ? (
         <label className="field">
-          <span>Unidade final{isTechnicalSheetFieldRequired('PREPARO', 'outputUnit') ? ' *' : ''}</span>
+          <span>Unidade final{isTechnicalSheetFieldRequired(technicalSheetForm.kind, 'outputUnit') ? ' *' : ''}</span>
           <select
             value={technicalSheetForm.outputUnit}
             onChange={(event) => updateTechnicalSheetForm('outputUnit', event.target.value as ControlUnit)}
@@ -42242,11 +42277,11 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
           </select>
         </label>
       ) : null}
-      {isTechnicalSheetFieldVisible('PREPARO', 'preparationLeadTimeDays') ? (
+      {isTechnicalSheetFieldVisible(technicalSheetForm.kind, 'preparationLeadTimeDays') ? (
         <label className="field">
           <span>
             Tempo de preparo (dias)
-            {isTechnicalSheetFieldRequired('PREPARO', 'preparationLeadTimeDays') ? ' *' : ''}
+            {isTechnicalSheetFieldRequired(technicalSheetForm.kind, 'preparationLeadTimeDays') ? ' *' : ''}
           </span>
           <NormalizedTextInput
             value={technicalSheetForm.preparationLeadTimeDays}
@@ -42258,9 +42293,9 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
           <p className="helper-text">Se deixar em branco, o sistema considera 1 dia no calculo de estoque minimo sugerido.</p>
         </label>
       ) : null}
-      {isTechnicalSheetFieldVisible('PREPARO', 'portionSize') ? (
+      {isTechnicalSheetFieldVisible(technicalSheetForm.kind, 'portionSize') ? (
         <label className="field">
-          <span>Porcao base{isTechnicalSheetFieldRequired('PREPARO', 'portionSize') ? ' *' : ''}</span>
+          <span>Porcao base{isTechnicalSheetFieldRequired(technicalSheetForm.kind, 'portionSize') ? ' *' : ''}</span>
           <NormalizedTextInput
             value={technicalSheetForm.portionSize}
             onChange={(value) => updateTechnicalSheetForm('portionSize', value)}
@@ -42270,11 +42305,11 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
           />
         </label>
       ) : null}
-      {isTechnicalSheetFieldVisible('PREPARO', 'colorTagOne') || isTechnicalSheetFieldVisible('PREPARO', 'colorTagTwo') ? (
+      {isTechnicalSheetFieldVisible(technicalSheetForm.kind, 'colorTagOne') || isTechnicalSheetFieldVisible(technicalSheetForm.kind, 'colorTagTwo') ? (
         <div className="field field-wide">
           <span>Cores</span>
           <div className="color-pair">
-            {isTechnicalSheetFieldVisible('PREPARO', 'colorTagOne') ? (
+            {isTechnicalSheetFieldVisible(technicalSheetForm.kind, 'colorTagOne') ? (
               <div className="color-field">
                 <ColorSelector
                   value={technicalSheetForm.colorTagOne}
@@ -42282,7 +42317,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                 />
               </div>
             ) : null}
-            {isTechnicalSheetFieldVisible('PREPARO', 'colorTagTwo') ? (
+            {isTechnicalSheetFieldVisible(technicalSheetForm.kind, 'colorTagTwo') ? (
               <div className="color-field">
                 <ColorSelector
                   value={technicalSheetForm.colorTagTwo}
@@ -42294,7 +42329,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
         </div>
       ) : null}
       {activeProducerStockCenters.length > 0 &&
-      isTechnicalSheetFieldVisible('PREPARO', 'productionCenters') ? (
+      isTechnicalSheetFieldVisible(technicalSheetForm.kind, 'productionCenters') ? (
         <div className="field field-span-all">
           <div className="section-heading section-heading-inline stock-center-subheading">
             <div>
@@ -42518,7 +42553,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
   )
 
   const renderPreparoCompositionPanel = (mode: 'main' | 'nested') => {
-    if (!isTechnicalSheetFieldVisible('PREPARO', 'ingredients')) {
+    if (!isTechnicalSheetFieldVisible(technicalSheetForm.kind, 'ingredients')) {
       return null
     }
 
@@ -42570,7 +42605,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                   placeholder="EX.: 500"
                 />
               </label>
-              {isTechnicalSheetIngredientManipulatedQuantityVisible('PREPARO') ? (
+              {isTechnicalSheetIngredientManipulatedQuantityVisible(technicalSheetForm.kind) ? (
                 <label className="field">
                   <span>Manipulado</span>
                   <input
@@ -42681,7 +42716,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                           </strong>
                         </div>
                       ) : null}
-                      {isTechnicalSheetIngredientManipulatedQuantityVisible('PREPARO') ? (
+                      {isTechnicalSheetIngredientManipulatedQuantityVisible(technicalSheetForm.kind) ? (
                         <div className="ingredient-summary-block">
                           <span>Manipulado</span>
                           <strong>{ingredient.manipulatedQuantity || '-'}</strong>
@@ -42872,8 +42907,8 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
 
   const renderPreparoDensityPanel = (mode: 'main' | 'nested') => {
     if (
-      !isTechnicalSheetFieldVisible('PREPARO', 'densitySampleVolume') &&
-      !isTechnicalSheetFieldVisible('PREPARO', 'densitySampleWeight')
+      !isTechnicalSheetFieldVisible(technicalSheetForm.kind, 'densitySampleVolume') &&
+      !isTechnicalSheetFieldVisible(technicalSheetForm.kind, 'densitySampleWeight')
     ) {
       return null
     }
@@ -42889,9 +42924,9 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
         </div>
 
         <div className="form-grid density-grid">
-          {isTechnicalSheetFieldVisible('PREPARO', 'densitySampleVolume') ? (
+          {isTechnicalSheetFieldVisible(technicalSheetForm.kind, 'densitySampleVolume') ? (
             <label className="field">
-              <span>Volume da amostra{isTechnicalSheetFieldRequired('PREPARO', 'densitySampleVolume') ? ' *' : ''}</span>
+              <span>Volume da amostra{isTechnicalSheetFieldRequired(technicalSheetForm.kind, 'densitySampleVolume') ? ' *' : ''}</span>
               <NormalizedTextInput
                 value={technicalSheetForm.densitySampleVolume}
                 onChange={(value) => updateTechnicalSheetForm('densitySampleVolume', value)}
@@ -42901,9 +42936,9 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
               />
             </label>
           ) : null}
-          {isTechnicalSheetFieldVisible('PREPARO', 'densitySampleWeight') ? (
+          {isTechnicalSheetFieldVisible(technicalSheetForm.kind, 'densitySampleWeight') ? (
             <label className="field">
-              <span>Peso da amostra{isTechnicalSheetFieldRequired('PREPARO', 'densitySampleWeight') ? ' *' : ''}</span>
+              <span>Peso da amostra{isTechnicalSheetFieldRequired(technicalSheetForm.kind, 'densitySampleWeight') ? ' *' : ''}</span>
               <NormalizedTextInput
                 value={technicalSheetForm.densitySampleWeight}
                 onChange={(value) => updateTechnicalSheetForm('densitySampleWeight', value)}
@@ -42923,7 +42958,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
   }
 
   const renderPreparoPhBrixPanel = (mode: 'main' | 'nested') => {
-    if (!isTechnicalSheetFieldVisible('PREPARO', 'targetPh') && !isTechnicalSheetFieldVisible('PREPARO', 'targetBrix')) {
+    if (!isTechnicalSheetFieldVisible(technicalSheetForm.kind, 'targetPh') && !isTechnicalSheetFieldVisible(technicalSheetForm.kind, 'targetBrix')) {
       return null
     }
 
@@ -42937,9 +42972,9 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
         </div>
 
         <div className="form-grid density-grid">
-          {isTechnicalSheetFieldVisible('PREPARO', 'targetPh') ? (
+          {isTechnicalSheetFieldVisible(technicalSheetForm.kind, 'targetPh') ? (
             <label className="field">
-              <span>Meta de PH{isTechnicalSheetFieldRequired('PREPARO', 'targetPh') ? ' *' : ''}</span>
+              <span>Meta de PH{isTechnicalSheetFieldRequired(technicalSheetForm.kind, 'targetPh') ? ' *' : ''}</span>
               <input
                 type="number"
                 step="0.1"
@@ -42949,9 +42984,9 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
               />
             </label>
           ) : null}
-          {isTechnicalSheetFieldVisible('PREPARO', 'targetBrix') ? (
+          {isTechnicalSheetFieldVisible(technicalSheetForm.kind, 'targetBrix') ? (
             <label className="field">
-              <span>Meta de Brix{isTechnicalSheetFieldRequired('PREPARO', 'targetBrix') ? ' *' : ''}</span>
+              <span>Meta de Brix{isTechnicalSheetFieldRequired(technicalSheetForm.kind, 'targetBrix') ? ' *' : ''}</span>
               <input
                 type="number"
                 step="0.1"
@@ -43078,10 +43113,10 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
 
   const renderPreparoExecutionPanel = (mode: 'main' | 'nested') => {
     if (
-      !isTechnicalSheetFieldVisible('PREPARO', 'preparationMode') &&
-      !isTechnicalSheetFieldVisible('PREPARO', 'shelfLifeRoom') &&
-      !isTechnicalSheetFieldVisible('PREPARO', 'shelfLifeRefrigerated') &&
-      !isTechnicalSheetFieldVisible('PREPARO', 'shelfLifeFrozen')
+      !isTechnicalSheetFieldVisible(technicalSheetForm.kind, 'preparationMode') &&
+      !isTechnicalSheetFieldVisible(technicalSheetForm.kind, 'shelfLifeRoom') &&
+      !isTechnicalSheetFieldVisible(technicalSheetForm.kind, 'shelfLifeRefrigerated') &&
+      !isTechnicalSheetFieldVisible(technicalSheetForm.kind, 'shelfLifeFrozen')
     ) {
       return null
     }
@@ -43096,9 +43131,9 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
         </div>
 
         <div className="form-grid">
-          {isTechnicalSheetFieldVisible('PREPARO', 'preparationMode') ? (
+          {isTechnicalSheetFieldVisible(technicalSheetForm.kind, 'preparationMode') ? (
             <label className="field field-span-all">
-              <span>Modo de preparo{isTechnicalSheetFieldRequired('PREPARO', 'preparationMode') ? ' *' : ''}</span>
+              <span>Modo de preparo{isTechnicalSheetFieldRequired(technicalSheetForm.kind, 'preparationMode') ? ' *' : ''}</span>
               <PreparationModeInput
                 value={technicalSheetForm.preparationMode}
                 onChange={(value) => updateTechnicalSheetForm('preparationMode', value)}
@@ -43107,9 +43142,9 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
               />
             </label>
           ) : null}
-          {isTechnicalSheetFieldVisible('PREPARO', 'shelfLifeRoom') ? (
+          {isTechnicalSheetFieldVisible(technicalSheetForm.kind, 'shelfLifeRoom') ? (
             <label className="field">
-              <span>Validade in natura{isTechnicalSheetFieldRequired('PREPARO', 'shelfLifeRoom') ? ' *' : ''}</span>
+              <span>Validade in natura{isTechnicalSheetFieldRequired(technicalSheetForm.kind, 'shelfLifeRoom') ? ' *' : ''}</span>
               <NormalizedTextInput
                 value={technicalSheetForm.shelfLifeRoom}
                 onChange={(value) => updateTechnicalSheetForm('shelfLifeRoom', value)}
@@ -43118,9 +43153,9 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
               />
             </label>
           ) : null}
-          {isTechnicalSheetFieldVisible('PREPARO', 'shelfLifeRefrigerated') ? (
+          {isTechnicalSheetFieldVisible(technicalSheetForm.kind, 'shelfLifeRefrigerated') ? (
             <label className="field">
-              <span>Validade refrigerado{isTechnicalSheetFieldRequired('PREPARO', 'shelfLifeRefrigerated') ? ' *' : ''}</span>
+              <span>Validade refrigerado{isTechnicalSheetFieldRequired(technicalSheetForm.kind, 'shelfLifeRefrigerated') ? ' *' : ''}</span>
               <NormalizedTextInput
                 value={technicalSheetForm.shelfLifeRefrigerated}
                 onChange={(value) => updateTechnicalSheetForm('shelfLifeRefrigerated', value)}
@@ -43129,9 +43164,9 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
               />
             </label>
           ) : null}
-          {isTechnicalSheetFieldVisible('PREPARO', 'shelfLifeFrozen') ? (
+          {isTechnicalSheetFieldVisible(technicalSheetForm.kind, 'shelfLifeFrozen') ? (
             <label className="field">
-              <span>Validade congelado{isTechnicalSheetFieldRequired('PREPARO', 'shelfLifeFrozen') ? ' *' : ''}</span>
+              <span>Validade congelado{isTechnicalSheetFieldRequired(technicalSheetForm.kind, 'shelfLifeFrozen') ? ' *' : ''}</span>
               <NormalizedTextInput
                 value={technicalSheetForm.shelfLifeFrozen}
                 onChange={(value) => updateTechnicalSheetForm('shelfLifeFrozen', value)}
@@ -43821,7 +43856,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
               Defina por tipo de ficha quais campos devem ser exibidos no formulario e quais deles passam a ser obrigatorios no salvamento.
             </p>
             <div className="panel-tabs" role="tablist" aria-label="Tipos de ficha tecnica">
-              {(['PREPARO', 'EXECUCAO', 'VENDA', 'COMPARTILHAMENTO'] as const).map((kind) => (
+              {(['PREPARO', 'PRODUTO_INTERNO', 'EXECUCAO', 'VENDA', 'COMPARTILHAMENTO'] as const).map((kind) => (
                 <button
                   key={kind}
                   type="button"
@@ -43830,11 +43865,13 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                 >
                   {kind === 'PREPARO'
                     ? 'Pre-preparo'
-                    : kind === 'EXECUCAO'
-                      ? 'Execucao'
-                      : kind === 'VENDA'
-                        ? 'Venda'
-                        : 'Compartilhamento'}
+                    : kind === 'PRODUTO_INTERNO'
+                      ? 'Produto interno'
+                      : kind === 'EXECUCAO'
+                        ? 'Execucao'
+                        : kind === 'VENDA'
+                          ? 'Venda'
+                          : 'Compartilhamento'}
                 </button>
               ))}
             </div>
@@ -43900,9 +43937,11 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                 <h2>
                   {technicalSheetSettingsTab === 'PREPARO'
                     ? 'Formulario de pre-preparo'
-                    : technicalSheetSettingsTab === 'EXECUCAO'
-                      ? 'Formulario de execucao'
-                      : 'Formulario de venda'}
+                    : technicalSheetSettingsTab === 'PRODUTO_INTERNO'
+                      ? 'Formulario de produto interno'
+                      : technicalSheetSettingsTab === 'EXECUCAO'
+                        ? 'Formulario de execucao'
+                        : 'Formulario de venda'}
                 </h2>
               </div>
               <div className="toolbar-actions">
@@ -44075,7 +44114,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                   <div className="field field-span-all">
                     <span>Tipo da ficha *</span>
                     <div className="technical-sheet-kind-tabs" role="tablist" aria-label="Tipo da ficha tecnica">
-                      {(['PREPARO', 'EXECUCAO', 'VENDA'] as const).map((kind) => (
+                      {(['PREPARO', 'PRODUTO_INTERNO', 'EXECUCAO', 'VENDA'] as const).map((kind) => (
                         <button
                           key={kind}
                           type="button"
@@ -44085,7 +44124,13 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                           onClick={() => updateTechnicalSheetForm('kind', kind)}
                           disabled={editingTechnicalSheetId !== null}
                         >
-                          {kind === 'PREPARO' ? 'Pre-preparo' : kind === 'EXECUCAO' ? 'Produto de execucao' : 'Produto de venda'}
+                          {kind === 'PREPARO'
+                            ? 'Pre-preparo'
+                            : kind === 'PRODUTO_INTERNO'
+                              ? 'Produto interno'
+                              : kind === 'EXECUCAO'
+                                ? 'Produto de execucao'
+                                : 'Produto de venda'}
                         </button>
                       ))}
                     </div>
@@ -44094,7 +44139,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
 	                  <span>ID interno</span>
 	                  <input value={generatedTechnicalSheetProductId} disabled />
 	                </label>
-	                {technicalSheetForm.kind === 'PREPARO' ? renderPreparoIdentityFields('main') : (
+	                {isProductionTechnicalSheetKind(technicalSheetForm.kind) ? renderPreparoIdentityFields('main') : (
 	                  <>
 	                    {isTechnicalSheetFieldVisible(technicalSheetForm.kind, 'companyProductId') ? (
 	                      <label className="field">
@@ -44182,11 +44227,11 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                         </select>
 	                      </label>
 	                    ) : null}
-	                    {!isCommercialTechnicalSheetKind(technicalSheetForm.kind) && isTechnicalSheetFieldVisible('PREPARO', 'preparationLeadTimeDays') ? (
+	                    {!isCommercialTechnicalSheetKind(technicalSheetForm.kind) && isTechnicalSheetFieldVisible(technicalSheetForm.kind, 'preparationLeadTimeDays') ? (
 	                      <label className="field">
 	                        <span>
                             Tempo de preparo (dias)
-                            {isTechnicalSheetFieldRequired('PREPARO', 'preparationLeadTimeDays') ? ' *' : ''}
+                            {isTechnicalSheetFieldRequired(technicalSheetForm.kind, 'preparationLeadTimeDays') ? ' *' : ''}
                           </span>
 	                        <NormalizedTextInput
 	                          value={technicalSheetForm.preparationLeadTimeDays}
@@ -44198,11 +44243,11 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
 	                        <p className="helper-text">Se deixar em branco, o sistema considera 1 dia no calculo de estoque minimo sugerido.</p>
 	                      </label>
 	                    ) : null}
-	                    {!isCommercialTechnicalSheetKind(technicalSheetForm.kind) && isTechnicalSheetFieldVisible('PREPARO', 'outputQuantity') ? (
+	                    {!isCommercialTechnicalSheetKind(technicalSheetForm.kind) && isTechnicalSheetFieldVisible(technicalSheetForm.kind, 'outputQuantity') ? (
 	                      <label className="field">
 	                        <span>
                             Rendimento final
-                            {technicalSheetForm.kind === 'PREPARO' && isTechnicalSheetFieldRequired('PREPARO', 'outputQuantity') ? ' *' : ''}
+                            {isProductionTechnicalSheetKind(technicalSheetForm.kind) && isTechnicalSheetFieldRequired(technicalSheetForm.kind, 'outputQuantity') ? ' *' : ''}
                           </span>
 	                        <NormalizedTextInput
 	                          value={technicalSheetForm.outputQuantity}
@@ -44283,7 +44328,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
               </form>
             </section>
 
-	            {technicalSheetForm.kind === 'PREPARO' ? renderPreparoCompositionPanel('main') : isTechnicalSheetFieldVisible(technicalSheetForm.kind, 'ingredients') ? (
+	            {isProductionTechnicalSheetKind(technicalSheetForm.kind) ? renderPreparoCompositionPanel('main') : isTechnicalSheetFieldVisible(technicalSheetForm.kind, 'ingredients') ? (
 	            <section className="panel">
 	              <div className="section-heading">
 	                <div>
@@ -44911,11 +44956,11 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
 		            </section>
 		            ) : null}
 
-		            {technicalSheetForm.kind === 'PREPARO' ? renderPreparoDensityPanel('main') : null}
+		            {isProductionTechnicalSheetKind(technicalSheetForm.kind) ? renderPreparoDensityPanel('main') : null}
 
 	            {technicalSheetForm.kind === 'PREPARO' ? renderPreparoPhBrixPanel('main') : null}
 
-            {technicalSheetForm.kind === 'PREPARO' ? renderPreparoSummaryPanel('main') : (
+            {isProductionTechnicalSheetKind(technicalSheetForm.kind) ? renderPreparoSummaryPanel('main') : (
             <section className="panel">
               <div className="section-heading">
                 <div>
@@ -45253,7 +45298,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
             </section>
             ) : null}
 
-	            {technicalSheetForm.kind === 'PREPARO' ? renderPreparoExecutionPanel('main') : null}
+	            {isProductionTechnicalSheetKind(technicalSheetForm.kind) ? renderPreparoExecutionPanel('main') : null}
 
             <section className="panel">
               <div className="section-heading">
@@ -46994,13 +47039,13 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                             openItemsContainerQuantity: record.openItemsContainerQuantity,
                           }
                           const countableItem =
-                            record.technicalSheetKind === 'PREPARO'
-                              ? inventoryCountableItems.find((item) => item.kind === 'PREPARO' && item.technicalSheetId === record.technicalSheetId) ?? null
+                            isProductionStockKind(record.technicalSheetKind)
+                              ? inventoryCountableItems.find((item) => isProductionStockKind(item.kind) && item.technicalSheetId === record.technicalSheetId) ?? null
                               : record.technicalSheetKind === 'PRODUTO'
                                 ? inventoryCountableItems.find((item) => item.kind === 'PRODUTO' && item.productId === record.productId) ?? null
                                 : inventoryCountableItems.find((item) => item.kind === 'ITEM' && item.serviceItemId === record.serviceItemId) ?? null
                           const sheet =
-                            record.technicalSheetKind === 'PREPARO' && record.technicalSheetId !== null
+                            isProductionStockKind(record.technicalSheetKind) && record.technicalSheetId !== null
                               ? inventoryCountableSheets.find((item) => item.id === record.technicalSheetId) ?? null
                               : null
                           const product = record.technicalSheetKind === 'PRODUTO' ? productById.get(record.productId) ?? null : null
@@ -47243,13 +47288,13 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                         openItemsContainerQuantity: record.openItemsContainerQuantity,
                       }
                       const countableItem =
-                        record.technicalSheetKind === 'PREPARO'
-                          ? inventoryCountableItems.find((item) => item.kind === 'PREPARO' && item.technicalSheetId === record.technicalSheetId) ?? null
+                        isProductionStockKind(record.technicalSheetKind)
+                          ? inventoryCountableItems.find((item) => isProductionStockKind(item.kind) && item.technicalSheetId === record.technicalSheetId) ?? null
                           : record.technicalSheetKind === 'PRODUTO'
                             ? inventoryCountableItems.find((item) => item.kind === 'PRODUTO' && item.productId === record.productId) ?? null
                             : inventoryCountableItems.find((item) => item.kind === 'ITEM' && item.serviceItemId === record.serviceItemId) ?? null
                       const sheet =
-                        record.technicalSheetKind === 'PREPARO' && record.technicalSheetId !== null
+                        isProductionStockKind(record.technicalSheetKind) && record.technicalSheetId !== null
                           ? inventoryCountableSheets.find((item) => item.id === record.technicalSheetId) ?? null
                           : null
                       const product = record.technicalSheetKind === 'PRODUTO' ? productById.get(record.productId) ?? null : null
@@ -55432,13 +55477,13 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                         openItemsContainerQuantity: record?.openItemsContainerQuantity ?? '',
                       }
                       const countableItem =
-                        row.kind === 'PREPARO'
-                          ? inventoryCountableItems.find((item) => item.kind === 'PREPARO' && item.technicalSheetId === (record?.technicalSheetId ?? row.stockRow?.technicalSheetId ?? null)) ?? null
+                        isProductionStockKind(row.kind)
+                          ? inventoryCountableItems.find((item) => isProductionStockKind(item.kind) && item.technicalSheetId === (record?.technicalSheetId ?? row.stockRow?.technicalSheetId ?? null)) ?? null
                           : row.kind === 'PRODUTO'
                             ? inventoryCountableItems.find((item) => item.kind === 'PRODUTO' && item.productId === (record?.productId ?? row.stockRow?.productId ?? '')) ?? null
                             : inventoryCountableItems.find((item) => item.kind === 'ITEM' && item.serviceItemId === (record?.serviceItemId ?? row.stockRow?.serviceItemId ?? '')) ?? null
                       const sheet =
-                        row.kind === 'PREPARO' && (record?.technicalSheetId ?? row.stockRow?.technicalSheetId ?? null) !== null
+                        isProductionStockKind(row.kind) && (record?.technicalSheetId ?? row.stockRow?.technicalSheetId ?? null) !== null
                           ? inventoryCountableSheets.find((item) => item.id === (record?.technicalSheetId ?? row.stockRow?.technicalSheetId ?? null)) ?? null
                           : null
                       const product = row.kind === 'PRODUTO' ? productById.get(record?.productId ?? row.stockRow?.productId ?? '') ?? null : null
@@ -55628,13 +55673,13 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                       openItemsContainerQuantity: record.openItemsContainerQuantity,
                     }
                     const countableItem =
-                      record.technicalSheetKind === 'PREPARO'
-                        ? inventoryCountableItems.find((item) => item.kind === 'PREPARO' && item.technicalSheetId === record.technicalSheetId) ?? null
+                      isProductionStockKind(record.technicalSheetKind)
+                        ? inventoryCountableItems.find((item) => isProductionStockKind(item.kind) && item.technicalSheetId === record.technicalSheetId) ?? null
                         : record.technicalSheetKind === 'PRODUTO'
                           ? inventoryCountableItems.find((item) => item.kind === 'PRODUTO' && item.productId === record.productId) ?? null
                           : inventoryCountableItems.find((item) => item.kind === 'ITEM' && item.serviceItemId === record.serviceItemId) ?? null
                     const sheet =
-                      record.technicalSheetKind === 'PREPARO' && record.technicalSheetId !== null
+                      isProductionStockKind(record.technicalSheetKind) && record.technicalSheetId !== null
                         ? inventoryCountableSheets.find((item) => item.id === record.technicalSheetId) ?? null
                         : null
                     const product = record.technicalSheetKind === 'PRODUTO' ? productById.get(record.productId) ?? null : null
@@ -56800,7 +56845,13 @@ function getTechnicalSheetColumnValue(
     case 'internalId':
       return sheet.productId
     case 'kind':
-      return sheet.kind === 'PREPARO' ? 'Pre-preparo' : sheet.kind === 'EXECUCAO' ? 'Execucao' : 'Venda'
+      return sheet.kind === 'PREPARO'
+        ? 'Pre-preparo'
+        : sheet.kind === 'PRODUTO_INTERNO'
+          ? 'Produto interno'
+          : sheet.kind === 'EXECUCAO'
+            ? 'Execucao'
+            : 'Venda'
     case 'companyId':
       return getTechnicalSheetCompanyProductId(sheet, costContext.consumerCompanyId) || ''
     case 'productionCenters':
@@ -57094,7 +57145,7 @@ function formatRequisitionDraftColumnQuantity(
       ? `${formatDecimal(quantity)} ${unitLabel}`
       : `${formatOperationalPackageQuantity(quantity)} x ${unitLabel}`
   }
-  if (line.kind === 'PREPARO') {
+  if (isProductionStockKind(line.kind)) {
     return `${formatOperationalPackageQuantity(quantity)} x ${unitLabel}`
   }
   return `${formatDecimal(quantity)} ${unitLabel}`
@@ -59220,7 +59271,11 @@ function normalizeManualProductionRequestRecord(value: unknown): ManualProductio
     parentRequestId: isSafePersistedIntId(record.parentRequestId) ? record.parentRequestId : null,
     isDependencyRequest: record.isDependencyRequest === true,
     planningSourceKind:
-      record.planningSourceKind === 'PREPARO' || record.planningSourceKind === 'EXECUCAO' ? record.planningSourceKind : '',
+      record.planningSourceKind === 'PREPARO' ||
+      record.planningSourceKind === 'PRODUTO_INTERNO' ||
+      record.planningSourceKind === 'EXECUCAO'
+        ? record.planningSourceKind
+        : '',
     planningSourceCenterId: isSafePersistedIntId(record.planningSourceCenterId) ? record.planningSourceCenterId : null,
     planningSourceCenterName:
       typeof record.planningSourceCenterName === 'string' ? normalizeRegistrationText(record.planningSourceCenterName) : '',
@@ -59585,6 +59640,9 @@ function inferTechnicalSheetKindFromProduct(product: ProductRecord): TechnicalSh
   }
   if (product.id.startsWith('EXE-')) {
     return 'EXECUCAO'
+  }
+  if (product.id.startsWith('INT-')) {
+    return 'PRODUTO_INTERNO'
   }
   return 'PREPARO'
 }
@@ -60234,7 +60292,7 @@ function normalizeRequisitionRecord(value: unknown): RequisitionRecord | null {
         Boolean(line) &&
         typeof line === 'object' &&
         typeof line.key === 'string' &&
-        (line.kind === 'PREPARO' || line.kind === 'PRODUTO' || line.kind === 'ITEM') &&
+        (isProductionStockKind(line.kind) || line.kind === 'PRODUTO' || line.kind === 'ITEM') &&
         typeof line.itemName === 'string' &&
         typeof line.itemTypeLabel === 'string' &&
         typeof line.family === 'string' &&
@@ -60306,7 +60364,11 @@ function normalizeRequisitionRecord(value: unknown): RequisitionRecord | null {
     companyId: record.companyId,
     planningRootRequestId: isSafePersistedIntId(record.planningRootRequestId) ? record.planningRootRequestId : null,
     planningSourceKind:
-      record.planningSourceKind === 'PREPARO' || record.planningSourceKind === 'EXECUCAO' ? record.planningSourceKind : '',
+      record.planningSourceKind === 'PREPARO' ||
+      record.planningSourceKind === 'PRODUTO_INTERNO' ||
+      record.planningSourceKind === 'EXECUCAO'
+        ? record.planningSourceKind
+        : '',
     planningSourceCenterId: isSafePersistedIntId(record.planningSourceCenterId) ? record.planningSourceCenterId : null,
     planningSourceCenterName:
       typeof record.planningSourceCenterName === 'string' ? normalizeRegistrationText(record.planningSourceCenterName) : '',
@@ -60885,7 +60947,7 @@ function normalizeTechnicalSheetSettingsRecord(value: unknown): TechnicalSheetSe
   const defaultSettings = buildDefaultTechnicalSheetFormSettings()
   const nextSettings = { ...defaultSettings }
 
-  ;(['PREPARO', 'EXECUCAO', 'VENDA'] as const).forEach((kind) => {
+  ;(['PREPARO', 'PRODUTO_INTERNO', 'EXECUCAO', 'VENDA'] as const).forEach((kind) => {
     const rawKindSettings = record.settings?.[kind]
     if (!rawKindSettings || typeof rawKindSettings !== 'object') {
       return
@@ -61043,7 +61105,13 @@ function normalizeTechnicalSheetRecord(value: unknown): TechnicalSheetRecord | n
     typeof item.id !== 'number' ||
     typeof item.companyId !== 'number' ||
     typeof item.productId !== 'string' ||
-    (item.kind !== undefined && item.kind !== 'PREPARO' && item.kind !== 'EXECUCAO' && item.kind !== 'VENDA') ||
+    (
+      item.kind !== undefined &&
+      item.kind !== 'PREPARO' &&
+      item.kind !== 'PRODUTO_INTERNO' &&
+      item.kind !== 'EXECUCAO' &&
+      item.kind !== 'VENDA'
+    ) ||
     typeof item.companyProductId !== 'string' ||
     typeof item.name !== 'string' ||
     typeof item.family !== 'string' ||
@@ -61065,7 +61133,10 @@ function normalizeTechnicalSheetRecord(value: unknown): TechnicalSheetRecord | n
     return null
   }
 
-  const normalizedKind = item.kind === 'VENDA' || item.kind === 'EXECUCAO' ? item.kind : 'PREPARO'
+  const normalizedKind =
+    item.kind === 'VENDA' || item.kind === 'EXECUCAO' || item.kind === 'PRODUTO_INTERNO'
+      ? item.kind
+      : 'PREPARO'
   const normalizedCompanyId = item.companyId
   const normalizedOwnerCompanyId =
     typeof item.ownerCompanyId === 'number'
@@ -61528,7 +61599,7 @@ function buildProductId(_name: string) {
 }
 
 function buildTechnicalSheetProductId(_name: string, kind: TechnicalSheetKind = 'PREPARO') {
-  const prefix = kind === 'VENDA' ? 'VEN' : kind === 'EXECUCAO' ? 'EXE' : 'PRE'
+  const prefix = kind === 'VENDA' ? 'VEN' : kind === 'EXECUCAO' ? 'EXE' : kind === 'PRODUTO_INTERNO' ? 'INT' : 'PRE'
   return buildOpaqueCatalogId(prefix)
 }
 

@@ -2673,8 +2673,8 @@ function buildStockCenterMinimumEntryKey(entry) {
     return ''
   }
 
-  if (entry.kind === 'PREPARO') {
-    return `PREPARO:${entry.technicalSheetId ?? ''}`
+  if (entry.kind === 'PREPARO' || entry.kind === 'PRODUTO_INTERNO') {
+    return `${entry.kind}:${entry.technicalSheetId ?? ''}`
   }
 
   if (entry.kind === 'PRODUTO') {
@@ -4108,7 +4108,10 @@ function normalizeStockCenterPayload(value) {
     ? record.minimumStocks
         .filter((item) => item && typeof item === 'object')
         .map((item) => ({
-          kind: item.kind === 'PRODUTO' || item.kind === 'ITEM' || item.kind === 'PREPARO' ? item.kind : 'PREPARO',
+          kind:
+            item.kind === 'PRODUTO' || item.kind === 'ITEM' || item.kind === 'PREPARO' || item.kind === 'PRODUTO_INTERNO'
+              ? item.kind
+              : 'PREPARO',
           technicalSheetId: parseIntegerParam(item.technicalSheetId),
           productId: typeof item.productId === 'string' ? item.productId : '',
           serviceItemId: typeof item.serviceItemId === 'string' ? item.serviceItemId : '',
@@ -4295,7 +4298,11 @@ function normalizeRequisitionPayload(value) {
     requisitionGroupId: requisitionGroupId ?? id,
     planningRootRequestId,
     planningSourceKind:
-      record.planningSourceKind === 'PREPARO' || record.planningSourceKind === 'EXECUCAO' ? record.planningSourceKind : '',
+      record.planningSourceKind === 'PREPARO' ||
+      record.planningSourceKind === 'PRODUTO_INTERNO' ||
+      record.planningSourceKind === 'EXECUCAO'
+        ? record.planningSourceKind
+        : '',
     planningSourceCenterId,
     planningSourceCenterName: typeof record.planningSourceCenterName === 'string' ? record.planningSourceCenterName : '',
     planningSourceSheetId,
@@ -4374,8 +4381,8 @@ function preserveExistingRequisitionLineSourceAllocations(existing, requisition,
 }
 
 function buildServerInventoryAggregationKey(target) {
-  if (target.kind === 'PREPARO') {
-    return `PREPARO:${target.technicalSheetId ?? ''}`
+  if (target.kind === 'PREPARO' || target.kind === 'PRODUTO_INTERNO') {
+    return `${target.kind}:${target.technicalSheetId ?? ''}`
   }
 
   if (target.kind === 'PRODUTO') {
@@ -4473,7 +4480,7 @@ function findServerPackageById(packages, packageId) {
 }
 
 function getServerRequisitionStockMovementConfig(line, context) {
-  if (line?.kind === 'PREPARO' && typeof line.technicalSheetId === 'number') {
+  if ((line?.kind === 'PREPARO' || line?.kind === 'PRODUTO_INTERNO') && typeof line.technicalSheetId === 'number') {
     const sheet = context.technicalSheetById.get(line.technicalSheetId) ?? null
     if (!sheet) {
       return { multiplier: 1, totalUnit: 'MILLILITER' }
@@ -4611,7 +4618,15 @@ async function getServerCurrentInventoryBalanceByAggregationKey(stockCenter) {
 async function getServerSupplyRequisitionStockShortages(requisition, sourceCenter) {
   const lines = Array.isArray(requisition.lines) ? requisition.lines : []
   const technicalSheetIds = Array.from(
-    new Set(lines.map((line) => (line?.kind === 'PREPARO' ? parseIntegerParam(line.technicalSheetId) : null)).filter((id) => id !== null)),
+    new Set(
+      lines
+        .map((line) =>
+          line?.kind === 'PREPARO' || line?.kind === 'PRODUTO_INTERNO'
+            ? parseIntegerParam(line.technicalSheetId)
+            : null,
+        )
+        .filter((id) => id !== null),
+    ),
   )
   const productIds = Array.from(
     new Set(
@@ -4651,7 +4666,8 @@ async function getServerSupplyRequisitionStockShortages(requisition, sourceCente
     const kind = line?.kind
     const aggregationKey = buildServerInventoryAggregationKey({
       kind,
-      technicalSheetId: kind === 'PREPARO' ? parseIntegerParam(line.technicalSheetId) : null,
+      technicalSheetId:
+        kind === 'PREPARO' || kind === 'PRODUTO_INTERNO' ? parseIntegerParam(line.technicalSheetId) : null,
       productId: kind === 'PRODUTO' && typeof line.productId === 'string' ? normalizeRegistrationText(line.productId) : '',
       serviceItemId: kind === 'ITEM' && typeof line.serviceItemId === 'string' ? normalizeRegistrationText(line.serviceItemId) : '',
     })
@@ -4887,7 +4903,11 @@ function normalizeManualProductionRequestPayload(value) {
     parentRequestId,
     isDependencyRequest: record.isDependencyRequest,
     planningSourceKind:
-      record.planningSourceKind === 'PREPARO' || record.planningSourceKind === 'EXECUCAO' ? record.planningSourceKind : '',
+      record.planningSourceKind === 'PREPARO' ||
+      record.planningSourceKind === 'PRODUTO_INTERNO' ||
+      record.planningSourceKind === 'EXECUCAO'
+        ? record.planningSourceKind
+        : '',
     planningSourceCenterId,
     planningSourceCenterName: typeof record.planningSourceCenterName === 'string' ? record.planningSourceCenterName : '',
     planningSourceSheetId,

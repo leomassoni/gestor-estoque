@@ -1,10 +1,29 @@
 # Worklog
 
- Ultima atualizacao: 2026-09-15
+ Ultima atualizacao: 2026-09-18
 
 ## Objetivo deste arquivo
 
 Registrar um historico resumido do que foi feito, do que falhou e do que ficou pendente.
+
+## 2026-09-18
+
+### Modelo de ficha tecnica `PRODUTO_INTERNO`
+
+- Criado o tipo de ficha tecnica `PRODUTO_INTERNO` para itens internos montados/embalados que podem ser produzidos, estocados, contados, requisitados e transferidos sem virar ficha de venda/PDV.
+- A regra de composicao ficou:
+  - `PREPARO` pode compor `PREPARO`, `PRODUTO_INTERNO` e `EXECUCAO`;
+  - `PRODUTO_INTERNO` pode compor `VENDA`;
+  - `EXECUCAO` pode compor `VENDA`;
+  - `VENDA` continua compondo outra `VENDA` apenas no modelo combo.
+- O custo de recipientes/itens de servico passa a compor o custo total de `PRODUTO_INTERNO`, assim como ja ocorria em fichas de venda.
+- `PRODUTO_INTERNO` entra nos fluxos de centro produtor, estoque minimo, contagem/inventario, requisicao, suprimento, fila de producao e transferencias entre empresas como item produzivel.
+- Importacao de vendas permanece restrita ao fluxo de fichas comerciais; `PRODUTO_INTERNO` nao deve ser de-para direto de PDV.
+- Backend ajustado para preservar `PRODUTO_INTERNO` em minimos de centro, chaves de saldo/movimentacao e requisicoes/suprimentos.
+- Validacao local:
+  - `npm run build` passou;
+  - `node --check server/server.js` passou;
+  - `npm run build:server` passou.
 
 ## 2026-09-15
 

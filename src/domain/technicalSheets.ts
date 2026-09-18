@@ -45,12 +45,24 @@ export function isCommercialTechnicalSheetKind(kind: TechnicalSheetKind) {
   return kind === 'VENDA' || kind === 'EXECUCAO'
 }
 
+export function isProductionTechnicalSheetKind(kind: TechnicalSheetKind): kind is 'PREPARO' | 'PRODUTO_INTERNO' {
+  return kind === 'PREPARO' || kind === 'PRODUTO_INTERNO'
+}
+
+export function isInternalProductTechnicalSheetKind(kind: TechnicalSheetKind) {
+  return kind === 'PRODUTO_INTERNO'
+}
+
+export function isPdvTechnicalSheetKind(kind: TechnicalSheetKind) {
+  return kind === 'VENDA'
+}
+
 export function isExecutionTechnicalSheetKind(kind: TechnicalSheetKind) {
   return kind === 'EXECUCAO'
 }
 
 export function hasTechnicalSheetProductIdPrefix(productId: string) {
-  return /^(PRE|EXE|VEN|TSP|TSE)-/.test(productId)
+  return /^(PRE|INT|EXE|VEN|TSP|TSE)-/.test(productId)
 }
 
 export function isTechnicalSheetCatalogProduct(product: ProductRecord, technicalSheets: TechnicalSheetRecord[]) {
@@ -66,7 +78,7 @@ export function getDefaultTechnicalSheetOutputUnit(kind: TechnicalSheetKind): Co
     return 'UNIT'
   }
 
-  if (kind === 'VENDA') {
+  if (kind === 'VENDA' || kind === 'PRODUTO_INTERNO') {
     return 'UNIT'
   }
 
@@ -88,7 +100,7 @@ export function isPrepTechnicalSheetProduct(product: ProductRecord, technicalShe
   }
 
   const linkedTechnicalSheet = technicalSheets.find((sheet) => sheet.id === product.technicalSheetId) ?? null
-  return linkedTechnicalSheet?.kind === 'PREPARO'
+  return linkedTechnicalSheet ? isProductionTechnicalSheetKind(linkedTechnicalSheet.kind) : false
 }
 
 export function getProductDisplayUnitLabel(product: ProductRecord, technicalSheets: TechnicalSheetRecord[]) {
@@ -369,10 +381,6 @@ export function calculateTechnicalSheetCost(
       return sum + linkedProductUnitCost * quantity
     }, 0)
 
-  if (sheet.kind !== 'VENDA') {
-    return applySharedPreparationSaleFee(ingredientsCost, sheet, costContext)
-  }
-
   const serviceItemsCost = sheet.serviceItems
     .filter((item) => item.isActive && item.itemId.trim() !== '')
     .reduce((sum, item) => {
@@ -381,7 +389,13 @@ export function calculateTechnicalSheetCost(
       return sum + (linkedServiceItem ? calculateServiceItemUnitCost(linkedServiceItem) * quantity : 0)
     }, 0)
 
-  return ingredientsCost + serviceItemsCost
+  const totalCost = sheet.kind === 'VENDA' || sheet.kind === 'PRODUTO_INTERNO'
+    ? ingredientsCost + serviceItemsCost
+    : ingredientsCost
+
+  return isProductionTechnicalSheetKind(sheet.kind)
+    ? applySharedPreparationSaleFee(totalCost, sheet, costContext)
+    : totalCost
 }
 
 export function isSharedPreparationSaleBoundary(
@@ -393,7 +407,7 @@ export function isSharedPreparationSaleBoundary(
       ? costContext.consumerCompanyId
       : null
 
-  if (costContext.suppressSharedPreparationSaleFee || sheet.kind !== 'PREPARO' || consumerCompanyId === null) {
+  if (costContext.suppressSharedPreparationSaleFee || !isProductionTechnicalSheetKind(sheet.kind) || consumerCompanyId === null) {
     return false
   }
 
@@ -572,7 +586,7 @@ export function calculateTechnicalSheetEffectiveYield(sheet: TechnicalSheetRecor
     }
   }
 
-  if (sheet.kind === 'PREPARO') {
+  if (sheet.kind === 'PREPARO' || sheet.kind === 'PRODUTO_INTERNO') {
     const savedYield = parseDecimal(sheet.outputQuantity) ?? 0
     if (savedYield > 0) {
       return savedYield
@@ -636,10 +650,10 @@ export function getInventoryClosedItemReferenceQuantity(sheet: TechnicalSheetRec
 
 export function getInventoryClosedItemReferenceUnit(sheet: TechnicalSheetRecord, hasRecipientOptions: boolean): ControlUnit {
   if (hasRecipientOptions) {
-    return sheet.kind === 'VENDA' ? 'UNIT' : sheet.outputUnit
+    return sheet.kind === 'VENDA' || sheet.kind === 'PRODUTO_INTERNO' ? 'UNIT' : sheet.outputUnit
   }
 
-  return sheet.kind === 'VENDA' ? 'UNIT' : sheet.outputUnit
+  return sheet.kind === 'VENDA' || sheet.kind === 'PRODUTO_INTERNO' ? 'UNIT' : sheet.outputUnit
 }
 
 export function calculateTechnicalSheetAlcoholReferenceYield(sheet: TechnicalSheetRecord) {
@@ -700,6 +714,10 @@ export function getTechnicalSheetYieldUnitLabel(
     }
 
     return 'ML/G'
+  }
+
+  if (sheet.kind === 'PRODUTO_INTERNO') {
+    return formatControlUnitShort(sheet.outputUnit)
   }
 
   return formatControlUnitShort(sheet.outputUnit)

@@ -129,6 +129,8 @@ export function getStockCountableKindLabel(kind: StockCountableKind | 'VENDA') {
   switch (kind) {
     case 'PREPARO':
       return 'Pre-preparo'
+    case 'PRODUTO_INTERNO':
+      return 'Produto interno'
     case 'PRODUTO':
       return 'Produto'
     case 'ITEM':
@@ -153,8 +155,8 @@ export function buildStockCenterMinimumEntryKey(entry: {
   serviceItemId: string
   packageId: number | null
 }) {
-  if (entry.kind === 'PREPARO') {
-    return `PREPARO:${entry.technicalSheetId ?? ''}`
+  if (entry.kind === 'PREPARO' || entry.kind === 'PRODUTO_INTERNO') {
+    return `${entry.kind}:${entry.technicalSheetId ?? ''}`
   }
 
   if (entry.kind === 'PRODUTO') {
@@ -170,8 +172,8 @@ export function buildInventoryCountableItemKey(item: {
   productId: string
   serviceItemId: string
 }) {
-  if (item.kind === 'PREPARO') {
-    return `PREPARO:${item.technicalSheetId ?? ''}`
+  if (item.kind === 'PREPARO' || item.kind === 'PRODUTO_INTERNO') {
+    return `${item.kind}:${item.technicalSheetId ?? ''}`
   }
 
   if (item.kind === 'PRODUTO') {
@@ -564,8 +566,8 @@ export function findStockCenterMinimumEntry(
     return directEntry
   }
 
-  if (target.kind === 'PREPARO' && target.productId.trim() !== '') {
-    return minimumStocks.find((item) => item.kind === 'PREPARO' && item.productId.trim() === target.productId.trim()) ?? null
+  if ((target.kind === 'PREPARO' || target.kind === 'PRODUTO_INTERNO') && target.productId.trim() !== '') {
+    return minimumStocks.find((item) => item.kind === target.kind && item.productId.trim() === target.productId.trim()) ?? null
   }
 
   if (target.kind === 'PRODUTO' && target.packageId !== null && target.productId.trim() !== '') {
@@ -610,7 +612,7 @@ export function formatStockCenterMinimumDefinition(
       : `${normalizedValue} unidade(s) de controle`
   }
 
-  if (target.kind === 'PREPARO') {
+  if (target.kind === 'PREPARO' || target.kind === 'PRODUTO_INTERNO') {
     const prepSheet =
       typeof target.technicalSheetId === 'number'
         ? options.technicalSheets?.find((item) => item.id === target.technicalSheetId) ?? null
@@ -623,7 +625,9 @@ export function formatStockCenterMinimumDefinition(
     if (prepUnit === 'UNIT') {
       return `${normalizedValue} un`
     }
-    return `${normalizedValue} unidade(s) de preparo`
+    return target.kind === 'PRODUTO_INTERNO'
+      ? `${normalizedValue} unidade(s) de produto interno`
+      : `${normalizedValue} unidade(s) de preparo`
   }
 
   return `${normalizedValue} un`
@@ -639,7 +643,7 @@ export function getStockCenterSuggestedMinimumEntryBaseQuantity(
     return 0
   }
 
-  if (entry.kind === 'PREPARO' && entry.technicalSheetId !== null) {
+  if ((entry.kind === 'PREPARO' || entry.kind === 'PRODUTO_INTERNO') && entry.technicalSheetId !== null) {
     const sheet = technicalSheets.find((item) => item.id === entry.technicalSheetId) ?? null
     return sheet ? quantity * getStockCenterBaseQuantity(sheet) : 0
   }
@@ -663,7 +667,7 @@ export function getStockCenterAdoptedMinimumEntryBaseQuantity(
     return 0
   }
 
-  if (entry.kind === 'PREPARO' && entry.technicalSheetId !== null) {
+  if ((entry.kind === 'PREPARO' || entry.kind === 'PRODUTO_INTERNO') && entry.technicalSheetId !== null) {
     const sheet = technicalSheets.find((item) => item.id === entry.technicalSheetId) ?? null
     return sheet ? quantity * getStockCenterBaseQuantity(sheet) : 0
   }
@@ -683,8 +687,8 @@ export function buildInventoryAggregationKey(target: {
   productId: string
   serviceItemId: string
 }) {
-  if (target.kind === 'PREPARO') {
-    return `PREPARO:${target.technicalSheetId ?? ''}`
+  if (target.kind === 'PREPARO' || target.kind === 'PRODUTO_INTERNO') {
+    return `${target.kind}:${target.technicalSheetId ?? ''}`
   }
 
   if (target.kind === 'PRODUTO') {
@@ -699,7 +703,7 @@ export function buildInventoryAggregationKey(target: {
 }
 
 export function getRequisitionRequestUnitLabel(row: StockCenterMinimumRow) {
-  if (row.kind === 'PREPARO') {
+  if (row.kind === 'PREPARO' || row.kind === 'PRODUTO_INTERNO') {
     return `${formatDecimal(row.baseQuantity)} ${formatControlUnitShort(row.baseUnit)}`
   }
 

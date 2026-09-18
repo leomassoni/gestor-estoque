@@ -21,7 +21,7 @@ export type AppSection =
   | 'Empresa'
   | 'Usuarios'
   | 'PainelMaster'
-export type TechnicalSheetKind = 'PREPARO' | 'EXECUCAO' | 'VENDA'
+export type TechnicalSheetKind = 'PREPARO' | 'PRODUTO_INTERNO' | 'EXECUCAO' | 'VENDA'
 export type ServiceItemKind = 'UTENSILIO_ELETRONICO' | 'RECIPIENTE_SERVICO'
 export type ServiceItemSizeUnit = 'MILLILITER' | 'GRAM' | 'CENTIMETER'
 export type TechnicalSheetSettingsTab = TechnicalSheetKind | 'COMPARTILHAMENTO'
@@ -498,7 +498,7 @@ export type SaveProgressState = {
   message: string
 }
 
-export type StockCountableKind = 'PREPARO' | 'PRODUTO' | 'ITEM'
+export type StockCountableKind = 'PREPARO' | 'PRODUTO_INTERNO' | 'PRODUTO' | 'ITEM'
 export type WasteCountableKind = StockCountableKind | 'EXECUCAO'
 export type SalesImportHistoryMode = 'ROLLING_MONTHS' | 'FULL_PERIOD' | 'SAME_PERIOD_LAST_YEAR'
 export type SalesImportConsumptionMethod = 'SIMPLE_AVERAGE' | 'MEDIAN_DAILY'
@@ -903,7 +903,7 @@ export type RequisitionRecord = {
   companyId: number
   requisitionGroupId: number
   planningRootRequestId?: number | null
-  planningSourceKind?: 'PREPARO' | 'EXECUCAO' | ''
+  planningSourceKind?: 'PREPARO' | 'PRODUTO_INTERNO' | 'EXECUCAO' | ''
   planningSourceCenterId?: number | null
   planningSourceCenterName?: string
   planningSourceSheetId?: number | null
@@ -1016,7 +1016,7 @@ export type ManualProductionRequestRecord = {
   rootRequestId: number
   parentRequestId: number | null
   isDependencyRequest: boolean
-  planningSourceKind?: 'PREPARO' | 'EXECUCAO' | ''
+  planningSourceKind?: 'PREPARO' | 'PRODUTO_INTERNO' | 'EXECUCAO' | ''
   planningSourceCenterId?: number | null
   planningSourceCenterName?: string
   planningSourceSheetId?: number | null
@@ -1062,7 +1062,7 @@ export type ManualProductionPreviewShortageGroup = {
 }
 
 export type ManualProductionPreviewState = {
-  sourceKind: 'PREPARO' | 'EXECUCAO'
+  sourceKind: 'PREPARO' | 'PRODUTO_INTERNO' | 'EXECUCAO'
   centerId: number
   centerName: string
   sheetId: number
