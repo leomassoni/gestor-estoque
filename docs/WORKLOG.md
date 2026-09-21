@@ -18,8 +18,14 @@ Registrar um historico resumido do que foi feito, do que falhou e do que ficou p
   - `VENDA` continua compondo outra `VENDA` apenas no modelo combo.
 - O custo de recipientes/itens de servico passa a compor o custo total de `PRODUTO_INTERNO`, assim como ja ocorria em fichas de venda.
 - `PRODUTO_INTERNO` entra nos fluxos de centro produtor, estoque minimo, contagem/inventario, requisicao, suprimento, fila de producao e transferencias entre empresas como item produzivel.
-- Importacao de vendas permanece restrita ao fluxo de fichas comerciais; `PRODUTO_INTERNO` nao deve ser de-para direto de PDV.
+- Importacao de vendas agora aceita `PRODUTO_INTERNO` como de-para direto de PDV quando o item interno acabado for o item operacional vendido/baixado, evitando ficha `VENDA` duplicada apenas para ponte de import.
+- Criado suporte a aliases de `ID empresa` por ficha tecnica e por empresa, para consolidar multiplos codigos do PDV/impressora em uma unica ficha operacional.
+- No import de vendas, `PRODUTO_INTERNO` gera consumo do proprio item interno produzido/estocado; `EXECUCAO` e `VENDA` seguem gerando consumo pela composicao.
 - Backend ajustado para preservar `PRODUTO_INTERNO` em minimos de centro, chaves de saldo/movimentacao e requisicoes/suprimentos.
+- Pendencias antes de considerar o fluxo fechado:
+  - corrigir a gravacao de contagens de inventario para `PRODUTO_INTERNO`: hoje o salvamento de contagem preserva `technicalSheetKind=PRODUTO_INTERNO`, mas nao grava `technicalSheetId`, o que pode quebrar saldo consolidado, entrada de producoes, requisicoes e suprimentos desses itens;
+  - validar em fluxo real que uma ficha `PRODUTO_INTERNO` contada entra no saldo do centro, abate necessidade de producao e movimenta corretamente em suprimento/recebimento;
+  - concluir a migracao das fichas de venda candidatas apenas apos conferencia da planilha de auditoria pelo usuario.
 - Validacao local:
   - `npm run build` passou;
   - `node --check server/server.js` passou;

@@ -272,6 +272,7 @@ export type TechnicalSheetRecord = {
   productId: string
   companyProductId: string
   companyProductIdsByCompanyId: Record<string, string>
+  companyProductIdAliasesByCompanyId: Record<string, string[]>
   name: string
   family: string
   subfamily: string
@@ -319,6 +320,7 @@ export type TechnicalSheetFormState = {
   kind: TechnicalSheetKind
   sharedCompanyIds: number[]
   companyProductId: string
+  companyProductIdAliases: string
   name: string
   family: string
   subfamily: string
@@ -1710,7 +1712,7 @@ export type SalesImportRowRecord = {
   companyProductId: string
   quantity: string
   matchedTechnicalSheetId: number | null
-  matchedKind: '' | 'EXECUCAO' | 'VENDA'
+  matchedKind: '' | 'PRODUTO_INTERNO' | 'EXECUCAO' | 'VENDA'
   status: 'MATCHED' | 'UNMATCHED' | 'ERROR'
   errorMessage: string
 }
@@ -1721,7 +1723,7 @@ export type SalesImportPreviewRow = {
   companyProductId: string
   quantity: string
   matchedTechnicalSheetId: number | null
-  matchedKind: '' | 'EXECUCAO' | 'VENDA'
+  matchedKind: '' | 'PRODUTO_INTERNO' | 'EXECUCAO' | 'VENDA'
   status: 'MATCHED' | 'UNMATCHED' | 'ERROR'
   errorMessage: string
 }
@@ -1733,7 +1735,7 @@ export type SalesConsumptionRecord = {
   consumedAt: string
   sourceBatchId: number
   sourceTechnicalSheetId: number
-  sourceTechnicalSheetKind: 'EXECUCAO' | 'VENDA'
+  sourceTechnicalSheetKind: 'PRODUTO_INTERNO' | 'EXECUCAO' | 'VENDA'
   ingredientProductId: string
   quantityConsumed: string
   unit: string

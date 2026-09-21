@@ -916,6 +916,7 @@ model AppTechnicalSheetRecord {
   productId             String
   companyProductId      String
   companyProductIdsByCompanyId Json @default("{}")
+  companyProductIdAliasesByCompanyId Json @default("{}")
   name                  String
   family                String
   subfamily             String

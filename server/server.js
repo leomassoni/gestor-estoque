@@ -41,6 +41,7 @@ const technicalSheetListSelect = {
   productId: true,
   companyProductId: true,
   companyProductIdsByCompanyId: true,
+  companyProductIdAliasesByCompanyId: true,
   name: true,
   family: true,
   subfamily: true,
@@ -3002,7 +3003,7 @@ function normalizeRegistrationNameKey(value) {
 }
 
 function hasTechnicalSheetProductIdPrefix(productId) {
-  return /^(PRE|EXE|VEN|TSP|TSE)-/.test(productId)
+  return /^(PRE|INT|EXE|VEN|TSP|TSE)-/.test(productId)
 }
 
 function buildOpaqueCatalogId(prefix) {
@@ -3017,6 +3018,9 @@ function getTechnicalSheetProductIdPrefix(kind) {
   }
   if (kind === 'EXECUCAO') {
     return 'EXE'
+  }
+  if (kind === 'PRODUTO_INTERNO') {
+    return 'INT'
   }
   return 'PRE'
 }
@@ -3037,6 +3041,42 @@ function normalizeTechnicalSheetCompanyProductIdsByCompanyId(value, ownerCompany
   const normalizedLegacyCompanyProductId = normalizeRegistrationText(legacyCompanyProductId)
   if (!normalized[String(ownerCompanyId)] && normalizedLegacyCompanyProductId !== '') {
     normalized[String(ownerCompanyId)] = normalizedLegacyCompanyProductId
+  }
+
+  return normalized
+}
+
+function normalizeTechnicalSheetCompanyProductIdAliasesByCompanyId(
+  value,
+  ownerCompanyId,
+  legacyCompanyProductId = '',
+  companyProductIdsByCompanyId = {},
+) {
+  const normalized = {}
+  const addAlias = (rawCompanyId, rawAlias) => {
+    const parsedCompanyId = parseIntegerParam(rawCompanyId)
+    const alias = typeof rawAlias === 'string' ? normalizeRegistrationText(rawAlias) : ''
+    if (parsedCompanyId === null || parsedCompanyId <= 0 || alias === '') {
+      return
+    }
+    const companyKey = String(parsedCompanyId)
+    const primaryCompanyProductId = normalizeRegistrationText(companyProductIdsByCompanyId[companyKey] ?? '')
+    const ownerLegacyProductId =
+      parsedCompanyId === ownerCompanyId ? normalizeRegistrationText(legacyCompanyProductId) : ''
+    if (alias === primaryCompanyProductId || alias === ownerLegacyProductId) {
+      return
+    }
+    normalized[companyKey] = Array.from(new Set([...(normalized[companyKey] ?? []), alias]))
+  }
+
+  if (value && typeof value === 'object' && !Array.isArray(value)) {
+    Object.entries(value).forEach(([companyId, aliases]) => {
+      if (Array.isArray(aliases)) {
+        aliases.forEach((alias) => addAlias(companyId, alias))
+        return
+      }
+      addAlias(companyId, aliases)
+    })
   }
 
   return normalized
@@ -3073,6 +3113,25 @@ function getTechnicalSheetCompanyProductId(sheet, companyId) {
     sheet.companyProductId,
   )
   return companyProductIdsByCompanyId[String(companyId)] ?? ''
+}
+
+function getTechnicalSheetCompanyProductIdAliases(sheet, companyId) {
+  if (companyId === null || companyId === undefined) {
+    return []
+  }
+  const ownerCompanyId = typeof sheet.ownerCompanyId === 'number' ? sheet.ownerCompanyId : sheet.companyId
+  const companyProductIdsByCompanyId = normalizeTechnicalSheetCompanyProductIdsByCompanyId(
+    sheet.companyProductIdsByCompanyId,
+    ownerCompanyId,
+    sheet.companyProductId,
+  )
+  const aliasesByCompanyId = normalizeTechnicalSheetCompanyProductIdAliasesByCompanyId(
+    sheet.companyProductIdAliasesByCompanyId,
+    ownerCompanyId,
+    sheet.companyProductId,
+    companyProductIdsByCompanyId,
+  )
+  return aliasesByCompanyId[String(companyId)] ?? []
 }
 
 function isTechnicalSheetRecordVisibleForCompany(sheet, companyId, companyScopeIds) {
@@ -3330,19 +3389,100 @@ async function ensureUniqueTechnicalSheetName(technicalSheet, client = prisma) {
         sharedCompanyIds: true,
         companyProductId: true,
         companyProductIdsByCompanyId: true,
+        companyProductIdAliasesByCompanyId: true,
         name: true,
       },
     })
-    const duplicateCompanyProductId = visibleSheets.find(
-      (record) =>
-        record.id !== technicalSheet.id &&
-        isTechnicalSheetRecordVisibleForCompany(record, companyId, companyScopeIds) &&
-        getTechnicalSheetCompanyProductId(record, companyId) === companyProductId,
-    )
+    const duplicateCompanyProductId = visibleSheets.find((record) => {
+      if (
+        record.id === technicalSheet.id ||
+        !isTechnicalSheetRecordVisibleForCompany(record, companyId, companyScopeIds)
+      ) {
+        return false
+      }
+      return (
+        getTechnicalSheetCompanyProductId(record, companyId) === companyProductId ||
+        getTechnicalSheetCompanyProductIdAliases(record, companyId).includes(companyProductId)
+      )
+    })
 
     if (duplicateCompanyProductId) {
       const error = new Error(
         `Ja existe uma ficha tecnica cadastrada com o ID empresa ${companyProductId} para esta empresa: ${duplicateCompanyProductId.name}.`,
+      )
+      error.statusCode = 409
+      throw error
+    }
+  }
+
+  const aliasesByCompanyId = normalizeTechnicalSheetCompanyProductIdAliasesByCompanyId(
+    technicalSheet.companyProductIdAliasesByCompanyId,
+    technicalSheet.ownerCompanyId ?? technicalSheet.companyId,
+    technicalSheet.companyProductId,
+    normalizeTechnicalSheetCompanyProductIdsByCompanyId(
+      technicalSheet.companyProductIdsByCompanyId,
+      technicalSheet.ownerCompanyId ?? technicalSheet.companyId,
+      technicalSheet.companyProductId,
+    ),
+  )
+  for (const [rawCompanyId, aliases] of Object.entries(aliasesByCompanyId)) {
+    const companyId = parseIntegerParam(rawCompanyId)
+    if (companyId === null || aliases.length === 0) {
+      continue
+    }
+    const companyProductIdsByCompanyId = normalizeTechnicalSheetCompanyProductIdsByCompanyId(
+      technicalSheet.companyProductIdsByCompanyId,
+      technicalSheet.ownerCompanyId ?? technicalSheet.companyId,
+      technicalSheet.companyProductId,
+    )
+    const primaryCompanyProductId = companyProductIdsByCompanyId[String(companyId)] ?? ''
+    const repeatedAlias = aliases.find((alias) => alias === primaryCompanyProductId)
+    if (repeatedAlias) {
+      const error = new Error(`O alias ${repeatedAlias} ja esta definido como ID empresa principal desta ficha.`)
+      error.statusCode = 409
+      throw error
+    }
+    const companyScopeIds = await getCompanyCatalogScopeIds(companyId, client)
+    const visibleSheets = await client.appTechnicalSheetRecord.findMany({
+      where: {
+        OR: [
+          { ownerCompanyId: companyId },
+          { companyId },
+          { sharedCompanyIds: { has: companyId } },
+        ],
+      },
+      select: {
+        id: true,
+        companyId: true,
+        ownerCompanyId: true,
+        sharedCompanyIds: true,
+        companyProductId: true,
+        companyProductIdsByCompanyId: true,
+        companyProductIdAliasesByCompanyId: true,
+        name: true,
+      },
+    })
+    const duplicateAlias = aliases
+      .map((alias) => ({
+        alias,
+        duplicateSheet: visibleSheets.find((record) => {
+          if (
+            record.id === technicalSheet.id ||
+            !isTechnicalSheetRecordVisibleForCompany(record, companyId, companyScopeIds)
+          ) {
+            return false
+          }
+          return (
+            getTechnicalSheetCompanyProductId(record, companyId) === alias ||
+            getTechnicalSheetCompanyProductIdAliases(record, companyId).includes(alias)
+          )
+        }) ?? null,
+      }))
+      .find((item) => item.duplicateSheet !== null)
+
+    if (duplicateAlias?.duplicateSheet) {
+      const error = new Error(
+        `Ja existe uma ficha tecnica cadastrada com o alias de ID empresa ${duplicateAlias.alias} para esta empresa: ${duplicateAlias.duplicateSheet.name}.`,
       )
       error.statusCode = 409
       throw error
@@ -5643,6 +5783,12 @@ function normalizeTechnicalSheetPayload(value) {
     ownerCompanyId,
     sheet.companyProductId,
   )
+  const companyProductIdAliasesByCompanyId = normalizeTechnicalSheetCompanyProductIdAliasesByCompanyId(
+    sheet.companyProductIdAliasesByCompanyId,
+    ownerCompanyId,
+    sheet.companyProductId,
+    companyProductIdsByCompanyId,
+  )
   const finalSalePricesByCompanyId = normalizeTechnicalSheetFinalSalePricesByCompanyId(
     sheet.finalSalePricesByCompanyId,
     ownerCompanyId,
@@ -5658,6 +5804,7 @@ function normalizeTechnicalSheetPayload(value) {
     productId: sheet.productId,
     companyProductId: companyProductIdsByCompanyId[String(ownerCompanyId)] ?? '',
     companyProductIdsByCompanyId,
+    companyProductIdAliasesByCompanyId,
     name: sheet.name,
     family: sheet.family,
     subfamily: sheet.subfamily,
