@@ -34,6 +34,7 @@ import {
   AppSidebar,
   MobileTopbar,
 } from './components/AppNavigationShell'
+import { BillingPanel } from './components/BillingPanel'
 import { NormalizedTextInput, NormalizedTextarea } from './components/NormalizedTextField'
 import {
   renderClosedInventoryColumnHeader,
@@ -36606,7 +36607,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
       return 'technical-sheet-workspace technical-sheet-workspace-preparo'
     }
     if (kind === 'PRODUTO_INTERNO') {
-      return 'technical-sheet-workspace technical-sheet-workspace-preparo'
+      return 'technical-sheet-workspace technical-sheet-workspace-produto-interno'
     }
     if (kind === 'EXECUCAO') {
       return 'technical-sheet-workspace technical-sheet-workspace-execucao'
@@ -50715,6 +50716,12 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
               ))}
             </div>
           </section>
+
+          <BillingPanel
+            companies={companies}
+            currentCompanyId={currentCompanyId}
+            onFeedback={setSaveFeedback}
+          />
 
           <section className="panel">
             <div className="section-heading">

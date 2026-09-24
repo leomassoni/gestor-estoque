@@ -153,6 +153,90 @@ export type CompanyRecord = {
   linkedCompanyIds: number[]
 }
 
+export type BillingCycle = 'FORTNIGHTLY' | 'MONTHLY' | 'SEMIANNUAL' | 'ANNUAL'
+export type CompanySubscriptionStatus =
+  | 'TRIAL'
+  | 'GRACE'
+  | 'ACTIVE'
+  | 'PAST_DUE'
+  | 'BLOCKED'
+  | 'CANCELLED'
+  | 'LIFETIME_FREE'
+  | 'SCHEDULED_FOR_DELETION'
+
+export type SubscriptionPlanRecord = {
+  id: string
+  name: string
+  description: string
+  tier: string
+  monthlyPriceCents: number
+  fortnightlyPriceCents: number
+  semiannualPriceCents: number
+  annualPriceCents: number
+  isActive: boolean
+}
+
+export type CompanySubscriptionRecord = {
+  companyId: number
+  planId: string
+  status: CompanySubscriptionStatus
+  billingCycle: BillingCycle
+  basePriceCents: number
+  discountPercent: number
+  contractedPriceCents: number
+  currency: string
+  trialStartedAt: string | null
+  trialEndsAt: string | null
+  graceEndsAt: string | null
+  currentPeriodStartedAt: string | null
+  currentPeriodEndsAt: string | null
+  asaasCustomerId: string
+  asaasSubscriptionId: string
+  lastPaymentStatus: string
+  lifetimeAccess: boolean
+  founderPromotion: boolean
+  feedbackParticipant: boolean
+  dataDeletionScheduledAt: string | null
+  notes: string
+  createdAt: string
+  updatedAt: string
+}
+
+export type BillingPaymentRecord = {
+  id: number
+  companyId: number
+  provider: string
+  providerPaymentId: string
+  providerCustomerId: string
+  providerSubscriptionId: string
+  status: string
+  billingType: string
+  valueCents: number
+  netValueCents: number | null
+  dueDate: string
+  paidAt: string
+  invoiceUrl: string
+  externalReference: string
+  createdAtRecord: string
+  updatedAt: string
+}
+
+export type BillingEventRecord = {
+  id: number
+  provider: string
+  providerEventKey: string
+  eventType: string
+  companyId: number | null
+  providerPaymentId: string
+  providerSubscriptionId: string
+  externalReference: string
+  result: string
+  errorMessage: string
+  processedAt: string
+  createdAt: string
+  updatedAt: string
+}
+
 export type PackageReferenceCodeType = 'EAN' | 'FORNECEDOR' | 'NOTA' | 'INTERNO' | 'OUTRO'
 
 export type PackageReferenceCode = {

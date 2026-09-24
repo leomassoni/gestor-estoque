@@ -403,6 +403,11 @@ select {
   border-color: rgba(210, 138, 90, 0.24);
 }
 
+.technical-sheet-workspace-produto-interno .panel {
+  background: linear-gradient(180deg, rgba(223, 240, 244, 0.98) 0%, rgba(211, 232, 238, 0.94) 100%);
+  border-color: rgba(72, 149, 167, 0.28);
+}
+
 .technical-sheet-workspace-execucao .panel {
   background: linear-gradient(180deg, rgba(245, 235, 200, 0.98) 0%, rgba(240, 227, 181, 0.94) 100%);
   border-color: rgba(201, 166, 71, 0.24);
@@ -454,6 +459,12 @@ select {
   background: rgba(246, 227, 215, 0.92);
   border-color: rgba(210, 138, 90, 0.44);
   box-shadow: 0 10px 24px rgba(210, 138, 90, 0.14);
+}
+
+.technical-sheet-workspace-produto-interno .technical-sheet-kind-tab.active {
+  background: rgba(223, 240, 244, 0.94);
+  border-color: rgba(72, 149, 167, 0.46);
+  box-shadow: 0 10px 24px rgba(72, 149, 167, 0.14);
 }
 
 .technical-sheet-workspace-execucao .technical-sheet-kind-tab.active {

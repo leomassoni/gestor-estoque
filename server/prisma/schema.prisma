@@ -976,3 +976,95 @@ model AppFlavorProfileRecord {
 
   @@index([companyId])
 }
+
+model AppSubscriptionPlanRecord {
+  id                    String   @id
+  name                  String
+  description           String   @default("")
+  tier                  String
+  monthlyPriceCents     Int
+  fortnightlyPriceCents Int
+  semiannualPriceCents  Int
+  annualPriceCents      Int
+  isActive              Boolean  @default(true)
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+}
+
+model AppCompanySubscriptionRecord {
+  companyId               Int      @id
+  planId                  String
+  status                  String   @default("LIFETIME_FREE")
+  billingCycle            String   @default("MONTHLY")
+  basePriceCents          Int      @default(0)
+  discountPercent         Int      @default(0)
+  contractedPriceCents    Int      @default(0)
+  currency                String   @default("BRL")
+  trialStartedAt          DateTime?
+  trialEndsAt             DateTime?
+  graceEndsAt             DateTime?
+  currentPeriodStartedAt  DateTime?
+  currentPeriodEndsAt     DateTime?
+  asaasCustomerId         String   @default("")
+  asaasSubscriptionId     String   @default("")
+  lastPaymentStatus       String   @default("")
+  lifetimeAccess          Boolean  @default(false)
+  founderPromotion        Boolean  @default(false)
+  feedbackParticipant     Boolean  @default(false)
+  dataDeletionScheduledAt DateTime?
+  notes                   String   @default("")
+  createdAt               DateTime @default(now())
+  updatedAt               DateTime @updatedAt
+
+  @@index([planId])
+  @@index([status])
+  @@index([asaasSubscriptionId])
+}
+
+model AppBillingPaymentRecord {
+  id                  Int      @id @default(autoincrement())
+  companyId           Int
+  provider            String   @default("ASAAS")
+  providerPaymentId   String
+  providerCustomerId  String   @default("")
+  providerSubscriptionId String @default("")
+  status              String
+  billingType         String   @default("")
+  valueCents          Int      @default(0)
+  netValueCents       Int?
+  dueDate             String   @default("")
+  paidAt              String   @default("")
+  invoiceUrl          String   @default("")
+  externalReference   String   @default("")
+  raw                 Json
+  createdAtRecord     DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  @@unique([provider, providerPaymentId])
+  @@index([companyId])
+  @@index([providerSubscriptionId])
+  @@index([status])
+}
+
+model AppBillingEventRecord {
+  id                    Int      @id @default(autoincrement())
+  provider              String   @default("ASAAS")
+  providerEventKey      String
+  eventType             String
+  companyId             Int?
+  providerPaymentId     String   @default("")
+  providerSubscriptionId String   @default("")
+  externalReference     String   @default("")
+  result                String
+  errorMessage          String   @default("")
+  raw                   Json
+  processedAt           DateTime @default(now())
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  @@unique([provider, providerEventKey])
+  @@index([companyId])
+  @@index([eventType])
+  @@index([providerPaymentId])
+  @@index([providerSubscriptionId])
+}

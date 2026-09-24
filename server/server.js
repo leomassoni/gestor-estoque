@@ -1,11 +1,20 @@
 const fs = require('node:fs')
 const path = require('node:path')
+const os = require('node:os')
 const crypto = require('node:crypto')
 const express = require('express')
 const cors = require('cors')
 const { PrismaClient } = require('@prisma/client')
+const {
+  createBillingAccessMiddleware,
+  createTrialSubscriptionForCompany,
+  ensureBillingDefaults,
+  registerBillingRoutes,
+  registerBillingWebhook,
+} = require('./billing')
 
 loadEnvFile(path.join(__dirname, '.env'))
+loadEnvFile(process.env.GESTOR_ESTOQUE_PRIVATE_ENV_FILE || path.join(os.homedir(), '.config/gestor-estoque/asaas.env'))
 
 const prisma = new PrismaClient()
 const app = express()
@@ -322,6 +331,8 @@ app.use('/api', (_request, response, next) => {
   next()
 })
 
+registerBillingWebhook(app, prisma)
+
 app.get('/api/health', async (_request, response) => {
   await prisma.$queryRaw`SELECT 1`
   response.json({ ok: true })
@@ -351,6 +362,7 @@ app.get('/api/bootstrap', async (_request, response) => {
 
 app.post('/api/auth/login', async (request, response) => {
   await ensureAppAdminRecordsSeeded()
+  await ensureBillingDefaults(prisma)
   const username = typeof request.body?.username === 'string' ? request.body.username.trim() : ''
   const password = typeof request.body?.password === 'string' ? request.body.password : ''
 
@@ -433,8 +445,10 @@ app.post('/api/auth/login', async (request, response) => {
 })
 
 app.use('/api', requireApiAuth)
+app.use('/api', createBillingAccessMiddleware(prisma))
 
 app.get('/api/auth/session', async (request, response) => {
+  await ensureBillingDefaults(prisma)
   if (request.auth?.kind === 'systemAdmin') {
     const companies = await prisma.appCompanyRecord.findMany({
       orderBy: [{ tradeName: 'asc' }, { id: 'asc' }],
@@ -512,6 +526,8 @@ async function handleAppStateUpsert(request, response) {
 
 app.put('/api/state', requireSystemAdmin, handleAppStateUpsert)
 app.post('/api/state', requireSystemAdmin, handleAppStateUpsert)
+
+registerBillingRoutes(app, prisma, { requireSystemAdmin })
 
 app.get('/api/companies', async (request, response) => {
   await ensureAppAdminRecordsSeeded()
@@ -602,6 +618,7 @@ async function getCompanyLinkScopeIdsFromDatabase(companyId) {
 }
 
 app.post('/api/companies', async (request, response) => {
+  await ensureBillingDefaults(prisma)
   const company = normalizeCompanyPayload(request.body)
   if (!company) {
     response.status(400).json({ error: 'Payload de empresa invalido.' })
@@ -617,6 +634,7 @@ app.post('/api/companies', async (request, response) => {
     await syncCompanyLinkedCompanyIds(transaction, company.id, company.linkedCompanyIds)
     return transaction.appCompanyRecord.findUnique({ where: { id: company.id } })
   })
+  await createTrialSubscriptionForCompany(prisma, saved.id)
   response.json({ company: saved })
 })
 
@@ -715,6 +733,9 @@ app.delete('/api/companies/:id', async (request, response) => {
     await transaction.appSalesImportBatchRecord.deleteMany({ where: { companyId } })
     await transaction.appSalesImportRowRecord.deleteMany({ where: { companyId } })
     await transaction.appSalesConsumptionRecord.deleteMany({ where: { companyId } })
+    await transaction.appBillingEventRecord.deleteMany({ where: { companyId } })
+    await transaction.appBillingPaymentRecord.deleteMany({ where: { companyId } })
+    await transaction.appCompanySubscriptionRecord.deleteMany({ where: { companyId } })
     await transaction.appRequisitionNotificationRecord.deleteMany({ where: { companyId } })
     await transaction.appUserCompanyMembershipRecord.deleteMany({ where: { companyId } })
     await transaction.appRequisitionRecord.deleteMany({ where: { companyId } })

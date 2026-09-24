@@ -1855,3 +1855,37 @@ Registrar um historico resumido do que foi feito, do que falhou e do que ficou p
   - backup antes da alteracao: `backups/online-before-cpxva-negative-supply-shipment-20260915T152235Z`;
   - relatorio/auditoria local: `auditorias/cpxva-negative-supply-shipment-20260915T152235Z.json`;
   - log criado no painel master: `AUD-2239`.
+
+### Assinaturas, trial e cobranca Asaas
+
+- Implementacao local iniciada em `2026-09-24`.
+- Regras comerciais modeladas:
+  - planos `Essencial`, `Profissional` e `Grupo`;
+  - ciclos quinzenal, mensal, semestral e anual;
+  - trial irrestrito de 15 dias com 5 dias de carencia;
+  - status comerciais `TRIAL`, `GRACE`, `ACTIVE`, `PAST_DUE`, `BLOCKED`, `CANCELLED`, `LIFETIME_FREE` e `SCHEDULED_FOR_DELETION`;
+  - empresas existentes recebem assinatura `LIFETIME_FREE` por rotina de seed unica;
+  - novas empresas criadas pelo webapp recebem trial 15+5 por padrao.
+- Backend:
+  - criado `server/billing.js` para isolar planos, assinaturas, Asaas, webhook e bloqueio de acesso fora de `server.js`;
+  - criadas tabelas Prisma de planos, assinaturas, pagamentos e eventos de billing;
+  - webhook `POST /api/billing/asaas/webhook` valida `ASAAS_WEBHOOK_AUTH_TOKEN` pelo header `asaas-access-token`;
+  - criacao de assinatura Asaas grava `externalReference=gestor-estoque:company:<id>` para reconciliacao por webhook;
+  - rotas master de billing exigem autenticacao e `systemAdmin`.
+- Frontend:
+  - criado `src/components/BillingPanel.tsx` para manter a tela de assinaturas fora do `App.tsx`;
+  - painel master passa a exibir status Asaas, planos, assinatura por empresa, botoes de trial e geracao de cobranca Asaas;
+  - formulario de `PRODUTO_INTERNO` ganhou cor de fundo propria para nao reutilizar a cor de `PREPARO`.
+- Configuracao local:
+  - Asaas API e token de webhook ficam fora do repositorio em `/home/leomassoni/.config/gestor-estoque/asaas.env`;
+  - servidor carrega esse arquivo local alem de `server/.env`.
+- Validacao local:
+  - `node --check server/server.js && node --check server/billing.js` passou;
+  - `npm --prefix server run prisma:generate` passou;
+  - `npx tsc -p tsconfig.app.json --noEmit --pretty false` passou;
+  - `npx vite build` passou;
+  - Postgres local foi iniciado pelo container existente `gestor-estoque-postgres`;
+  - `prisma migrate deploy` local nao rodou porque o banco local antigo nao tem historico `_prisma_migrations`; para teste local, a migration nova foi aplicada por SQL direto, criando apenas tabelas novas;
+  - login master local, `/api/billing/plans`, `/api/billing/subscriptions` e `/api/billing/asaas/status` retornaram `200`;
+  - `/api/billing/plans` e `/api/billing/subscriptions` sem token retornaram `401`;
+  - webhook Asaas com token invalido retornou `401`.
