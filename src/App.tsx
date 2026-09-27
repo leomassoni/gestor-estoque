@@ -1,21 +1,23 @@
 import {
+  startTransition,
   useCallback,
   useEffect,
   useId,
-  lazy,
   useMemo,
   useRef,
   useState,
-  Suspense,
   type FormEvent,
   type KeyboardEvent,
 } from 'react'
+import { BillingPanelGate } from './components/BillingPanelGate'
 import { ExecutionPlanningList } from './components/ExecutionPlanningList'
+import { MasterOverviewPanel } from './components/MasterOverviewPanel'
 import { PreparationModeInput } from './components/PreparationModeInput'
 import { ProductListPanel } from './components/ProductListPanel'
 import { ServiceItemListPanel } from './components/ServiceItemListPanel'
 import { StockCenterRegisteredListPanel } from './components/StockCenterRegisteredListPanel'
 import { TechnicalSheetListPanel } from './components/TechnicalSheetListPanel'
+import { InventorySelectedRecordPanel } from './components/InventorySelectedRecordPanel'
 import {
   buildPreparationModeMetricParts,
   formatRecipeIngredientInputQuantity,
@@ -109,11 +111,6 @@ import {
 } from './domain/technicalSheets'
 import { buildTechnicalSheetGeneratedDescription } from './domain/technicalSheetDescriptions'
 
-const BillingPanel = lazy(() =>
-  import('./components/BillingPanel').then((module) => ({ default: module.BillingPanel })),
-)
-const billingPanelEnabled =
-  (import.meta as unknown as { env?: Record<string, string | undefined> }).env?.VITE_BILLING_PANEL_ENABLED === 'true'
 import {
   canManageInventoryCountRecord,
   canManageInventoryCountHistoryRecord,
@@ -3319,7 +3316,9 @@ export default function App() {
   const hasEstoqueAccess = allowedEstoqueSections.length > 0
   const isEstoqueActive = estoqueSections.includes(activeSection)
   const handleSectionNavigation = useCallback((section: AppSection) => {
-    setActiveSection(section)
+    startTransition(() => {
+      setActiveSection(section)
+    })
     setIsMobileSidebarOpen(false)
   }, [])
   const handleCloseMobileSidebar = useCallback(() => setIsMobileSidebarOpen(false), [])
@@ -46433,64 +46432,26 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                   </>
                 ) : null}
 
-                {selectedInventoryRecord ? (
-                  <div className="empty-state empty-state-inline">
-                    <strong>
-                      {formatInventoryRecordCode(selectedInventoryRecord.id)} •{' '}
-                      {selectedInventoryRecord.isClosed ? 'Inventario fechado' : 'Inventario em andamento'} •{' '}
-                      {inventoryStockCenterNameById.get(selectedInventoryRecord.stockCenterId) ??
-                        `CENTRO ${selectedInventoryRecord.stockCenterId}`}{' '}
-                      • {formatDateForDisplay(selectedInventoryRecord.countedAt)}
-                    </strong>
-                    <p>
-                      Inicio {formatTimeForDisplay(selectedInventoryRecord.startedAt)}.{' '}
-                      {selectedInventoryRecord.isClosed
-                        ? 'Este inventario ja foi finalizado e seu saldo consolidado ja entrou nas movimentacoes.'
-                        : 'Abra uma ou mais contagens dentro deste inventario. O movimento de estoque so sera gerado quando o inventario for finalizado apos a revisao das contagens no servidor.'}
-                    </p>
-                    {!selectedInventoryRecord.isClosed && selectedInventoryPendingMovementCount > 0 ? (
-                      <p className="compact-feedback">
-                        Existem {String(selectedInventoryPendingMovementCount)} movimentacao(oes) operacional(is) pendente(s) para este inventario. Elas so entrarao no estoque depois da finalizacao do inventario.
-                      </p>
-                    ) : null}
-                    {!selectedInventoryRecord.isClosed ? (
-                      <div className="form-actions inventory-record-actions">
-                        {selectedInventoryPendingMovementCount > 0 ? (
-                          <button
-                            type="button"
-                            className="ghost-button"
-                            onClick={() => setIsPendingInventoryMovementsModalOpen(true)}
-                          >
-                            Ver movimentacoes pendentes
-                          </button>
-                        ) : null}
-                        <button
-                          type="button"
-                          className="ghost-button"
-                          onClick={() =>
-                            setInventoryLeaveState({
-                              id: selectedInventoryRecord.id,
-                              countedAt: selectedInventoryRecord.countedAt,
-                              stockCenterName:
-                                inventoryStockCenterNameById.get(selectedInventoryRecord.stockCenterId) ??
-                                `CENTRO ${selectedInventoryRecord.stockCenterId}`,
-                            })
-                          }
-                        >
-                          Sair do inventario
-                        </button>
-                        <button
-                          type="button"
-                          className="warning-button"
-                          onClick={() => void requestCloseInventoryRecord(selectedInventoryRecord)}
-                          disabled={isPreparingInventoryClose || isClosingInventoryRecord}
-                        >
-                          {isPreparingInventoryClose ? 'Revisando contagens...' : 'Finalizar inventario'}
-                        </button>
-                      </div>
-                    ) : null}
-                  </div>
-                ) : null}
+                <InventorySelectedRecordPanel
+                  selectedInventoryRecord={selectedInventoryRecord}
+                  pendingMovementCount={selectedInventoryPendingMovementCount}
+                  isPreparingInventoryClose={isPreparingInventoryClose}
+                  isClosingInventoryRecord={isClosingInventoryRecord}
+                  getStockCenterName={(stockCenterId) =>
+                    inventoryStockCenterNameById.get(stockCenterId) ?? `CENTRO ${stockCenterId}`
+                  }
+                  onShowPendingMovements={() => setIsPendingInventoryMovementsModalOpen(true)}
+                  onLeaveInventory={(inventoryRecord) =>
+                    setInventoryLeaveState({
+                      id: inventoryRecord.id,
+                      countedAt: inventoryRecord.countedAt,
+                      stockCenterName:
+                        inventoryStockCenterNameById.get(inventoryRecord.stockCenterId) ??
+                        `CENTRO ${inventoryRecord.stockCenterId}`,
+                    })
+                  }
+                  onRequestCloseInventory={(inventoryRecord) => void requestCloseInventoryRecord(inventoryRecord)}
+                />
 
                 <InventoryStartPanel
                   eligibleStockCenters={inventoryEligibleStockCenters}
@@ -50657,53 +50618,16 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
         </>
       ) : activeSection === 'PainelMaster' ? (
         <>
-          <section className="panel">
-            <div className="section-heading">
-              <div>
-                <p className="kicker">Master</p>
-                <h2>Painel informativo</h2>
-              </div>
-            </div>
-            <p className="context-copy">
-              Auditoria da empresa ativa para o usuario master. Este painel mostra acessos, acoes administrativas e impactos operacionais registrados em {currentCompany?.tradeName ?? 'nenhuma empresa'}.
-            </p>
+          <MasterOverviewPanel
+            companyTradeName={currentCompany?.tradeName ?? 'nenhuma empresa'}
+            auditOverview={auditOverview}
+          />
 
-            <div className="selector-list company-management-list">
-              {[
-                { label: 'Eventos da empresa', value: String(auditOverview.total) },
-                { label: 'Eventos hoje', value: String(auditOverview.today) },
-                { label: 'Alertas', value: String(auditOverview.alerts) },
-                { label: 'Impactos', value: String(auditOverview.impacts) },
-                { label: 'Usuarios/atores', value: String(auditOverview.actors) },
-              ].map((card) => (
-                <article key={card.label} className="selector-item">
-                  <div className="selector-main company-card-static">
-                    <strong>{card.value}</strong>
-                    <span>{card.label}</span>
-                    <span>{currentCompany?.tradeName ?? 'Empresa nao selecionada'}</span>
-                  </div>
-                </article>
-              ))}
-            </div>
-          </section>
-
-          {billingPanelEnabled ? (
-            <Suspense
-              fallback={
-                <section className="panel">
-                  <div className="empty-state empty-state-inline">
-                    <strong>Carregando assinaturas...</strong>
-                  </div>
-                </section>
-              }
-            >
-              <BillingPanel
-                companies={companies}
-                currentCompanyId={currentCompanyId}
-                onFeedback={setSaveFeedback}
-              />
-            </Suspense>
-          ) : null}
+          <BillingPanelGate
+            companies={companies}
+            currentCompanyId={currentCompanyId}
+            onFeedback={setSaveFeedback}
+          />
 
           <section className="panel">
             <div className="section-heading">

@@ -1943,3 +1943,16 @@ Registrar um historico resumido do que foi feito, do que falhou e do que ficou p
 - Resultado esperado:
   - assinatura deixa de interferir no carregamento, navegacao e uso operacional do webapp;
   - o modulo permanece no codigo para reativacao planejada depois, com teste de performance e fluxo proprio.
+
+### Compartimentacao imediata e resposta de navegacao
+
+- Correcao aplicada em `2026-09-27`.
+- Objetivo:
+  - retirar codigo de `App.tsx` sem remover funcionalidade nem mexer em persistencia operacional.
+- Ajuste aplicado:
+  - criado `BillingPanelGate` para tirar lazy import, `Suspense` e flag de assinatura de `App.tsx`;
+  - criado `MasterOverviewPanel` para tirar o resumo visual do Painel Master de `App.tsx`;
+  - criado `InventorySelectedRecordPanel` para tirar o cartao do inventario selecionado de `App.tsx`, preservando handlers no componente principal;
+  - navegacao central do menu passou a usar `startTransition` para reduzir sensacao de clique travado durante renders pesados.
+- Observacao:
+  - isso inicia a compartimentacao, mas ainda nao resolve todo o problema estrutural; o painel de inventario/contagem precisa continuar sendo extraido em partes.
