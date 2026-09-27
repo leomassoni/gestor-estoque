@@ -3,6 +3,12 @@ import { lazy, Suspense, type ReactNode } from 'react'
 export const ExecutionPlanningList = lazy(() =>
   import('./ExecutionPlanningList').then((module) => ({ default: module.ExecutionPlanningList })),
 )
+export const InventoryActiveFlowPanel = lazy(() =>
+  import('./InventoryActiveFlowPanel').then((module) => ({ default: module.InventoryActiveFlowPanel })),
+)
+export const InventoryClosedRecordsPanel = lazy(() =>
+  import('./InventoryClosedRecordsPanel').then((module) => ({ default: module.InventoryClosedRecordsPanel })),
+)
 export const ProductListPanel = lazy(() =>
   import('./ProductListPanel').then((module) => ({ default: module.ProductListPanel })),
 )

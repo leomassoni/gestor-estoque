@@ -3,7 +3,7 @@ import { SingleValueAutocomplete } from './common'
 import { InventoryCountMetricsPanel } from './InventoryCountMetricsPanel'
 import { InventoryCountQuantityPanel } from './InventoryCountQuantityPanel'
 
-type InventoryCountItemEntryPanelProps = {
+export type InventoryCountItemEntryPanelProps = {
   editingInventoryCountId: number | null
   inventoryForm: InventoryFormState
   inventoryErrors: Partial<Record<keyof InventoryFormState, string>>

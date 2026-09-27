@@ -1963,14 +1963,15 @@ Registrar um historico resumido do que foi feito, do que falhou e do que ficou p
 - Objetivo:
   - reduzir o tamanho e a arvore JSX do `App.tsx` sem alterar sincronizacao, persistencia ou regras operacionais de inventario/contagem.
 - Ajuste aplicado:
-  - criados `InventoryOpenRecordsPanel`, `InventoryUserSessionsPanel`, `InventorySelectedSessionPanel`, `InventoryCountMetricsPanel`, `InventoryCountQuantityPanel`, `InventoryCountItemEntryPanel` e `InventoryClosedRecordsPanel`;
+  - criados `InventoryActiveFlowPanel`, `InventoryOpenRecordsPanel`, `InventoryUserSessionsPanel`, `InventorySelectedSessionPanel`, `InventoryCountMetricsPanel`, `InventoryCountQuantityPanel`, `InventoryCountItemEntryPanel` e `InventoryClosedRecordsPanel`;
+  - o fluxo ativo de inventario saiu do `App.tsx`, mantendo os mesmos callbacks de entrar em inventario, iniciar/continuar contagem, revisar sessoes, fechar inventario e registrar item;
   - o formulario de item contado saiu do `App.tsx`, mantendo os mesmos handlers de update, salvar item, cancelar edicao e excluir local;
   - a tabela de inventarios fechados saiu do `App.tsx`, mantendo os mesmos filtros, ordenacao, resumo, reabertura e exclusao;
   - criado `lazyPanels.tsx` para carregar sob demanda `ProductListPanel`, `ServiceItemListPanel`, `TechnicalSheetListPanel`, `StockCenterRegisteredListPanel` e `ExecutionPlanningList`.
 - Resultado tecnico local:
-  - `App.tsx` reduziu para `61399` linhas nesta rodada;
-  - `npx vite build` gerou chunks separados para `ProductListPanel`, `ServiceItemListPanel`, `TechnicalSheetListPanel`, `StockCenterRegisteredListPanel` e `ExecutionPlanningList`;
-  - bundle principal local gerado: `index-DxS5ym0P.js` com `1.223,19 kB` minificado.
+  - `App.tsx` reduziu para `61327` linhas nesta rodada;
+  - `npx vite build` gerou chunks separados para `InventoryActiveFlowPanel`, `InventoryClosedRecordsPanel`, `ProductListPanel`, `ServiceItemListPanel`, `TechnicalSheetListPanel`, `StockCenterRegisteredListPanel` e `ExecutionPlanningList`;
+  - bundle principal local gerado: `index-mbibR83d.js` com `1.203,89 kB` minificado.
 - Validacao local:
   - `npx tsc -p tsconfig.app.json --noEmit --pretty false` passou;
   - `npx vite build` passou.

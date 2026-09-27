@@ -14,18 +14,14 @@ import { MasterOverviewPanel } from './components/MasterOverviewPanel'
 import { PreparationModeInput } from './components/PreparationModeInput'
 import {
   ExecutionPlanningList,
+  InventoryActiveFlowPanel,
+  InventoryClosedRecordsPanel,
   LazyPanelBoundary,
   ProductListPanel,
   ServiceItemListPanel,
   StockCenterRegisteredListPanel,
   TechnicalSheetListPanel,
 } from './components/lazyPanels'
-import { InventoryOpenRecordsPanel } from './components/InventoryOpenRecordsPanel'
-import { InventoryCountItemEntryPanel } from './components/InventoryCountItemEntryPanel'
-import { InventoryClosedRecordsPanel } from './components/InventoryClosedRecordsPanel'
-import { InventorySelectedRecordPanel } from './components/InventorySelectedRecordPanel'
-import { InventorySelectedSessionPanel } from './components/InventorySelectedSessionPanel'
-import { InventoryUserSessionsPanel } from './components/InventoryUserSessionsPanel'
 import {
   buildPreparationModeMetricParts,
   formatRecipeIngredientInputQuantity,
@@ -46,7 +42,6 @@ import {
   AppSidebar,
   MobileTopbar,
 } from './components/AppNavigationShell'
-import { InventoryStartPanel } from './components/InventoryStartPanel'
 import { NormalizedTextInput, NormalizedTextarea } from './components/NormalizedTextField'
 import {
   renderInventoryReviewColumnHeader,
@@ -46378,22 +46373,29 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
               </button>
             </div>
 
-            {inventoryPanelTab === 'active' && (
-              inventoryEligibleStockCenters.length === 0 ? (
-                <div className="empty-state">
-                  <strong>Nenhum centro de estoque disponivel para este usuario.</strong>
-                  <p>Vincule o usuario a pelo menos um centro de estoque para liberar a contagem.</p>
-                </div>
-              ) : (
-                <>
-                <InventoryOpenRecordsPanel
-                  records={visibleOpenInventoryRecords}
-                  selectedInventoryId={selectedInventoryRecord?.id ?? null}
+            {inventoryPanelTab === 'active' ? (
+              <LazyPanelBoundary>
+                <InventoryActiveFlowPanel
+                  eligibleStockCenters={inventoryEligibleStockCenters}
+                  visibleOpenInventoryRecords={visibleOpenInventoryRecords}
+                  selectedInventoryRecord={selectedInventoryRecord}
+                  selectedInventoryPendingMovementCount={selectedInventoryPendingMovementCount}
+                  isPreparingInventoryClose={isPreparingInventoryClose}
+                  isClosingInventoryRecord={isClosingInventoryRecord}
+                  inventoryForm={inventoryForm}
+                  inventoryErrors={inventoryErrors}
+                  selectedInventoryCountSession={selectedInventoryCountSession}
+                  selectedUserInventoryCountSessions={selectedUserInventoryCountSessions}
+                  isStartingInventoryRecord={isStartingInventoryRecord}
+                  isStartingInventoryCountSession={isStartingInventoryCountSession}
                   getStockCenterName={(stockCenterId) =>
                     inventoryStockCenterNameById.get(stockCenterId) ?? `CENTRO ${stockCenterId}`
                   }
                   canManageRecord={(inventoryRecord) =>
                     canManageInventoryRecord(inventoryRecord, currentAppUser, canDeleteRecords)
+                  }
+                  canManageSession={(sessionRecord) =>
+                    canManageInventoryCountSessionRecord(sessionRecord, currentAppUser, canDeleteRecords)
                   }
                   onJoinInventory={joinOpenInventoryRecord}
                   onDeleteInventory={(inventoryRecord) =>
@@ -46404,16 +46406,6 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                         inventoryStockCenterNameById.get(inventoryRecord.stockCenterId) ??
                         `CENTRO ${inventoryRecord.stockCenterId}`,
                     })
-                  }
-                />
-
-                <InventorySelectedRecordPanel
-                  selectedInventoryRecord={selectedInventoryRecord}
-                  pendingMovementCount={selectedInventoryPendingMovementCount}
-                  isPreparingInventoryClose={isPreparingInventoryClose}
-                  isClosingInventoryRecord={isClosingInventoryRecord}
-                  getStockCenterName={(stockCenterId) =>
-                    inventoryStockCenterNameById.get(stockCenterId) ?? `CENTRO ${stockCenterId}`
                   }
                   onShowPendingMovements={() => setIsPendingInventoryMovementsModalOpen(true)}
                   onLeaveInventory={(inventoryRecord) =>
@@ -46426,216 +46418,156 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                     })
                   }
                   onRequestCloseInventory={(inventoryRecord) => void requestCloseInventoryRecord(inventoryRecord)}
-                />
-
-                <InventoryStartPanel
-                  eligibleStockCenters={inventoryEligibleStockCenters}
-                  inventoryForm={inventoryForm}
-                  inventoryErrors={inventoryErrors}
-                  selectedInventoryRecord={selectedInventoryRecord}
-                  selectedInventoryCountSessionIsOpen={Boolean(selectedInventoryCountSession && !selectedInventoryCountSession.isClosed)}
-                  selectedUserSessionCount={selectedUserInventoryCountSessions.length}
-                  isStartingInventoryRecord={isStartingInventoryRecord}
-                  isStartingInventoryCountSession={isStartingInventoryCountSession}
-                  getStockCenterName={(stockCenterId) =>
-                    inventoryStockCenterNameById.get(stockCenterId) ?? `CENTRO ${stockCenterId}`
-                  }
                   onUpdateInventoryFormField={updateInventoryFormField}
                   onStartInventoryRecord={() => void startInventoryRecord()}
                   onStartInventoryCountSession={() => void startInventoryCountSession()}
+                  onShowSessionSummary={(sessionRecord) =>
+                    setInventoryReviewModalState({
+                      id: sessionRecord.id,
+                      countedAt: sessionRecord.countedAt,
+                      stockCenterName:
+                        inventoryStockCenterNameById.get(sessionRecord.stockCenterId) ??
+                        `CENTRO ${sessionRecord.stockCenterId}`,
+                    })
+                  }
+                  onContinueSession={(sessionId) => void continueInventoryCountSession(sessionId)}
+                  onDeleteSession={(sessionRecord) =>
+                    setInventorySessionDeleteState({
+                      id: sessionRecord.id,
+                      countedAt: sessionRecord.countedAt,
+                      stockCenterName:
+                        inventoryStockCenterNameById.get(sessionRecord.stockCenterId) ??
+                        `CENTRO ${sessionRecord.stockCenterId}`,
+                    })
+                  }
+                  countEntryProps={{
+                    editingInventoryCountId,
+                    inventoryForm,
+                    inventoryErrors,
+                    storageLocationSuggestions: inventoryStorageLocationSuggestions,
+                    technicalSheetSuggestions: inventoryTechnicalSheetSuggestions,
+                    selectedCountableItem: selectedInventoryCountableItem,
+                    hasRecipientOptions: inventoryHasRecipientOptions,
+                    recipientOptions: inventoryRecipientOptions,
+                    canDeleteSectors,
+                    canCreateSectors,
+                    kindLabel: selectedInventoryCountableItem
+                      ? getStockCountableKindLabel(selectedInventoryCountableItem.kind)
+                      : '-',
+                    closedReferenceLabel: selectedInventoryCountableItem
+                      ? `${selectedInventoryCountableItem.kind === 'PREPARO'
+                          ? formatDecimal(
+                              selectedInventoryRecipient?.referenceQuantity ??
+                                getInventoryClosedItemReferenceQuantity(selectedInventorySheet!, inventoryHasRecipientOptions),
+                            )
+                          : selectedInventoryCountableItem.kind === 'PRODUTO'
+                            ? formatDecimal(selectedInventoryRecipient?.referenceQuantity ?? 0)
+                            : formatDecimal(selectedInventoryRecipient?.referenceQuantity ?? 1)} ${selectedInventoryCountableItem.kind === 'PREPARO'
+                          ? formatControlUnitShort(
+                              getInventoryClosedItemReferenceUnit(selectedInventorySheet!, inventoryHasRecipientOptions),
+                            )
+                          : formatControlUnitShort(selectedInventoryCountableItem.controlUnit)}`
+                      : '-',
+                    emptyWeightTitle:
+                      selectedInventoryCountableItem?.kind === 'PRODUTO'
+                        ? 'Peso da embalagem vazia'
+                        : 'Peso do recipiente vazio',
+                    emptyWeightLabel: selectedInventoryRecipient
+                      ? `${formatDecimal(selectedInventoryRecipient.emptyWeight)} g`
+                      : '-',
+                    minimumLabel:
+                      selectedInventoryCountableItem && selectedInventoryStockCenter
+                        ? formatStockCenterMinimumDefinition(
+                            getMinimumUseQuantityText(
+                              findStockCenterMinimumEntry(selectedInventoryStockCenter.minimumStocks, {
+                                kind: selectedInventoryCountableItem.kind,
+                                technicalSheetId: selectedInventoryCountableItem.technicalSheetId,
+                                productId: selectedInventoryCountableItem.productId,
+                                serviceItemId: selectedInventoryCountableItem.serviceItemId,
+                                packageId:
+                                  selectedInventoryCountableItem.kind === 'PRODUTO'
+                                    ? selectedInventoryRecipient?.packageId ?? null
+                                    : null,
+                              }),
+                            ),
+                            {
+                              kind: selectedInventoryCountableItem.kind,
+                              technicalSheetId: selectedInventoryCountableItem.technicalSheetId,
+                              packageId:
+                                selectedInventoryCountableItem.kind === 'PRODUTO'
+                                  ? selectedInventoryRecipient?.packageId ?? null
+                                  : null,
+                            },
+                            {
+                              baseUnit:
+                                selectedInventoryCountableItem.kind === 'PREPARO'
+                                  ? selectedInventoryCountableItem.controlUnit
+                                  : null,
+                            },
+                          )
+                        : '-',
+                    canHaveOpenItems:
+                      selectedInventoryCountableItem?.kind !== 'ITEM' &&
+                      !(selectedInventoryCountableItem?.kind === 'PRODUTO' && selectedInventoryCountableItem.controlUnit === 'UNIT'),
+                    openPhysicalQuantityLabel:
+                      selectedInventoryCountableItem && inventoryForm.hasOpenItems === 'true'
+                        ? `${formatDecimal(inventoryOpenPhysicalQuantity)} ${formatControlUnitShort(
+                            selectedInventoryCountableItem.controlUnit === 'GRAM'
+                              ? 'GRAM'
+                              : selectedInventoryCountableItem.controlUnit === 'UNIT'
+                                ? 'UNIT'
+                                : 'MILLILITER',
+                          )}`
+                        : '-',
+                    totalCountedLabel: selectedInventoryCountableItem
+                      ? `${formatDecimal(inventoryTotalCountedQuantity)} ${formatControlUnitShort(selectedInventoryCountableItem.kind === 'ITEM' ? 'UNIT' : selectedInventoryCountableItem.controlUnit)}`
+                      : '-',
+                    selectedSessionIsClosed: Boolean(selectedInventoryCountSession?.isClosed),
+                    isSavingInventoryCount,
+                    onCancelEdit: cancelInventoryCountEdit,
+                    onSave: () => void saveInventoryCount(),
+                    onDeleteStorageLocation: requestDeleteInventoryStorageLocation,
+                    onUpdateField: updateInventoryFormField,
+                  }}
                 />
-
-                {selectedInventoryRecord ? (
-                  <>
-                    <InventoryUserSessionsPanel
-                      sessions={selectedUserInventoryCountSessions}
-                      selectedSessionId={selectedInventoryCountSession?.id ?? null}
-                      isStartingInventoryCountSession={isStartingInventoryCountSession}
-                      getStockCenterName={(stockCenterId) =>
-                        inventoryStockCenterNameById.get(stockCenterId) ?? `CENTRO ${stockCenterId}`
-                      }
-                      canManageSession={(sessionRecord) =>
-                        canManageInventoryCountSessionRecord(sessionRecord, currentAppUser, canDeleteRecords)
-                      }
-                      onShowSummary={(sessionRecord) =>
-                        setInventoryReviewModalState({
-                          id: sessionRecord.id,
-                          countedAt: sessionRecord.countedAt,
-                          stockCenterName:
-                            inventoryStockCenterNameById.get(sessionRecord.stockCenterId) ??
-                            `CENTRO ${sessionRecord.stockCenterId}`,
-                        })
-                      }
-                      onContinueSession={(sessionId) => void continueInventoryCountSession(sessionId)}
-                      onDeleteSession={(sessionRecord) =>
-                        setInventorySessionDeleteState({
-                          id: sessionRecord.id,
-                          countedAt: sessionRecord.countedAt,
-                          stockCenterName:
-                            inventoryStockCenterNameById.get(sessionRecord.stockCenterId) ??
-                            `CENTRO ${sessionRecord.stockCenterId}`,
-                        })
-                      }
-                    />
-
-                    <InventorySelectedSessionPanel
-                      selectedSession={selectedInventoryCountSession}
-                      getStockCenterName={(stockCenterId) =>
-                        inventoryStockCenterNameById.get(stockCenterId) ?? `CENTRO ${stockCenterId}`
-                      }
-                    />
-
-                    {selectedInventoryCountSession ? (
-                      <>
-                        <InventoryCountItemEntryPanel
-                          editingInventoryCountId={editingInventoryCountId}
-                          inventoryForm={inventoryForm}
-                          inventoryErrors={inventoryErrors}
-                          storageLocationSuggestions={inventoryStorageLocationSuggestions}
-                          technicalSheetSuggestions={inventoryTechnicalSheetSuggestions}
-                          selectedCountableItem={selectedInventoryCountableItem}
-                          hasRecipientOptions={inventoryHasRecipientOptions}
-                          recipientOptions={inventoryRecipientOptions}
-                          canDeleteSectors={canDeleteSectors}
-                          canCreateSectors={canCreateSectors}
-                          kindLabel={
-                            selectedInventoryCountableItem
-                              ? getStockCountableKindLabel(selectedInventoryCountableItem.kind)
-                              : '-'
-                          }
-                          closedReferenceLabel={
-                            selectedInventoryCountableItem
-                              ? `${selectedInventoryCountableItem.kind === 'PREPARO'
-                                  ? formatDecimal(
-                                      selectedInventoryRecipient?.referenceQuantity ??
-                                        getInventoryClosedItemReferenceQuantity(selectedInventorySheet!, inventoryHasRecipientOptions),
-                                    )
-                                  : selectedInventoryCountableItem.kind === 'PRODUTO'
-                                    ? formatDecimal(selectedInventoryRecipient?.referenceQuantity ?? 0)
-                                    : formatDecimal(selectedInventoryRecipient?.referenceQuantity ?? 1)} ${selectedInventoryCountableItem.kind === 'PREPARO'
-                                  ? formatControlUnitShort(
-                                      getInventoryClosedItemReferenceUnit(selectedInventorySheet!, inventoryHasRecipientOptions),
-                                    )
-                                  : formatControlUnitShort(selectedInventoryCountableItem.controlUnit)}`
-                              : '-'
-                          }
-                          emptyWeightTitle={
-                            selectedInventoryCountableItem?.kind === 'PRODUTO'
-                              ? 'Peso da embalagem vazia'
-                              : 'Peso do recipiente vazio'
-                          }
-                          emptyWeightLabel={
-                            selectedInventoryRecipient ? `${formatDecimal(selectedInventoryRecipient.emptyWeight)} g` : '-'
-                          }
-                          minimumLabel={
-                            selectedInventoryCountableItem && selectedInventoryStockCenter
-                              ? formatStockCenterMinimumDefinition(
-                                  getMinimumUseQuantityText(
-                                    findStockCenterMinimumEntry(selectedInventoryStockCenter.minimumStocks, {
-                                      kind: selectedInventoryCountableItem.kind,
-                                      technicalSheetId: selectedInventoryCountableItem.technicalSheetId,
-                                      productId: selectedInventoryCountableItem.productId,
-                                      serviceItemId: selectedInventoryCountableItem.serviceItemId,
-                                      packageId:
-                                        selectedInventoryCountableItem.kind === 'PRODUTO'
-                                          ? selectedInventoryRecipient?.packageId ?? null
-                                          : null,
-                                    }),
-                                  ),
-                                  {
-                                    kind: selectedInventoryCountableItem.kind,
-                                    technicalSheetId: selectedInventoryCountableItem.technicalSheetId,
-                                    packageId:
-                                      selectedInventoryCountableItem.kind === 'PRODUTO'
-                                        ? selectedInventoryRecipient?.packageId ?? null
-                                        : null,
-                                  },
-                                  {
-                                    baseUnit:
-                                      selectedInventoryCountableItem.kind === 'PREPARO'
-                                        ? selectedInventoryCountableItem.controlUnit
-                                        : null,
-                                  },
-                                )
-                              : '-'
-                          }
-                          canHaveOpenItems={
-                            selectedInventoryCountableItem?.kind !== 'ITEM' &&
-                            !(selectedInventoryCountableItem?.kind === 'PRODUTO' && selectedInventoryCountableItem.controlUnit === 'UNIT')
-                          }
-                          openPhysicalQuantityLabel={
-                            selectedInventoryCountableItem && inventoryForm.hasOpenItems === 'true'
-                              ? `${formatDecimal(inventoryOpenPhysicalQuantity)} ${formatControlUnitShort(
-                                  selectedInventoryCountableItem.controlUnit === 'GRAM'
-                                    ? 'GRAM'
-                                    : selectedInventoryCountableItem.controlUnit === 'UNIT'
-                                      ? 'UNIT'
-                                      : 'MILLILITER',
-                                )}`
-                              : '-'
-                          }
-                          totalCountedLabel={
-                            selectedInventoryCountableItem
-                              ? `${formatDecimal(inventoryTotalCountedQuantity)} ${formatControlUnitShort(selectedInventoryCountableItem.kind === 'ITEM' ? 'UNIT' : selectedInventoryCountableItem.controlUnit)}`
-                              : '-'
-                          }
-                          selectedSessionIsClosed={selectedInventoryCountSession.isClosed}
-                          isSavingInventoryCount={isSavingInventoryCount}
-                          onCancelEdit={cancelInventoryCountEdit}
-                          onSave={() => void saveInventoryCount()}
-                          onDeleteStorageLocation={requestDeleteInventoryStorageLocation}
-                          onUpdateField={updateInventoryFormField}
-                        />
-                      </>
-                    ) : (
-                      <div className="empty-state empty-state-inline">
-                        <strong>Inicie uma contagem para continuar.</strong>
-                        <p>O inventario ja esta aberto. Agora inicie uma contagem dentro dele para liberar o registro dos itens.</p>
-                      </div>
-                    )}
-                  </>
-                ) : (
-                  <div className="empty-state empty-state-inline">
-                    <strong>Inicie um inventario para continuar.</strong>
-                    <p>Defina o centro e a data desejada e depois clique em iniciar inventario para liberar novas contagens.</p>
-                  </div>
-                )}
-              </>
-            ))}
+              </LazyPanelBoundary>
+            ) : null}
             {inventoryPanelTab === 'closed' ? (
-              <InventoryClosedRecordsPanel
-                records={visibleClosedInventoryRecords}
-                filteredRecords={visibleFilteredClosedInventoryRecords}
-                search={closedInventorySearch}
-                hiddenColumns={hiddenClosedInventoryColumns}
-                columnVisibility={closedInventoryColumnVisibility}
-                openColumnMenu={openClosedInventoryColumnMenu}
-                columnFilters={closedInventoryColumnFilters}
-                distinctColumnValues={distinctClosedInventoryColumnValues}
-                columnSort={closedInventoryColumnSort}
-                canReopenClosedInventory={canReopenClosedInventory}
-                canDeleteClosedInventory={canDeleteClosedInventory}
-                setOpenColumnMenu={setOpenClosedInventoryColumnMenu}
-                setColumnFilters={setClosedInventoryColumnFilters}
-                setColumnVisibility={setClosedInventoryColumnVisibility}
-                setColumnSort={setClosedInventoryColumnSort}
-                getStockCenterName={(stockCenterId) =>
-                  inventoryStockCenterNameById.get(stockCenterId) ?? `CENTRO ${stockCenterId}`
-                }
-                onSearchChange={setClosedInventorySearch}
-                onScrollTopChange={setRequisitionHistoryScrollTop}
-                onOpenSummary={openClosedInventorySummary}
-                onReopenInventory={reopenClosedInventoryRecord}
-                onDeleteInventory={(inventoryRecord) =>
-                  setInventoryDeleteState({
-                    id: inventoryRecord.id,
-                    countedAt: inventoryRecord.countedAt,
-                    stockCenterName:
-                      inventoryStockCenterNameById.get(inventoryRecord.stockCenterId) ??
-                      `CENTRO ${inventoryRecord.stockCenterId}`,
-                  })
-                }
-              />
+              <LazyPanelBoundary>
+                <InventoryClosedRecordsPanel
+                  records={visibleClosedInventoryRecords}
+                  filteredRecords={visibleFilteredClosedInventoryRecords}
+                  search={closedInventorySearch}
+                  hiddenColumns={hiddenClosedInventoryColumns}
+                  columnVisibility={closedInventoryColumnVisibility}
+                  openColumnMenu={openClosedInventoryColumnMenu}
+                  columnFilters={closedInventoryColumnFilters}
+                  distinctColumnValues={distinctClosedInventoryColumnValues}
+                  columnSort={closedInventoryColumnSort}
+                  canReopenClosedInventory={canReopenClosedInventory}
+                  canDeleteClosedInventory={canDeleteClosedInventory}
+                  setOpenColumnMenu={setOpenClosedInventoryColumnMenu}
+                  setColumnFilters={setClosedInventoryColumnFilters}
+                  setColumnVisibility={setClosedInventoryColumnVisibility}
+                  setColumnSort={setClosedInventoryColumnSort}
+                  getStockCenterName={(stockCenterId) =>
+                    inventoryStockCenterNameById.get(stockCenterId) ?? `CENTRO ${stockCenterId}`
+                  }
+                  onSearchChange={setClosedInventorySearch}
+                  onScrollTopChange={setRequisitionHistoryScrollTop}
+                  onOpenSummary={openClosedInventorySummary}
+                  onReopenInventory={reopenClosedInventoryRecord}
+                  onDeleteInventory={(inventoryRecord) =>
+                    setInventoryDeleteState({
+                      id: inventoryRecord.id,
+                      countedAt: inventoryRecord.countedAt,
+                      stockCenterName:
+                        inventoryStockCenterNameById.get(inventoryRecord.stockCenterId) ??
+                        `CENTRO ${inventoryRecord.stockCenterId}`,
+                    })
+                  }
+                />
+              </LazyPanelBoundary>
             ) : null}
           </section>
 
