@@ -18,6 +18,9 @@ export const InventoryClosedSummaryModal = lazy(() =>
 export const InventoryClosedRecordsPanel = lazy(() =>
   import('./InventoryClosedRecordsPanel').then((module) => ({ default: module.InventoryClosedRecordsPanel })),
 )
+export const InventoryPendingMovementsModal = lazy(() =>
+  import('./InventoryPendingMovementsModal').then((module) => ({ default: module.InventoryPendingMovementsModal })),
+)
 export const InventoryReviewModal = lazy(() =>
   import('./InventoryReviewModal').then((module) => ({ default: module.InventoryReviewModal })),
 )

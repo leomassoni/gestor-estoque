@@ -2038,3 +2038,21 @@ Registrar um historico resumido do que foi feito, do que falhou e do que ficou p
   - `node --check server/server.js && node --check server/billing.js` passou;
   - `git diff --check` passou;
   - `npx vite build` passou, gerando `index-DONRglkJ.js`.
+
+### Extracao do modal de movimentacoes pendentes de inventario
+
+- Correcao aplicada em `2026-09-27`.
+- Objetivo:
+  - seguir reduzindo o JSX de inventario dentro de `App.tsx` sem alterar regras de movimentacoes pendentes ou fechamento de inventario.
+- Ajuste aplicado:
+  - criado `InventoryPendingMovementsModal` para encapsular o modal `Movimentacoes pendentes`;
+  - a selecao das movimentacoes e a formatacao de totais continuam sendo fornecidas pelo `App.tsx`.
+- Resultado tecnico local:
+  - `App.tsx` reduziu para `60484` linhas nesta rodada;
+  - `npx vite build` gerou `InventoryPendingMovementsModal-CI-TF8gn.js` separado, com `2,51 kB` minificado;
+  - bundle principal local gerado: `index-EcrcZoR5.js` com `1.180,74 kB` minificado.
+- Validacao local:
+  - `npx tsc -p tsconfig.app.json --noEmit --pretty false` passou;
+  - `node --check server/server.js && node --check server/billing.js` passou;
+  - `git diff --check` passou;
+  - `npx vite build` passou.
