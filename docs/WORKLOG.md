@@ -2023,3 +2023,18 @@ Registrar um historico resumido do que foi feito, do que falhou e do que ficou p
 - Pendente:
   - extrair o modal de historico de contagem e o modal de movimentacoes pendentes;
   - seguir reduzindo custos globais do componente principal sem enfraquecer sincronizacao em tempo real.
+
+### Hotfix de navegacao pelo side menu
+
+- Correcao aplicada em `2026-09-27`.
+- Causa encontrada:
+  - a navegacao principal havia sido colocada dentro de `startTransition`;
+  - em telas pesadas, a troca de `activeSection` podia ficar sem resposta perceptivel ao clicar no side menu, especialmente ao entrar em `Inventario`.
+- Ajuste aplicado:
+  - `handleSectionNavigation` voltou a atualizar `activeSection` de forma sincrona;
+  - o fechamento do menu mobile permanece junto da navegacao.
+- Validacao local:
+  - `npx tsc -p tsconfig.app.json --noEmit --pretty false` passou;
+  - `node --check server/server.js && node --check server/billing.js` passou;
+  - `git diff --check` passou;
+  - `npx vite build` passou, gerando `index-DONRglkJ.js`.

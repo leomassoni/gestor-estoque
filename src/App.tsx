@@ -1,5 +1,4 @@
 import {
-  startTransition,
   useCallback,
   useEffect,
   useId,
@@ -3321,9 +3320,7 @@ export default function App() {
   const hasEstoqueAccess = allowedEstoqueSections.length > 0
   const isEstoqueActive = estoqueSections.includes(activeSection)
   const handleSectionNavigation = useCallback((section: AppSection) => {
-    startTransition(() => {
-      setActiveSection(section)
-    })
+    setActiveSection(section)
     setIsMobileSidebarOpen(false)
   }, [])
   const handleCloseMobileSidebar = useCallback(() => setIsMobileSidebarOpen(false), [])
