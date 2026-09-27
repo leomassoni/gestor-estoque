@@ -1978,3 +1978,25 @@ Registrar um historico resumido do que foi feito, do que falhou e do que ficou p
 - Pendente:
   - continuar a extracao dos blocos grandes que ainda ficam no `App.tsx`, especialmente resumo editavel de inventario, modais de inventario e secoes grandes de cadastros/configuracoes;
   - reduzir custos globais de hooks/calculos que ainda executam dentro do componente principal.
+
+### Extracao do modal de resumo de inventario fechado
+
+- Correcao aplicada em `2026-09-27`.
+- Objetivo:
+  - retirar mais JSX pesado de inventario do `App.tsx` sem alterar handlers, persistencia, consolidacao, edicao ou exclusao de itens contados.
+- Ajuste aplicado:
+  - criado `InventoryClosedSummaryModal` para encapsular o modal `Resumo consolidado do inventario`;
+  - o componente recebe os mesmos estados e callbacks que o bloco antigo usava em `App.tsx`;
+  - o modal passou a ser carregado por `lazyPanels.tsx`, sob demanda, apenas quando o usuario abre o resumo fechado.
+- Resultado tecnico local:
+  - `App.tsx` reduziu para `60738` linhas nesta rodada;
+  - `npx vite build` gerou `InventoryClosedSummaryModal-C7KaWZn8.js` separado, com `7,02 kB` minificado;
+  - bundle principal local gerado: `index-DTBXuj7z.js` com `1.187,97 kB` minificado.
+- Validacao local:
+  - `npx tsc -p tsconfig.app.json --noEmit --pretty false` passou;
+  - `node --check server/server.js && node --check server/billing.js` passou;
+  - `git diff --check` passou;
+  - `npx vite build` passou.
+- Pendente:
+  - continuar extraindo modais e paineis ainda grandes de inventario, como historico de contagem, revisao/consolidacao e movimentacoes pendentes;
+  - seguir sem reduzir sincronizacao ou persistencia do fluxo de contagem.
