@@ -59099,36 +59099,16 @@ function saveInventoryActiveSessionLinksState(inventoryActiveSessionLinks: Inven
   }
 }
 
-const localStorageJsonWriteTimers = new Map<string, number>()
-
-function scheduleLocalStorageJsonWrite(key: string, value: unknown) {
-  if (typeof window === 'undefined') {
-    return
-  }
-
-  const existingTimer = localStorageJsonWriteTimers.get(key)
-  if (existingTimer !== undefined) {
-    window.clearTimeout(existingTimer)
-  }
-
-  const nextTimer = window.setTimeout(() => {
-    localStorageJsonWriteTimers.delete(key)
-    try {
-      window.localStorage.setItem(key, JSON.stringify(value))
-    } catch {
-      return
-    }
-  }, 250)
-
-  localStorageJsonWriteTimers.set(key, nextTimer)
-}
-
 function saveInventoryCountsState(inventoryCounts: InventoryCountRecord[]) {
   if (typeof window === 'undefined') {
     return
   }
 
-  scheduleLocalStorageJsonWrite(inventoryCountsStorageKey, inventoryCounts)
+  try {
+    window.localStorage.setItem(inventoryCountsStorageKey, JSON.stringify(inventoryCounts))
+  } catch {
+    return
+  }
 }
 
 function saveWasteSessionsState(wasteSessions: WasteSessionRecord[]) {

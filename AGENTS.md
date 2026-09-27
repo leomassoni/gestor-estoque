@@ -76,4 +76,6 @@ Se qualquer validacao falhar, nao publicar.
 - Quando o webapp define ID automatico, usar o gerador do webapp/API.
 - Nao confiar em `/api/state` como fonte principal quando endpoints por entidade existirem.
 - Em inventario/contagem, o banco online e a fonte de verdade; `localStorage` e apenas apoio/fallback.
+- Nao otimizar performance de inventario/contagem adiando, removendo ou enfraquecendo persistencia, sincronizacao, links ativos ou recuperacao de sessao.
+- Qualquer mudanca em sincronizacao/persistencia de fluxo critico precisa ser tratada como mudanca de regra operacional, com checklist de regressao e rollback claro.
 - Nunca apagar, reabrir, consolidar ou cancelar registros operacionais sem confirmar escopo de empresa, centro e data.

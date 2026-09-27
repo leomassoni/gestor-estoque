@@ -1915,13 +1915,15 @@ Registrar um historico resumido do que foi feito, do que falhou e do que ficou p
 - Correcao aplicada em `2026-09-27`.
 - Causa encontrada:
   - mesmo com `remoteSnapshotSyncEnabled = false`, efeitos globais de usuario master/admin ainda podiam agendar leitura completa do snapshot legado do `localStorage`;
-  - essa leitura e a gravacao sincrona de `inventory-counts` podiam bloquear a thread principal em cliques, navegacao e salvamentos;
+  - essa leitura podia bloquear a thread principal em cliques, navegacao e salvamentos;
   - no inicio de contagem, quando uma contagem ja estava aberta, o botao podia sumir por regra de tela e parecer clique ignorado.
 - Ajuste aplicado:
   - efeitos de snapshot legado agora retornam imediatamente quando `remoteSnapshotSyncEnabled` esta desligado;
-  - a gravacao de `inventory-counts` no `localStorage` foi coalescida e adiada, sem alterar o salvamento no banco;
   - `InventoryStartPanel` agora mostra aviso explicito quando ja existe contagem aberta.
 - Processo:
   - criado `AGENTS.md` na raiz do repositorio com protocolo obrigatorio para mudancas em fluxos criticos, validacoes minimas e regra de nao aumentar `App.tsx` com novas funcionalidades.
+- Correcao de processo:
+  - a tentativa de adiar a gravacao local de `inventory-counts` foi revertida no mesmo dia por contrariar a regra operacional de nao enfraquecer persistencia/sincronizacao em contagem;
+  - `AGENTS.md` passou a proibir otimizar performance de inventario/contagem adiando, removendo ou enfraquecendo persistencia, sincronizacao, links ativos ou recuperacao de sessao.
 - Pendente:
   - extrair inventario/contagem de `App.tsx` para reduzir custo estrutural de render e navegacao.
