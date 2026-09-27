@@ -1927,3 +1927,19 @@ Registrar um historico resumido do que foi feito, do que falhou e do que ficou p
   - `AGENTS.md` passou a proibir otimizar performance de inventario/contagem adiando, removendo ou enfraquecendo persistencia, sincronizacao, links ativos ou recuperacao de sessao.
 - Pendente:
   - extrair inventario/contagem de `App.tsx` para reduzir custo estrutural de render e navegacao.
+
+### Desativacao segura do billing no caminho operacional
+
+- Correcao aplicada em `2026-09-27`.
+- Causa encontrada:
+  - a implementacao de assinaturas adicionou `createBillingAccessMiddleware` em `app.use('/api', ...)`, fazendo verificacao de assinatura em chamadas operacionais da API;
+  - para usuario comum, isso podia consultar assinaturas no banco em praticamente toda requisicao autenticada;
+  - o painel visual de assinaturas tambem ficava montado no `PainelMaster`, embora a venda por assinatura ainda nao estivesse pronta para operacao.
+- Ajuste aplicado:
+  - criado controle por flag `GESTOR_ESTOQUE_BILLING_ENABLED=true` no backend;
+  - por padrao, webhook, rotas de billing, seed de planos/assinaturas, middleware de bloqueio e criacao automatica de trial ficam desligados;
+  - criado controle por flag `VITE_BILLING_PANEL_ENABLED=true` no frontend;
+  - por padrao, `BillingPanel` nao monta e nao busca `/api/billing/*`.
+- Resultado esperado:
+  - assinatura deixa de interferir no carregamento, navegacao e uso operacional do webapp;
+  - o modulo permanece no codigo para reativacao planejada depois, com teste de performance e fluxo proprio.

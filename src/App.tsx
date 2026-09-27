@@ -112,6 +112,8 @@ import { buildTechnicalSheetGeneratedDescription } from './domain/technicalSheet
 const BillingPanel = lazy(() =>
   import('./components/BillingPanel').then((module) => ({ default: module.BillingPanel })),
 )
+const billingPanelEnabled =
+  (import.meta as unknown as { env?: Record<string, string | undefined> }).env?.VITE_BILLING_PANEL_ENABLED === 'true'
 import {
   canManageInventoryCountRecord,
   canManageInventoryCountHistoryRecord,
@@ -50685,21 +50687,23 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
             </div>
           </section>
 
-          <Suspense
-            fallback={
-              <section className="panel">
-                <div className="empty-state empty-state-inline">
-                  <strong>Carregando assinaturas...</strong>
-                </div>
-              </section>
-            }
-          >
-            <BillingPanel
-              companies={companies}
-              currentCompanyId={currentCompanyId}
-              onFeedback={setSaveFeedback}
-            />
-          </Suspense>
+          {billingPanelEnabled ? (
+            <Suspense
+              fallback={
+                <section className="panel">
+                  <div className="empty-state empty-state-inline">
+                    <strong>Carregando assinaturas...</strong>
+                  </div>
+                </section>
+              }
+            >
+              <BillingPanel
+                companies={companies}
+                currentCompanyId={currentCompanyId}
+                onFeedback={setSaveFeedback}
+              />
+            </Suspense>
+          ) : null}
 
           <section className="panel">
             <div className="section-heading">
