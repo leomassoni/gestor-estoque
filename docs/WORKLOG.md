@@ -2000,3 +2000,26 @@ Registrar um historico resumido do que foi feito, do que falhou e do que ficou p
 - Pendente:
   - continuar extraindo modais e paineis ainda grandes de inventario, como historico de contagem, revisao/consolidacao e movimentacoes pendentes;
   - seguir sem reduzir sincronizacao ou persistencia do fluxo de contagem.
+
+### Extracao dos modais de revisao e fechamento de inventario
+
+- Correcao aplicada em `2026-09-27`.
+- Objetivo:
+  - continuar a reducao do `App.tsx` no fluxo de inventario sem alterar regras de fechamento de contagem, consolidacao de inventario ou escolha de destino para sessoes abertas.
+- Ajuste aplicado:
+  - criado `InventoryReviewModal` para encapsular o modal `Resumo consolidado da contagem`;
+  - criado `InventoryCloseReviewModal` para encapsular a revisao de fechamento do inventario;
+  - os calculos de linhas, filtros, sessoes, permissoes e handlers continuam no `App.tsx`; os novos componentes recebem apenas dados prontos e callbacks.
+- Resultado tecnico local:
+  - `App.tsx` reduziu para `60537` linhas nesta rodada;
+  - `npx vite build` gerou `InventoryReviewModal-D7ya2fN-.js` separado, com `2,91 kB` minificado;
+  - `npx vite build` gerou `InventoryCloseReviewModal-PX9TIhl_.js` separado, com `3,50 kB` minificado;
+  - bundle principal local gerado: `index-DvNRNLfR.js` com `1.182,69 kB` minificado.
+- Validacao local:
+  - `npx tsc -p tsconfig.app.json --noEmit --pretty false` passou;
+  - `node --check server/server.js && node --check server/billing.js` passou;
+  - `git diff --check` passou;
+  - `npx vite build` passou.
+- Pendente:
+  - extrair o modal de historico de contagem e o modal de movimentacoes pendentes;
+  - seguir reduzindo custos globais do componente principal sem enfraquecer sincronizacao em tempo real.

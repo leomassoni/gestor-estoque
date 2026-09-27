@@ -6,6 +6,9 @@ export const ExecutionPlanningList = lazy(() =>
 export const InventoryActiveFlowPanel = lazy(() =>
   import('./InventoryActiveFlowPanel').then((module) => ({ default: module.InventoryActiveFlowPanel })),
 )
+export const InventoryCloseReviewModal = lazy(() =>
+  import('./InventoryCloseReviewModal').then((module) => ({ default: module.InventoryCloseReviewModal })),
+)
 export const InventoryCurrentCountSummaryPanel = lazy(() =>
   import('./InventoryCurrentCountSummaryPanel').then((module) => ({ default: module.InventoryCurrentCountSummaryPanel })),
 )
@@ -14,6 +17,9 @@ export const InventoryClosedSummaryModal = lazy(() =>
 )
 export const InventoryClosedRecordsPanel = lazy(() =>
   import('./InventoryClosedRecordsPanel').then((module) => ({ default: module.InventoryClosedRecordsPanel })),
+)
+export const InventoryReviewModal = lazy(() =>
+  import('./InventoryReviewModal').then((module) => ({ default: module.InventoryReviewModal })),
 )
 export const InventorySummaryPanel = lazy(() =>
   import('./InventorySummaryPanel').then((module) => ({ default: module.InventorySummaryPanel })),

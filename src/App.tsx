@@ -15,9 +15,11 @@ import { PreparationModeInput } from './components/PreparationModeInput'
 import {
   ExecutionPlanningList,
   InventoryActiveFlowPanel,
+  InventoryCloseReviewModal,
   InventoryClosedSummaryModal,
   InventoryClosedRecordsPanel,
   InventoryCurrentCountSummaryPanel,
+  InventoryReviewModal,
   InventorySummaryPanel,
   LazyPanelBoundary,
   ProductListPanel,
@@ -47,7 +49,6 @@ import {
 } from './components/AppNavigationShell'
 import { NormalizedTextInput, NormalizedTextarea } from './components/NormalizedTextField'
 import {
-  renderInventoryReviewColumnHeader,
   renderPurchaseDemandColumnHeader,
   renderReceiveReviewColumnHeader,
   renderRequisitionDraftColumnHeader,
@@ -54882,129 +54883,39 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
       ) : null}
 
       {inventoryReviewModalState ? (
-        <div className="modal-backdrop" role="presentation" onClick={() => setInventoryReviewModalState(null)}>
-          <section
-            className="modal-card modal-card-full"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="inventory-review-modal-title"
-            onClick={(event) => event.stopPropagation()}
-          >
-            <div className="section-heading">
-              <div>
-                <p className="kicker">Revisao</p>
-                <h2 id="inventory-review-modal-title">Resumo consolidado da contagem</h2>
-              </div>
-            </div>
-
-            <p className="confirm-copy">
-              Centro {inventoryReviewModalState.stockCenterName} • Data {formatDateForDisplay(inventoryReviewModalState.countedAt)}.
-              Revise os totais por produto antes de fechar. Se discordar de algo, volte para a contagem e ajuste os lancamentos.
-            </p>
-
-            <div className="list-toolbar">
-              <label className="field search-field">
-                <span>Buscar produto</span>
-                <NormalizedTextInput
-                  value={inventoryReviewSearch}
-                  onChange={setInventoryReviewSearch}
-                  commitMode="debounce"
-                  placeholder="Busque por produto, IDs, familia, tipo ou status"
-                />
-              </label>
-            </div>
-
-            {hiddenInventoryReviewColumns.length > 0 ? (
-              <div className="hidden-columns">
-                <strong>Colunas ocultas</strong>
-                <div className="hidden-columns-list">
-                  {hiddenInventoryReviewColumns.map(([key, label]) => (
-                    <button
-                      key={key}
-                      type="button"
-                      className="ghost-button hidden-column-chip"
-                      onClick={() =>
-                        setInventoryReviewColumnVisibility((current) => ({
-                          ...current,
-                          [key]: true,
-                        }))
-                      }
-                    >
-                      {label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            ) : null}
-
-            <div className="table-wrap">
-              <table className="product-table">
-                <thead>
-                  <tr>
-                    {inventoryReviewColumnVisibility.product
-                      ? renderInventoryReviewColumnHeader('product', 'Produto', openInventoryReviewColumnMenu, setOpenInventoryReviewColumnMenu, inventoryReviewColumnFilters, distinctInventoryReviewColumnValues, setInventoryReviewColumnFilters, setInventoryReviewColumnVisibility, inventoryReviewColumnSort, setInventoryReviewColumnSort)
-                      : null}
-                    {inventoryReviewColumnVisibility.internalId
-                      ? renderInventoryReviewColumnHeader('internalId', 'ID interno', openInventoryReviewColumnMenu, setOpenInventoryReviewColumnMenu, inventoryReviewColumnFilters, distinctInventoryReviewColumnValues, setInventoryReviewColumnFilters, setInventoryReviewColumnVisibility, inventoryReviewColumnSort, setInventoryReviewColumnSort)
-                      : null}
-                    {inventoryReviewColumnVisibility.companyId
-                      ? renderInventoryReviewColumnHeader('companyId', 'ID empresa', openInventoryReviewColumnMenu, setOpenInventoryReviewColumnMenu, inventoryReviewColumnFilters, distinctInventoryReviewColumnValues, setInventoryReviewColumnFilters, setInventoryReviewColumnVisibility, inventoryReviewColumnSort, setInventoryReviewColumnSort)
-                      : null}
-                    {inventoryReviewColumnVisibility.type
-                      ? renderInventoryReviewColumnHeader('type', 'Tipo', openInventoryReviewColumnMenu, setOpenInventoryReviewColumnMenu, inventoryReviewColumnFilters, distinctInventoryReviewColumnValues, setInventoryReviewColumnFilters, setInventoryReviewColumnVisibility, inventoryReviewColumnSort, setInventoryReviewColumnSort)
-                      : null}
-                    {inventoryReviewColumnVisibility.family
-                      ? renderInventoryReviewColumnHeader('family', 'Familia', openInventoryReviewColumnMenu, setOpenInventoryReviewColumnMenu, inventoryReviewColumnFilters, distinctInventoryReviewColumnValues, setInventoryReviewColumnFilters, setInventoryReviewColumnVisibility, inventoryReviewColumnSort, setInventoryReviewColumnSort)
-                      : null}
-                    {inventoryReviewColumnVisibility.total
-                      ? renderInventoryReviewColumnHeader('total', 'Total contado', openInventoryReviewColumnMenu, setOpenInventoryReviewColumnMenu, inventoryReviewColumnFilters, distinctInventoryReviewColumnValues, setInventoryReviewColumnFilters, setInventoryReviewColumnVisibility, inventoryReviewColumnSort, setInventoryReviewColumnSort)
-                      : null}
-                    {inventoryReviewColumnVisibility.unit
-                      ? renderInventoryReviewColumnHeader('unit', 'Unidade', openInventoryReviewColumnMenu, setOpenInventoryReviewColumnMenu, inventoryReviewColumnFilters, distinctInventoryReviewColumnValues, setInventoryReviewColumnFilters, setInventoryReviewColumnVisibility, inventoryReviewColumnSort, setInventoryReviewColumnSort)
-                      : null}
-                    {inventoryReviewColumnVisibility.status
-                      ? renderInventoryReviewColumnHeader('status', 'Status', openInventoryReviewColumnMenu, setOpenInventoryReviewColumnMenu, inventoryReviewColumnFilters, distinctInventoryReviewColumnValues, setInventoryReviewColumnFilters, setInventoryReviewColumnVisibility, inventoryReviewColumnSort, setInventoryReviewColumnSort)
-                      : null}
-                  </tr>
-                </thead>
-                <tbody>
-                  {visibleInventoryReviewRows.map((row) => (
-                    <tr key={row.key} className={row.isZero ? 'inventory-review-zero-row' : ''}>
-                      {inventoryReviewColumnVisibility.product ? <td className="sticky-product-cell"><strong>{row.name}</strong></td> : null}
-                      {inventoryReviewColumnVisibility.internalId ? <td>{row.internalId}</td> : null}
-                      {inventoryReviewColumnVisibility.companyId ? <td>{row.companyProductId}</td> : null}
-                      {inventoryReviewColumnVisibility.type ? <td>{row.kindLabel}</td> : null}
-                      {inventoryReviewColumnVisibility.family ? <td>{row.family || '-'}</td> : null}
-                      {inventoryReviewColumnVisibility.total ? <td>{row.totalCountedLabel}</td> : null}
-                      {inventoryReviewColumnVisibility.unit ? <td>{row.unitLabel}</td> : null}
-                      {inventoryReviewColumnVisibility.status ? <td>{row.statusLabel}</td> : null}
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-
-            <div className="modal-actions">
-              <button className="ghost-button" type="button" onClick={() => setInventoryReviewModalState(null)}>
-                Voltar a contagem
-              </button>
-              <button
-                className="warning-button"
-                type="button"
-                onClick={() => {
-                  setInventoryReviewModalState(null)
-                  setInventorySessionCloseState({
-                    id: inventoryReviewModalState.id,
-                    countedAt: inventoryReviewModalState.countedAt,
-                    stockCenterName: inventoryReviewModalState.stockCenterName,
-                  })
-                }}
-              >
-                Fechar contagem
-              </button>
-            </div>
-          </section>
-        </div>
+        <LazyPanelBoundary>
+          <InventoryReviewModal
+            modalState={inventoryReviewModalState}
+            search={inventoryReviewSearch}
+            hiddenColumns={hiddenInventoryReviewColumns}
+            rows={visibleInventoryReviewRows}
+            columnVisibility={inventoryReviewColumnVisibility}
+            openColumnMenu={openInventoryReviewColumnMenu}
+            columnFilters={inventoryReviewColumnFilters}
+            distinctColumnValues={distinctInventoryReviewColumnValues}
+            columnSort={inventoryReviewColumnSort}
+            onClose={() => setInventoryReviewModalState(null)}
+            onSearchChange={setInventoryReviewSearch}
+            onShowColumn={(key) =>
+              setInventoryReviewColumnVisibility((current) => ({
+                ...current,
+                [key]: true,
+              }))
+            }
+            setOpenColumnMenu={setOpenInventoryReviewColumnMenu}
+            setColumnFilters={setInventoryReviewColumnFilters}
+            setColumnVisibility={setInventoryReviewColumnVisibility}
+            setColumnSort={setInventoryReviewColumnSort}
+            onCloseCount={() => {
+              setInventoryReviewModalState(null)
+              setInventorySessionCloseState({
+                id: inventoryReviewModalState.id,
+                countedAt: inventoryReviewModalState.countedAt,
+                stockCenterName: inventoryReviewModalState.stockCenterName,
+              })
+            }}
+          />
+        </LazyPanelBoundary>
       ) : null}
 
       {inventorySessionCloseState ? (
@@ -55041,127 +54952,15 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
       ) : null}
 
       {inventoryCloseState ? (
-        <div className="modal-backdrop" role="presentation" onClick={() => !isClosingInventoryRecord && setInventoryCloseState(null)}>
-          <section
-            className="modal-card modal-card-full"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="inventory-close-review-title"
-            onClick={(event) => event.stopPropagation()}
-          >
-            <div className="section-heading">
-              <div>
-                <p className="kicker">Fechamento</p>
-                <h2 id="inventory-close-review-title">Revisao das contagens do inventario</h2>
-              </div>
-            </div>
-
-            <p className="confirm-copy">
-              Centro {inventoryCloseState.stockCenterName} • Data {formatDateForDisplay(inventoryCloseState.countedAt)}.
-              O webapp recarregou as contagens do servidor em {formatTimeForDisplay(inventoryCloseState.refreshedAt)}. As contagens fechadas entram na consolidacao. Para contagens abertas, escolha se elas devem ser fechadas e consolidadas ou descartadas.
-            </p>
-
-            <div className="inventory-close-summary-grid">
-              <div className="summary-metric-card">
-                <span>Contagens fechadas</span>
-                <strong>{String(inventoryCloseState.sessions.filter((sessionRecord) => sessionRecord.isClosed).length)}</strong>
-              </div>
-              <div className="summary-metric-card">
-                <span>Contagens abertas</span>
-                <strong>{String(inventoryCloseState.sessions.filter((sessionRecord) => !sessionRecord.isClosed).length)}</strong>
-              </div>
-              <div className="summary-metric-card">
-                <span>Itens contados</span>
-                <strong>{String(inventoryCloseState.sessions.reduce((sum, sessionRecord) => sum + sessionRecord.itemCount, 0))}</strong>
-              </div>
-            </div>
-
-            <div className="table-wrap">
-              <table className="product-table">
-                <thead>
-                  <tr>
-                    <th>Sessao</th>
-                    <th>Status</th>
-                    <th>Usuario</th>
-                    <th>Inicio</th>
-                    <th>Fechamento</th>
-                    <th>Itens</th>
-                    <th>Acao no fechamento</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {inventoryCloseState.sessions.length > 0 ? (
-                    inventoryCloseState.sessions.map((sessionRecord) => (
-                      <tr key={`inventory-close-session-${sessionRecord.id}`}>
-                        <td>{formatInventoryCountSessionCode(sessionRecord.id)}</td>
-                        <td>
-                          <span className={sessionRecord.isClosed ? 'status-pill status-active' : 'status-pill status-warning'}>
-                            {sessionRecord.isClosed ? 'FECHADA' : 'ABERTA'}
-                          </span>
-                        </td>
-                        <td>{sessionRecord.startedByUserName}</td>
-                        <td>{formatTimeForDisplay(sessionRecord.startedAt)}</td>
-                        <td>
-                          {sessionRecord.isClosed
-                            ? `${formatTimeForDisplay(sessionRecord.closedAt)} por ${sessionRecord.closedByUserName || '-'}`
-                            : '-'}
-                        </td>
-                        <td>{String(sessionRecord.itemCount)}</td>
-                        <td>
-                          {sessionRecord.isClosed ? (
-                            'Consolidar'
-                          ) : (
-                            <div className="inventory-close-session-actions">
-                              <label className="checkbox-row">
-                                <input
-                                  type="checkbox"
-                                  checked={inventoryCloseState.openSessionActions[sessionRecord.id] === 'close'}
-                                  onChange={() => updateInventoryCloseSessionAction(sessionRecord.id, 'close')}
-                                />
-                                <span>Fechar e consolidar</span>
-                              </label>
-                              <label className="checkbox-row">
-                                <input
-                                  type="checkbox"
-                                  checked={inventoryCloseState.openSessionActions[sessionRecord.id] === 'discard'}
-                                  onChange={() => updateInventoryCloseSessionAction(sessionRecord.id, 'discard')}
-                                />
-                                <span>Descartar</span>
-                              </label>
-                            </div>
-                          )}
-                        </td>
-                      </tr>
-                    ))
-                  ) : (
-                    <tr>
-                      <td colSpan={7}>Nenhuma sessao de contagem vinculada a este inventario.</td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
-
-            <div className="modal-actions">
-              <button
-                className="ghost-button"
-                type="button"
-                onClick={() => setInventoryCloseState(null)}
-                disabled={isClosingInventoryRecord}
-              >
-                Cancelar
-              </button>
-              <button
-                className="warning-button"
-                type="button"
-                onClick={() => void confirmCloseInventoryRecord()}
-                disabled={isClosingInventoryRecord}
-              >
-                {isClosingInventoryRecord ? 'Finalizando...' : 'Finalizar inventario'}
-              </button>
-            </div>
-          </section>
-        </div>
+        <LazyPanelBoundary>
+          <InventoryCloseReviewModal
+            closeState={inventoryCloseState}
+            isClosing={isClosingInventoryRecord}
+            onCancel={() => setInventoryCloseState(null)}
+            onConfirm={() => void confirmCloseInventoryRecord()}
+            onUpdateSessionAction={updateInventoryCloseSessionAction}
+          />
+        </LazyPanelBoundary>
       ) : null}
 
       {recipeExportState ? (
