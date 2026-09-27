@@ -99,6 +99,9 @@ export function InventoryStartPanel({
                   : 'Iniciar contagem'}
             </button>
           ) : null}
+          {selectedOpenInventory && selectedInventoryCountSessionIsOpen ? (
+            <span className="compact-feedback">Contagem aberta. Registre os itens abaixo ou saia da contagem atual.</span>
+          ) : null}
         </div>
       </form>
     </>

@@ -1909,3 +1909,19 @@ Registrar um historico resumido do que foi feito, do que falhou e do que ficou p
   - `git diff --check` passou.
 - Pendente:
   - continuar a extracao real dos paineis pesados de inventario/contagem para reduzir re-render do `App.tsx`; o ajuste atual remove a barreira mobile e inicia o corte de bundle, mas nao resolve toda a lentidao estrutural.
+
+### Mitigacao de lentidao global apos ajuste de inventario
+
+- Correcao aplicada em `2026-09-27`.
+- Causa encontrada:
+  - mesmo com `remoteSnapshotSyncEnabled = false`, efeitos globais de usuario master/admin ainda podiam agendar leitura completa do snapshot legado do `localStorage`;
+  - essa leitura e a gravacao sincrona de `inventory-counts` podiam bloquear a thread principal em cliques, navegacao e salvamentos;
+  - no inicio de contagem, quando uma contagem ja estava aberta, o botao podia sumir por regra de tela e parecer clique ignorado.
+- Ajuste aplicado:
+  - efeitos de snapshot legado agora retornam imediatamente quando `remoteSnapshotSyncEnabled` esta desligado;
+  - a gravacao de `inventory-counts` no `localStorage` foi coalescida e adiada, sem alterar o salvamento no banco;
+  - `InventoryStartPanel` agora mostra aviso explicito quando ja existe contagem aberta.
+- Processo:
+  - criado `AGENTS.md` na raiz do repositorio com protocolo obrigatorio para mudancas em fluxos criticos, validacoes minimas e regra de nao aumentar `App.tsx` com novas funcionalidades.
+- Pendente:
+  - extrair inventario/contagem de `App.tsx` para reduzir custo estrutural de render e navegacao.
