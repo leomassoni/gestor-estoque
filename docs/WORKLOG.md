@@ -2056,3 +2056,22 @@ Registrar um historico resumido do que foi feito, do que falhou e do que ficou p
   - `node --check server/server.js && node --check server/billing.js` passou;
   - `git diff --check` passou;
   - `npx vite build` passou.
+
+### Extracao do modal de historico de contagem
+
+- Correcao aplicada em `2026-09-27`.
+- Objetivo:
+  - remover o modal editavel de historico de contagem do `App.tsx` mantendo intactos os handlers de salvar alteracoes, excluir contagem e abrir sessao no inventario.
+- Ajuste aplicado:
+  - criado `InventoryCountHistoryModal`;
+  - o `App.tsx` continua responsavel por carregar sessoes, calcular linhas exibidas, permissao de exclusao e persistir alteracoes;
+  - o componente novo apenas renderiza os dados e chama os callbacks existentes.
+- Resultado tecnico local:
+  - `App.tsx` reduziu para `60302` linhas nesta rodada;
+  - `npx vite build` gerou `InventoryCountHistoryModal-Bp6r1CKl.js` separado, com `5,63 kB` minificado;
+  - bundle principal local gerado: `index-BdrTpIFh.js` com `1.176,00 kB` minificado.
+- Validacao local:
+  - `npx tsc -p tsconfig.app.json --noEmit --pretty false` passou;
+  - `node --check server/server.js && node --check server/billing.js` passou;
+  - `git diff --check` passou;
+  - `npx vite build` passou.

@@ -15,6 +15,7 @@ import {
   ExecutionPlanningList,
   InventoryActiveFlowPanel,
   InventoryCloseReviewModal,
+  InventoryCountHistoryModal,
   InventoryClosedSummaryModal,
   InventoryClosedRecordsPanel,
   InventoryCurrentCountSummaryPanel,
@@ -13606,6 +13607,17 @@ export default function App() {
                 left.createdByUserName.localeCompare(right.createdByUserName, 'pt-BR'),
             ),
     [currentCompanyId, inventoryCountHistoryModalState, inventoryCounts],
+  )
+  const inventoryCountHistoryTargetSession = useMemo(
+    () =>
+      inventoryCountHistoryModalState === null
+        ? null
+        : inventoryCountSessions.find(
+            (sessionRecord) =>
+              sessionRecord.id === inventoryCountHistoryModalState.id &&
+              sessionRecord.companyId === currentCompanyId,
+          ) ?? null,
+    [currentCompanyId, inventoryCountHistoryModalState, inventoryCountSessions],
   )
   const inventoryCountHistoryDisplayRows = useMemo(() => {
     if (inventoryCountHistoryModalState === null) {
@@ -54548,237 +54560,43 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
       ) : null}
 
       {inventoryCountHistoryModalState ? (
-        <div className="modal-backdrop" role="presentation" onClick={() => setInventoryCountHistoryModalState(null)}>
-          <section
-            className="modal-card modal-card-full"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="inventory-history-modal-title"
-            onClick={(event) => event.stopPropagation()}
-          >
-            <div className="section-heading">
-              <div>
-                <p className="kicker">Historico de contagem</p>
-                <h2 id="inventory-history-modal-title">Itens da contagem registrada</h2>
-              </div>
-              <div className="toolbar-actions">
-                {(() => {
-                  const targetSession =
-                    inventoryCountSessions.find(
-                      (sessionRecord) =>
-                        sessionRecord.id === inventoryCountHistoryModalState.id &&
-                        sessionRecord.companyId === currentCompanyId,
-                    ) ?? null
-                  return targetSession && canManageInventoryCountSessionRecord(targetSession, currentAppUser, canDeleteRecords) ? (
-                    <button
-                      type="button"
-                      className="danger-button"
-                      onClick={() =>
-                        setInventorySessionDeleteState({
-                          id: targetSession.id,
-                          countedAt: targetSession.countedAt,
-                          stockCenterName:
-                            inventoryStockCenterNameById.get(targetSession.stockCenterId) ?? `CENTRO ${targetSession.stockCenterId}`,
-                        })
-                      }
-                    >
-                      Excluir contagem
-                    </button>
-                  ) : null
-                })()}
-                {!inventoryCountHistoryModalState.isClosed ? (
-                  <button
-                    type="button"
-                    className="ghost-button"
-                    onClick={() => {
-                      const targetSession =
-                        inventoryCountSessions.find(
-                          (sessionRecord) =>
-                            sessionRecord.id === inventoryCountHistoryModalState.id &&
-                            sessionRecord.companyId === currentCompanyId,
-                        ) ?? null
-                      setActiveSection('Inventario')
-                      if (targetSession && targetSession.inventoryId !== null) {
-                        setSelectedInventoryId(targetSession.inventoryId)
-                      }
-                      setSelectedInventorySessionId(inventoryCountHistoryModalState.id)
-                      setInventoryCountHistoryModalState(null)
-                    }}
-                  >
-                    Abrir no inventario
-                  </button>
-                ) : null}
-              </div>
-            </div>
-
-            <p className="confirm-copy">
-              Centro {inventoryCountHistoryModalState.stockCenterName} • Data {formatDateForDisplay(inventoryCountHistoryModalState.countedAt)}.
-              {inventoryCountHistoryModalState.isClosed
-                ? ' Esta contagem esta fechada, mas os lancamentos ainda podem ser ajustados aqui por usuarios com permissao.'
-                : ' Ajuste os lancamentos desta sessao diretamente neste pop-up.'}
-            </p>
-
-            {inventoryCountHistoryDisplayRows.length > 0 ? (
-              <div className="table-wrap">
-                <table className="product-table">
-                  <thead>
-                    <tr>
-                      <th>Local</th>
-                      <th className="sticky-product">Produto</th>
-                      <th>Tipo</th>
-                      <th>Recipiente</th>
-                      <th>Fechados</th>
-                      <th>Abertos</th>
-                      <th>Peso abertos (g)</th>
-                      <th>Qtd. abertos</th>
-                      <th>Total contado</th>
-                      <th>Por</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {inventoryCountHistoryDisplayRows.map((row) => {
-                      const record = row.record
-                      const draft = inventoryCountHistoryDrafts[row.rowKey] ?? {
-                        storageLocation: record?.storageLocation ?? '',
-                        recipientItemId: record?.recipientItemId ?? '',
-                        closedItemsQuantity: record?.closedItemsQuantity ?? '0',
-                        hasOpenItems: record?.hasOpenItems ? 'true' : 'false',
-                        openItemsGrossWeight: record?.openItemsGrossWeight ?? '',
-                        openItemsContainerQuantity: record?.openItemsContainerQuantity ?? '',
-                      }
-                      const countableItem =
-                        isProductionStockKind(row.kind)
-                          ? inventoryCountableItems.find((item) => isProductionStockKind(item.kind) && item.technicalSheetId === (record?.technicalSheetId ?? row.stockRow?.technicalSheetId ?? null)) ?? null
-                          : row.kind === 'PRODUTO'
-                            ? inventoryCountableItems.find((item) => item.kind === 'PRODUTO' && item.productId === (record?.productId ?? row.stockRow?.productId ?? '')) ?? null
-                            : inventoryCountableItems.find((item) => item.kind === 'ITEM' && item.serviceItemId === (record?.serviceItemId ?? row.stockRow?.serviceItemId ?? '')) ?? null
-                      const sheet =
-                        isProductionStockKind(row.kind) && (record?.technicalSheetId ?? row.stockRow?.technicalSheetId ?? null) !== null
-                          ? inventoryCountableSheets.find((item) => item.id === (record?.technicalSheetId ?? row.stockRow?.technicalSheetId ?? null)) ?? null
-                          : null
-                      const product = row.kind === 'PRODUTO' ? productById.get(record?.productId ?? row.stockRow?.productId ?? '') ?? null : null
-                      const serviceItem = row.kind === 'ITEM' ? serviceItemsById.get(record?.serviceItemId ?? row.stockRow?.serviceItemId ?? '') ?? null : null
-                      const recipientOptions = buildInventoryRecipientOptionsForContext({
-                        countableItem,
-                        sheet,
-                        product,
-                        serviceItem,
-                        serviceItemsById,
-                      })
-                      const selectedRecipient = recipientOptions.find((item) => item.id === draft.recipientItemId) ?? null
-                      const densityFactor = getInventoryDensityFactorForContext({ countableItem, sheet, product })
-                      const openPhysicalQuantity = calculateInventoryOpenPhysicalQuantityForContext({
-                        countableItem,
-                        hasOpenItems: draft.hasOpenItems === 'true',
-                        openItemsGrossWeight: draft.openItemsGrossWeight,
-                        openItemsContainerQuantity: draft.openItemsContainerQuantity,
-                        recipient: selectedRecipient,
-                        densityFactor,
-                      })
-                      const totalCountedQuantity = calculateInventoryTotalCountedQuantityForContext({
-                        countableItem,
-                        sheet,
-                        hasRecipientOptions: recipientOptions.length > 0,
-                        recipient: selectedRecipient,
-                        closedItemsQuantity: draft.closedItemsQuantity,
-                        hasOpenItems: draft.hasOpenItems === 'true',
-                        openPhysicalQuantity,
-                      })
-                      const canManage = record
-                        ? canManageInventoryCountHistoryRecord(record, currentAppUser, canDeleteRecords)
-                        : true
-                      return (
-                        <tr key={row.rowKey}>
-                          <td>
-                            {record?.storageLocation || 'CORRECAO DE CONTAGEM'}
-                          </td>
-                          <td className="sticky-product-cell">
-                            <strong>{row.name}</strong>
-                          </td>
-                          <td>{getStockCountableKindLabel(row.kind)}</td>
-                          <td>
-                            {recipientOptions.length > 0 ? (
-                              <select
-                                value={draft.recipientItemId}
-                                onChange={(event) => updateInventoryCountHistoryDraft(row.rowKey, 'recipientItemId', event.target.value)}
-                                disabled={!canManage}
-                              >
-                                <option value="">Selecione</option>
-                                {recipientOptions.map((option) => (
-                                  <option key={`${row.rowKey}-${option.id}`} value={option.id}>
-                                    {option.label}
-                                  </option>
-                                ))}
-                              </select>
-                            ) : (
-                              <span>SEM RECIPIENTE VINCULADO</span>
-                            )}
-                          </td>
-                          <td>
-                            <input
-                              type="number"
-                              min="0"
-                              value={draft.closedItemsQuantity}
-                              onChange={(event) => updateInventoryCountHistoryDraft(row.rowKey, 'closedItemsQuantity', event.target.value)}
-                              disabled={!canManage}
-                            />
-                          </td>
-                          <td>
-                            <select
-                              value={draft.hasOpenItems}
-                              onChange={(event) => updateInventoryCountHistoryDraft(row.rowKey, 'hasOpenItems', event.target.value)}
-                              disabled={!canManage}
-                            >
-                              <option value="false">NAO</option>
-                              <option value="true">SIM</option>
-                            </select>
-                          </td>
-                          <td>
-                            <input
-                              type="number"
-                              min="0"
-                              step="0.01"
-                              value={draft.hasOpenItems === 'true' ? draft.openItemsGrossWeight : ''}
-                              onChange={(event) => updateInventoryCountHistoryDraft(row.rowKey, 'openItemsGrossWeight', event.target.value)}
-                              disabled={!canManage || draft.hasOpenItems !== 'true'}
-                            />
-                          </td>
-                          <td>
-                            <input
-                              type="number"
-                              min="0"
-                              step="1"
-                              value={draft.hasOpenItems === 'true' ? draft.openItemsContainerQuantity : ''}
-                              onChange={(event) => updateInventoryCountHistoryDraft(row.rowKey, 'openItemsContainerQuantity', event.target.value)}
-                              disabled={!canManage || draft.hasOpenItems !== 'true'}
-                            />
-                          </td>
-                          <td>
-                            {formatDecimal(totalCountedQuantity)} {formatControlUnitShort(row.baseUnit)}
-                          </td>
-                          <td>{record?.createdByUserName ?? '-'}</td>
-                        </tr>
-                      )
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            ) : (
-              <div className="empty-state">
-                <strong>Nenhum lancamento encontrado nesta contagem.</strong>
-                <p>Essa sessao foi registrada sem itens ou ainda nao recebeu lancamentos.</p>
-              </div>
-            )}
-            <div className="modal-actions">
-              <button type="button" className="ghost-button" onClick={() => setInventoryCountHistoryModalState(null)}>
-                Fechar
-              </button>
-              <button type="button" className="primary-button" onClick={saveInventoryCountHistoryDrafts}>
-                Salvar alteracoes
-              </button>
-            </div>
-          </section>
-        </div>
+        <LazyPanelBoundary>
+          <InventoryCountHistoryModal
+            modalState={inventoryCountHistoryModalState}
+            rows={inventoryCountHistoryDisplayRows}
+            drafts={inventoryCountHistoryDrafts}
+            targetSession={inventoryCountHistoryTargetSession}
+            canDeleteSession={
+              inventoryCountHistoryTargetSession
+                ? canManageInventoryCountSessionRecord(inventoryCountHistoryTargetSession, currentAppUser, canDeleteRecords)
+                : false
+            }
+            countableItems={inventoryCountableItems}
+            countableSheets={inventoryCountableSheets}
+            productById={productById}
+            serviceItemsById={serviceItemsById}
+            canManageRecord={(record) => canManageInventoryCountHistoryRecord(record, currentAppUser, canDeleteRecords)}
+            onClose={() => setInventoryCountHistoryModalState(null)}
+            onOpenInventory={() => {
+              setActiveSection('Inventario')
+              if (inventoryCountHistoryTargetSession && inventoryCountHistoryTargetSession.inventoryId !== null) {
+                setSelectedInventoryId(inventoryCountHistoryTargetSession.inventoryId)
+              }
+              setSelectedInventorySessionId(inventoryCountHistoryModalState.id)
+              setInventoryCountHistoryModalState(null)
+            }}
+            onDeleteSession={(sessionRecord) =>
+              setInventorySessionDeleteState({
+                id: sessionRecord.id,
+                countedAt: sessionRecord.countedAt,
+                stockCenterName:
+                  inventoryStockCenterNameById.get(sessionRecord.stockCenterId) ?? `CENTRO ${sessionRecord.stockCenterId}`,
+              })
+            }
+            onUpdateDraft={updateInventoryCountHistoryDraft}
+            onSaveDrafts={saveInventoryCountHistoryDrafts}
+          />
+        </LazyPanelBoundary>
       ) : null}
 
       {closedInventorySummaryModalState ? (

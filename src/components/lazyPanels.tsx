@@ -9,6 +9,9 @@ export const InventoryActiveFlowPanel = lazy(() =>
 export const InventoryCloseReviewModal = lazy(() =>
   import('./InventoryCloseReviewModal').then((module) => ({ default: module.InventoryCloseReviewModal })),
 )
+export const InventoryCountHistoryModal = lazy(() =>
+  import('./InventoryCountHistoryModal').then((module) => ({ default: module.InventoryCountHistoryModal })),
+)
 export const InventoryCurrentCountSummaryPanel = lazy(() =>
   import('./InventoryCurrentCountSummaryPanel').then((module) => ({ default: module.InventoryCurrentCountSummaryPanel })),
 )
