@@ -1889,3 +1889,23 @@ Registrar um historico resumido do que foi feito, do que falhou e do que ficou p
   - login master local, `/api/billing/plans`, `/api/billing/subscriptions` e `/api/billing/asaas/status` retornaram `200`;
   - `/api/billing/plans` e `/api/billing/subscriptions` sem token retornaram `401`;
   - webhook Asaas com token invalido retornou `401`.
+
+### Ajuste mobile do inicio de contagem e corte inicial de bundle
+
+- Correcao aplicada em `2026-09-27`.
+- Causa encontrada:
+  - ao entrar em um inventario aberto, o formulario mantinha o campo `Centro de estoque` como `select` desabilitado;
+  - no celular isso parecia impedir a escolha do centro para abrir contagem, embora a contagem devesse herdar o centro do inventario aberto.
+- Ajuste aplicado:
+  - criado `src/components/InventoryStartPanel.tsx`;
+  - para inventario aberto selecionado, a tela mostra o centro/data como informacao fixa e libera o botao de iniciar/continuar contagem;
+  - o `select` de centro so aparece quando o usuario esta criando/selecionando um inventario, nao quando ja entrou em um inventario aberto.
+- Performance:
+  - `BillingPanel` passou a ser carregado com `lazy/Suspense`, removendo o painel de assinaturas do bundle inicial usado no fluxo de contagem;
+  - build gerou `BillingPanel-AMVAr6Fi.js` separado e reduziu o bundle principal de `index-9J_yXd29.js` (~1.253,74 kB) para `index-BBy46Frq.js` (~1.240,76 kB).
+- Validacao:
+  - `npx tsc -p tsconfig.app.json --noEmit --pretty false` passou;
+  - `npx vite build` passou;
+  - `git diff --check` passou.
+- Pendente:
+  - continuar a extracao real dos paineis pesados de inventario/contagem para reduzir re-render do `App.tsx`; o ajuste atual remove a barreira mobile e inicia o corte de bundle, mas nao resolve toda a lentidao estrutural.

@@ -2,9 +2,11 @@ import {
   useCallback,
   useEffect,
   useId,
+  lazy,
   useMemo,
   useRef,
   useState,
+  Suspense,
   type FormEvent,
   type KeyboardEvent,
 } from 'react'
@@ -34,7 +36,7 @@ import {
   AppSidebar,
   MobileTopbar,
 } from './components/AppNavigationShell'
-import { BillingPanel } from './components/BillingPanel'
+import { InventoryStartPanel } from './components/InventoryStartPanel'
 import { NormalizedTextInput, NormalizedTextarea } from './components/NormalizedTextField'
 import {
   renderClosedInventoryColumnHeader,
@@ -106,6 +108,10 @@ import {
   type TechnicalSheetCostContext,
 } from './domain/technicalSheets'
 import { buildTechnicalSheetGeneratedDescription } from './domain/technicalSheetDescriptions'
+
+const BillingPanel = lazy(() =>
+  import('./components/BillingPanel').then((module) => ({ default: module.BillingPanel })),
+)
 import {
   canManageInventoryCountRecord,
   canManageInventoryCountHistoryRecord,
@@ -46484,60 +46490,22 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                   </div>
                 ) : null}
 
-                <form className="form-grid company-form-grid" onSubmit={(event) => event.preventDefault()}>
-                  <label className="field company-field-wide">
-                    <span>Centro de estoque *</span>
-                    <select
-                      value={inventoryForm.stockCenterId}
-                      onChange={(event) => updateInventoryFormField('stockCenterId', event.target.value)}
-                      disabled={selectedInventoryRecord !== null && !selectedInventoryRecord.isClosed}
-                    >
-                      <option value="">Selecione</option>
-                      {inventoryEligibleStockCenters.map((center) => (
-                        <option key={center.id} value={String(center.id)}>
-                          {center.name}
-                        </option>
-                      ))}
-                    </select>
-                    {inventoryErrors.stockCenterId ? <p className="compact-feedback feedback error">{inventoryErrors.stockCenterId}</p> : null}
-                  </label>
-                  <label className="field company-field-wide">
-                    <span>Data da contagem *</span>
-                    <input
-                      type="date"
-                      value={inventoryForm.countedAt}
-                      onChange={(event) => updateInventoryFormField('countedAt', event.target.value)}
-                      disabled={selectedInventoryRecord !== null && !selectedInventoryRecord.isClosed}
-                    />
-                    {inventoryErrors.countedAt ? <p className="compact-feedback feedback error">{inventoryErrors.countedAt}</p> : null}
-                  </label>
-                  <div className="form-actions field-span-all">
-                    {!selectedInventoryRecord || selectedInventoryRecord.isClosed ? (
-                      <button
-                        type="button"
-                        className="primary-button"
-                        onClick={() => void startInventoryRecord()}
-                        disabled={isStartingInventoryRecord}
-                      >
-                        {isStartingInventoryRecord ? 'Salvando inventario...' : 'Iniciar inventario'}
-                      </button>
-                    ) : null}
-                    {selectedInventoryRecord && !selectedInventoryRecord.isClosed && (!selectedInventoryCountSession || selectedInventoryCountSession.isClosed) ? (
-                      <button
-                        type="button"
-                        className="primary-button"
-                        onClick={() => void startInventoryCountSession()}
-                        disabled={isStartingInventoryCountSession}
-                      >
-                    {isStartingInventoryCountSession
-                      ? 'Salvando contagem...'
-                      : selectedUserInventoryCountSessions.length > 0
-                        ? 'Continuar contagem'
-                        : 'Iniciar contagem'}
-                      </button>
-                    ) : null}
-                  </div>
-                </form>
+                <InventoryStartPanel
+                  eligibleStockCenters={inventoryEligibleStockCenters}
+                  inventoryForm={inventoryForm}
+                  inventoryErrors={inventoryErrors}
+                  selectedInventoryRecord={selectedInventoryRecord}
+                  selectedInventoryCountSessionIsOpen={Boolean(selectedInventoryCountSession && !selectedInventoryCountSession.isClosed)}
+                  selectedUserSessionCount={selectedUserInventoryCountSessions.length}
+                  isStartingInventoryRecord={isStartingInventoryRecord}
+                  isStartingInventoryCountSession={isStartingInventoryCountSession}
+                  getStockCenterName={(stockCenterId) =>
+                    inventoryStockCenterNameById.get(stockCenterId) ?? `CENTRO ${stockCenterId}`
+                  }
+                  onUpdateInventoryFormField={updateInventoryFormField}
+                  onStartInventoryRecord={() => void startInventoryRecord()}
+                  onStartInventoryCountSession={() => void startInventoryCountSession()}
+                />
 
                 {selectedInventoryRecord ? (
                   <>
@@ -50717,11 +50685,21 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
             </div>
           </section>
 
-          <BillingPanel
-            companies={companies}
-            currentCompanyId={currentCompanyId}
-            onFeedback={setSaveFeedback}
-          />
+          <Suspense
+            fallback={
+              <section className="panel">
+                <div className="empty-state empty-state-inline">
+                  <strong>Carregando assinaturas...</strong>
+                </div>
+              </section>
+            }
+          >
+            <BillingPanel
+              companies={companies}
+              currentCompanyId={currentCompanyId}
+              onFeedback={setSaveFeedback}
+            />
+          </Suspense>
 
           <section className="panel">
             <div className="section-heading">
