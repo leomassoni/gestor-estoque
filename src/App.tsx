@@ -16,6 +16,7 @@ import {
   ExecutionPlanningList,
   InventoryActiveFlowPanel,
   InventoryClosedRecordsPanel,
+  InventoryCurrentCountSummaryPanel,
   InventorySummaryPanel,
   LazyPanelBoundary,
   ProductListPanel,
@@ -46607,234 +46608,39 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
           ) : null}
 
           {inventoryPanelTab === 'active' && selectedInventoryCountSession && !selectedInventoryCountSession.isClosed ? (
-            <section className="panel">
-              <div className="section-heading">
-                <div>
-                  <p className="kicker">Contagem</p>
-                  <h2>Resumo da contagem atual</h2>
-                </div>
-                <div className="toolbar-actions">
-                    <button
-                      type="button"
-                      className="ghost-button"
-                      onClick={leaveCurrentInventoryCountSession}
-                    >
-                      Sair da contagem
-                    </button>
-                    <button
-                      type="button"
-                      className="warning-button"
-                      onClick={() =>
-                        setInventoryReviewModalState({
-                          id: selectedInventoryCountSession!.id,
-                          countedAt: selectedInventoryCountSession!.countedAt,
-                          stockCenterName:
-                          inventoryStockCenterNameById.get(selectedInventoryCountSession!.stockCenterId) ??
-                          `CENTRO ${selectedInventoryCountSession!.stockCenterId}`,
-                        })
-                      }
-                    >
-                    Fechar contagem
-                  </button>
-                </div>
-              </div>
-
-            {currentInventoryCountSummaryCounts.length > 0 ? (
-              <div className="table-wrap">
-                <table className="product-table">
-                  <thead>
-                    <tr>
-                      <th>Data</th>
-                      <th>Local</th>
-                      <th className="sticky-product">Produto</th>
-                      <th>Tipo</th>
-                      <th>Recipiente</th>
-                      <th>Fechados</th>
-                      <th>Abertos</th>
-                      <th>Peso abertos (g)</th>
-                      <th>Qtd. abertos</th>
-                      <th>Total contado</th>
-                      <th className="sticky-actions">Acoes</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {currentInventoryCountSummaryCounts.map((record) => {
-                      const rowKey = `record-${record.id}`
-                      const isEditingRow = currentInventoryCountEditingRowKey === rowKey
-                      const draft = currentInventoryCountDrafts[`record-${record.id}`] ?? {
-                        storageLocation: record.storageLocation,
-                        recipientItemId: record.recipientItemId,
-                        closedItemsQuantity: record.closedItemsQuantity,
-                        hasOpenItems: record.hasOpenItems ? 'true' : 'false',
-                        openItemsGrossWeight: record.openItemsGrossWeight,
-                        openItemsContainerQuantity: record.openItemsContainerQuantity,
-                      }
-                      const countableItem =
-                        isProductionStockKind(record.technicalSheetKind)
-                          ? inventoryCountableItems.find((item) => isProductionStockKind(item.kind) && item.technicalSheetId === record.technicalSheetId) ?? null
-                          : record.technicalSheetKind === 'PRODUTO'
-                            ? inventoryCountableItems.find((item) => item.kind === 'PRODUTO' && item.productId === record.productId) ?? null
-                            : inventoryCountableItems.find((item) => item.kind === 'ITEM' && item.serviceItemId === record.serviceItemId) ?? null
-                      const sheet =
-                        isProductionStockKind(record.technicalSheetKind) && record.technicalSheetId !== null
-                          ? inventoryCountableSheets.find((item) => item.id === record.technicalSheetId) ?? null
-                          : null
-                      const product = record.technicalSheetKind === 'PRODUTO' ? productById.get(record.productId) ?? null : null
-                      const serviceItem = record.technicalSheetKind === 'ITEM' ? serviceItemsById.get(record.serviceItemId) ?? null : null
-                      const recipientOptions = buildInventoryRecipientOptionsForContext({
-                        countableItem,
-                        sheet,
-                        product,
-                        serviceItem,
-                        serviceItemsById,
-                      })
-                      const selectedRecipient = recipientOptions.find((item) => item.id === draft.recipientItemId) ?? null
-                      const densityFactor = getInventoryDensityFactorForContext({ countableItem, sheet, product })
-                      const openPhysicalQuantity = calculateInventoryOpenPhysicalQuantityForContext({
-                        countableItem,
-                        hasOpenItems: draft.hasOpenItems === 'true',
-                        openItemsGrossWeight: draft.openItemsGrossWeight,
-                        openItemsContainerQuantity: draft.openItemsContainerQuantity,
-                        recipient: selectedRecipient,
-                        densityFactor,
-                      })
-                      const totalCountedQuantity = calculateInventoryTotalCountedQuantityForContext({
-                        countableItem,
-                        sheet,
-                        hasRecipientOptions: recipientOptions.length > 0,
-                        recipient: selectedRecipient,
-                        closedItemsQuantity: draft.closedItemsQuantity,
-                        hasOpenItems: draft.hasOpenItems === 'true',
-                        openPhysicalQuantity,
-                      })
-                      const previewRecord: InventoryCountRecord = {
-                        ...record,
-                        recipientItemId: selectedRecipient?.id ?? '',
-                        recipientLabel: selectedRecipient?.label ?? 'SEM RECIPIENTE VINCULADO',
-                        packageId:
-                          countableItem?.kind === 'PRODUTO' || countableItem?.kind === 'ITEM'
-                            ? selectedRecipient?.packageId ?? null
-                            : null,
-                        closedItemsQuantity: draft.closedItemsQuantity || '0',
-                        hasOpenItems: draft.hasOpenItems === 'true',
-                        openItemsGrossWeight: draft.hasOpenItems === 'true' ? draft.openItemsGrossWeight : '',
-                        openItemsContainerQuantity: draft.hasOpenItems === 'true' ? draft.openItemsContainerQuantity : '',
-                        openItemsNetQuantity: draft.hasOpenItems === 'true' ? formatDecimal(openPhysicalQuantity) : '',
-                        totalCountedQuantity: formatDecimal(totalCountedQuantity),
-                      }
-
-                      return (
-                        <tr key={`current-session-${record.id}`}>
-                          <td>{formatDateForDisplay(record.countedAt)}</td>
-                          <td>{record.storageLocation}</td>
-                          <td className="sticky-product-cell"><strong>{record.technicalSheetName}</strong></td>
-                          <td>{getStockCountableKindLabel(record.technicalSheetKind)}</td>
-                          <td>
-                            {recipientOptions.length > 0 ? (
-                              <select
-                                value={draft.recipientItemId}
-                                onChange={(event) => updateCurrentInventoryCountDraft(`record-${record.id}`, 'recipientItemId', event.target.value)}
-                                disabled={!isEditingRow}
-                              >
-                                <option value="">Selecione</option>
-                                {recipientOptions.map((option) => (
-                                  <option key={`current-${record.id}-${option.id}`} value={option.id}>
-                                    {option.label}
-                                  </option>
-                                ))}
-                              </select>
-                            ) : (
-                              <span>SEM RECIPIENTE VINCULADO</span>
-                            )}
-                          </td>
-                          <td>
-                            <input
-                              type="number"
-                              min="0"
-                              value={draft.closedItemsQuantity}
-                              onChange={(event) => updateCurrentInventoryCountDraft(`record-${record.id}`, 'closedItemsQuantity', event.target.value)}
-                              disabled={!isEditingRow}
-                            />
-                          </td>
-                          <td>
-                            <select
-                              value={draft.hasOpenItems}
-                              onChange={(event) => updateCurrentInventoryCountDraft(`record-${record.id}`, 'hasOpenItems', event.target.value)}
-                              disabled={!isEditingRow}
-                            >
-                              <option value="false">NAO</option>
-                              <option value="true">SIM</option>
-                            </select>
-                          </td>
-                          <td>
-                            <input
-                              type="number"
-                              min="0"
-                              step="0.01"
-                              value={draft.hasOpenItems === 'true' ? draft.openItemsGrossWeight : ''}
-                              onChange={(event) => updateCurrentInventoryCountDraft(`record-${record.id}`, 'openItemsGrossWeight', event.target.value)}
-                              disabled={!isEditingRow || draft.hasOpenItems !== 'true'}
-                            />
-                          </td>
-                          <td>
-                            <input
-                              type="number"
-                              min="0"
-                              step="1"
-                              value={draft.hasOpenItems === 'true' ? draft.openItemsContainerQuantity : ''}
-                              onChange={(event) => updateCurrentInventoryCountDraft(`record-${record.id}`, 'openItemsContainerQuantity', event.target.value)}
-                              disabled={!isEditingRow || draft.hasOpenItems !== 'true'}
-                            />
-                          </td>
-                          <td>{getInventoryTotalCountedLabel(previewRecord, productById)}</td>
-                          <td className="sticky-actions-cell">
-                            <div className="table-actions">
-                              <button
-                                type="button"
-                                className={isEditingRow ? 'icon-button icon-save' : 'icon-button icon-edit'}
-                                aria-label={isEditingRow ? 'Salvar lancamento' : 'Editar lancamento'}
-                                title={isEditingRow ? 'Salvar lancamento' : 'Editar lancamento'}
-                                onClick={() =>
-                                  isEditingRow
-                                    ? saveCurrentInventoryCountDrafts(record.id)
-                                    : setCurrentInventoryCountEditingRowKey(rowKey)
-                                }
-                              >
-                                <span aria-hidden="true">{isEditingRow ? '✓' : '✎'}</span>
-                              </button>
-                              <button
-                                type="button"
-                                className="icon-button icon-delete"
-                                aria-label="Excluir lancamento"
-                                title="Excluir lancamento"
-                                onClick={() =>
-                                  setInventoryCountDeleteState({
-                                    id: record.id,
-                                    countedAt: record.countedAt,
-                                    technicalSheetName: record.technicalSheetName,
-                                    storageLocation: record.storageLocation,
-                                    bypassOwnership: false,
-                                  })
-                                }
-                              >
-                                <span aria-hidden="true">✕</span>
-                              </button>
-                            </div>
-                          </td>
-                        </tr>
-                      )
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            ) : (
-              <div className="empty-state">
-                <strong>Nenhum lancamento registrado na contagem atual.</strong>
-                <p>Registre itens na sua contagem atual para visualizar esse resumo.</p>
-              </div>
-            )}
-
-            </section>
+            <LazyPanelBoundary>
+              <InventoryCurrentCountSummaryPanel
+                records={currentInventoryCountSummaryCounts}
+                drafts={currentInventoryCountDrafts}
+                editingRowKey={currentInventoryCountEditingRowKey}
+                countableItems={inventoryCountableItems}
+                countableSheets={inventoryCountableSheets}
+                productById={productById}
+                serviceItemsById={serviceItemsById}
+                onLeaveSession={leaveCurrentInventoryCountSession}
+                onCloseSession={() =>
+                  setInventoryReviewModalState({
+                    id: selectedInventoryCountSession.id,
+                    countedAt: selectedInventoryCountSession.countedAt,
+                    stockCenterName:
+                      inventoryStockCenterNameById.get(selectedInventoryCountSession.stockCenterId) ??
+                      `CENTRO ${selectedInventoryCountSession.stockCenterId}`,
+                  })
+                }
+                onUpdateDraft={updateCurrentInventoryCountDraft}
+                onEditRow={setCurrentInventoryCountEditingRowKey}
+                onSaveDraft={saveCurrentInventoryCountDrafts}
+                onDeleteCount={(record) =>
+                  setInventoryCountDeleteState({
+                    id: record.id,
+                    countedAt: record.countedAt,
+                    technicalSheetName: record.technicalSheetName,
+                    storageLocation: record.storageLocation,
+                    bypassOwnership: false,
+                  })
+                }
+              />
+            </LazyPanelBoundary>
           ) : null}
         </>
       ) : activeSection === 'Desperdicio' ? (
