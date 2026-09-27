@@ -10,14 +10,22 @@ import {
   type KeyboardEvent,
 } from 'react'
 import { BillingPanelGate } from './components/BillingPanelGate'
-import { ExecutionPlanningList } from './components/ExecutionPlanningList'
 import { MasterOverviewPanel } from './components/MasterOverviewPanel'
 import { PreparationModeInput } from './components/PreparationModeInput'
-import { ProductListPanel } from './components/ProductListPanel'
-import { ServiceItemListPanel } from './components/ServiceItemListPanel'
-import { StockCenterRegisteredListPanel } from './components/StockCenterRegisteredListPanel'
-import { TechnicalSheetListPanel } from './components/TechnicalSheetListPanel'
+import {
+  ExecutionPlanningList,
+  LazyPanelBoundary,
+  ProductListPanel,
+  ServiceItemListPanel,
+  StockCenterRegisteredListPanel,
+  TechnicalSheetListPanel,
+} from './components/lazyPanels'
+import { InventoryOpenRecordsPanel } from './components/InventoryOpenRecordsPanel'
+import { InventoryCountItemEntryPanel } from './components/InventoryCountItemEntryPanel'
+import { InventoryClosedRecordsPanel } from './components/InventoryClosedRecordsPanel'
 import { InventorySelectedRecordPanel } from './components/InventorySelectedRecordPanel'
+import { InventorySelectedSessionPanel } from './components/InventorySelectedSessionPanel'
+import { InventoryUserSessionsPanel } from './components/InventoryUserSessionsPanel'
 import {
   buildPreparationModeMetricParts,
   formatRecipeIngredientInputQuantity,
@@ -41,7 +49,6 @@ import {
 import { InventoryStartPanel } from './components/InventoryStartPanel'
 import { NormalizedTextInput, NormalizedTextarea } from './components/NormalizedTextField'
 import {
-  renderClosedInventoryColumnHeader,
   renderInventoryReviewColumnHeader,
   renderInventorySummaryColumnHeader,
   renderPurchaseDemandColumnHeader,
@@ -43320,51 +43327,53 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
 
 	      {activeSection === 'Produtos' ? (
 	        screenMode === 'list' ? (
-	          <ProductListPanel
-              canDeleteProducts={canDeleteProducts}
-              columnFilters={columnFilters}
-              columnSort={columnSort}
-              columnVisibility={columnVisibility}
-              distinctColumnValues={distinctColumnValues}
-              expandedProductPackageIds={expandedProductPackageIds}
-              hiddenColumns={hiddenColumns}
-              openColumnMenu={openColumnMenu}
-              productListId={productListId}
-              productSearch={productSearch}
-              productSuggestions={productSuggestions}
-              visibleProducts={visibleProducts}
-              getProductColumnValue={(product, key) =>
-                getProductColumnValue(product, key, technicalSheets, products, serviceItems, currentCompanyCostContext)
-              }
-              onCopyProduct={openCopyProductForm}
-              onCopyTechnicalSheet={openTechnicalSheetCopyModal}
-              onEditProduct={openEditProductForm}
-              onEditTechnicalSheet={openEditTechnicalSheetForm}
-              onNewProduct={openNewProductForm}
-              onProductAction={(productId, action) => {
-                if (action === 'enable') {
-                  setProductActionState({ action: 'enable', productId })
-                  return
-                }
-                openProductDisableImpact(productId, action)
-              }}
-              onSearchChange={setProductSearch}
-              onToggleProductPackageDetails={(productId) =>
-                setExpandedProductPackageIds((current) => {
-                  const next = new Set(current)
-                  if (next.has(productId)) {
-                    next.delete(productId)
-                  } else {
-                    next.add(productId)
-                  }
-                  return next
-                })
-              }
-              setColumnFilters={setColumnFilters}
-              setColumnSort={setColumnSort}
-              setColumnVisibility={setColumnVisibility}
-              setOpenColumnMenu={setOpenColumnMenu}
-            />
+		          <LazyPanelBoundary>
+		            <ProductListPanel
+	                canDeleteProducts={canDeleteProducts}
+	                columnFilters={columnFilters}
+	                columnSort={columnSort}
+	                columnVisibility={columnVisibility}
+	                distinctColumnValues={distinctColumnValues}
+	                expandedProductPackageIds={expandedProductPackageIds}
+	                hiddenColumns={hiddenColumns}
+	                openColumnMenu={openColumnMenu}
+	                productListId={productListId}
+	                productSearch={productSearch}
+	                productSuggestions={productSuggestions}
+	                visibleProducts={visibleProducts}
+	                getProductColumnValue={(product, key) =>
+	                  getProductColumnValue(product, key, technicalSheets, products, serviceItems, currentCompanyCostContext)
+	                }
+	                onCopyProduct={openCopyProductForm}
+	                onCopyTechnicalSheet={openTechnicalSheetCopyModal}
+	                onEditProduct={openEditProductForm}
+	                onEditTechnicalSheet={openEditTechnicalSheetForm}
+	                onNewProduct={openNewProductForm}
+	                onProductAction={(productId, action) => {
+	                  if (action === 'enable') {
+	                    setProductActionState({ action: 'enable', productId })
+	                    return
+	                  }
+	                  openProductDisableImpact(productId, action)
+	                }}
+	                onSearchChange={setProductSearch}
+	                onToggleProductPackageDetails={(productId) =>
+	                  setExpandedProductPackageIds((current) => {
+	                    const next = new Set(current)
+	                    if (next.has(productId)) {
+	                      next.delete(productId)
+	                    } else {
+	                      next.add(productId)
+	                    }
+	                    return next
+	                  })
+	                }
+	                setColumnFilters={setColumnFilters}
+	                setColumnSort={setColumnSort}
+	                setColumnVisibility={setColumnVisibility}
+	                setOpenColumnMenu={setOpenColumnMenu}
+	              />
+	            </LazyPanelBoundary>
       ) : (
         <>
           <section className="panel">
@@ -43688,29 +43697,31 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
       )
       ) : activeSection === 'Itens' ? (
         itemScreenMode === 'list' ? (
-          <ServiceItemListPanel
-            canDeleteRecords={canDeleteRecords}
-            columnFilters={itemColumnFilters}
-            columnSort={itemColumnSort}
-            columnVisibility={itemColumnVisibility}
-            distinctColumnValues={distinctServiceItemColumnValues}
-            hiddenColumns={hiddenServiceItemColumns}
-            itemListId={serviceItemListId}
-            itemSearch={serviceItemSearch}
-            itemSuggestions={serviceItemSuggestions}
-            openColumnMenu={openItemColumnMenu}
-            visibleItems={visibleServiceItems}
-            formatServiceItemSize={formatServiceItemSize}
-            getServiceItemColumnValue={getServiceItemColumnValue}
-            onEditItem={openEditServiceItemForm}
-            onNewItem={() => openNewServiceItemForm()}
-            onSearchChange={setServiceItemSearch}
-            onServiceItemAction={(itemId, action) => setServiceItemActionState({ action, itemId })}
-            setColumnFilters={setItemColumnFilters}
-            setColumnSort={setItemColumnSort}
-            setColumnVisibility={setItemColumnVisibility}
-            setOpenColumnMenu={setOpenItemColumnMenu}
-          />
+	          <LazyPanelBoundary>
+	            <ServiceItemListPanel
+	              canDeleteRecords={canDeleteRecords}
+	              columnFilters={itemColumnFilters}
+	              columnSort={itemColumnSort}
+	              columnVisibility={itemColumnVisibility}
+	              distinctColumnValues={distinctServiceItemColumnValues}
+	              hiddenColumns={hiddenServiceItemColumns}
+	              itemListId={serviceItemListId}
+	              itemSearch={serviceItemSearch}
+	              itemSuggestions={serviceItemSuggestions}
+	              openColumnMenu={openItemColumnMenu}
+	              visibleItems={visibleServiceItems}
+	              formatServiceItemSize={formatServiceItemSize}
+	              getServiceItemColumnValue={getServiceItemColumnValue}
+	              onEditItem={openEditServiceItemForm}
+	              onNewItem={() => openNewServiceItemForm()}
+	              onSearchChange={setServiceItemSearch}
+	              onServiceItemAction={(itemId, action) => setServiceItemActionState({ action, itemId })}
+	              setColumnFilters={setItemColumnFilters}
+	              setColumnSort={setItemColumnSort}
+	              setColumnVisibility={setItemColumnVisibility}
+	              setOpenColumnMenu={setOpenItemColumnMenu}
+	            />
+	          </LazyPanelBoundary>
       ) : (
         <>
           <section className="panel">
@@ -44132,8 +44143,9 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
         </>
       ) : activeSection === 'FichasTecnicas' ? (
         technicalSheetScreenMode === 'list' ? (
-          <TechnicalSheetListPanel
-            canDeleteTechnicalSheets={canDeleteTechnicalSheets}
+	          <LazyPanelBoundary>
+	            <TechnicalSheetListPanel
+	            canDeleteTechnicalSheets={canDeleteTechnicalSheets}
             columnFilters={technicalSheetColumnFilters}
             columnOptions={technicalSheetColumnOptions}
             columnSort={technicalSheetColumnSort}
@@ -44191,7 +44203,8 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
             setDraggedColumn={setDraggedTechnicalSheetColumn}
             setDropTargetColumn={setTechnicalSheetColumnDropTarget}
             setOpenColumnMenu={setOpenTechnicalSheetColumnMenu}
-          />
+	            />
+	          </LazyPanelBoundary>
         ) : (
           <div className={getTechnicalSheetWorkspaceClassName(technicalSheetForm.kind)}>
             <section className="panel">
@@ -46311,16 +46324,18 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
             {stockCenterTab === 'center' ? (
               renderStockCenterEditor('create')
             ) : (
-              <StockCenterRegisteredListPanel
-                centerListId={stockCenterListId}
-                centerSearch={stockCenterSearch}
-                companyUsers={companyUsers}
-                visibleCenters={visibleStockCenters}
-                onCenterSearchChange={setStockCenterSearch}
-                onDeleteCenter={deleteStockCenter}
-                onEditCenter={editStockCenter}
-                onToggleCenterStatus={toggleStockCenterStatus}
-              />
+	              <LazyPanelBoundary>
+	                <StockCenterRegisteredListPanel
+	                  centerListId={stockCenterListId}
+	                  centerSearch={stockCenterSearch}
+	                  companyUsers={companyUsers}
+	                  visibleCenters={visibleStockCenters}
+	                  onCenterSearchChange={setStockCenterSearch}
+	                  onDeleteCenter={deleteStockCenter}
+	                  onEditCenter={editStockCenter}
+	                  onToggleCenterStatus={toggleStockCenterStatus}
+	                />
+	              </LazyPanelBoundary>
             )}
 
           </section>
@@ -46371,66 +46386,26 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                 </div>
               ) : (
                 <>
-                {visibleOpenInventoryRecords.length > 0 ? (
-                  <>
-                    <div className="section-heading section-heading-inline stock-center-subheading">
-                      <div>
-                        <p className="kicker">Inventarios abertos</p>
-                        <h2>Participar de inventario existente</h2>
-                      </div>
-                    </div>
-                    <div className="selector-list company-management-list">
-                      {visibleOpenInventoryRecords.map((inventoryRecord) => (
-                        <article key={inventoryRecord.id} className="list-row user-list-row">
-                          <div className="user-row-header">
-                            <div className="inventory-record-copy">
-                              <div className="user-title-group">
-                                <strong>
-                                  {inventoryStockCenterNameById.get(inventoryRecord.stockCenterId) ?? `CENTRO ${inventoryRecord.stockCenterId}`}
-                                </strong>
-                                <span className="status-pill status-active">ABERTO</span>
-                              </div>
-                              <div className="row-meta user-row-meta">
-                                <div className="user-meta-line">
-                                  <span><strong className="meta-label">ID:</strong> {formatInventoryRecordCode(inventoryRecord.id)}</span>
-                                  <span><strong className="meta-label">Data:</strong> {formatDateForDisplay(inventoryRecord.countedAt)}</span>
-                                  <span><strong className="meta-label">Inicio:</strong> {formatTimeForDisplay(inventoryRecord.startedAt)}</span>
-                                  <span><strong className="meta-label">Aberto por:</strong> {inventoryRecord.startedByUserName}</span>
-                                </div>
-                              </div>
-                            </div>
-                            <div className="row-actions inventory-session-row-actions">
-                              <button
-                                type="button"
-                                className={selectedInventoryRecord?.id === inventoryRecord.id ? 'ghost-button' : 'primary-button'}
-                                onClick={() => joinOpenInventoryRecord(inventoryRecord.id)}
-                              >
-                                {selectedInventoryRecord?.id === inventoryRecord.id ? 'Inventario atual' : 'Entrar'}
-                              </button>
-                              {canManageInventoryRecord(inventoryRecord, currentAppUser, canDeleteRecords) ? (
-                                <button
-                                  type="button"
-                                  className="danger-button"
-                                  onClick={() =>
-                                    setInventoryDeleteState({
-                                      id: inventoryRecord.id,
-                                      countedAt: inventoryRecord.countedAt,
-                                      stockCenterName:
-                                        inventoryStockCenterNameById.get(inventoryRecord.stockCenterId) ??
-                                        `CENTRO ${inventoryRecord.stockCenterId}`,
-                                    })
-                                  }
-                                >
-                                  Excluir inventario
-                                </button>
-                              ) : null}
-                            </div>
-                          </div>
-                        </article>
-                      ))}
-                    </div>
-                  </>
-                ) : null}
+                <InventoryOpenRecordsPanel
+                  records={visibleOpenInventoryRecords}
+                  selectedInventoryId={selectedInventoryRecord?.id ?? null}
+                  getStockCenterName={(stockCenterId) =>
+                    inventoryStockCenterNameById.get(stockCenterId) ?? `CENTRO ${stockCenterId}`
+                  }
+                  canManageRecord={(inventoryRecord) =>
+                    canManageInventoryRecord(inventoryRecord, currentAppUser, canDeleteRecords)
+                  }
+                  onJoinInventory={joinOpenInventoryRecord}
+                  onDeleteInventory={(inventoryRecord) =>
+                    setInventoryDeleteState({
+                      id: inventoryRecord.id,
+                      countedAt: inventoryRecord.countedAt,
+                      stockCenterName:
+                        inventoryStockCenterNameById.get(inventoryRecord.stockCenterId) ??
+                        `CENTRO ${inventoryRecord.stockCenterId}`,
+                    })
+                  }
+                />
 
                 <InventorySelectedRecordPanel
                   selectedInventoryRecord={selectedInventoryRecord}
@@ -46472,215 +46447,88 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
 
                 {selectedInventoryRecord ? (
                   <>
-                    {selectedUserInventoryCountSessions.length > 0 ? (
-                      <div className="empty-state empty-state-inline">
-                        <strong>Suas contagens neste inventario</strong>
-                        <p>Escolha uma contagem sua para continuar nela. Se ela estiver fechada, sera reaberta enquanto o inventario permanecer aberto. Apenas contagens fechadas entram na consolidacao do inventario.</p>
-                        <div className="selector-list company-management-list">
-                          {selectedUserInventoryCountSessions.map((sessionRecord) => (
-                            <article key={sessionRecord.id} className="list-row user-list-row">
-                              <div className="user-row-header">
-                                <div className="inventory-record-copy">
-                                  <div className="user-title-group">
-                                    <strong>{formatInventoryCountSessionCode(sessionRecord.id)}</strong>
-                                    <span className={sessionRecord.isClosed ? 'status-pill status-inactive' : 'status-pill status-active'}>
-                                      {sessionRecord.isClosed ? 'FECHADA' : 'ABERTA'}
-                                    </span>
-                                  </div>
-                                  <div className="row-meta user-row-meta">
-                                    <div className="user-meta-line">
-                                      <span><strong className="meta-label">Data:</strong> {formatDateForDisplay(sessionRecord.countedAt)}</span>
-                                      <span><strong className="meta-label">Centro:</strong> {inventoryStockCenterNameById.get(sessionRecord.stockCenterId) ?? `CENTRO ${sessionRecord.stockCenterId}`}</span>
-                                    </div>
-                                  </div>
-                                </div>
-                                <div className="row-actions inventory-session-row-actions">
-                                  <button
-                                    type="button"
-                                    className="ghost-button"
-                                    onClick={() =>
-                                      setInventoryReviewModalState({
-                                        id: sessionRecord.id,
-                                        countedAt: sessionRecord.countedAt,
-                                        stockCenterName:
-                                          inventoryStockCenterNameById.get(sessionRecord.stockCenterId) ??
-                                          `CENTRO ${sessionRecord.stockCenterId}`,
-                                      })
-                                    }
-                                  >
-                                    Resumo
-                                  </button>
-                                  <button
-                                    type="button"
-                                    className={selectedInventoryCountSession?.id === sessionRecord.id ? 'ghost-button' : 'primary-button'}
-                                    onClick={() => void continueInventoryCountSession(sessionRecord.id)}
-                                    disabled={isStartingInventoryCountSession}
-                                  >
-                                    {selectedInventoryCountSession?.id === sessionRecord.id && !sessionRecord.isClosed
-                                      ? 'Contagem atual'
-                                      : 'Continuar'}
-                                  </button>
-                                  {canManageInventoryCountSessionRecord(sessionRecord, currentAppUser, canDeleteRecords) ? (
-                                    <button
-                                      type="button"
-                                      className="danger-button"
-                                      onClick={() =>
-                                        setInventorySessionDeleteState({
-                                          id: sessionRecord.id,
-                                          countedAt: sessionRecord.countedAt,
-                                          stockCenterName:
-                                            inventoryStockCenterNameById.get(sessionRecord.stockCenterId) ??
-                                            `CENTRO ${sessionRecord.stockCenterId}`,
-                                        })
-                                      }
-                                    >
-                                      Excluir
-                                    </button>
-                                  ) : null}
-                                </div>
-                              </div>
-                            </article>
-                          ))}
-                        </div>
-                      </div>
-                    ) : null}
+                    <InventoryUserSessionsPanel
+                      sessions={selectedUserInventoryCountSessions}
+                      selectedSessionId={selectedInventoryCountSession?.id ?? null}
+                      isStartingInventoryCountSession={isStartingInventoryCountSession}
+                      getStockCenterName={(stockCenterId) =>
+                        inventoryStockCenterNameById.get(stockCenterId) ?? `CENTRO ${stockCenterId}`
+                      }
+                      canManageSession={(sessionRecord) =>
+                        canManageInventoryCountSessionRecord(sessionRecord, currentAppUser, canDeleteRecords)
+                      }
+                      onShowSummary={(sessionRecord) =>
+                        setInventoryReviewModalState({
+                          id: sessionRecord.id,
+                          countedAt: sessionRecord.countedAt,
+                          stockCenterName:
+                            inventoryStockCenterNameById.get(sessionRecord.stockCenterId) ??
+                            `CENTRO ${sessionRecord.stockCenterId}`,
+                        })
+                      }
+                      onContinueSession={(sessionId) => void continueInventoryCountSession(sessionId)}
+                      onDeleteSession={(sessionRecord) =>
+                        setInventorySessionDeleteState({
+                          id: sessionRecord.id,
+                          countedAt: sessionRecord.countedAt,
+                          stockCenterName:
+                            inventoryStockCenterNameById.get(sessionRecord.stockCenterId) ??
+                            `CENTRO ${sessionRecord.stockCenterId}`,
+                        })
+                      }
+                    />
 
-                    {selectedInventoryCountSession ? (
-                      <div className="empty-state empty-state-inline">
-                        <strong>
-                          {formatInventoryCountSessionCode(selectedInventoryCountSession.id)} •{' '}
-                          {selectedInventoryCountSession.isClosed ? 'Contagem fechada' : 'Contagem em andamento'} •{' '}
-                          {inventoryStockCenterNameById.get(selectedInventoryCountSession.stockCenterId) ??
-                            `CENTRO ${selectedInventoryCountSession.stockCenterId}`}{' '}
-                          • {formatDateForDisplay(selectedInventoryCountSession.countedAt)}
-                        </strong>
-                        <p>
-                          {selectedInventoryCountSession.isClosed
-                            ? 'Esta contagem foi fechada, mas pode ser reaberta pelo autor enquanto o inventario permanecer aberto.'
-                            : 'Registre os itens desta contagem. Se fechar agora, ela ainda podera ser retomada pelo autor enquanto o inventario estiver aberto.'}
-                        </p>
-                      </div>
-                    ) : null}
+                    <InventorySelectedSessionPanel
+                      selectedSession={selectedInventoryCountSession}
+                      getStockCenterName={(stockCenterId) =>
+                        inventoryStockCenterNameById.get(stockCenterId) ?? `CENTRO ${stockCenterId}`
+                      }
+                    />
 
                     {selectedInventoryCountSession ? (
                       <>
-                        {editingInventoryCountId !== null ? (
-                          <div className="empty-state empty-state-inline">
-                            <strong>Editando item da contagem atual</strong>
-                            <p>As alteracoes serao aplicadas apenas ao item selecionado desta contagem.</p>
-                            <div className="form-actions">
-                              <button type="button" className="ghost-button" onClick={cancelInventoryCountEdit}>
-                                Cancelar edicao
-                              </button>
-                            </div>
-                          </div>
-                        ) : null}
-
-                    <form className="form-grid company-form-grid" onSubmit={(event) => event.preventDefault()}>
-                      <label className="field company-field-wide">
-                        <span>Local de armazenamento *</span>
-                        <SingleValueAutocomplete
-                          value={inventoryForm.storageLocation}
-                          suggestions={inventoryStorageLocationSuggestions}
-                          onChange={(value) => updateInventoryFormField('storageLocation', value)}
-                          onDeleteSuggestion={canDeleteSectors ? (value) => requestDeleteInventoryStorageLocation(value) : undefined}
-                          placeholder="Digite para pesquisar ou criar local"
-                          allowCreate={canCreateSectors}
-                        />
-                        {inventoryErrors.storageLocation ? <p className="compact-feedback feedback error">{inventoryErrors.storageLocation}</p> : null}
-                      </label>
-                      <label className="field company-field-wide">
-                        <span>Item *</span>
-                        <SingleValueAutocomplete
-                          value={inventoryForm.technicalSheetLabel}
-                          suggestions={inventoryTechnicalSheetSuggestions}
-                          onChange={(value) => updateInventoryFormField('technicalSheetLabel', value)}
-                          placeholder="Digite para pesquisar produto, pre-preparo ou item"
-                          allowCreate={false}
-                        />
-                        {inventoryErrors.technicalSheetLabel ? <p className="compact-feedback feedback error">{inventoryErrors.technicalSheetLabel}</p> : null}
-                      </label>
-                      <label className="field company-field-wide">
-                        <span>
-                          {selectedInventoryCountableItem?.kind === 'PRODUTO' || selectedInventoryCountableItem?.kind === 'ITEM'
-                            ? `Embalagem${inventoryHasRecipientOptions ? ' *' : ''}`
-                            : `Recipiente${inventoryHasRecipientOptions ? ' *' : ''}`}
-                        </span>
-                        {inventoryHasRecipientOptions ? (
-                          <SingleValueAutocomplete
-                            value={inventoryForm.recipientLabel}
-                            suggestions={inventoryRecipientOptions.map((option) => option.label)}
-                            onChange={(value) => updateInventoryFormField('recipientLabel', value)}
-                            placeholder={
-                              selectedInventoryCountableItem?.kind === 'PRODUTO'
-                                ? 'Selecione a embalagem do produto'
-                                : selectedInventoryCountableItem?.kind === 'ITEM'
-                                  ? 'Selecione unidade ou a embalagem do item'
-                                : selectedInventoryCountableItem?.kind === 'PREPARO'
-                                  ? 'Selecione o recipiente vinculado a ficha'
-                                  : 'Escolha primeiro o item'
-                            }
-                            allowCreate={false}
-                          />
-                        ) : (
-                          <input
-                            value={
-                              selectedInventoryCountableItem
-                                ? selectedInventoryCountableItem.kind === 'ITEM'
-                                  ? 'UNIDADE'
-                                  : 'SEM RECIPIENTE VINCULADO'
-                                : ''
-                            }
-                            disabled
-                            placeholder="Escolha primeiro o item"
-                          />
-                        )}
-                        {selectedInventoryCountableItem?.kind === 'PREPARO' && !inventoryHasRecipientOptions ? (
-                          <p className="compact-feedback">
-                            Sem recipiente vinculado: cada item fechado sera contado pela porcao base da ficha.
-                          </p>
-                        ) : null}
-                        {selectedInventoryCountableItem?.kind === 'ITEM' ? (
-                          <p className="compact-feedback">
-                            A contagem padrao do item e em unidade, mas voce pode escolher uma embalagem cadastrada.
-                          </p>
-                        ) : null}
-                        {inventoryErrors.recipientLabel ? <p className="compact-feedback feedback error">{inventoryErrors.recipientLabel}</p> : null}
-                      </label>
-                    </form>
-
-                    {selectedInventoryCountableItem ? (
-                      <div className="receituario-summary-grid receituario-summary-grid-metrics">
-                        <article className="receituario-metric-card">
-                          <span>Tipo</span>
-                          <strong>{getStockCountableKindLabel(selectedInventoryCountableItem.kind)}</strong>
-                        </article>
-                        <article className="receituario-metric-card">
-                          <span>Referencia por item fechado</span>
-                          <strong>
-                            {selectedInventoryCountableItem.kind === 'PREPARO'
-                              ? formatDecimal(
-                                  selectedInventoryRecipient?.referenceQuantity ??
-                                    getInventoryClosedItemReferenceQuantity(selectedInventorySheet!, inventoryHasRecipientOptions),
-                                )
-                              : selectedInventoryCountableItem.kind === 'PRODUTO'
-                                ? formatDecimal(selectedInventoryRecipient?.referenceQuantity ?? 0)
-                                : formatDecimal(selectedInventoryRecipient?.referenceQuantity ?? 1)}{' '}
-                            {selectedInventoryCountableItem.kind === 'PREPARO'
-                              ? formatControlUnitShort(
-                                  getInventoryClosedItemReferenceUnit(selectedInventorySheet!, inventoryHasRecipientOptions),
-                                )
-                              : formatControlUnitShort(selectedInventoryCountableItem.controlUnit)}
-                          </strong>
-                        </article>
-                        <article className="receituario-metric-card">
-                          <span>{selectedInventoryCountableItem.kind === 'PRODUTO' ? 'Peso da embalagem vazia' : 'Peso do recipiente vazio'}</span>
-                          <strong>{selectedInventoryRecipient ? `${formatDecimal(selectedInventoryRecipient.emptyWeight)} g` : '-'}</strong>
-                        </article>
-                        <article className="receituario-metric-card">
-                          <span>Estoque minimo do centro</span>
-                          <strong>
-                            {selectedInventoryStockCenter
+                        <InventoryCountItemEntryPanel
+                          editingInventoryCountId={editingInventoryCountId}
+                          inventoryForm={inventoryForm}
+                          inventoryErrors={inventoryErrors}
+                          storageLocationSuggestions={inventoryStorageLocationSuggestions}
+                          technicalSheetSuggestions={inventoryTechnicalSheetSuggestions}
+                          selectedCountableItem={selectedInventoryCountableItem}
+                          hasRecipientOptions={inventoryHasRecipientOptions}
+                          recipientOptions={inventoryRecipientOptions}
+                          canDeleteSectors={canDeleteSectors}
+                          canCreateSectors={canCreateSectors}
+                          kindLabel={
+                            selectedInventoryCountableItem
+                              ? getStockCountableKindLabel(selectedInventoryCountableItem.kind)
+                              : '-'
+                          }
+                          closedReferenceLabel={
+                            selectedInventoryCountableItem
+                              ? `${selectedInventoryCountableItem.kind === 'PREPARO'
+                                  ? formatDecimal(
+                                      selectedInventoryRecipient?.referenceQuantity ??
+                                        getInventoryClosedItemReferenceQuantity(selectedInventorySheet!, inventoryHasRecipientOptions),
+                                    )
+                                  : selectedInventoryCountableItem.kind === 'PRODUTO'
+                                    ? formatDecimal(selectedInventoryRecipient?.referenceQuantity ?? 0)
+                                    : formatDecimal(selectedInventoryRecipient?.referenceQuantity ?? 1)} ${selectedInventoryCountableItem.kind === 'PREPARO'
+                                  ? formatControlUnitShort(
+                                      getInventoryClosedItemReferenceUnit(selectedInventorySheet!, inventoryHasRecipientOptions),
+                                    )
+                                  : formatControlUnitShort(selectedInventoryCountableItem.controlUnit)}`
+                              : '-'
+                          }
+                          emptyWeightTitle={
+                            selectedInventoryCountableItem?.kind === 'PRODUTO'
+                              ? 'Peso da embalagem vazia'
+                              : 'Peso do recipiente vazio'
+                          }
+                          emptyWeightLabel={
+                            selectedInventoryRecipient ? `${formatDecimal(selectedInventoryRecipient.emptyWeight)} g` : '-'
+                          }
+                          minimumLabel={
+                            selectedInventoryCountableItem && selectedInventoryStockCenter
                               ? formatStockCenterMinimumDefinition(
                                   getMinimumUseQuantityText(
                                     findStockCenterMinimumEntry(selectedInventoryStockCenter.minimumStocks, {
@@ -46709,139 +46557,35 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                                         : null,
                                   },
                                 )
-                              : '-'}
-                          </strong>
-                        </article>
-                      </div>
-                    ) : null}
-
-                    <div className="section-heading section-heading-inline stock-center-subheading">
-                      <div>
-                        <p className="kicker">Fechados</p>
-                        <h2>Itens fechados</h2>
-                      </div>
-                    </div>
-
-                    <form className="form-grid company-form-grid" onSubmit={(event) => event.preventDefault()}>
-                      <label className="field company-field-wide">
-                        <span>Quantidade de itens fechados *</span>
-                        <input
-                          type="number"
-                          min="0"
-                          value={inventoryForm.closedItemsQuantity}
-                          onChange={(event) => updateInventoryFormField('closedItemsQuantity', event.target.value)}
-                          placeholder="0"
+                              : '-'
+                          }
+                          canHaveOpenItems={
+                            selectedInventoryCountableItem?.kind !== 'ITEM' &&
+                            !(selectedInventoryCountableItem?.kind === 'PRODUTO' && selectedInventoryCountableItem.controlUnit === 'UNIT')
+                          }
+                          openPhysicalQuantityLabel={
+                            selectedInventoryCountableItem && inventoryForm.hasOpenItems === 'true'
+                              ? `${formatDecimal(inventoryOpenPhysicalQuantity)} ${formatControlUnitShort(
+                                  selectedInventoryCountableItem.controlUnit === 'GRAM'
+                                    ? 'GRAM'
+                                    : selectedInventoryCountableItem.controlUnit === 'UNIT'
+                                      ? 'UNIT'
+                                      : 'MILLILITER',
+                                )}`
+                              : '-'
+                          }
+                          totalCountedLabel={
+                            selectedInventoryCountableItem
+                              ? `${formatDecimal(inventoryTotalCountedQuantity)} ${formatControlUnitShort(selectedInventoryCountableItem.kind === 'ITEM' ? 'UNIT' : selectedInventoryCountableItem.controlUnit)}`
+                              : '-'
+                          }
+                          selectedSessionIsClosed={selectedInventoryCountSession.isClosed}
+                          isSavingInventoryCount={isSavingInventoryCount}
+                          onCancelEdit={cancelInventoryCountEdit}
+                          onSave={() => void saveInventoryCount()}
+                          onDeleteStorageLocation={requestDeleteInventoryStorageLocation}
+                          onUpdateField={updateInventoryFormField}
                         />
-                        {inventoryErrors.closedItemsQuantity ? <p className="compact-feedback feedback error">{inventoryErrors.closedItemsQuantity}</p> : null}
-                      </label>
-                    </form>
-
-                    {selectedInventoryCountableItem?.kind !== 'ITEM' &&
-                    !(selectedInventoryCountableItem?.kind === 'PRODUTO' && selectedInventoryCountableItem.controlUnit === 'UNIT') ? (
-                      <>
-                        <div className="section-heading section-heading-inline stock-center-subheading">
-                          <div>
-                            <p className="kicker">Abertos</p>
-                            <h2>Itens abertos</h2>
-                          </div>
-                        </div>
-
-                        <div className="field field-span-all">
-                          <span>Existem itens abertos deste item? *</span>
-                          <div className="checkbox-grid stock-center-user-grid inventory-open-items-row">
-                            <label className="checkbox-row stock-center-user-option">
-                              <input
-                                type="radio"
-                                name="inventory-open-items"
-                                checked={inventoryForm.hasOpenItems === 'true'}
-                                onChange={() => updateInventoryFormField('hasOpenItems', 'true')}
-                              />
-                              <span>Sim</span>
-                            </label>
-                            <label className="checkbox-row stock-center-user-option">
-                              <input
-                                type="radio"
-                                name="inventory-open-items"
-                                checked={inventoryForm.hasOpenItems === 'false'}
-                                onChange={() => updateInventoryFormField('hasOpenItems', 'false')}
-                              />
-                              <span>Nao</span>
-                            </label>
-                          </div>
-                          {inventoryErrors.hasOpenItems ? <p className="compact-feedback feedback error">{inventoryErrors.hasOpenItems}</p> : null}
-                        </div>
-
-                        {inventoryForm.hasOpenItems === 'true' ? (
-                          <form className="form-grid company-form-grid" onSubmit={(event) => event.preventDefault()}>
-                            <label className="field company-field-wide">
-                              <span>Peso total pesado dos itens abertos (g) *</span>
-                              <input
-                                type="number"
-                                min="0"
-                                step="0.01"
-                                value={inventoryForm.openItemsGrossWeight}
-                                onChange={(event) => updateInventoryFormField('openItemsGrossWeight', event.target.value)}
-                                placeholder="0,00"
-                              />
-                              {inventoryErrors.openItemsGrossWeight ? <p className="compact-feedback feedback error">{inventoryErrors.openItemsGrossWeight}</p> : null}
-                            </label>
-                            <label className="field company-field-wide">
-                              <span>Quantidade de itens abertos pesados *</span>
-                              <input
-                                type="number"
-                                min="1"
-                                value={inventoryForm.openItemsContainerQuantity}
-                                onChange={(event) => updateInventoryFormField('openItemsContainerQuantity', event.target.value)}
-                                placeholder="1"
-                              />
-                              {inventoryErrors.openItemsContainerQuantity ? <p className="compact-feedback feedback error">{inventoryErrors.openItemsContainerQuantity}</p> : null}
-                            </label>
-                          </form>
-                        ) : null}
-                      </>
-                    ) : (
-                      <input type="hidden" value={inventoryForm.hasOpenItems || 'false'} />
-                    )}
-
-                    <div className="receituario-summary-grid receituario-summary-grid-metrics">
-                      <article className="receituario-metric-card">
-                        <span>Conteudo liquido/pesado dos abertos</span>
-                          <strong>
-                          {selectedInventoryCountableItem && inventoryForm.hasOpenItems === 'true'
-                            ? `${formatDecimal(inventoryOpenPhysicalQuantity)} ${formatControlUnitShort(
-                                selectedInventoryCountableItem.controlUnit === 'GRAM'
-                                  ? 'GRAM'
-                                  : selectedInventoryCountableItem.controlUnit === 'UNIT'
-                                    ? 'UNIT'
-                                    : 'MILLILITER',
-                              )}`
-                            : '-'}
-                        </strong>
-                      </article>
-                      <article className="receituario-metric-card">
-                        <span>Total contado</span>
-                        <strong>
-                          {selectedInventoryCountableItem
-                            ? `${formatDecimal(inventoryTotalCountedQuantity)} ${formatControlUnitShort(selectedInventoryCountableItem.kind === 'ITEM' ? 'UNIT' : selectedInventoryCountableItem.controlUnit)}`
-                            : '-'}
-                        </strong>
-                      </article>
-                    </div>
-
-                        <div className="form-actions field-span-all">
-                          <button
-                            type="button"
-                            className="primary-button"
-                            onClick={() => void saveInventoryCount()}
-                            disabled={selectedInventoryCountSession.isClosed || isSavingInventoryCount}
-                          >
-                            {isSavingInventoryCount
-                              ? 'Salvando item...'
-                              : editingInventoryCountId === null
-                                ? 'Registrar item'
-                                : 'Salvar alteracoes do item'}
-                          </button>
-                        </div>
                       </>
                     ) : (
                       <div className="empty-state empty-state-inline">
@@ -46859,145 +46603,39 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
               </>
             ))}
             {inventoryPanelTab === 'closed' ? (
-              visibleClosedInventoryRecords.length > 0 ? (
-                <>
-                  <div className="list-toolbar">
-                    <label className="field search-field">
-                      <span>Buscar inventario fechado</span>
-                      <NormalizedTextInput
-                        value={closedInventorySearch}
-                        onChange={setClosedInventorySearch}
-                        commitMode="debounce"
-                        placeholder="Busque por ID, data, centro, aberto por ou fechado por"
-                      />
-                    </label>
-                  </div>
-
-                  {hiddenClosedInventoryColumns.length > 0 ? (
-                    <div className="hidden-columns">
-                      <strong>Colunas ocultas</strong>
-                      <div className="hidden-columns-list">
-                        {hiddenClosedInventoryColumns.map(([key, label]) => (
-                          <button
-                            key={key}
-                            type="button"
-                            className="ghost-button hidden-column-chip"
-                            onClick={() =>
-                              setClosedInventoryColumnVisibility((current) => ({
-                                ...current,
-                                [key]: true,
-                              }))
-                            }
-                          >
-                            {label}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                  ) : null}
-
-                  <div
-                    className="table-wrap"
-                    onScroll={(event) => setRequisitionHistoryScrollTop(event.currentTarget.scrollTop)}
-                  >
-                    <table className="product-table">
-                      <thead>
-                        <tr>
-                          {closedInventoryColumnVisibility.id
-                            ? renderClosedInventoryColumnHeader('id', 'ID do inventario', openClosedInventoryColumnMenu, setOpenClosedInventoryColumnMenu, closedInventoryColumnFilters, distinctClosedInventoryColumnValues, setClosedInventoryColumnFilters, setClosedInventoryColumnVisibility, closedInventoryColumnSort, setClosedInventoryColumnSort)
-                            : null}
-                          {closedInventoryColumnVisibility.center
-                            ? renderClosedInventoryColumnHeader('center', 'Centro de estoque', openClosedInventoryColumnMenu, setOpenClosedInventoryColumnMenu, closedInventoryColumnFilters, distinctClosedInventoryColumnValues, setClosedInventoryColumnFilters, setClosedInventoryColumnVisibility, closedInventoryColumnSort, setClosedInventoryColumnSort)
-                            : null}
-                          {closedInventoryColumnVisibility.date
-                            ? renderClosedInventoryColumnHeader('date', 'Data', openClosedInventoryColumnMenu, setOpenClosedInventoryColumnMenu, closedInventoryColumnFilters, distinctClosedInventoryColumnValues, setClosedInventoryColumnFilters, setClosedInventoryColumnVisibility, closedInventoryColumnSort, setClosedInventoryColumnSort)
-                            : null}
-                          {closedInventoryColumnVisibility.startedBy
-                            ? renderClosedInventoryColumnHeader('startedBy', 'Aberto por', openClosedInventoryColumnMenu, setOpenClosedInventoryColumnMenu, closedInventoryColumnFilters, distinctClosedInventoryColumnValues, setClosedInventoryColumnFilters, setClosedInventoryColumnVisibility, closedInventoryColumnSort, setClosedInventoryColumnSort)
-                            : null}
-                          {closedInventoryColumnVisibility.closedBy
-                            ? renderClosedInventoryColumnHeader('closedBy', 'Fechado por', openClosedInventoryColumnMenu, setOpenClosedInventoryColumnMenu, closedInventoryColumnFilters, distinctClosedInventoryColumnValues, setClosedInventoryColumnFilters, setClosedInventoryColumnVisibility, closedInventoryColumnSort, setClosedInventoryColumnSort)
-                            : null}
-                          {closedInventoryColumnVisibility.startedAt
-                            ? renderClosedInventoryColumnHeader('startedAt', 'Inicio', openClosedInventoryColumnMenu, setOpenClosedInventoryColumnMenu, closedInventoryColumnFilters, distinctClosedInventoryColumnValues, setClosedInventoryColumnFilters, setClosedInventoryColumnVisibility, closedInventoryColumnSort, setClosedInventoryColumnSort)
-                            : null}
-                          {closedInventoryColumnVisibility.closedAt
-                            ? renderClosedInventoryColumnHeader('closedAt', 'Fechamento', openClosedInventoryColumnMenu, setOpenClosedInventoryColumnMenu, closedInventoryColumnFilters, distinctClosedInventoryColumnValues, setClosedInventoryColumnFilters, setClosedInventoryColumnVisibility, closedInventoryColumnSort, setClosedInventoryColumnSort)
-                            : null}
-                          <th className="sticky-actions">Acoes</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {visibleFilteredClosedInventoryRecords.length > 0 ? (
-                          visibleFilteredClosedInventoryRecords.map((inventoryRecord) => (
-                            <tr key={`closed-inventory-${inventoryRecord.id}`}>
-                              {closedInventoryColumnVisibility.id ? <td>{formatInventoryRecordCode(inventoryRecord.id)}</td> : null}
-                              {closedInventoryColumnVisibility.center ? <td>{inventoryStockCenterNameById.get(inventoryRecord.stockCenterId) ?? `CENTRO ${inventoryRecord.stockCenterId}`}</td> : null}
-                              {closedInventoryColumnVisibility.date ? <td>{formatDateForDisplay(inventoryRecord.countedAt)}</td> : null}
-                              {closedInventoryColumnVisibility.startedBy ? <td>{inventoryRecord.startedByUserName}</td> : null}
-                              {closedInventoryColumnVisibility.closedBy ? <td>{inventoryRecord.closedByUserName || '-'}</td> : null}
-                              {closedInventoryColumnVisibility.startedAt ? <td>{formatTimeForDisplay(inventoryRecord.startedAt)}</td> : null}
-                              {closedInventoryColumnVisibility.closedAt ? <td>{inventoryRecord.closedAt ? formatTimeForDisplay(inventoryRecord.closedAt) : '-'}</td> : null}
-                              <td className="sticky-actions-cell">
-                                <div className="table-actions">
-                                  <button
-                                    type="button"
-                                    className="icon-button icon-summary"
-                                    aria-label="Ver resumo do inventario fechado"
-                                    title="Ver resumo do inventario fechado"
-                                    onClick={() => openClosedInventorySummary(inventoryRecord)}
-                                  >
-                                    <span aria-hidden="true">≡</span>
-                                  </button>
-                                  <button
-                                    type="button"
-                                    className="icon-button icon-edit"
-                                    aria-label="Reabrir inventario fechado"
-                                    title="Reabrir inventario fechado"
-                                    onClick={() => reopenClosedInventoryRecord(inventoryRecord.id)}
-                                    disabled={!canReopenClosedInventory}
-                                  >
-                                    <span aria-hidden="true">↺</span>
-                                  </button>
-                                  <button
-                                    type="button"
-                                    className="icon-button icon-delete"
-                                    aria-label="Excluir inventario fechado"
-                                    title="Excluir inventario fechado"
-                                    onClick={() =>
-                                      setInventoryDeleteState({
-                                        id: inventoryRecord.id,
-                                        countedAt: inventoryRecord.countedAt,
-                                        stockCenterName:
-                                          inventoryStockCenterNameById.get(inventoryRecord.stockCenterId) ??
-                                          `CENTRO ${inventoryRecord.stockCenterId}`,
-                                      })
-                                    }
-                                    disabled={!canDeleteClosedInventory}
-                                  >
-                                    <span aria-hidden="true">✕</span>
-                                  </button>
-                                </div>
-                              </td>
-                            </tr>
-                          ))
-                        ) : (
-                          <tr>
-                            <td colSpan={Object.values(closedInventoryColumnVisibility).filter(Boolean).length + 1}>
-                              Nenhum inventario encontrado para esse filtro.
-                            </td>
-                          </tr>
-                        )}
-                      </tbody>
-                    </table>
-                  </div>
-                </>
-              ) : (
-                <div className="empty-state">
-                  <strong>Nenhum inventario fechado encontrado.</strong>
-                  <p>Finalize inventarios para que eles passem a aparecer neste historico operacional.</p>
-                </div>
-              )
+              <InventoryClosedRecordsPanel
+                records={visibleClosedInventoryRecords}
+                filteredRecords={visibleFilteredClosedInventoryRecords}
+                search={closedInventorySearch}
+                hiddenColumns={hiddenClosedInventoryColumns}
+                columnVisibility={closedInventoryColumnVisibility}
+                openColumnMenu={openClosedInventoryColumnMenu}
+                columnFilters={closedInventoryColumnFilters}
+                distinctColumnValues={distinctClosedInventoryColumnValues}
+                columnSort={closedInventoryColumnSort}
+                canReopenClosedInventory={canReopenClosedInventory}
+                canDeleteClosedInventory={canDeleteClosedInventory}
+                setOpenColumnMenu={setOpenClosedInventoryColumnMenu}
+                setColumnFilters={setClosedInventoryColumnFilters}
+                setColumnVisibility={setClosedInventoryColumnVisibility}
+                setColumnSort={setClosedInventoryColumnSort}
+                getStockCenterName={(stockCenterId) =>
+                  inventoryStockCenterNameById.get(stockCenterId) ?? `CENTRO ${stockCenterId}`
+                }
+                onSearchChange={setClosedInventorySearch}
+                onScrollTopChange={setRequisitionHistoryScrollTop}
+                onOpenSummary={openClosedInventorySummary}
+                onReopenInventory={reopenClosedInventoryRecord}
+                onDeleteInventory={(inventoryRecord) =>
+                  setInventoryDeleteState({
+                    id: inventoryRecord.id,
+                    countedAt: inventoryRecord.countedAt,
+                    stockCenterName:
+                      inventoryStockCenterNameById.get(inventoryRecord.stockCenterId) ??
+                      `CENTRO ${inventoryRecord.stockCenterId}`,
+                  })
+                }
+              />
             ) : null}
           </section>
 
@@ -50090,20 +49728,22 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
           <section className="panel">
             {productionEligibleCenters.length > 0 ? (
               <>
-                <ExecutionPlanningList
-                  rows={executionProductionPlanningRows}
-                  selectedRootRequestIds={selectedExecutionPlanningRootIds}
-                  selectedCount={selectedExecutionPlanningRows.length}
-                  onCancelPlanning={(rootRequestId) => {
-                    const row = executionProductionPlanningRows.find((entry) => entry.rootRequestId === rootRequestId) ?? null
-                    if (row) {
-                      requestCancelExecutionPlanning(row)
-                    }
-                  }}
-                  onTogglePlanningSelection={toggleExecutionPlanningSelection}
-                  onToggleAllPlanningSelection={toggleAllExecutionPlanningSelection}
-                  onCancelSelectedPlanning={requestCancelSelectedExecutionPlannings}
-                />
+	                <LazyPanelBoundary>
+	                  <ExecutionPlanningList
+	                    rows={executionProductionPlanningRows}
+	                    selectedRootRequestIds={selectedExecutionPlanningRootIds}
+	                    selectedCount={selectedExecutionPlanningRows.length}
+	                    onCancelPlanning={(rootRequestId) => {
+	                      const row = executionProductionPlanningRows.find((entry) => entry.rootRequestId === rootRequestId) ?? null
+	                      if (row) {
+	                        requestCancelExecutionPlanning(row)
+	                      }
+	                    }}
+	                    onTogglePlanningSelection={toggleExecutionPlanningSelection}
+	                    onToggleAllPlanningSelection={toggleAllExecutionPlanningSelection}
+	                    onCancelSelectedPlanning={requestCancelSelectedExecutionPlannings}
+	                  />
+	                </LazyPanelBoundary>
 
                 <form className="form-grid company-form-grid" onSubmit={(event) => event.preventDefault()}>
                   <label className="field company-field-wide">

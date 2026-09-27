@@ -1956,3 +1956,24 @@ Registrar um historico resumido do que foi feito, do que falhou e do que ficou p
   - navegacao central do menu passou a usar `startTransition` para reduzir sensacao de clique travado durante renders pesados.
 - Observacao:
   - isso inicia a compartimentacao, mas ainda nao resolve todo o problema estrutural; o painel de inventario/contagem precisa continuar sendo extraido em partes.
+
+### Extracao de paineis de inventario e lazy split de listas
+
+- Correcao aplicada em `2026-09-27`.
+- Objetivo:
+  - reduzir o tamanho e a arvore JSX do `App.tsx` sem alterar sincronizacao, persistencia ou regras operacionais de inventario/contagem.
+- Ajuste aplicado:
+  - criados `InventoryOpenRecordsPanel`, `InventoryUserSessionsPanel`, `InventorySelectedSessionPanel`, `InventoryCountMetricsPanel`, `InventoryCountQuantityPanel`, `InventoryCountItemEntryPanel` e `InventoryClosedRecordsPanel`;
+  - o formulario de item contado saiu do `App.tsx`, mantendo os mesmos handlers de update, salvar item, cancelar edicao e excluir local;
+  - a tabela de inventarios fechados saiu do `App.tsx`, mantendo os mesmos filtros, ordenacao, resumo, reabertura e exclusao;
+  - criado `lazyPanels.tsx` para carregar sob demanda `ProductListPanel`, `ServiceItemListPanel`, `TechnicalSheetListPanel`, `StockCenterRegisteredListPanel` e `ExecutionPlanningList`.
+- Resultado tecnico local:
+  - `App.tsx` reduziu para `61399` linhas nesta rodada;
+  - `npx vite build` gerou chunks separados para `ProductListPanel`, `ServiceItemListPanel`, `TechnicalSheetListPanel`, `StockCenterRegisteredListPanel` e `ExecutionPlanningList`;
+  - bundle principal local gerado: `index-DxS5ym0P.js` com `1.223,19 kB` minificado.
+- Validacao local:
+  - `npx tsc -p tsconfig.app.json --noEmit --pretty false` passou;
+  - `npx vite build` passou.
+- Pendente:
+  - continuar a extracao dos blocos grandes que ainda ficam no `App.tsx`, especialmente resumo editavel de inventario, modais de inventario e secoes grandes de cadastros/configuracoes;
+  - reduzir custos globais de hooks/calculos que ainda executam dentro do componente principal.
