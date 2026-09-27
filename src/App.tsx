@@ -16,6 +16,7 @@ import {
   ExecutionPlanningList,
   InventoryActiveFlowPanel,
   InventoryClosedRecordsPanel,
+  InventorySummaryPanel,
   LazyPanelBoundary,
   ProductListPanel,
   ServiceItemListPanel,
@@ -46572,260 +46573,37 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
           </section>
 
           {inventoryPanelTab === 'active' && selectedInventoryRecord && (!selectedInventoryCountSession || selectedInventoryCountSession.isClosed) ? (
-            <section className="panel">
-              <div className="empty-state empty-state-inline">
-                <strong>Resumo do inventario</strong>
-                <p>Este bloco mostra a consolidacao atual das contagens lancadas dentro deste inventario.</p>
-
-                <div className="list-toolbar">
-                  <label className="field search-field">
-                    <span>Buscar no resumo do inventario</span>
-                    <NormalizedTextInput
-                      value={inventorySummarySearch}
-                      onChange={setInventorySummarySearch}
-                      commitMode="debounce"
-                      placeholder="Busque por item, local, embalagem/recipiente, tipo ou usuario"
-                    />
-                  </label>
-                </div>
-
-                {hiddenInventorySummaryColumns.length > 0 ? (
-                  <div className="hidden-columns">
-                    <strong>Colunas ocultas</strong>
-                    <div className="hidden-columns-list">
-                      {hiddenInventorySummaryColumns.map(([key, label]) => (
-                        <button
-                          key={key}
-                          type="button"
-                          className="ghost-button hidden-column-chip"
-                          onClick={() =>
-                            setInventorySummaryColumnVisibility((current) => ({
-                              ...current,
-                              [key]: true,
-                            }))
-                          }
-                        >
-                          {label}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                ) : null}
-
-                {inventorySummaryCounts.length > 0 ? (
-                  <div className="table-wrap">
-                    <table className="product-table">
-                      <thead>
-                        <tr>
-                          {inventorySummaryColumnVisibility.date ? renderInventorySummaryColumnHeader('date', 'Data', openInventorySummaryColumnMenu, setOpenInventorySummaryColumnMenu, inventorySummaryColumnFilters, distinctInventorySummaryColumnValues, setInventorySummaryColumnFilters, setInventorySummaryColumnVisibility, inventorySummaryColumnSort, setInventorySummaryColumnSort) : null}
-                          {inventorySummaryColumnVisibility.location ? renderInventorySummaryColumnHeader('location', 'Local', openInventorySummaryColumnMenu, setOpenInventorySummaryColumnMenu, inventorySummaryColumnFilters, distinctInventorySummaryColumnValues, setInventorySummaryColumnFilters, setInventorySummaryColumnVisibility, inventorySummaryColumnSort, setInventorySummaryColumnSort) : null}
-                          {inventorySummaryColumnVisibility.product ? renderInventorySummaryColumnHeader('product', 'Produto', openInventorySummaryColumnMenu, setOpenInventorySummaryColumnMenu, inventorySummaryColumnFilters, distinctInventorySummaryColumnValues, setInventorySummaryColumnFilters, setInventorySummaryColumnVisibility, inventorySummaryColumnSort, setInventorySummaryColumnSort) : null}
-                          {inventorySummaryColumnVisibility.type ? renderInventorySummaryColumnHeader('type', 'Tipo', openInventorySummaryColumnMenu, setOpenInventorySummaryColumnMenu, inventorySummaryColumnFilters, distinctInventorySummaryColumnValues, setInventorySummaryColumnFilters, setInventorySummaryColumnVisibility, inventorySummaryColumnSort, setInventorySummaryColumnSort) : null}
-                          {inventorySummaryColumnVisibility.recipient ? renderInventorySummaryColumnHeader('recipient', 'Recipiente', openInventorySummaryColumnMenu, setOpenInventorySummaryColumnMenu, inventorySummaryColumnFilters, distinctInventorySummaryColumnValues, setInventorySummaryColumnFilters, setInventorySummaryColumnVisibility, inventorySummaryColumnSort, setInventorySummaryColumnSort) : null}
-                          {inventorySummaryColumnVisibility.closed ? renderInventorySummaryColumnHeader('closed', 'Fechados', openInventorySummaryColumnMenu, setOpenInventorySummaryColumnMenu, inventorySummaryColumnFilters, distinctInventorySummaryColumnValues, setInventorySummaryColumnFilters, setInventorySummaryColumnVisibility, inventorySummaryColumnSort, setInventorySummaryColumnSort) : null}
-                          {inventorySummaryColumnVisibility.open ? renderInventorySummaryColumnHeader('open', 'Abertos', openInventorySummaryColumnMenu, setOpenInventorySummaryColumnMenu, inventorySummaryColumnFilters, distinctInventorySummaryColumnValues, setInventorySummaryColumnFilters, setInventorySummaryColumnVisibility, inventorySummaryColumnSort, setInventorySummaryColumnSort) : null}
-                          {inventorySummaryColumnVisibility.total ? renderInventorySummaryColumnHeader('total', 'Total contado', openInventorySummaryColumnMenu, setOpenInventorySummaryColumnMenu, inventorySummaryColumnFilters, distinctInventorySummaryColumnValues, setInventorySummaryColumnFilters, setInventorySummaryColumnVisibility, inventorySummaryColumnSort, setInventorySummaryColumnSort) : null}
-                          {inventorySummaryColumnVisibility.user ? renderInventorySummaryColumnHeader('user', 'Por', openInventorySummaryColumnMenu, setOpenInventorySummaryColumnMenu, inventorySummaryColumnFilters, distinctInventorySummaryColumnValues, setInventorySummaryColumnFilters, setInventorySummaryColumnVisibility, inventorySummaryColumnSort, setInventorySummaryColumnSort) : null}
-                          <th className="sticky-actions">Acoes</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {visibleInventorySummaryCounts.length > 0 ? (
-                          visibleInventorySummaryCounts.map((record) => {
-                          const rowKey = `record-${record.id}`
-                          const isEditingRow = inventorySummaryEditingRowKey === rowKey
-                          const draft = inventorySummaryDrafts[rowKey] ?? {
-                            storageLocation: record.storageLocation,
-                            recipientItemId: record.recipientItemId,
-                            closedItemsQuantity: record.closedItemsQuantity,
-                            hasOpenItems: record.hasOpenItems ? 'true' : 'false',
-                            openItemsGrossWeight: record.openItemsGrossWeight,
-                            openItemsContainerQuantity: record.openItemsContainerQuantity,
-                          }
-                          const countableItem =
-                            isProductionStockKind(record.technicalSheetKind)
-                              ? inventoryCountableItems.find((item) => isProductionStockKind(item.kind) && item.technicalSheetId === record.technicalSheetId) ?? null
-                              : record.technicalSheetKind === 'PRODUTO'
-                                ? inventoryCountableItems.find((item) => item.kind === 'PRODUTO' && item.productId === record.productId) ?? null
-                                : inventoryCountableItems.find((item) => item.kind === 'ITEM' && item.serviceItemId === record.serviceItemId) ?? null
-                          const sheet =
-                            isProductionStockKind(record.technicalSheetKind) && record.technicalSheetId !== null
-                              ? inventoryCountableSheets.find((item) => item.id === record.technicalSheetId) ?? null
-                              : null
-                          const product = record.technicalSheetKind === 'PRODUTO' ? productById.get(record.productId) ?? null : null
-                          const serviceItem = record.technicalSheetKind === 'ITEM' ? serviceItemsById.get(record.serviceItemId) ?? null : null
-                          const recipientOptions = buildInventoryRecipientOptionsForContext({
-                            countableItem,
-                            sheet,
-                            product,
-                            serviceItem,
-                            serviceItemsById,
-                          })
-                          const selectedRecipient = recipientOptions.find((item) => item.id === draft.recipientItemId) ?? null
-                          const densityFactor = getInventoryDensityFactorForContext({ countableItem, sheet, product })
-                          const openPhysicalQuantity = calculateInventoryOpenPhysicalQuantityForContext({
-                            countableItem,
-                            hasOpenItems: draft.hasOpenItems === 'true',
-                            openItemsGrossWeight: draft.openItemsGrossWeight,
-                            openItemsContainerQuantity: draft.openItemsContainerQuantity,
-                            recipient: selectedRecipient,
-                            densityFactor,
-                          })
-                          const totalCountedQuantity = calculateInventoryTotalCountedQuantityForContext({
-                            countableItem,
-                            sheet,
-                            hasRecipientOptions: recipientOptions.length > 0,
-                            recipient: selectedRecipient,
-                            closedItemsQuantity: draft.closedItemsQuantity,
-                            hasOpenItems: draft.hasOpenItems === 'true',
-                            openPhysicalQuantity,
-                          })
-                          const previewRecord: InventoryCountRecord = {
-                            ...record,
-                            recipientItemId: selectedRecipient?.id ?? '',
-                            recipientLabel: selectedRecipient?.label ?? 'SEM RECIPIENTE VINCULADO',
-                            packageId:
-                              countableItem?.kind === 'PRODUTO' || countableItem?.kind === 'ITEM'
-                                ? selectedRecipient?.packageId ?? null
-                                : null,
-                            closedItemsQuantity: draft.closedItemsQuantity || '0',
-                            hasOpenItems: draft.hasOpenItems === 'true',
-                            openItemsGrossWeight: draft.hasOpenItems === 'true' ? draft.openItemsGrossWeight : '',
-                            openItemsContainerQuantity: draft.hasOpenItems === 'true' ? draft.openItemsContainerQuantity : '',
-                            openItemsNetQuantity: draft.hasOpenItems === 'true' ? formatDecimal(openPhysicalQuantity) : '',
-                            totalCountedQuantity: formatDecimal(totalCountedQuantity),
-                          }
-                          const displayRecord = isEditingRow ? previewRecord : record
-
-                          return (
-                            <tr
-                              key={`inventory-summary-${record.id}`}
-                              className={openInventoryCountSessionIds.has(record.sessionId) ? 'inventory-summary-pending-row' : ''}
-                            >
-                              {inventorySummaryColumnVisibility.date ? <td>{formatDateForDisplay(record.countedAt)}</td> : null}
-                              {inventorySummaryColumnVisibility.location ? <td>{record.storageLocation}</td> : null}
-                              {inventorySummaryColumnVisibility.product ? <td className="sticky-product-cell"><strong>{record.technicalSheetName}</strong></td> : null}
-                              {inventorySummaryColumnVisibility.type ? <td>{getStockCountableKindLabel(record.technicalSheetKind)}</td> : null}
-                              {inventorySummaryColumnVisibility.recipient ? (
-                                <td>
-                                  {isEditingRow && recipientOptions.length > 0 ? (
-                                    <select
-                                      value={draft.recipientItemId}
-                                      onChange={(event) => updateInventorySummaryDraft(rowKey, 'recipientItemId', event.target.value)}
-                                      disabled={!isEditingRow}
-                                    >
-                                      <option value="">Selecione</option>
-                                      {recipientOptions.map((option) => (
-                                        <option key={`summary-${record.id}-${option.id}`} value={option.id}>
-                                          {option.label}
-                                        </option>
-                                      ))}
-                                    </select>
-                                  ) : (
-                                    <span>{displayRecord.recipientLabel}</span>
-                                  )}
-                                </td>
-                              ) : null}
-                              {inventorySummaryColumnVisibility.closed ? (
-                                <td>
-                                  {isEditingRow ? (
-                                    <input
-                                      type="number"
-                                      min="0"
-                                      value={draft.closedItemsQuantity}
-                                      onChange={(event) => updateInventorySummaryDraft(rowKey, 'closedItemsQuantity', event.target.value)}
-                                      disabled={!isEditingRow}
-                                    />
-                                  ) : (
-                                    displayRecord.closedItemsQuantity
-                                  )}
-                                </td>
-                              ) : null}
-                              {inventorySummaryColumnVisibility.open ? (
-                                <td>
-                                  {isEditingRow ? (
-                                    <div className="inline-edit-stack">
-                                      <select
-                                        value={draft.hasOpenItems}
-                                        onChange={(event) => updateInventorySummaryDraft(rowKey, 'hasOpenItems', event.target.value)}
-                                      >
-                                        <option value="false">NAO</option>
-                                        <option value="true">SIM</option>
-                                      </select>
-                                      {draft.hasOpenItems === 'true' ? (
-                                        <>
-                                          <input
-                                            type="number"
-                                            min="0"
-                                            step="0.01"
-                                            value={draft.openItemsGrossWeight}
-                                            onChange={(event) => updateInventorySummaryDraft(rowKey, 'openItemsGrossWeight', event.target.value)}
-                                            placeholder="Peso"
-                                          />
-                                          <input
-                                            type="number"
-                                            min="0"
-                                            step="1"
-                                            value={draft.openItemsContainerQuantity}
-                                            onChange={(event) => updateInventorySummaryDraft(rowKey, 'openItemsContainerQuantity', event.target.value)}
-                                            placeholder="Qtd."
-                                          />
-                                        </>
-                                      ) : null}
-                                    </div>
-                                  ) : (
-                                    getInventoryOpenCountedLabel(displayRecord)
-                                  )}
-                                </td>
-                              ) : null}
-                              {inventorySummaryColumnVisibility.total ? <td>{getInventoryTotalCountedLabel(displayRecord, productById)}</td> : null}
-                              {inventorySummaryColumnVisibility.user ? <td>{record.createdByUserName}</td> : null}
-                              <td className="sticky-actions-cell">
-                                <div className="table-actions">
-                                  <button
-                                    type="button"
-                                    className={isEditingRow ? 'icon-button icon-save' : 'icon-button icon-edit'}
-                                    aria-label={isEditingRow ? 'Salvar item do resumo do inventario' : 'Editar item do resumo do inventario'}
-                                    title={isEditingRow ? 'Salvar item do resumo do inventario' : 'Editar item do resumo do inventario'}
-                                    onClick={() =>
-                                      isEditingRow
-                                        ? saveInventorySummaryDraft(record.id)
-                                        : setInventorySummaryEditingRowKey(rowKey)
-                                    }
-                                    disabled={!canEditInventorySummary}
-                                  >
-                                    <span aria-hidden="true">{isEditingRow ? '✓' : '✎'}</span>
-                                  </button>
-                                  <button
-                                    type="button"
-                                    className="icon-button icon-delete"
-                                    aria-label="Excluir item do resumo do inventario"
-                                    title="Excluir item do resumo do inventario"
-                                    onClick={() => requestDeleteInventorySummaryCount(record)}
-                                    disabled={!canDeleteInventorySummary}
-                                  >
-                                    <span aria-hidden="true">✕</span>
-                                  </button>
-                                </div>
-                              </td>
-                            </tr>
-                          )
-                          })
-                        ) : (
-                          <tr>
-                            <td colSpan={Object.values(inventorySummaryColumnVisibility).filter(Boolean).length + 1}>
-                              Nenhum item encontrado com os filtros atuais.
-                            </td>
-                          </tr>
-                        )}
-                      </tbody>
-                    </table>
-                  </div>
-                ) : (
-                  <p className="compact-feedback">Nenhum item foi consolidado neste inventario ate o momento.</p>
-                )}
-              </div>
-            </section>
+            <LazyPanelBoundary>
+              <InventorySummaryPanel
+                search={inventorySummarySearch}
+                counts={inventorySummaryCounts}
+                visibleCounts={visibleInventorySummaryCounts}
+                hiddenColumns={hiddenInventorySummaryColumns}
+                columnVisibility={inventorySummaryColumnVisibility}
+                openColumnMenu={openInventorySummaryColumnMenu}
+                columnFilters={inventorySummaryColumnFilters}
+                distinctColumnValues={distinctInventorySummaryColumnValues}
+                columnSort={inventorySummaryColumnSort}
+                drafts={inventorySummaryDrafts}
+                editingRowKey={inventorySummaryEditingRowKey}
+                openSessionIds={openInventoryCountSessionIds}
+                countableItems={inventoryCountableItems}
+                countableSheets={inventoryCountableSheets}
+                productById={productById}
+                serviceItemsById={serviceItemsById}
+                canEditInventorySummary={canEditInventorySummary}
+                canDeleteInventorySummary={canDeleteInventorySummary}
+                onSearchChange={setInventorySummarySearch}
+                setOpenColumnMenu={setOpenInventorySummaryColumnMenu}
+                setColumnFilters={setInventorySummaryColumnFilters}
+                setColumnVisibility={setInventorySummaryColumnVisibility}
+                setColumnSort={setInventorySummaryColumnSort}
+                onUpdateDraft={updateInventorySummaryDraft}
+                onEditRow={setInventorySummaryEditingRowKey}
+                onSaveDraft={saveInventorySummaryDraft}
+                onDeleteCount={requestDeleteInventorySummaryCount}
+              />
+            </LazyPanelBoundary>
           ) : null}
 
           {inventoryPanelTab === 'active' && selectedInventoryCountSession && !selectedInventoryCountSession.isClosed ? (

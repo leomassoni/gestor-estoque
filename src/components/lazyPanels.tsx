@@ -9,6 +9,9 @@ export const InventoryActiveFlowPanel = lazy(() =>
 export const InventoryClosedRecordsPanel = lazy(() =>
   import('./InventoryClosedRecordsPanel').then((module) => ({ default: module.InventoryClosedRecordsPanel })),
 )
+export const InventorySummaryPanel = lazy(() =>
+  import('./InventorySummaryPanel').then((module) => ({ default: module.InventorySummaryPanel })),
+)
 export const ProductListPanel = lazy(() =>
   import('./ProductListPanel').then((module) => ({ default: module.ProductListPanel })),
 )
