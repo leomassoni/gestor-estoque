@@ -2096,3 +2096,22 @@ Registrar um historico resumido do que foi feito, do que falhou e do que ficou p
   - backup antes da aplicacao: `backups/online-before-madre-lorran-inventory-20261004-apply-20261005T014301Z`;
   - relatorio de aplicacao: `auditorias/madre-lorran-inventory-20261004-repair-apply-2026-10-05T01-43-41Z.json`;
   - pos-checagem: sessao `100` ficou com `107` itens, sessao `97` ficou com `140` itens e nenhum dos registros movidos permaneceu na origem.
+
+### Entrada de producoes sem saldo de inventario atualizado
+
+- Correcao aplicada em `2026-10-05`.
+- Causa encontrada:
+  - o inventario `98` de Casa de Mi Madre / `BAR DE BAIXO`, data `2026-10-04`, tem `39` registros de pre-batch em `11` fichas e o saldo consolidado por chave `PREPARO:<id>` esta correto no banco;
+  - a tela `Entrada de producoes` usa esse saldo para preencher `Estoque atual`, mas `EntradaProducoes` nao estava em `inventoryPollingSections`;
+  - ao abrir producao, a tela atualizava fila/producao, mas podia ficar com inventario vazio ou stale no estado local, exibindo `0 ML` para pre-batches que tinham sido contados.
+- Ajuste aplicado:
+  - `src/config/performance.ts` passou a incluir `EntradaProducoes` no polling de inventario.
+- Evidencias:
+  - auditoria API: `auditorias/madre-bar-baixo-prebatch-current-stock-audit-2026-10-05T16-46-56-669Z.json`;
+  - auditoria UI antes do ajuste: `auditorias/madre-production-prebatch-ui-audit-2026-10-05T16-48-40-149Z.json`, confirmando bundle `index-DEYYW8yl.js`, centro `BAR DE BAIXO` e linhas exibindo estoque `0 ML` apesar do saldo no banco.
+- Validacao local:
+  - `npx tsc -p tsconfig.app.json --noEmit --pretty false` passou;
+  - `node --check server/server.js && node --check server/billing.js` passou;
+  - `git diff --check` passou;
+  - `npx vite build` passou, gerando `index-DIO7e8LB.js`;
+  - Playwright no preview local com `/api` roteado para o online confirmou `11` linhas de pre-batch no `BAR DE BAIXO`, nenhuma com `Estoque atual` zerado.
