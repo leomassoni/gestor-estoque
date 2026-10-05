@@ -1825,6 +1825,7 @@ app.put('/api/inventories/:id', async (request, response) => {
       startedAt: true,
       startedByUserId: true,
       startedByUserName: true,
+      isClosed: true,
     },
   })
   if (
@@ -1838,6 +1839,12 @@ app.put('/api/inventories/:id', async (request, response) => {
   ) {
     response.status(409).json({
       error: 'ID de inventario ja pertence a outro fluxo. Recarregue a pagina e tente iniciar novamente.',
+    })
+    return
+  }
+  if (existing?.isClosed && !inventory.isClosed && request.body?.__allowReopenClosedInventory !== true) {
+    response.status(409).json({
+      error: 'Inventario finalizado nao pode ser reaberto por sincronizacao automatica. Use a acao explicita de reabertura.',
     })
     return
   }

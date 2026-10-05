@@ -7156,11 +7156,16 @@ export default function App() {
     }
   }
 
-  async function upsertInventoryRecordOnApi(inventory: InventoryRecord) {
+  async function upsertInventoryRecordOnApi(
+    inventory: InventoryRecord,
+    options: { allowReopenClosedInventory?: boolean } = {},
+  ) {
     const response = await fetch(`/api/inventories/${inventory.id}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(inventory),
+      body: JSON.stringify(
+        options.allowReopenClosedInventory ? { ...inventory, __allowReopenClosedInventory: true } : inventory,
+      ),
     })
     if (!response.ok) {
       const errorPayload = (await response.json().catch(() => null)) as { error?: string } | null
@@ -22807,7 +22812,7 @@ export default function App() {
     })
   }
 
-  function reopenClosedInventoryRecord(inventoryId: number) {
+  async function reopenClosedInventoryRecord(inventoryId: number) {
     if (!canReopenClosedInventory) {
       return
     }
@@ -22824,21 +22829,35 @@ export default function App() {
       return
     }
 
-    setInventoryRecords((current) =>
-      current.map((inventoryRecord) =>
-        inventoryRecord.id === inventoryId
-          ? {
-              ...inventoryRecord,
-              isClosed: false,
-              closedAt: '',
-              closedByUserId: null,
-              closedByUserName: '',
-              discardedOpenSessionCount: 0,
-              appliedPendingMovementCount: 0,
-            }
-          : inventoryRecord,
-      ),
+    const inventoryToReopen: InventoryRecord = {
+      ...targetInventory,
+      isClosed: false,
+      closedAt: '',
+      closedByUserId: null,
+      closedByUserName: '',
+      discardedOpenSessionCount: 0,
+      appliedPendingMovementCount: 0,
+    }
+
+    let savedInventory: InventoryRecord
+    try {
+      savedInventory = await upsertInventoryRecordOnApi(inventoryToReopen, { allowReopenClosedInventory: true })
+    } catch (error) {
+      console.error(error)
+      setSaveFeedback({
+        status: 'error',
+        title: 'Falha ao reabrir inventario',
+        message: error instanceof Error ? error.message : 'Nao foi possivel reabrir o inventario no servidor.',
+      })
+      return
+    }
+
+    const nextInventoryRecords = inventoryRecords.map((inventoryRecord) =>
+      inventoryRecord.id === inventoryId ? savedInventory : inventoryRecord,
     )
+    setInventoryRecords(nextInventoryRecords)
+    saveInventoryRecordsState(nextInventoryRecords)
+    syncedInventoryRecordMapRef.current = buildEntitySignatureMap(nextInventoryRecords, (record) => record.id)
     setClosedInventorySummaryModalState(null)
     setClosedInventorySummaryEditingRowKey(null)
     setClosedInventorySummaryDrafts({})
@@ -22846,6 +22865,24 @@ export default function App() {
     setSelectedInventorySessionId(null)
     setInventoryPanelTab('active')
     setInventoryErrors({})
+    registerAuditEvent({
+      companyId: savedInventory.companyId,
+      module: 'INVENTARIO',
+      actionKey: 'INVENTORY_REOPENED',
+      actionLabel: 'Inventario reaberto',
+      targetType: 'INVENTORY',
+      targetId: String(savedInventory.id),
+      targetLabel: `${inventoryStockCenterNameById.get(savedInventory.stockCenterId) ?? `CENTRO ${savedInventory.stockCenterId}`} - ${formatDateForDisplay(savedInventory.countedAt)}`,
+      summary: `${currentAppUser?.fullName ?? 'Administrador do sistema'} reabriu um inventario finalizado.`,
+      impactSummary: 'Inventario finalizado voltou ao fluxo ativo por acao explicita do usuario.',
+      severity: 'HIGH',
+      details: {
+        inventoryId: savedInventory.id,
+        stockCenterId: savedInventory.stockCenterId,
+        stockCenterName: inventoryStockCenterNameById.get(savedInventory.stockCenterId) ?? '',
+        countedAt: savedInventory.countedAt,
+      },
+    })
     setSaveFeedback({
       status: 'success',
       title: 'Inventario reaberto com sucesso',

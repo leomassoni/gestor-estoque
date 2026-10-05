@@ -2075,3 +2075,24 @@ Registrar um historico resumido do que foi feito, do que falhou e do que ficou p
   - `node --check server/server.js && node --check server/billing.js` passou;
   - `git diff --check` passou;
   - `npx vite build` passou.
+
+### Correcao de contagens Madre 04/10 e bloqueio de reabertura silenciosa
+
+- Correcao aplicada em `2026-10-04`.
+- Causa encontrada:
+  - o inventario `97` de Casa de Mi Madre, data `2026-09-27`, tinha log de fechamento em `2026-09-27 17:40:40`, mas voltou a existir no banco como aberto;
+  - o endpoint `PUT /api/inventories/:id` aceitava que sincronizacao generica trocasse `isClosed` de `true` para `false` sem uma acao explicita de reabertura;
+  - por isso usuarios entraram em `03/10` e `04/10` em um inventario antigo que deveria estar fechado.
+- Ajuste operacional aplicado no online:
+  - restauradas no inventario `98` / sessao `100` as `86` contagens do Lorran feitas em `03/10` e `04/10` que o painel master registrou dentro do inventario `97`;
+  - removidos do inventario `97` os `37` registros que ainda estavam fisicamente presos na sessao errada;
+  - mantidos os registros atuais de outros usuarios quando IDs antigos do log ja haviam sido sobrescritos por sessoes posteriores;
+  - sessao `97` foi fechada novamente usando o horario do log original do Lorran e o inventario `97` foi marcado como fechado;
+  - saneados vinculos ativos invalidos de sessao/inventario em Casa de Mi Madre.
+- Ajuste de codigo:
+  - `server/server.js` agora bloqueia reabertura de inventario fechado por sincronizacao automatica;
+  - a reabertura manual no frontend passa flag explicita ao backend e registra evento `INVENTORY_REOPENED`.
+- Evidencias:
+  - backup antes da aplicacao: `backups/online-before-madre-lorran-inventory-20261004-apply-20261005T014301Z`;
+  - relatorio de aplicacao: `auditorias/madre-lorran-inventory-20261004-repair-apply-2026-10-05T01-43-41Z.json`;
+  - pos-checagem: sessao `100` ficou com `107` itens, sessao `97` ficou com `140` itens e nenhum dos registros movidos permaneceu na origem.
