@@ -1,10 +1,48 @@
 # Worklog
 
- Ultima atualizacao: 2026-09-18
+ Ultima atualizacao: 2026-10-09
 
 ## Objetivo deste arquivo
 
 Registrar um historico resumido do que foi feito, do que falhou e do que ficou pendente.
+
+## 2026-10-09
+
+### Casa de Mi Madre - Aquaria, brunch e conversoes de sumos
+
+- Consolidada no online a organizacao de fichas tecnicas de Casa de Mi Madre a partir dos arquivos `Madre_Aquaria_Fichas_e_Subpreparos.md`, `Madre_Brunch_Fichas_e_Baunilha_Compartilhada.md`, `Madre_Conversoes_Sumos_e_Fichas_Revisadas.md` e `Madre_Fichas_Prepreparos_Recuperadas.md`.
+- Antes de aplicar, foi gerada auditoria de equivalencia por nome/composicao:
+  - `auditorias/madre-fichas-equivalencia-nome-composicao-20261008T171103Z.xlsx`
+  - `auditorias/madre-fichas-equivalencia-nome-composicao-20261008T171103Z.json`
+- Backup antes da aplicacao:
+  - `backups/madre-aquaria-brunch-before-apply-20261009T010557Z.json`
+- Criadas/atualizadas fichas para Aquaria, infusoes, cold brew, cha de canela, extrato de gengibre, conversoes de sumos, creme/gota de tamarindo para guarnicao, chip de banana e execucoes de brunch.
+- Atualizadas fichas existentes para consumirem sumos em vez de fruta direta:
+  - `SODA DE UVA VERDE` (`id=447`);
+  - `CORDIAL DE TOMATE CLARIFICADO` (`id=434`);
+  - `SUCO DE MELAO ACIDO` (`id=590`).
+- Criadas execucoes `AQUARIA`, `CURA GRIPE`, `CHANTICO`, `TERERE LATTE`, `CUPUACCINO`, `TAMARINDONA` e `ATOLE COLD BREW` com `desiredCmvPercentage=25`, conforme regra operacional definida pelo usuario para fichas de venda/execucao.
+- A ficha sem uso `SUCO DE MELAO CLARIFICADO` (`id=423`) foi excluida e o produto vinculado orfao `PRE-MADRE-SUCO-DE-MELAO-CLARIFICAD-04038A2AB4` foi removido.
+- Produtos novos criados pela API com ID gerado pelo servidor: `TIC TAC MENTA`, `CORANTE AZUL ALIMENTICIO LIQUIDO` e `BANANA CHIPS SALGADA`.
+- Validacao online:
+  - todas as 23 fichas alvo localizadas apos aplicacao;
+  - nenhuma execucao com CMV diferente de 25;
+  - `id=423` ausente;
+  - produto vinculado a `id=423` ausente;
+  - todos os novos preparos constam no centro produtor `BAR DE BAIXO`.
+- Relatorios:
+  - `auditorias/madre-aquaria-brunch-apply-dry-run-20261009T010459Z.json`;
+  - `auditorias/madre-aquaria-brunch-apply-apply-20261009T010613Z.json`;
+  - `auditorias/madre-aquaria-brunch-postcheck-20261009T010640Z.json`.
+- Pendencias assumidas como estimativas operacionais provisórias para afericao posterior:
+  - alga nori crocante da execucao `AQUARIA`;
+  - peso por chip de banana;
+  - peso da gota do creme de tamarindo para guarnicao;
+  - volume da gota de corante azul;
+  - rendimento real de `COLD BREW`;
+  - rendimento real de `EXTRATO DE GENGIBRE`;
+  - massa real da capsula de spirulina azul usada no servico;
+  - conversao real de Tic Tac em gramas se a embalagem usada divergir de 16 g.
 
 ## 2026-09-18
 
@@ -2115,3 +2153,29 @@ Registrar um historico resumido do que foi feito, do que falhou e do que ficou p
   - `git diff --check` passou;
   - `npx vite build` passou, gerando `index-DIO7e8LB.js`;
   - Playwright no preview local com `/api` roteado para o online confirmou `11` linhas de pre-batch no `BAR DE BAIXO`, nenhuma com `Estoque atual` zerado.
+
+### Subprodutos gerados por ficha tecnica
+
+- Correcao aplicada em `2026-10-09`.
+- Causa encontrada:
+  - fichas marcadas como `Subproduto` ainda podiam ser cadastradas como pre-preparos produtivos comuns, com ingredientes, centro produtor e rota propria;
+  - isso permitia duplicar consumo/custo, como no fluxo `SUMO DE TOMATE FILTRADO` -> `BAGACO DE TOMATE DO CORDIAL`, em que o bagaço deve nascer da producao do sumo e nao consumir tomate novamente.
+- Ajuste aplicado:
+  - o cadastro de pre-preparo agora permite vincular uma ficha existente como subproduto da diferenca negativa;
+  - quando uma ficha e vinculada como subproduto gerado, ela nao pode salvar composicao propria e seus centros/rotas de producao sao removidos no salvamento;
+  - salvar uma diferenca como `Subproduto` exige ficha vinculada ou criacao da ficha do subproduto;
+  - o calculo de custo em `src/domain/technicalSheets.ts` passou a ratear o custo entre ficha geradora e subproduto gerado, evitando que o custo fique todo no rendimento principal ou zere no subproduto.
+- Ajuste operacional aplicado no online:
+  - `SUMO DE TOMATE FILTRADO` foi vinculado ao `BAGACO DE TOMATE DO CORDIAL`;
+  - `BAGACO DE TOMATE DO CORDIAL` foi saneado como subproduto gerado, sem composicao propria, sem centro produtor e com rendimento `250 G`;
+  - `POLPA RESIDUAL DE ABACAXI DO SHRUB` foi saneada como subproduto gerado, sem composicao propria e sem centro produtor.
+- Evidencias:
+  - backup antes da aplicacao: `backups/generated-byproducts-before-apply-20261009T170015Z.json`;
+  - relatorio de aplicacao: `auditorias/generated-byproducts-apply-20261009T170015Z.json`;
+  - pos-checagem dry-run: `auditorias/generated-byproducts-dry-run-20261009T170025Z.json`, com `sheetActionCount: 0`.
+- Validacao local:
+  - `npx tsc -p tsconfig.app.json --noEmit --pretty false` passou;
+  - `node --check server/server.js` passou;
+  - `python3 -m py_compile scripts/repair_generated_byproduct_sheets.py` passou;
+  - `git diff --check` passou;
+  - `npx vite build` passou, gerando `index-DNHhSv2y.js`.

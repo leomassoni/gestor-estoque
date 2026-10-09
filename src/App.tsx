@@ -2443,6 +2443,22 @@ function getTechnicalSheetByproductBaseYield(sheet: TechnicalSheetRecord, byprod
   return byproductSheet ? getTechnicalSheetBaseYield(byproductSheet) : 0
 }
 
+function isTechnicalSheetGeneratedByproduct(
+  sheetId: number | null,
+  technicalSheets: TechnicalSheetRecord[],
+) {
+  if (sheetId === null) {
+    return false
+  }
+
+  return technicalSheets.some(
+    (sheet) =>
+      sheet.kind === 'PREPARO' &&
+      sheet.yieldDifferenceDestination === 'BYPRODUCT' &&
+      sheet.yieldDifferenceByproductTechnicalSheetId === sheetId,
+  )
+}
+
 function calculateTechnicalSheetSuggestedYieldFromDraft(
   kind: TechnicalSheetKind,
   ingredients: TechnicalSheetIngredient[],
@@ -19870,6 +19886,10 @@ export default function App() {
       outputQuantity: formatDecimal(differenceQuantity),
       outputUnit: technicalSheetForm.outputUnit,
       portionSize: technicalSheetForm.portionSize,
+      preparationMode: `SUBPRODUTO GERADO NA PRODUCAO DE ${normalizeRegistrationText(technicalSheetForm.name.trim()) || 'FICHA GERADORA'}. CONFIRMAR A QUANTIDADE REAL GERADA AO FINALIZAR A PRODUCAO.`,
+      shelfLifeRoom: 'A DEFINIR',
+      shelfLifeRefrigerated: 'A DEFINIR',
+      shelfLifeFrozen: 'A DEFINIR',
     } satisfies TechnicalSheetFormState
 
     setTechnicalSheetDraftStack((current) => [
@@ -34882,6 +34902,25 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
       return
     }
 
+    if (field === 'yieldDifferenceByproductName') {
+      const byproductName = normalizeRegistrationText(String(value))
+      setTechnicalSheetForm((current) => {
+        const linkedSheet =
+          typeof current.yieldDifferenceByproductTechnicalSheetId === 'number'
+            ? technicalSheets.find((sheet) => sheet.id === current.yieldDifferenceByproductTechnicalSheetId) ?? null
+            : null
+        return {
+          ...current,
+          yieldDifferenceByproductName: byproductName,
+          yieldDifferenceByproductTechnicalSheetId:
+            linkedSheet && buildNormalizedRegistrationNameKey(linkedSheet.name) === buildNormalizedRegistrationNameKey(byproductName)
+              ? current.yieldDifferenceByproductTechnicalSheetId
+              : null,
+        }
+      })
+      return
+    }
+
     if (field === 'outputQuantity') {
       const nextValue = String(value)
       setTechnicalSheetOutputQuantityMode(nextValue.trim() === '' ? 'auto' : 'manual')
@@ -34909,6 +34948,16 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
     }
 
     setTechnicalSheetForm((current) => ({ ...current, [field]: value }))
+  }
+
+  function selectYieldDifferenceByproductTechnicalSheet(sheetId: number | null) {
+    const linkedSheet = typeof sheetId === 'number' ? technicalSheets.find((sheet) => sheet.id === sheetId) ?? null : null
+    setTechnicalSheetForm((current) => ({
+      ...current,
+      yieldDifferenceDestination: linkedSheet ? 'BYPRODUCT' : current.yieldDifferenceDestination,
+      yieldDifferenceByproductName: linkedSheet ? linkedSheet.name : current.yieldDifferenceByproductName,
+      yieldDifferenceByproductTechnicalSheetId: linkedSheet ? linkedSheet.id : null,
+    }))
   }
 
   function updateTechnicalSheetFinalSalePriceForCompany(companyId: number, value: string) {
@@ -35589,6 +35638,21 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
             }))
             .filter((item) => item.isActive && item.itemId.trim() !== '' && item.quantity !== '')
         : []
+    const byproductSourceSheetsForCurrentDraft =
+      technicalSheetForm.kind === 'PREPARO' && editingTechnicalSheetId !== null
+        ? technicalSheets.filter(
+            (sheet) =>
+              sheet.kind === 'PREPARO' &&
+              sheet.yieldDifferenceDestination === 'BYPRODUCT' &&
+              sheet.yieldDifferenceByproductTechnicalSheetId === editingTechnicalSheetId &&
+              isTechnicalSheetVisibleForCompany(sheet, currentCompanyId),
+          )
+        : []
+    const isGeneratedByproductTechnicalSheetDraft =
+      technicalSheetForm.kind === 'PREPARO' &&
+      (pendingNestedTechnicalSheetPurpose === 'subproduct' ||
+        byproductSourceSheetsForCurrentDraft.length > 0 ||
+        isTechnicalSheetGeneratedByproduct(editingTechnicalSheetId, technicalSheets))
     const invalidCompositionIngredients = [...normalizedIngredients, ...normalizedGarnishIngredients]
       .map((ingredient) => {
         const linkedProduct = products.find((product) => product.id === ingredient.productId) ?? null
@@ -35609,7 +35673,9 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
       })
       .filter(Boolean)
     const normalizedProductionCenters =
-      isProductionTechnicalSheetKind(technicalSheetForm.kind)
+      isGeneratedByproductTechnicalSheetDraft
+        ? []
+        : isProductionTechnicalSheetKind(technicalSheetForm.kind)
         ? technicalSheetForm.productionCenters
             .filter((item) =>
               activeProducerStockCenters.some((center) => center.id === item.stockCenterId) ||
@@ -35673,8 +35739,15 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
     if (isTechnicalSheetFieldRequired(technicalSheetForm.kind, 'sectors') && normalizedSectors.length === 0) {
       errors.push('ao menos 1 setor obrigatorio')
     }
-    if (isTechnicalSheetFieldRequired(technicalSheetForm.kind, 'ingredients') && normalizedIngredients.length === 0) {
+    if (
+      isTechnicalSheetFieldRequired(technicalSheetForm.kind, 'ingredients') &&
+      normalizedIngredients.length === 0 &&
+      !isGeneratedByproductTechnicalSheetDraft
+    ) {
       errors.push('adicione ao menos 1 produto na ficha')
+    }
+    if (isGeneratedByproductTechnicalSheetDraft && normalizedIngredients.length > 0) {
+      errors.push('subproduto gerado por outra ficha nao deve ter composicao propria; a baixa dos insumos ocorre na ficha geradora')
     }
     if (invalidCompositionIngredients.length > 0) {
       errors.push(`composicao invalida: ${invalidCompositionIngredients.join('; ')}`)
@@ -35692,7 +35765,8 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
     }
     if (
       isTechnicalSheetFieldRequired(technicalSheetForm.kind, 'productionCenters') &&
-      normalizedProductionCenters.length === 0
+      normalizedProductionCenters.length === 0 &&
+      !isGeneratedByproductTechnicalSheetDraft
     ) {
       errors.push('defina ao menos 1 centro produtor')
     }
@@ -35708,6 +35782,23 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
         !normalizeRegistrationText(technicalSheetForm.yieldDifferenceByproductName.trim())
       ) {
         errors.push('informe o nome do subproduto')
+      }
+      if (technicalSheetForm.yieldDifferenceDestination === 'BYPRODUCT') {
+        const linkedByproductSheet =
+          typeof technicalSheetForm.yieldDifferenceByproductTechnicalSheetId === 'number'
+            ? technicalSheets.find((sheet) => sheet.id === technicalSheetForm.yieldDifferenceByproductTechnicalSheetId) ?? null
+            : null
+        if (typeof technicalSheetForm.yieldDifferenceByproductTechnicalSheetId !== 'number') {
+          errors.push('vincule uma ficha existente ou crie a ficha tecnica do subproduto')
+        } else if (technicalSheetForm.yieldDifferenceByproductTechnicalSheetId === editingTechnicalSheetId) {
+          errors.push('a ficha nao pode ser vinculada como subproduto dela mesma')
+        } else if (
+          !linkedByproductSheet ||
+          linkedByproductSheet.kind !== 'PREPARO' ||
+          !isTechnicalSheetVisibleForCompany(linkedByproductSheet, currentCompanyId)
+        ) {
+          errors.push('a ficha tecnica vinculada ao subproduto precisa ser um pre-preparo visivel para a empresa atual')
+        }
       }
     }
     if (isTechnicalSheetFieldRequired(technicalSheetForm.kind, 'portionSize') && !technicalSheetForm.portionSize.trim()) {
@@ -43226,36 +43317,73 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
             </select>
           </label>
           {technicalSheetForm.yieldDifferenceDestination === 'BYPRODUCT' ? (
-            <>
-              <label className="field field-wide">
-                <span>Nome do subproduto</span>
-                <NormalizedTextInput
-                  value={technicalSheetForm.yieldDifferenceByproductName}
-                  onChange={(value) => updateTechnicalSheetForm('yieldDifferenceByproductName', value)}
-                  commitMode="blur"
-                  placeholder="EX.: OLEO AROMATIZADO RESIDUAL"
-                />
-              </label>
-              <div className="field">
-                <span>Ficha vinculada</span>
-                <strong>
-                  {technicalSheetForm.yieldDifferenceByproductTechnicalSheetId
-                    ? `FT-${technicalSheetForm.yieldDifferenceByproductTechnicalSheetId}`
-                    : 'Nao vinculada'}
-                </strong>
-              </div>
-              <div className="field">
-                <span>Acoes</span>
-                <button
-                  type="button"
-                  className="ghost-button"
-                  onClick={openSubproductTechnicalSheetFromCurrentPreparo}
-                  disabled={technicalSheetForm.yieldDifferenceByproductName.trim() === ''}
-                >
-                  Criar ficha tecnica do subproduto
-                </button>
-              </div>
-            </>
+            (() => {
+              const linkedByproductSheet =
+                typeof technicalSheetForm.yieldDifferenceByproductTechnicalSheetId === 'number'
+                  ? technicalSheets.find((sheet) => sheet.id === technicalSheetForm.yieldDifferenceByproductTechnicalSheetId) ?? null
+                  : null
+              const byproductOptions = technicalSheets
+                .filter(
+                  (sheet) =>
+                    sheet.kind === 'PREPARO' &&
+                    sheet.isActive &&
+                    sheet.id !== editingTechnicalSheetId &&
+                    isTechnicalSheetVisibleForCompany(sheet, currentCompanyId),
+                )
+                .sort((left, right) => left.name.localeCompare(right.name, 'pt-BR', { sensitivity: 'base' }))
+
+              return (
+                <>
+                  <label className="field field-wide">
+                    <span>Nome do subproduto</span>
+                    <NormalizedTextInput
+                      value={technicalSheetForm.yieldDifferenceByproductName}
+                      onChange={(value) => updateTechnicalSheetForm('yieldDifferenceByproductName', value)}
+                      commitMode="blur"
+                      placeholder="EX.: OLEO AROMATIZADO RESIDUAL"
+                    />
+                  </label>
+                  <label className="field field-wide">
+                    <span>Vincular ficha existente</span>
+                    <select
+                      value={technicalSheetForm.yieldDifferenceByproductTechnicalSheetId ?? ''}
+                      onChange={(event) =>
+                        selectYieldDifferenceByproductTechnicalSheet(
+                          event.target.value === '' ? null : Number.parseInt(event.target.value, 10),
+                        )
+                      }
+                    >
+                      <option value="">Selecione uma ficha ja cadastrada</option>
+                      {byproductOptions.map((sheet) => (
+                        <option key={sheet.id} value={sheet.id}>
+                          {sheet.name} • FT-{sheet.id}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <div className="field">
+                    <span>Ficha vinculada</span>
+                    <strong>
+                      {linkedByproductSheet
+                        ? `${linkedByproductSheet.name} • FT-${linkedByproductSheet.id}`
+                        : 'Nao vinculada'}
+                    </strong>
+                    <small>O subproduto entra no estoque ao finalizar a producao da ficha geradora.</small>
+                  </div>
+                  <div className="field">
+                    <span>Acoes</span>
+                    <button
+                      type="button"
+                      className="ghost-button"
+                      onClick={openSubproductTechnicalSheetFromCurrentPreparo}
+                      disabled={technicalSheetForm.yieldDifferenceByproductName.trim() === ''}
+                    >
+                      Criar ficha tecnica do subproduto
+                    </button>
+                  </div>
+                </>
+              )
+            })()
           ) : null}
         </div>
       ) : null}

@@ -337,18 +337,52 @@ export function getProductCostStatus(
   return pricedPackages.length === activePackages.length ? 'OK' : 'Custo parcial'
 }
 
-export function calculateTechnicalSheetCost(
-  sheet: TechnicalSheetRecord,
-  technicalSheets: TechnicalSheetRecord[],
-  products: ProductRecord[] = [],
-  visited = new Set<number>(),
-  serviceItems: ServiceItemRecord[] = [],
-  costContext: TechnicalSheetCostContext = {},
-): number {
-  if (visited.has(sheet.id)) {
+function calculateTechnicalSheetYieldDifferenceQuantity(referenceQuantity: number, totalYield: number) {
+  return referenceQuantity > totalYield ? referenceQuantity - totalYield : 0
+}
+
+function calculateTechnicalSheetInputQuantity(sheet: TechnicalSheetRecord) {
+  return [...sheet.ingredients, ...sheet.garnishIngredients]
+    .filter((ingredient) => ingredient.isActive)
+    .reduce((sum, ingredient) => sum + calculateTechnicalSheetIngredientBaseQuantity(ingredient), 0)
+}
+
+function calculateTechnicalSheetByproductBaseYieldForCost(
+  sourceSheet: TechnicalSheetRecord,
+  byproductSheet: TechnicalSheetRecord | null,
+) {
+  if (sourceSheet.kind !== 'PREPARO' || sourceSheet.yieldDifferenceDestination !== 'BYPRODUCT') {
     return 0
   }
 
+  const declaredDifference = calculateTechnicalSheetYieldDifferenceQuantity(
+    calculateTechnicalSheetInputQuantity(sourceSheet),
+    calculateTechnicalSheetEffectiveYield(sourceSheet),
+  )
+  if (declaredDifference > 0) {
+    return declaredDifference
+  }
+
+  return byproductSheet ? calculateTechnicalSheetEffectiveYield(byproductSheet) : 0
+}
+
+function calculateTechnicalSheetByproductAllocationBase(
+  sourceSheet: TechnicalSheetRecord,
+  byproductSheet: TechnicalSheetRecord | null,
+) {
+  const mainYield = calculateTechnicalSheetEffectiveYield(sourceSheet)
+  const byproductYield = calculateTechnicalSheetByproductBaseYieldForCost(sourceSheet, byproductSheet)
+  return mainYield + byproductYield
+}
+
+function calculateTechnicalSheetCompositionCost(
+  sheet: TechnicalSheetRecord,
+  technicalSheets: TechnicalSheetRecord[],
+  products: ProductRecord[],
+  visited: Set<number>,
+  serviceItems: ServiceItemRecord[],
+  costContext: TechnicalSheetCostContext,
+) {
   const nextVisited = new Set(visited)
   nextVisited.add(sheet.id)
 
@@ -389,13 +423,67 @@ export function calculateTechnicalSheetCost(
       return sum + (linkedServiceItem ? calculateServiceItemUnitCost(linkedServiceItem) * quantity : 0)
     }, 0)
 
-  const totalCost = sheet.kind === 'VENDA' || sheet.kind === 'PRODUTO_INTERNO'
+  return sheet.kind === 'VENDA' || sheet.kind === 'PRODUTO_INTERNO'
     ? ingredientsCost + serviceItemsCost
     : ingredientsCost
+}
 
-  return isProductionTechnicalSheetKind(sheet.kind)
+export function calculateTechnicalSheetCost(
+  sheet: TechnicalSheetRecord,
+  technicalSheets: TechnicalSheetRecord[],
+  products: ProductRecord[] = [],
+  visited = new Set<number>(),
+  serviceItems: ServiceItemRecord[] = [],
+  costContext: TechnicalSheetCostContext = {},
+): number {
+  if (visited.has(sheet.id)) {
+    return 0
+  }
+
+  const nextVisited = new Set(visited)
+  nextVisited.add(sheet.id)
+
+  const byproductSourceSheet =
+    sheet.kind === 'PREPARO'
+      ? technicalSheets.find(
+          (item) =>
+            item.kind === 'PREPARO' &&
+            item.yieldDifferenceDestination === 'BYPRODUCT' &&
+            item.yieldDifferenceByproductTechnicalSheetId === sheet.id,
+        ) ?? null
+      : null
+
+  if (byproductSourceSheet) {
+    const sourceRawCost = calculateTechnicalSheetCompositionCost(
+      byproductSourceSheet,
+      technicalSheets,
+      products,
+      nextVisited,
+      serviceItems,
+      costContext,
+    )
+    const sourceCost = applySharedPreparationSaleFee(sourceRawCost, byproductSourceSheet, costContext)
+    const byproductYield = calculateTechnicalSheetByproductBaseYieldForCost(byproductSourceSheet, sheet)
+    const allocationBase = calculateTechnicalSheetByproductAllocationBase(byproductSourceSheet, sheet)
+    return allocationBase > 0 ? sourceCost * (byproductYield / allocationBase) : 0
+  }
+
+  const totalCost = calculateTechnicalSheetCompositionCost(sheet, technicalSheets, products, visited, serviceItems, costContext)
+  const costWithProductionFee = isProductionTechnicalSheetKind(sheet.kind)
     ? applySharedPreparationSaleFee(totalCost, sheet, costContext)
     : totalCost
+
+  if (sheet.kind === 'PREPARO' && sheet.yieldDifferenceDestination === 'BYPRODUCT') {
+    const byproductSheet =
+      typeof sheet.yieldDifferenceByproductTechnicalSheetId === 'number'
+        ? technicalSheets.find((item) => item.id === sheet.yieldDifferenceByproductTechnicalSheetId) ?? null
+        : null
+    const mainYield = calculateTechnicalSheetEffectiveYield(sheet)
+    const allocationBase = calculateTechnicalSheetByproductAllocationBase(sheet, byproductSheet)
+    return allocationBase > 0 ? costWithProductionFee * (mainYield / allocationBase) : costWithProductionFee
+  }
+
+  return costWithProductionFee
 }
 
 export function isSharedPreparationSaleBoundary(
