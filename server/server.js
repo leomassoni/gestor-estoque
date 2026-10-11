@@ -5139,6 +5139,23 @@ function normalizeProductionDraftPayload(value) {
       ([key, itemValue]) => typeof key === 'string' && typeof itemValue === 'string',
     ),
   )
+  const ingredientConsumptionOverrides =
+    record.ingredientConsumptionOverrides &&
+    typeof record.ingredientConsumptionOverrides === 'object' &&
+    !Array.isArray(record.ingredientConsumptionOverrides)
+      ? Object.fromEntries(
+          Object.entries(record.ingredientConsumptionOverrides)
+            .filter(([key, itemValue]) => typeof key === 'string' && itemValue && typeof itemValue === 'object' && !Array.isArray(itemValue))
+            .map(([key, itemValue]) => [
+              key,
+              Object.fromEntries(
+                Object.entries(itemValue).filter(
+                  ([productId, quantity]) => typeof productId === 'string' && typeof quantity === 'string',
+                ),
+              ),
+            ]),
+        )
+      : {}
   const manualOverrideIngredientIds = record.manualOverrideIngredientIds.filter((item) => typeof item === 'number')
   const manualRequestIds = Array.isArray(record.manualRequestIds)
     ? record.manualRequestIds.filter((item) => typeof item === 'number')
@@ -5158,6 +5175,7 @@ function normalizeProductionDraftPayload(value) {
     confirmedPh: record.confirmedPh,
     confirmedBrix: record.confirmedBrix,
     ingredientOverrides,
+    ingredientConsumptionOverrides,
     manualOverrideIngredientIds,
     consumptionSessionId,
     manualRequestIds,
@@ -5805,7 +5823,9 @@ function normalizeTechnicalSheetPayload(value) {
   }, 0)
   const declaredOutputQuantity = Number.parseFloat(sheet.outputQuantity) || 0
   const normalizedYieldDifferenceDestination =
-    sheet.yieldDifferenceDestination === 'WASTE' || sheet.yieldDifferenceDestination === 'BYPRODUCT'
+    sheet.yieldDifferenceDestination === 'WASTE' ||
+    sheet.yieldDifferenceDestination === 'BYPRODUCT' ||
+    sheet.yieldDifferenceDestination === 'RETURN_TO_STOCK'
       ? sheet.yieldDifferenceDestination
       : sheet.kind === 'PREPARO' && declaredOutputQuantity > 0 && totalInputQuantity > declaredOutputQuantity
         ? 'WASTE'
@@ -5906,6 +5926,23 @@ function normalizeTechnicalSheetIngredientPayload(ingredient) {
   const operationalQuantity =
     typeof ingredient.operationalQuantity === 'string' ? ingredient.operationalQuantity.trim() : ''
   const operationalUnit = typeof ingredient.operationalUnit === 'string' ? ingredient.operationalUnit.trim() : ''
+  const equivalentProducts = Array.isArray(ingredient.equivalentProducts)
+    ? ingredient.equivalentProducts
+        .filter(
+          (equivalent) =>
+            equivalent &&
+            typeof equivalent === 'object' &&
+            typeof equivalent.id === 'number' &&
+            typeof equivalent.productId === 'string' &&
+            typeof equivalent.productLabel === 'string',
+        )
+        .map((equivalent) => ({
+          id: equivalent.id,
+          productId: equivalent.productId,
+          productLabel: equivalent.productLabel,
+          isActive: equivalent.isActive !== false,
+        }))
+    : []
 
   return {
     ...ingredient,
@@ -5916,6 +5953,7 @@ function normalizeTechnicalSheetIngredientPayload(ingredient) {
     operationalUnit,
     manipulatedQuantity: typeof ingredient.manipulatedQuantity === 'string' ? ingredient.manipulatedQuantity.trim() : '',
     yieldQuantity: ingredient.yieldQuantity.trim(),
+    equivalentProducts,
     isActive: ingredient.isActive !== false,
   }
 }

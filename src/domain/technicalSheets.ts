@@ -351,7 +351,10 @@ function calculateTechnicalSheetByproductBaseYieldForCost(
   sourceSheet: TechnicalSheetRecord,
   byproductSheet: TechnicalSheetRecord | null,
 ) {
-  if (sourceSheet.kind !== 'PREPARO' || sourceSheet.yieldDifferenceDestination !== 'BYPRODUCT') {
+  if (
+    sourceSheet.kind !== 'PREPARO' ||
+    (sourceSheet.yieldDifferenceDestination !== 'BYPRODUCT' && sourceSheet.yieldDifferenceDestination !== 'RETURN_TO_STOCK')
+  ) {
     return 0
   }
 
@@ -448,7 +451,7 @@ export function calculateTechnicalSheetCost(
       ? technicalSheets.find(
           (item) =>
             item.kind === 'PREPARO' &&
-            item.yieldDifferenceDestination === 'BYPRODUCT' &&
+            (item.yieldDifferenceDestination === 'BYPRODUCT' || item.yieldDifferenceDestination === 'RETURN_TO_STOCK') &&
             item.yieldDifferenceByproductTechnicalSheetId === sheet.id,
         ) ?? null
       : null
@@ -473,7 +476,10 @@ export function calculateTechnicalSheetCost(
     ? applySharedPreparationSaleFee(totalCost, sheet, costContext)
     : totalCost
 
-  if (sheet.kind === 'PREPARO' && sheet.yieldDifferenceDestination === 'BYPRODUCT') {
+  if (
+    sheet.kind === 'PREPARO' &&
+    (sheet.yieldDifferenceDestination === 'BYPRODUCT' || sheet.yieldDifferenceDestination === 'RETURN_TO_STOCK')
+  ) {
     const byproductSheet =
       typeof sheet.yieldDifferenceByproductTechnicalSheetId === 'number'
         ? technicalSheets.find((item) => item.id === sheet.yieldDifferenceByproductTechnicalSheetId) ?? null

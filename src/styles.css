@@ -3242,6 +3242,22 @@ h3 {
   line-height: 1;
 }
 
+.production-consumption-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 0.5rem;
+  min-width: 280px;
+}
+
+.compact-field {
+  gap: 0.25rem;
+}
+
+.compact-field small {
+  color: var(--muted);
+  font-size: 0.72rem;
+}
+
 .save-product-row {
   display: flex;
   justify-content: space-between;

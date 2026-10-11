@@ -50,6 +50,10 @@ import {
 } from './components/AppNavigationShell'
 import { NormalizedTextInput, NormalizedTextarea } from './components/NormalizedTextField'
 import {
+  IngredientEquivalentsEditor,
+  ProductionIngredientConsumptionField,
+} from './components/ProductionIngredientConsumptionFields'
+import {
   renderPurchaseDemandColumnHeader,
   renderReceiveReviewColumnHeader,
   renderRequisitionDraftColumnHeader,
@@ -324,6 +328,7 @@ import type {
   TechnicalSheetTotals,
   SharedPreparationSaleFeeInfo,
   RecipePanelTab,
+  ProductionIngredientConsumptionAllocation,
   RecipePanelIngredientMetrics,
   RecipePanelServiceItemMetrics,
   RecipePanelComputedData,
@@ -2051,6 +2056,7 @@ const emptyTechnicalSheetIngredient = (): TechnicalSheetIngredient => ({
   operationalUnit: '',
   manipulatedQuantity: '',
   yieldQuantity: '',
+  equivalentProducts: [],
   isActive: true,
 })
 
@@ -2425,7 +2431,10 @@ function getTechnicalSheetYieldDifferenceQuantity(referenceQuantity: number, tot
 }
 
 function getTechnicalSheetByproductBaseYield(sheet: TechnicalSheetRecord, byproductSheet: TechnicalSheetRecord | null = null) {
-  if (sheet.kind !== 'PREPARO' || sheet.yieldDifferenceDestination !== 'BYPRODUCT') {
+  if (
+    sheet.kind !== 'PREPARO' ||
+    (sheet.yieldDifferenceDestination !== 'BYPRODUCT' && sheet.yieldDifferenceDestination !== 'RETURN_TO_STOCK')
+  ) {
     return 0
   }
 
@@ -2454,7 +2463,7 @@ function isTechnicalSheetGeneratedByproduct(
   return technicalSheets.some(
     (sheet) =>
       sheet.kind === 'PREPARO' &&
-      sheet.yieldDifferenceDestination === 'BYPRODUCT' &&
+      (sheet.yieldDifferenceDestination === 'BYPRODUCT' || sheet.yieldDifferenceDestination === 'RETURN_TO_STOCK') &&
       sheet.yieldDifferenceByproductTechnicalSheetId === sheetId,
   )
 }
@@ -3782,7 +3791,7 @@ export default function App() {
         (sheet) =>
           sheet.kind === 'PREPARO' &&
           sheet.isActive &&
-          sheet.yieldDifferenceDestination === 'BYPRODUCT' &&
+          (sheet.yieldDifferenceDestination === 'BYPRODUCT' || sheet.yieldDifferenceDestination === 'RETURN_TO_STOCK') &&
           sheet.yieldDifferenceByproductTechnicalSheetId === byproductSheetId &&
           isTechnicalSheetVisibleForCompany(sheet, center.companyId) &&
           doesCenterProduceTechnicalSheet(center, sheet) &&
@@ -4101,7 +4110,7 @@ export default function App() {
       }
 
       const byproductTechnicalSheetId =
-        targetSheet.yieldDifferenceDestination === 'BYPRODUCT' &&
+        (targetSheet.yieldDifferenceDestination === 'BYPRODUCT' || targetSheet.yieldDifferenceDestination === 'RETURN_TO_STOCK') &&
         typeof targetSheet.yieldDifferenceByproductTechnicalSheetId === 'number'
           ? targetSheet.yieldDifferenceByproductTechnicalSheetId
           : null
@@ -5732,7 +5741,8 @@ export default function App() {
     if (
       !selectedProductionSheet ||
       selectedProductionSheet.kind !== 'PREPARO' ||
-      selectedProductionSheet.yieldDifferenceDestination !== 'BYPRODUCT' ||
+      (selectedProductionSheet.yieldDifferenceDestination !== 'BYPRODUCT' &&
+        selectedProductionSheet.yieldDifferenceDestination !== 'RETURN_TO_STOCK') ||
       typeof selectedProductionSheet.yieldDifferenceByproductTechnicalSheetId !== 'number'
     ) {
       return null
@@ -8437,15 +8447,70 @@ export default function App() {
         const suggestedManipulatedQuantity = manipulatedQuantity * multiplier
         const suggestedYieldQuantity = yieldQuantity * multiplier
         const overrideInput = parseDecimal(productionDraftState.ingredientOverrides[ingredient.id] ?? '')
-        const scaledInputQuantity = overrideInput ?? suggestedInputQuantity
+        const configuredConsumptionQuantities = productionDraftState.ingredientConsumptionOverrides[ingredient.id] ?? {}
+        const consumptionQuantities =
+          Object.keys(configuredConsumptionQuantities).length > 0
+            ? configuredConsumptionQuantities
+            : { [ingredient.productId]: productionDraftState.ingredientOverrides[ingredient.id] ?? formatDecimal(suggestedInputQuantity) }
+        const consumptionOptions = [
+          { productId: ingredient.productId, productLabel: ingredient.productLabel },
+          ...(ingredient.equivalentProducts ?? [])
+            .filter((equivalent) => equivalent.isActive !== false && equivalent.productId.trim() !== '')
+            .map((equivalent) => ({ productId: equivalent.productId, productLabel: equivalent.productLabel })),
+        ].filter(
+          (option, index, options) =>
+            option.productId.trim() !== '' &&
+            options.findIndex((candidate) => candidate.productId === option.productId) === index,
+        )
+        const consumptionAllocations: ProductionIngredientConsumptionAllocation[] = consumptionOptions.map((option) => {
+          const quantity = parseDecimal(consumptionQuantities[option.productId] ?? '') ?? 0
+          const optionProduct =
+            products.find((entry) => entry.id === option.productId && isProductVisibleForCompany(entry, currentCompanyId)) ?? null
+          const optionTechnicalSheet = optionProduct ? getProductLinkedTechnicalSheet(optionProduct, technicalSheets) : null
+          const optionUnitLabel = optionProduct
+            ? getProductDisplayUnitLabel(optionProduct, technicalSheets)
+            : optionTechnicalSheet
+              ? formatControlUnitShort(optionTechnicalSheet.outputUnit)
+              : unitLabel
+          return {
+            productId: option.productId,
+            productLabel: option.productLabel,
+            quantity,
+            unitLabel: optionUnitLabel,
+            technicalSheetId: optionTechnicalSheet?.id ?? null,
+            technicalSheetKind: optionTechnicalSheet?.kind ?? null,
+            stockTracked: optionTechnicalSheet
+              ? isTechnicalSheetStockTracked(optionTechnicalSheet, products)
+              : optionProduct
+                ? isProductStockTracked(optionProduct)
+                : false,
+          }
+        })
+        const allocationCost = consumptionAllocations.reduce((sum, allocation) => {
+          if (allocation.quantity <= 0) {
+            return sum
+          }
+          const allocationProduct =
+            products.find((entry) => entry.id === allocation.productId && isProductVisibleForCompany(entry, currentCompanyId)) ?? null
+          return (
+            sum +
+            (allocationProduct
+              ? calculateProductUnitCost(allocationProduct, technicalSheets, products, serviceItems, ingredientCostContext)
+              : 0) *
+              allocation.quantity
+          )
+        }, 0)
+        const allocatedInputQuantity = consumptionAllocations.reduce((sum, allocation) => sum + allocation.quantity, 0)
+        const scaledInputQuantity = allocatedInputQuantity > 0 ? allocatedInputQuantity : overrideInput ?? suggestedInputQuantity
         const scaledOperationalQuantity = suggestedOperationalQuantity
         const manipulatedRatio = suggestedInputQuantity > 0 ? suggestedManipulatedQuantity / suggestedInputQuantity : 0
         const scaledManipulatedQuantity = manipulatedRatio > 0 ? scaledInputQuantity * manipulatedRatio : suggestedManipulatedQuantity
         const yieldRatio = suggestedInputQuantity > 0 ? suggestedYieldQuantity / suggestedInputQuantity : 0
         const scaledYieldQuantity = yieldRatio > 0 ? scaledInputQuantity * yieldRatio : suggestedYieldQuantity
-        const scaledCost = costPerUnit * scaledInputQuantity
+        const scaledCost = allocationCost > 0 ? allocationCost : costPerUnit * scaledInputQuantity
+        const effectiveCostPerUnit = scaledInputQuantity > 0 ? scaledCost / scaledInputQuantity : costPerUnit
         const lossQuantity = Math.max(scaledInputQuantity - scaledYieldQuantity, 0)
-        const lossCost = costPerUnit * lossQuantity
+        const lossCost = effectiveCostPerUnit * lossQuantity
 
         return {
           id: ingredient.id,
@@ -8461,12 +8526,13 @@ export default function App() {
           scaledInputQuantity,
           scaledManipulatedQuantity,
           scaledYieldQuantity,
-          costPerUnit,
+          costPerUnit: effectiveCostPerUnit,
           scaledCost,
           lossQuantity,
           lossCost,
           alcoholPercentage,
           contributesToExecutionYield,
+          consumptionAllocations,
         } satisfies RecipePanelIngredientMetrics
       })
 
@@ -8507,7 +8573,9 @@ export default function App() {
       finalCmvPercentage,
     }
   }, [
+    currentCompanyId,
     currentCompanyCostContext,
+    isProductVisibleForCompany,
     productionBaseRecipeData,
     productionDraftState,
     products,
@@ -15824,7 +15892,8 @@ export default function App() {
     const costReferenceYield =
       technicalSheetForm.kind === 'PREPARO' &&
       yieldDifferenceQuantity > 0 &&
-      technicalSheetForm.yieldDifferenceDestination === 'BYPRODUCT'
+      (technicalSheetForm.yieldDifferenceDestination === 'BYPRODUCT' ||
+        technicalSheetForm.yieldDifferenceDestination === 'RETURN_TO_STOCK')
         ? totalInputQuantity
         : totalYield
     const costReferencePortionsYield = portionSize > 0 ? costReferenceYield / portionSize : 0
@@ -19875,6 +19944,8 @@ export default function App() {
     const nextIngredient = emptyTechnicalSheetIngredient()
     const nextGarnishIngredient = emptyTechnicalSheetIngredient()
     const nextServiceItem = emptyTechnicalSheetServiceItem()
+    const generatedItemKindLabel =
+      technicalSheetForm.yieldDifferenceDestination === 'RETURN_TO_STOCK' ? 'ITEM RETORNADO AO ESTOQUE' : 'SUBPRODUTO'
     const nextForm = {
       ...emptyTechnicalSheetForm(),
       kind: 'PREPARO' as const,
@@ -19886,7 +19957,7 @@ export default function App() {
       outputQuantity: formatDecimal(differenceQuantity),
       outputUnit: technicalSheetForm.outputUnit,
       portionSize: technicalSheetForm.portionSize,
-      preparationMode: `SUBPRODUTO GERADO NA PRODUCAO DE ${normalizeRegistrationText(technicalSheetForm.name.trim()) || 'FICHA GERADORA'}. CONFIRMAR A QUANTIDADE REAL GERADA AO FINALIZAR A PRODUCAO.`,
+      preparationMode: `${generatedItemKindLabel} GERADO NA PRODUCAO DE ${normalizeRegistrationText(technicalSheetForm.name.trim()) || 'FICHA GERADORA'}. CONFIRMAR A QUANTIDADE REAL GERADA AO FINALIZAR A PRODUCAO.`,
       shelfLifeRoom: 'A DEFINIR',
       shelfLifeRefrigerated: 'A DEFINIR',
       shelfLifeFrozen: 'A DEFINIR',
@@ -28277,7 +28348,7 @@ export default function App() {
         ? buildRecipePanelDataForSheet(targetSheet, desiredYield, desiredYield / getTechnicalSheetBaseYield(targetSheet))
         : null
     const byproductSheet =
-      targetSheet?.yieldDifferenceDestination === 'BYPRODUCT' &&
+      (targetSheet?.yieldDifferenceDestination === 'BYPRODUCT' || targetSheet?.yieldDifferenceDestination === 'RETURN_TO_STOCK') &&
       typeof targetSheet.yieldDifferenceByproductTechnicalSheetId === 'number'
         ? technicalSheets.find(
             (sheet) =>
@@ -28310,6 +28381,14 @@ export default function App() {
       confirmedBrix: '',
       ingredientOverrides: Object.fromEntries(
         (baseData?.ingredientMetrics ?? []).map((ingredient) => [ingredient.id, formatDecimal(ingredient.scaledInputQuantity)]),
+      ),
+      ingredientConsumptionOverrides: Object.fromEntries(
+        (baseData?.ingredientMetrics ?? [])
+          .map((ingredient) => {
+            const sourceIngredient = targetSheet?.ingredients.find((item) => item.id === ingredient.id) ?? null
+            return sourceIngredient ? [ingredient.id, { [sourceIngredient.productId]: formatDecimal(ingredient.scaledInputQuantity) }] : null
+          })
+          .filter((item): item is [number, Record<string, string>] => item !== null),
       ),
       manualOverrideIngredientIds: [],
       manualRequestIds,
@@ -29700,61 +29779,88 @@ export default function App() {
         closedByUserName: currentAppUser?.fullName || 'Administrador do sistema',
       }
 
+      let consumptionRecordOffset = 0
       const consumptionRecords: InventoryCountRecord[] = productionPreparedData.ingredientMetrics
         .filter((ingredient) => ingredient.productId.trim() !== '' && ingredient.scaledInputQuantity > 0)
-        .flatMap((ingredient, index) => {
-          const linkedTechnicalSheet =
-            technicalSheets.find(
-              (entry) => entry.productId === ingredient.productId && entry.companyId === selectedProductionSheet.companyId,
-            ) ?? null
-          const linkedProduct =
-            products.find(
-              (entry) => entry.id === ingredient.productId && entry.companyId === selectedProductionSheet.companyId,
-            ) ?? null
+        .flatMap((ingredient) => {
+          const allocations =
+            ingredient.consumptionAllocations && ingredient.consumptionAllocations.length > 0
+              ? ingredient.consumptionAllocations
+              : [
+                  {
+                    productId: ingredient.productId,
+                    productLabel: ingredient.label,
+                    quantity: ingredient.scaledInputQuantity,
+                    unitLabel: ingredient.unitLabel,
+                    technicalSheetId: null,
+                    technicalSheetKind: null,
+                    stockTracked: true,
+                  } satisfies ProductionIngredientConsumptionAllocation,
+                ]
 
-          if (linkedProduct && !isProductStockTracked(linkedProduct)) {
-            return []
-          }
+          return allocations
+            .filter((allocation) => allocation.productId.trim() !== '' && allocation.quantity > 0 && allocation.stockTracked)
+            .flatMap((allocation) => {
+              const linkedProduct =
+                products.find((entry) => entry.id === allocation.productId && isProductVisibleForCompany(entry, currentCompanyId)) ?? null
+              const linkedTechnicalSheet =
+                allocation.technicalSheetId !== null
+                  ? technicalSheets.find((entry) => entry.id === allocation.technicalSheetId) ?? null
+                  : linkedProduct
+                    ? getProductLinkedTechnicalSheet(linkedProduct, technicalSheets)
+                    : null
 
-          if (linkedTechnicalSheet && !isTechnicalSheetStockTracked(linkedTechnicalSheet, products)) {
-            return []
-          }
+              if (!linkedProduct && !linkedTechnicalSheet) {
+                return []
+              }
 
-          return [{
-            id: movementSessionId + index + 1,
-            inventoryId: null,
-            sessionId: movementSessionId,
-            companyId: currentCompanyId,
-            stockCenterId: selectedProductionCenter.id,
-            countedAt,
-            storageLocation: 'SAIDA PARA PRODUCAO',
-            technicalSheetId: linkedTechnicalSheet?.id ?? null,
-            productId: linkedTechnicalSheet ? '' : linkedProduct?.id ?? '',
-            serviceItemId: '',
-            packageId: null,
-            technicalSheetName: ingredient.label,
-            technicalSheetKind: linkedTechnicalSheet ? 'PREPARO' : 'PRODUTO',
-            recipientItemId: '',
-            recipientLabel: `PRODUCAO INICIADA • ${selectedProductionSheet.name}`,
-            closedItemsQuantity: formatDecimal(-ingredient.scaledInputQuantity),
-            hasOpenItems: false,
-            openItemsGrossWeight: '',
-            openItemsContainerQuantity: '',
-            openItemsNetQuantity: '',
-            totalCountedQuantity: formatDecimal(-ingredient.scaledInputQuantity),
-            totalCountedUnit:
-              linkedTechnicalSheet?.outputUnit === 'GRAM'
-                ? 'GRAM'
-                : linkedTechnicalSheet?.outputUnit === 'UNIT'
-                  ? 'UNIT'
-                  : linkedProduct?.controlUnit === 'GRAM'
-                    ? 'GRAM'
-                    : linkedProduct?.controlUnit === 'UNIT'
-                      ? 'UNIT'
-                      : 'MILLILITER',
-            createdByUserId: currentAppUser?.id ?? null,
-            createdByUserName: currentAppUser?.fullName ?? 'Administrador do sistema',
-          } satisfies InventoryCountRecord]
+              if (linkedProduct && !isProductStockTracked(linkedProduct)) {
+                return []
+              }
+
+              if (linkedTechnicalSheet && !isTechnicalSheetStockTracked(linkedTechnicalSheet, products)) {
+                return []
+              }
+
+              consumptionRecordOffset += 1
+              return [
+                {
+                  id: movementSessionId + consumptionRecordOffset,
+                  inventoryId: null,
+                  sessionId: movementSessionId,
+                  companyId: currentCompanyId,
+                  stockCenterId: selectedProductionCenter.id,
+                  countedAt,
+                  storageLocation: 'SAIDA PARA PRODUCAO',
+                  technicalSheetId: linkedTechnicalSheet?.id ?? null,
+                  productId: linkedTechnicalSheet ? '' : linkedProduct?.id ?? '',
+                  serviceItemId: '',
+                  packageId: null,
+                  technicalSheetName: allocation.productLabel,
+                  technicalSheetKind: linkedTechnicalSheet ? 'PREPARO' : 'PRODUTO',
+                  recipientItemId: '',
+                  recipientLabel: `PRODUCAO INICIADA • ${selectedProductionSheet.name}`,
+                  closedItemsQuantity: formatDecimal(-allocation.quantity),
+                  hasOpenItems: false,
+                  openItemsGrossWeight: '',
+                  openItemsContainerQuantity: '',
+                  openItemsNetQuantity: '',
+                  totalCountedQuantity: formatDecimal(-allocation.quantity),
+                  totalCountedUnit:
+                    linkedTechnicalSheet?.outputUnit === 'GRAM'
+                      ? 'GRAM'
+                      : linkedTechnicalSheet?.outputUnit === 'UNIT'
+                        ? 'UNIT'
+                        : linkedProduct?.controlUnit === 'GRAM'
+                          ? 'GRAM'
+                          : linkedProduct?.controlUnit === 'UNIT'
+                            ? 'UNIT'
+                            : 'MILLILITER',
+                  createdByUserId: currentAppUser?.id ?? null,
+                  createdByUserName: currentAppUser?.fullName ?? 'Administrador do sistema',
+                } satisfies InventoryCountRecord,
+              ]
+            })
         })
 
       if (consumptionRecords.length > 0) {
@@ -30024,9 +30130,16 @@ export default function App() {
           : null
 
       const nextOverrides = { ...current.ingredientOverrides }
+      const nextConsumptionOverrides = { ...current.ingredientConsumptionOverrides }
       ;(baseData?.ingredientMetrics ?? []).forEach((ingredient) => {
         if (!current.manualOverrideIngredientIds.includes(ingredient.id)) {
           nextOverrides[ingredient.id] = formatDecimal(ingredient.scaledInputQuantity)
+          const sourceIngredient = targetSheet?.ingredients.find((item) => item.id === ingredient.id) ?? null
+          if (sourceIngredient) {
+            nextConsumptionOverrides[ingredient.id] = {
+              [sourceIngredient.productId]: formatDecimal(ingredient.scaledInputQuantity),
+            }
+          }
         }
       })
 
@@ -30034,6 +30147,39 @@ export default function App() {
         ...current,
         desiredYield: value,
         ingredientOverrides: nextOverrides,
+        ingredientConsumptionOverrides: nextConsumptionOverrides,
+      }
+    })
+  }
+
+  function updateProductionIngredientConsumption(ingredientId: number, productId: string, value: string) {
+    setProductionDraftState((current) => {
+      if (!current) {
+        return current
+      }
+
+      const nextIngredientConsumption = {
+        ...(current.ingredientConsumptionOverrides[ingredientId] ?? {}),
+        [productId]: value,
+      }
+      const totalInputQuantity = Object.values(nextIngredientConsumption).reduce(
+        (sum, quantity) => sum + (parseDecimal(quantity) ?? 0),
+        0,
+      )
+
+      return {
+        ...current,
+        ingredientConsumptionOverrides: {
+          ...current.ingredientConsumptionOverrides,
+          [ingredientId]: nextIngredientConsumption,
+        },
+        ingredientOverrides: {
+          ...current.ingredientOverrides,
+          [ingredientId]: totalInputQuantity > 0 ? formatDecimal(totalInputQuantity) : '',
+        },
+        manualOverrideIngredientIds: current.manualOverrideIngredientIds.includes(ingredientId)
+          ? current.manualOverrideIngredientIds
+          : [...current.manualOverrideIngredientIds, ingredientId],
       }
     })
   }
@@ -30075,10 +30221,12 @@ export default function App() {
 
     const byproductYield =
       selectedProductionByproductSheet === null ? 0 : (parseDecimal(productionDraftState.byproductYield) ?? 0)
+    const generatedOutputLabel =
+      selectedProductionSheet.yieldDifferenceDestination === 'RETURN_TO_STOCK' ? 'Item retornado ao estoque' : 'Subproduto'
     if (selectedProductionByproductSheet && byproductYield <= 0) {
       setSaveFeedback({
         status: 'error',
-        title: 'Subproduto nao informado',
+        title: `${generatedOutputLabel} nao informado`,
         message: `Informe a quantidade real gerada de ${selectedProductionByproductSheet.name} antes de confirmar a producao.`,
       })
       return
@@ -30087,8 +30235,8 @@ export default function App() {
     if (selectedProductionByproductSheet && !isTechnicalSheetStockTracked(selectedProductionByproductSheet, products)) {
       setSaveFeedback({
         status: 'error',
-        title: 'Subproduto fora do estoque',
-        message: `${selectedProductionByproductSheet.name} esta configurado para nao controlar estoque. Ajuste a ficha antes de registrar a producao com subproduto.`,
+        title: `${generatedOutputLabel} fora do estoque`,
+        message: `${selectedProductionByproductSheet.name} esta configurado para nao controlar estoque. Ajuste a ficha antes de registrar a producao.`,
       })
       return
     }
@@ -30170,7 +30318,10 @@ export default function App() {
         technicalSheetName: selectedProductionByproductSheet.name,
         technicalSheetKind: 'PREPARO',
         recipientItemId: '',
-        recipientLabel: `SUBPRODUTO DE PRODUCAO • ${selectedProductionSheet.name}`,
+        recipientLabel:
+          selectedProductionSheet.yieldDifferenceDestination === 'RETURN_TO_STOCK'
+            ? `RETORNO AO ESTOQUE • ${selectedProductionSheet.name}`
+            : `SUBPRODUTO DE PRODUCAO • ${selectedProductionSheet.name}`,
         closedItemsQuantity: formatDecimal(byproductYield),
         hasOpenItems: false,
         openItemsGrossWeight: '',
@@ -30216,10 +30367,10 @@ export default function App() {
       message:
         productionMovementResult === 'queued'
           ? selectedProductionByproductSheet
-            ? 'O centro produtor esta com inventario aberto. A producao e o subproduto foram registrados como pendentes e serao somados ao estoque quando esse inventario for finalizado.'
+            ? 'O centro produtor esta com inventario aberto. A producao e o item gerado foram registrados como pendentes e serao somados ao estoque quando esse inventario for finalizado.'
             : 'O centro produtor esta com inventario aberto. A producao foi registrada como pendente e sera somada ao estoque quando esse inventario for finalizado.'
           : selectedProductionByproductSheet
-            ? 'O pre-preparo e o subproduto foram registrados e somados ao estoque do centro de estoque produtor.'
+            ? 'O pre-preparo e o item gerado foram registrados e somados ao estoque do centro de estoque produtor.'
             : 'O pre-preparo foi registrado e somado ao estoque do centro de estoque produtor.',
     })
   }
@@ -34892,12 +35043,13 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
 
     if (field === 'yieldDifferenceDestination') {
       const destination = value as TechnicalSheetYieldDifferenceDestination
+      const keepsLinkedOutput = destination === 'BYPRODUCT' || destination === 'RETURN_TO_STOCK'
       setTechnicalSheetForm((current) => ({
         ...current,
         yieldDifferenceDestination: destination,
-        yieldDifferenceByproductName: destination === 'BYPRODUCT' ? current.yieldDifferenceByproductName : '',
+        yieldDifferenceByproductName: keepsLinkedOutput ? current.yieldDifferenceByproductName : '',
         yieldDifferenceByproductTechnicalSheetId:
-          destination === 'BYPRODUCT' ? current.yieldDifferenceByproductTechnicalSheetId : null,
+          keepsLinkedOutput ? current.yieldDifferenceByproductTechnicalSheetId : null,
       }))
       return
     }
@@ -34954,7 +35106,11 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
     const linkedSheet = typeof sheetId === 'number' ? technicalSheets.find((sheet) => sheet.id === sheetId) ?? null : null
     setTechnicalSheetForm((current) => ({
       ...current,
-      yieldDifferenceDestination: linkedSheet ? 'BYPRODUCT' : current.yieldDifferenceDestination,
+      yieldDifferenceDestination: linkedSheet
+        ? current.yieldDifferenceDestination === 'RETURN_TO_STOCK'
+          ? 'RETURN_TO_STOCK'
+          : 'BYPRODUCT'
+        : current.yieldDifferenceDestination,
       yieldDifferenceByproductName: linkedSheet ? linkedSheet.name : current.yieldDifferenceByproductName,
       yieldDifferenceByproductTechnicalSheetId: linkedSheet ? linkedSheet.id : null,
     }))
@@ -35181,6 +35337,66 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
     )
   }
 
+  function addTechnicalSheetIngredientEquivalent(ingredientId: number) {
+    setEditingTechnicalSheetIngredientId(ingredientId)
+    setTechnicalSheetIngredients((current) =>
+      current.map((ingredient) =>
+        ingredient.id === ingredientId
+          ? {
+              ...ingredient,
+              equivalentProducts: [
+                ...(ingredient.equivalentProducts ?? []),
+                { id: Date.now(), productId: '', productLabel: '', isActive: true },
+              ],
+            }
+          : ingredient,
+      ),
+    )
+  }
+
+  function updateTechnicalSheetIngredientEquivalentProductLabel(
+    ingredientId: number,
+    equivalentId: number,
+    value: string,
+  ) {
+    const normalizedValue = normalizeRegistrationText(value)
+    const matchedProduct = technicalSheetProductOptions.find((item) => item.name === normalizedValue) ?? null
+
+    setEditingTechnicalSheetIngredientId(ingredientId)
+    setTechnicalSheetIngredients((current) =>
+      current.map((ingredient) =>
+        ingredient.id === ingredientId
+          ? {
+              ...ingredient,
+              equivalentProducts: (ingredient.equivalentProducts ?? []).map((equivalent) =>
+                equivalent.id === equivalentId
+                  ? {
+                      ...equivalent,
+                      productLabel: normalizedValue,
+                      productId: matchedProduct?.id ?? '',
+                    }
+                  : equivalent,
+              ),
+            }
+          : ingredient,
+      ),
+    )
+  }
+
+  function deleteTechnicalSheetIngredientEquivalent(ingredientId: number, equivalentId: number) {
+    setEditingTechnicalSheetIngredientId(ingredientId)
+    setTechnicalSheetIngredients((current) =>
+      current.map((ingredient) =>
+        ingredient.id === ingredientId
+          ? {
+              ...ingredient,
+              equivalentProducts: (ingredient.equivalentProducts ?? []).filter((equivalent) => equivalent.id !== equivalentId),
+            }
+          : ingredient,
+      ),
+    )
+  }
+
   function updateTechnicalSheetGarnishIngredient(
     ingredientId: number,
     field: keyof TechnicalSheetIngredient,
@@ -35267,7 +35483,10 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
       ingredient.quantity.trim() !== '' ||
       hasTechnicalSheetIngredientOperationalConversionDraft(ingredient) ||
       ingredient.manipulatedQuantity.trim() !== '' ||
-      ingredient.yieldQuantity.trim() !== ''
+      ingredient.yieldQuantity.trim() !== '' ||
+      (ingredient.equivalentProducts ?? []).some(
+        (equivalent) => equivalent.productId.trim() !== '' || equivalent.productLabel.trim() !== '',
+      )
     )
   }
 
@@ -35596,6 +35815,20 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
         operationalUnit: normalizeRegistrationText(ingredient.operationalUnit.trim()),
         manipulatedQuantity: ingredient.manipulatedQuantity.trim(),
         yieldQuantity: ingredient.yieldQuantity.trim(),
+        equivalentProducts: (ingredient.equivalentProducts ?? [])
+          .map((equivalent) => ({
+            ...equivalent,
+            productId: equivalent.productId,
+            productLabel: equivalent.productLabel,
+            isActive: equivalent.isActive !== false,
+          }))
+          .filter(
+            (equivalent) =>
+              equivalent.isActive &&
+              equivalent.productId.trim() !== '' &&
+              equivalent.productLabel.trim() !== '' &&
+              equivalent.productId !== ingredient.productId,
+          ),
       }))
       .filter(
         (ingredient) =>
@@ -35616,6 +35849,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
               operationalUnit: normalizeRegistrationText(ingredient.operationalUnit.trim()),
               manipulatedQuantity: ingredient.manipulatedQuantity.trim(),
               yieldQuantity: ingredient.yieldQuantity.trim(),
+              equivalentProducts: [],
             }))
             .filter(
               (ingredient) =>
@@ -35643,7 +35877,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
         ? technicalSheets.filter(
             (sheet) =>
               sheet.kind === 'PREPARO' &&
-              sheet.yieldDifferenceDestination === 'BYPRODUCT' &&
+              (sheet.yieldDifferenceDestination === 'BYPRODUCT' || sheet.yieldDifferenceDestination === 'RETURN_TO_STOCK') &&
               sheet.yieldDifferenceByproductTechnicalSheetId === editingTechnicalSheetId &&
               isTechnicalSheetVisibleForCompany(sheet, currentCompanyId),
           )
@@ -35672,6 +35906,18 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
         return message ? `${ingredient.productLabel}: ${message}` : ''
       })
       .filter(Boolean)
+    const invalidEquivalentProducts = technicalSheetIngredients
+      .filter((ingredient) => ingredient.isActive)
+      .flatMap((ingredient) =>
+        (ingredient.equivalentProducts ?? [])
+          .filter(
+            (equivalent) =>
+              equivalent.isActive !== false &&
+              equivalent.productLabel.trim() !== '' &&
+              equivalent.productId.trim() === '',
+          )
+          .map((equivalent) => `${ingredient.productLabel || 'Insumo sem nome'}: equivalente ${equivalent.productLabel} nao encontrado`),
+      )
     const normalizedProductionCenters =
       isGeneratedByproductTechnicalSheetDraft
         ? []
@@ -35747,10 +35993,13 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
       errors.push('adicione ao menos 1 produto na ficha')
     }
     if (isGeneratedByproductTechnicalSheetDraft && normalizedIngredients.length > 0) {
-      errors.push('subproduto gerado por outra ficha nao deve ter composicao propria; a baixa dos insumos ocorre na ficha geradora')
+      errors.push('item gerado por outra ficha nao deve ter composicao propria; a baixa dos insumos ocorre na ficha geradora')
     }
     if (invalidCompositionIngredients.length > 0) {
       errors.push(`composicao invalida: ${invalidCompositionIngredients.join('; ')}`)
+    }
+    if (invalidEquivalentProducts.length > 0) {
+      errors.push(`equivalentes invalidos: ${invalidEquivalentProducts.join('; ')}`)
     }
     if (
       [...technicalSheetIngredients, ...(technicalSheetForm.kind === 'EXECUCAO' ? technicalSheetGarnishIngredients : [])].some(
@@ -35778,26 +36027,30 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
         errors.push('classifique a diferenca negativa de rendimento')
       }
       if (
-        technicalSheetForm.yieldDifferenceDestination === 'BYPRODUCT' &&
+        (technicalSheetForm.yieldDifferenceDestination === 'BYPRODUCT' ||
+          technicalSheetForm.yieldDifferenceDestination === 'RETURN_TO_STOCK') &&
         !normalizeRegistrationText(technicalSheetForm.yieldDifferenceByproductName.trim())
       ) {
-        errors.push('informe o nome do subproduto')
+        errors.push('informe o nome do item gerado')
       }
-      if (technicalSheetForm.yieldDifferenceDestination === 'BYPRODUCT') {
+      if (
+        technicalSheetForm.yieldDifferenceDestination === 'BYPRODUCT' ||
+        technicalSheetForm.yieldDifferenceDestination === 'RETURN_TO_STOCK'
+      ) {
         const linkedByproductSheet =
           typeof technicalSheetForm.yieldDifferenceByproductTechnicalSheetId === 'number'
             ? technicalSheets.find((sheet) => sheet.id === technicalSheetForm.yieldDifferenceByproductTechnicalSheetId) ?? null
             : null
         if (typeof technicalSheetForm.yieldDifferenceByproductTechnicalSheetId !== 'number') {
-          errors.push('vincule uma ficha existente ou crie a ficha tecnica do subproduto')
+          errors.push('vincule uma ficha existente ou crie a ficha tecnica do item gerado')
         } else if (technicalSheetForm.yieldDifferenceByproductTechnicalSheetId === editingTechnicalSheetId) {
-          errors.push('a ficha nao pode ser vinculada como subproduto dela mesma')
+          errors.push('a ficha nao pode ser vinculada como item gerado dela mesma')
         } else if (
           !linkedByproductSheet ||
           linkedByproductSheet.kind !== 'PREPARO' ||
           !isTechnicalSheetVisibleForCompany(linkedByproductSheet, currentCompanyId)
         ) {
-          errors.push('a ficha tecnica vinculada ao subproduto precisa ser um pre-preparo visivel para a empresa atual')
+          errors.push('a ficha tecnica vinculada ao item gerado precisa ser um pre-preparo visivel para a empresa atual')
         }
       }
     }
@@ -36290,10 +36543,15 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
 
     if (pendingNestedTechnicalSheetKind === technicalSheetForm.kind) {
       if (pendingNestedTechnicalSheetPurpose === 'subproduct') {
+        const parentDraft = technicalSheetDraftStack.length > 0 ? technicalSheetDraftStack[technicalSheetDraftStack.length - 1] : null
+        const parentYieldDifferenceDestination =
+          parentDraft?.form.yieldDifferenceDestination === 'RETURN_TO_STOCK'
+            ? 'RETURN_TO_STOCK'
+            : 'BYPRODUCT'
         restoreTopTechnicalSheetDraft()
         setTechnicalSheetForm((current) => ({
           ...current,
-          yieldDifferenceDestination: 'BYPRODUCT',
+          yieldDifferenceDestination: parentYieldDifferenceDestination,
           yieldDifferenceByproductName: normalizedName,
           yieldDifferenceByproductTechnicalSheetId: technicalSheetId,
         }))
@@ -36311,7 +36569,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
         summary: `Ficha tecnica ${normalizedName} foi cadastrada em fluxo cascata.`,
         impactSummary:
           pendingNestedTechnicalSheetPurpose === 'subproduct'
-            ? 'Ficha criada como subproduto vinculado a outro pre-preparo.'
+            ? 'Ficha criada como item gerado vinculado a outro pre-preparo.'
             : 'Ficha criada como dependencia de outra ficha tecnica.',
         severity: 'HIGH',
         result: 'SUCCESS',
@@ -36329,7 +36587,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
         message:
           pendingNestedTechnicalSheetPurpose === 'subproduct'
             ? postSaveWarning ??
-              'A ficha tecnica do subproduto foi cadastrada e vinculada ao pre-preparo anterior.'
+              'A ficha tecnica do item gerado foi cadastrada e vinculada ao pre-preparo anterior.'
             : postSaveWarning ??
               'A ficha tecnica foi cadastrada e vinculada ao insumo em edicao na ficha anterior.',
       })
@@ -39645,7 +39903,9 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                       ? 'Desperdicio'
                       : sheet.yieldDifferenceDestination === 'BYPRODUCT'
                         ? `Subproduto${sheet.yieldDifferenceByproductName ? `: ${sheet.yieldDifferenceByproductName}` : ''}`
-                      : '-'}
+                        : sheet.yieldDifferenceDestination === 'RETURN_TO_STOCK'
+                          ? `Retorno ao estoque${sheet.yieldDifferenceByproductName ? `: ${sheet.yieldDifferenceByproductName}` : ''}`
+                          : '-'}
                   </strong>
                 </article>
                 <article className="receituario-metric-card">
@@ -39998,6 +40258,8 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
               ? 'Desperdicio'
               : sheet.yieldDifferenceDestination === 'BYPRODUCT'
                 ? `Subproduto${sheet.yieldDifferenceByproductName ? `: ${sheet.yieldDifferenceByproductName}` : ''}`
+                : sheet.yieldDifferenceDestination === 'RETURN_TO_STOCK'
+                  ? `Retorno ao estoque${sheet.yieldDifferenceByproductName ? `: ${sheet.yieldDifferenceByproductName}` : ''}`
                 : '-',
           ])
         }
@@ -42881,6 +43143,16 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                   })()}
                 </strong>
               </div>
+              <IngredientEquivalentsEditor
+                isVisible={isProductionTechnicalSheetKind(technicalSheetForm.kind)}
+                ingredient={technicalSheetEditingIngredient}
+                productListId={technicalSheetProductListId}
+                onAdd={() => addTechnicalSheetIngredientEquivalent(technicalSheetEditingIngredient.id)}
+                onChange={(equivalentId, value) =>
+                  updateTechnicalSheetIngredientEquivalentProductLabel(technicalSheetEditingIngredient.id, equivalentId, value)
+                }
+                onDelete={(equivalentId) => deleteTechnicalSheetIngredientEquivalent(technicalSheetEditingIngredient.id, equivalentId)}
+              />
               <label className="field">
                 <span>Qtd. op.</span>
                 <input
@@ -43314,14 +43586,17 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
               <option value="">Selecione</option>
               <option value="WASTE">Desperdicio</option>
               <option value="BYPRODUCT">Subproduto</option>
+              <option value="RETURN_TO_STOCK">Retornar ao estoque</option>
             </select>
           </label>
-          {technicalSheetForm.yieldDifferenceDestination === 'BYPRODUCT' ? (
+          {technicalSheetForm.yieldDifferenceDestination === 'BYPRODUCT' ||
+          technicalSheetForm.yieldDifferenceDestination === 'RETURN_TO_STOCK' ? (
             (() => {
               const linkedByproductSheet =
                 typeof technicalSheetForm.yieldDifferenceByproductTechnicalSheetId === 'number'
                   ? technicalSheets.find((sheet) => sheet.id === technicalSheetForm.yieldDifferenceByproductTechnicalSheetId) ?? null
                   : null
+              const isReturnToStock = technicalSheetForm.yieldDifferenceDestination === 'RETURN_TO_STOCK'
               const byproductOptions = technicalSheets
                 .filter(
                   (sheet) =>
@@ -43335,12 +43610,12 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
               return (
                 <>
                   <label className="field field-wide">
-                    <span>Nome do subproduto</span>
+                    <span>{isReturnToStock ? 'Nome do item retornado' : 'Nome do subproduto'}</span>
                     <NormalizedTextInput
                       value={technicalSheetForm.yieldDifferenceByproductName}
                       onChange={(value) => updateTechnicalSheetForm('yieldDifferenceByproductName', value)}
                       commitMode="blur"
-                      placeholder="EX.: OLEO AROMATIZADO RESIDUAL"
+                      placeholder={isReturnToStock ? 'EX.: LIMAO SICILIANO DESCASCADO PARA SUMO' : 'EX.: OLEO AROMATIZADO RESIDUAL'}
                     />
                   </label>
                   <label className="field field-wide">
@@ -43368,7 +43643,11 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                         ? `${linkedByproductSheet.name} • FT-${linkedByproductSheet.id}`
                         : 'Nao vinculada'}
                     </strong>
-                    <small>O subproduto entra no estoque ao finalizar a producao da ficha geradora.</small>
+                    <small>
+                      {isReturnToStock
+                        ? 'O item retornado entra no estoque ao finalizar a producao da ficha geradora.'
+                        : 'O subproduto entra no estoque ao finalizar a producao da ficha geradora.'}
+                    </small>
                   </div>
                   <div className="field">
                     <span>Acoes</span>
@@ -43378,7 +43657,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                       onClick={openSubproductTechnicalSheetFromCurrentPreparo}
                       disabled={technicalSheetForm.yieldDifferenceByproductName.trim() === ''}
                     >
-                      Criar ficha tecnica do subproduto
+                      {isReturnToStock ? 'Criar ficha tecnica do item retornado' : 'Criar ficha tecnica do subproduto'}
                     </button>
                   </div>
                 </>
@@ -44704,6 +44983,18 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                         })()}
                       </strong>
                     </div>
+                    <IngredientEquivalentsEditor
+                      isVisible={isProductionTechnicalSheetKind(technicalSheetForm.kind)}
+                      ingredient={technicalSheetEditingIngredient}
+                      productListId={technicalSheetProductListId}
+                      onAdd={() => addTechnicalSheetIngredientEquivalent(technicalSheetEditingIngredient.id)}
+                      onChange={(equivalentId, value) =>
+                        updateTechnicalSheetIngredientEquivalentProductLabel(technicalSheetEditingIngredient.id, equivalentId, value)
+                      }
+                      onDelete={(equivalentId) =>
+                        deleteTechnicalSheetIngredientEquivalent(technicalSheetEditingIngredient.id, equivalentId)
+                      }
+                    />
                     <label className="field">
                       <span>Qtd. op.</span>
                       <input
@@ -53007,11 +53298,19 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
               {selectedProductionByproductSheet ? (
                 <>
                   <div className="field">
-                    <span>Subproduto gerado</span>
+                    <span>
+                      {selectedProductionSheet.yieldDifferenceDestination === 'RETURN_TO_STOCK'
+                        ? 'Item retornado ao estoque'
+                        : 'Subproduto gerado'}
+                    </span>
                     <strong>{selectedProductionByproductSheet.name}</strong>
                   </div>
                   <label className="field">
-                    <span>Quantidade do subproduto</span>
+                    <span>
+                      {selectedProductionSheet.yieldDifferenceDestination === 'RETURN_TO_STOCK'
+                        ? 'Quantidade retornada'
+                        : 'Quantidade do subproduto'}
+                    </span>
                     <input
                       value={productionDraftState.byproductYield}
                       onChange={(event) =>
@@ -53054,29 +53353,44 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                   <tbody>
                     {productionPreparedData.ingredientMetrics.map((ingredient, index) => {
                       const baseIngredient = productionBaseRecipeData.ingredientMetrics[index] ?? ingredient
+                      const sourceIngredient = selectedProductionSheet.ingredients.find((item) => item.id === ingredient.id) ?? null
+                      const hasEquivalentOptions =
+                        sourceIngredient !== null &&
+                        (sourceIngredient.equivalentProducts ?? []).some((item) => item.isActive !== false && item.productId.trim() !== '')
                       return (
                         <tr key={ingredient.id}>
                           <td className="sticky-product-cell"><strong>{ingredient.label}</strong></td>
                           <td>{formatRecipeIngredientInputQuantity(baseIngredient)}</td>
                           <td>{formatRecipeIngredientManipulatedQuantity(baseIngredient) || '-'}</td>
                           <td>
-                            <input
-                              value={productionDraftState.ingredientOverrides[ingredient.id] ?? formatDecimal(baseIngredient.scaledInputQuantity)}
-                              onChange={(event) =>
-                                setProductionDraftState((current) =>
-                                  current
-                                    ? {
-                                        ...current,
-                                        ingredientOverrides: {
-                                          ...current.ingredientOverrides,
-                                          [ingredient.id]: event.target.value,
-                                        },
-                                        manualOverrideIngredientIds: current.manualOverrideIngredientIds.includes(ingredient.id)
-                                          ? current.manualOverrideIngredientIds
-                                          : [...current.manualOverrideIngredientIds, ingredient.id],
-                                      }
-                                    : current,
-                                )
+                            <ProductionIngredientConsumptionField
+                              hasEquivalentOptions={hasEquivalentOptions}
+                              ingredient={ingredient}
+                              baseIngredient={baseIngredient}
+                              consumptionOverrides={productionDraftState.ingredientConsumptionOverrides[ingredient.id]}
+                              singleInputValue={
+                                productionDraftState.ingredientOverrides[ingredient.id] ?? formatDecimal(baseIngredient.scaledInputQuantity)
+                              }
+                              onAllocationChange={(productId, value) =>
+                                updateProductionIngredientConsumption(ingredient.id, productId, value)
+                              }
+                              onSingleInputChange={(value) =>
+                                sourceIngredient
+                                  ? updateProductionIngredientConsumption(ingredient.id, sourceIngredient.productId, value)
+                                  : setProductionDraftState((current) =>
+                                      current
+                                        ? {
+                                            ...current,
+                                            ingredientOverrides: {
+                                              ...current.ingredientOverrides,
+                                              [ingredient.id]: value,
+                                            },
+                                            manualOverrideIngredientIds: current.manualOverrideIngredientIds.includes(ingredient.id)
+                                              ? current.manualOverrideIngredientIds
+                                              : [...current.manualOverrideIngredientIds, ingredient.id],
+                                          }
+                                        : current,
+                                    )
                               }
                             />
                           </td>
@@ -58054,6 +58368,29 @@ function normalizeProductionDraftState(value: unknown): ProductionDraftState | n
       ([key, value]) => typeof key === 'string' && typeof value === 'string',
     ),
   ) as Record<number, string>
+  const normalizedConsumptionOverrides =
+    draft.ingredientConsumptionOverrides &&
+    typeof draft.ingredientConsumptionOverrides === 'object' &&
+    !Array.isArray(draft.ingredientConsumptionOverrides)
+      ? Object.fromEntries(
+          Object.entries(draft.ingredientConsumptionOverrides)
+            .filter(
+              ([key, value]) =>
+                typeof key === 'string' &&
+                value &&
+                typeof value === 'object' &&
+                !Array.isArray(value),
+            )
+            .map(([key, value]) => [
+              key,
+              Object.fromEntries(
+                Object.entries(value as Record<string, unknown>).filter(
+                  ([productId, quantity]) => typeof productId === 'string' && typeof quantity === 'string',
+                ),
+              ),
+            ]),
+        ) as Record<number, Record<string, string>>
+      : {}
 
   return {
     draftId: isSafePersistedIntId(draft.draftId) ? draft.draftId : null,
@@ -58069,6 +58406,7 @@ function normalizeProductionDraftState(value: unknown): ProductionDraftState | n
     confirmedPh: draft.confirmedPh,
     confirmedBrix: draft.confirmedBrix,
     ingredientOverrides: normalizedOverrides,
+    ingredientConsumptionOverrides: normalizedConsumptionOverrides,
     manualOverrideIngredientIds: draft.manualOverrideIngredientIds.filter(
       (item): item is number => typeof item === 'number',
     ),
@@ -59846,7 +60184,8 @@ function normalizeTechnicalSheetRecord(value: unknown): TechnicalSheetRecord | n
     (item.yieldDifferenceDestination !== undefined &&
       item.yieldDifferenceDestination !== '' &&
       item.yieldDifferenceDestination !== 'WASTE' &&
-      item.yieldDifferenceDestination !== 'BYPRODUCT') ||
+      item.yieldDifferenceDestination !== 'BYPRODUCT' &&
+      item.yieldDifferenceDestination !== 'RETURN_TO_STOCK') ||
     typeof item.preparationMode !== 'string' ||
     typeof item.shelfLifeRoom !== 'string' ||
     typeof item.shelfLifeRefrigerated !== 'string' ||
@@ -59898,7 +60237,8 @@ function normalizeTechnicalSheetRecord(value: unknown): TechnicalSheetRecord | n
         (ingredient.operationalQuantity === undefined || typeof ingredient.operationalQuantity === 'string') &&
         (ingredient.operationalUnit === undefined || typeof ingredient.operationalUnit === 'string') &&
         (ingredient.manipulatedQuantity === undefined || typeof ingredient.manipulatedQuantity === 'string') &&
-        typeof ingredient.yieldQuantity === 'string'
+        typeof ingredient.yieldQuantity === 'string' &&
+        (ingredient.equivalentProducts === undefined || Array.isArray(ingredient.equivalentProducts))
       )
     })
     .map((ingredient) => ({
@@ -59910,6 +60250,23 @@ function normalizeTechnicalSheetRecord(value: unknown): TechnicalSheetRecord | n
       operationalUnit: typeof ingredient.operationalUnit === 'string' ? ingredient.operationalUnit : '',
       manipulatedQuantity: typeof ingredient.manipulatedQuantity === 'string' ? ingredient.manipulatedQuantity : '',
       yieldQuantity: ingredient.yieldQuantity,
+      equivalentProducts: Array.isArray(ingredient.equivalentProducts)
+        ? ingredient.equivalentProducts
+            .filter(
+              (equivalent): equivalent is TechnicalSheetIngredient['equivalentProducts'][number] =>
+                Boolean(equivalent) &&
+                typeof equivalent === 'object' &&
+                typeof equivalent.id === 'number' &&
+                typeof equivalent.productId === 'string' &&
+                typeof equivalent.productLabel === 'string',
+            )
+            .map((equivalent) => ({
+              id: equivalent.id,
+              productId: equivalent.productId,
+              productLabel: equivalent.productLabel,
+              isActive: equivalent.isActive !== false,
+            }))
+        : [],
       isActive: ingredient.isActive ?? true,
     }))
   const normalizedGarnishIngredients = Array.isArray(item.garnishIngredients)
@@ -59925,7 +60282,8 @@ function normalizeTechnicalSheetRecord(value: unknown): TechnicalSheetRecord | n
             (ingredient.operationalQuantity === undefined || typeof ingredient.operationalQuantity === 'string') &&
             (ingredient.operationalUnit === undefined || typeof ingredient.operationalUnit === 'string') &&
             (ingredient.manipulatedQuantity === undefined || typeof ingredient.manipulatedQuantity === 'string') &&
-            typeof ingredient.yieldQuantity === 'string'
+            typeof ingredient.yieldQuantity === 'string' &&
+            (ingredient.equivalentProducts === undefined || Array.isArray(ingredient.equivalentProducts))
           )
         })
         .map((ingredient) => ({
@@ -59937,6 +60295,7 @@ function normalizeTechnicalSheetRecord(value: unknown): TechnicalSheetRecord | n
           operationalUnit: typeof ingredient.operationalUnit === 'string' ? ingredient.operationalUnit : '',
           manipulatedQuantity: typeof ingredient.manipulatedQuantity === 'string' ? ingredient.manipulatedQuantity : '',
           yieldQuantity: ingredient.yieldQuantity,
+          equivalentProducts: [],
           isActive: ingredient.isActive ?? true,
         }))
     : []
@@ -59950,7 +60309,9 @@ function normalizeTechnicalSheetRecord(value: unknown): TechnicalSheetRecord | n
   }, 0)
   const declaredOutputQuantity = parseDecimal(item.outputQuantity) ?? 0
   const normalizedYieldDifferenceDestination =
-    item.yieldDifferenceDestination === 'WASTE' || item.yieldDifferenceDestination === 'BYPRODUCT'
+    item.yieldDifferenceDestination === 'WASTE' ||
+    item.yieldDifferenceDestination === 'BYPRODUCT' ||
+    item.yieldDifferenceDestination === 'RETURN_TO_STOCK'
       ? item.yieldDifferenceDestination
       : normalizedKind === 'PREPARO' && declaredOutputQuantity > 0 && totalInputQuantity > declaredOutputQuantity
         ? 'WASTE'

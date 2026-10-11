@@ -659,6 +659,7 @@ model AppProductionDraftRecord {
   confirmedPh                String
   confirmedBrix              String
   ingredientOverrides        Json
+  ingredientConsumptionOverrides Json    @default("{}")
   manualOverrideIngredientIds Int[]
   consumptionSessionId       Int?
   manualRequestIds           Int[]

@@ -2179,3 +2179,29 @@ Registrar um historico resumido do que foi feito, do que falhou e do que ficou p
   - `python3 -m py_compile scripts/repair_generated_byproduct_sheets.py` passou;
   - `git diff --check` passou;
   - `npx vite build` passou, gerando `index-DNHhSv2y.js`.
+
+### Consumo equivalente e retorno ao estoque em producao
+
+- Correcao aplicada em `2026-10-11`.
+- Causa encontrada:
+  - a ficha tecnica permitia modelar subproduto gerado, mas nao diferenciava um residuo aproveitado de um item que volta ao estoque para alimentar outra producao;
+  - fichas como `CASCAS DE LIMAO SICILIANO` precisam poder gerar `LIMAO SICILIANO DESCASCADO PARA SUMO` sem tratar isso como desperdicio;
+  - fichas como `SUMO DE LIMAO SICILIANO` precisam permitir consumo real de insumos equivalentes na producao, por exemplo parte em `LIMAO SICILIANO` e parte em `LIMAO SICILIANO DESCASCADO PARA SUMO`, mantendo a ficha planejada operacionalmente simples.
+- Ajuste aplicado:
+  - adicionada classificacao `Retornar ao estoque` para diferenca negativa de rendimento de pre-preparos;
+  - o item retornado usa o mesmo vinculo de ficha tecnica gerada ja usado por subprodutos, mas com rotulo e movimentacao operacional propria;
+  - ingredientes de fichas produtivas agora podem declarar `Equivalentes permitidos na producao`;
+  - o rascunho de producao passou a persistir `ingredientConsumptionOverrides`, permitindo dividir a entrada real entre o insumo principal e equivalentes;
+  - ao iniciar a producao, a baixa de estoque passa a respeitar a alocacao real informada pelo usuario, gerando uma movimentacao para cada produto/ficha consumida;
+  - o custo da producao passa a usar a soma ponderada dos insumos efetivamente alocados;
+  - a renderizacao nova foi extraida para `src/components/ProductionIngredientConsumptionFields.tsx`, evitando inserir o JSX do controle diretamente no `App.tsx`.
+- Pendencias operacionais:
+  - depois do deploy, configurar as fichas de cascas/sumos citricos com os itens descascados retornados ao estoque;
+  - adicionar nas fichas de sumo os equivalentes operacionais correspondentes;
+  - conferir fichas de `TWIST` para manter como conversao operacional, nao como subproduto gerado.
+- Validacao local:
+  - `npx tsc -p tsconfig.app.json --noEmit --pretty false` passou;
+  - `node --check server/server.js` passou;
+  - `git diff --check` passou;
+  - `npx vite build` passou, gerando `index-B_TATkBt.js`;
+  - `npm --prefix server run prisma:generate` passou.

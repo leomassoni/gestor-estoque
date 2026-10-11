@@ -282,7 +282,7 @@ export type ProductRecord = {
   technicalSheetId?: number
 }
 
-export type TechnicalSheetYieldDifferenceDestination = '' | 'WASTE' | 'BYPRODUCT'
+export type TechnicalSheetYieldDifferenceDestination = '' | 'WASTE' | 'BYPRODUCT' | 'RETURN_TO_STOCK'
 
 export type ServiceItemRecord = {
   companyId: number
@@ -313,6 +313,14 @@ export type TechnicalSheetIngredient = {
   operationalUnit: string
   manipulatedQuantity: string
   yieldQuantity: string
+  equivalentProducts: TechnicalSheetIngredientEquivalent[]
+  isActive: boolean
+}
+
+export type TechnicalSheetIngredientEquivalent = {
+  id: number
+  productId: string
+  productLabel: string
   isActive: boolean
 }
 
@@ -1085,6 +1093,7 @@ export type ProductionDraftState = {
   confirmedPh: string
   confirmedBrix: string
   ingredientOverrides: Record<number, string>
+  ingredientConsumptionOverrides: Record<number, Record<string, string>>
   manualOverrideIngredientIds: number[]
   consumptionSessionId?: number | null
   manualRequestIds?: number[]
@@ -1485,6 +1494,16 @@ export type SharedPreparationSaleFeeInfo = {
 
 export type RecipePanelTab = 'PREPARO' | 'EXECUCAO'
 
+export type ProductionIngredientConsumptionAllocation = {
+  productId: string
+  productLabel: string
+  quantity: number
+  unitLabel: string
+  technicalSheetId: number | null
+  technicalSheetKind: TechnicalSheetKind | null
+  stockTracked: boolean
+}
+
 export type RecipePanelIngredientMetrics = {
   id: number
   productId: string
@@ -1505,6 +1524,7 @@ export type RecipePanelIngredientMetrics = {
   lossCost: number
   alcoholPercentage: number
   contributesToExecutionYield: boolean
+  consumptionAllocations?: ProductionIngredientConsumptionAllocation[]
 }
 
 export type RecipePanelServiceItemMetrics = {
