@@ -17785,17 +17785,17 @@ export default function App() {
     )
     const removedIds = Array.from(previousById.keys()).filter((id) => !currentById.has(id))
 
-    if (changedRecords.length === 0 && removedIds.length === 0) {
+    if (changedRecords.length === 0) {
+      if (removedIds.length > 0) {
+        syncedInventoryCountSessionMapRef.current = currentById
+      }
       return
     }
 
     let isCancelled = false
     ;(async () => {
       try {
-        await Promise.all([
-          ...changedRecords.map((record) => upsertInventoryCountSessionOnApi(record)),
-          ...removedIds.map((id) => deleteInventoryCountSessionOnApi(id)),
-        ])
+        await Promise.all(changedRecords.map((record) => upsertInventoryCountSessionOnApi(record)))
         if (!isCancelled) {
           syncedInventoryCountSessionMapRef.current = currentById
         }
@@ -17875,17 +17875,17 @@ export default function App() {
     const changedRecords = inventoryCounts.filter((record) => previousById.get(record.id) !== currentById.get(record.id))
     const removedIds = Array.from(previousById.keys()).filter((id) => !currentById.has(id))
 
-    if (changedRecords.length === 0 && removedIds.length === 0) {
+    if (changedRecords.length === 0) {
+      if (removedIds.length > 0) {
+        syncedInventoryCountMapRef.current = currentById
+      }
       return
     }
 
     let isCancelled = false
     ;(async () => {
       try {
-        await Promise.all([
-          ...changedRecords.map((record) => upsertInventoryCountOnApi(record)),
-          ...removedIds.map((id) => deleteInventoryCountOnApi(id)),
-        ])
+        await Promise.all(changedRecords.map((record) => upsertInventoryCountOnApi(record)))
         if (!isCancelled) {
           syncedInventoryCountMapRef.current = currentById
         }
@@ -23040,7 +23040,7 @@ export default function App() {
     setInventoryDraftBeforeEdit(null)
   }
 
-  function confirmDeleteInventoryCount() {
+  async function confirmDeleteInventoryCount() {
     if (!inventoryCountDeleteState) {
       return
     }
@@ -23057,6 +23057,17 @@ export default function App() {
       !canManageInventoryCountRecord(targetRecord, currentAppUser, canDeleteRecords, inventoryCountSessionById, inventoryRecordById)
     ) {
       setInventoryCountDeleteState(null)
+      return
+    }
+
+    try {
+      await deleteInventoryCountOnApi(inventoryCountDeleteState.id)
+    } catch (error) {
+      setSaveFeedback({
+        status: 'error',
+        title: 'Falha ao excluir contagem',
+        message: error instanceof Error ? error.message : 'Nao foi possivel excluir o registro de contagem no servidor.',
+      })
       return
     }
 
@@ -23077,7 +23088,7 @@ export default function App() {
     })
   }
 
-  function confirmDeleteInventorySession() {
+  async function confirmDeleteInventorySession() {
     if (!inventorySessionDeleteState) {
       return
     }
@@ -23093,6 +23104,17 @@ export default function App() {
 
     if (!canManageInventoryCountSessionRecord(targetSession, currentAppUser, canDeleteRecords)) {
       setInventorySessionDeleteState(null)
+      return
+    }
+
+    try {
+      await deleteInventoryCountSessionOnApi(inventorySessionDeleteState.id)
+    } catch (error) {
+      setSaveFeedback({
+        status: 'error',
+        title: 'Falha ao excluir contagem',
+        message: error instanceof Error ? error.message : 'Nao foi possivel excluir a sessao de contagem no servidor.',
+      })
       return
     }
 

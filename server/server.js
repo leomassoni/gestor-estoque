@@ -2072,7 +2072,10 @@ app.delete('/api/inventory-count-sessions/:id', async (request, response) => {
     return
   }
 
-  await prisma.appInventoryCountSessionRecord.deleteMany({ where: { id: sessionId } })
+  await prisma.$transaction(async (transaction) => {
+    await transaction.appInventoryCountRecord.deleteMany({ where: { sessionId } })
+    await transaction.appInventoryCountSessionRecord.deleteMany({ where: { id: sessionId } })
+  })
   response.json({ ok: true })
 })
 
