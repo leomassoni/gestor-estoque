@@ -5,6 +5,7 @@ const crypto = require('node:crypto')
 const express = require('express')
 const cors = require('cors')
 const { PrismaClient } = require('@prisma/client')
+const { registerProductionRoutes, saveProductionDraft, lockedTransaction, nextInventoryMovementId } = require('./production')
 const {
   createBillingAccessMiddleware,
   createTrialSubscriptionForCompany,
@@ -1635,6 +1636,15 @@ app.get('/api/production-drafts', async (request, response) => {
   response.json({ productionDrafts: drafts })
 })
 
+registerProductionRoutes(app, prisma, {
+  normalizeProductionDraftPayload,
+  normalizeInventoryCountSessionPayload,
+  normalizeInventoryCountPayload,
+  serializeBigIntForJson,
+  userCanAccessCompany,
+  parseDecimal: parseAppDecimal,
+})
+
 app.post('/api/production-drafts', async (request, response) => {
   const draft = normalizeProductionDraftPayload(request.body)
   if (!draft) {
@@ -1642,12 +1652,11 @@ app.post('/api/production-drafts', async (request, response) => {
     return
   }
 
-  const saved = await prisma.appProductionDraftRecord.upsert({
-    where: { draftId: draft.draftId },
-    create: draft,
-    update: draft,
-  })
-  response.json({ productionDraft: saved })
+  try {
+    response.json({ productionDraft: await saveProductionDraft(prisma, draft) })
+  } catch (error) {
+    response.status(error.statusCode ?? 500).json({ error: error.message })
+  }
 })
 
 app.put('/api/production-drafts/:draftId', async (request, response) => {
@@ -1658,12 +1667,11 @@ app.put('/api/production-drafts/:draftId', async (request, response) => {
     return
   }
 
-  const saved = await prisma.appProductionDraftRecord.upsert({
-    where: { draftId },
-    create: draft,
-    update: draft,
-  })
-  response.json({ productionDraft: saved })
+  try {
+    response.json({ productionDraft: await saveProductionDraft(prisma, draft) })
+  } catch (error) {
+    response.status(error.statusCode ?? 500).json({ error: error.message })
+  }
 })
 
 app.delete('/api/production-drafts/:draftId', async (request, response) => {
@@ -2106,8 +2114,15 @@ app.put('/api/inventory-counts/:id', async (request, response) => {
       sessionId: true,
       createdByUserId: true,
       createdByUserName: true,
+      recipientLabel: true,
+      totalCountedQuantity: true,
     },
   })
+  if (existing && /PRODUCAO DUPLICADA ANULADA|CORRECAO AUDITADA/.test(existing.recipientLabel) &&
+      (existing.totalCountedQuantity !== count.totalCountedQuantity || existing.recipientLabel !== count.recipientLabel)) {
+    response.status(409).json({ error: 'Esta movimentacao recebeu correcao auditada. Atualize os dados antes de continuar.' })
+    return
+  }
   if (
     existing &&
     (existing.companyId !== count.companyId ||
@@ -2605,7 +2620,7 @@ function parseAppDecimal(value) {
     normalized = compact.replace(/\./g, '').replace(',', '.')
   } else if (compact.includes(',')) {
     normalized = compact.replace(',', '.')
-  } else if (/^\d{1,3}(\.\d{3})+$/.test(compact)) {
+  } else if (/^-?[1-9]\d{0,2}(\.\d{3})+$/.test(compact)) {
     normalized = compact.replace(/\./g, '')
   }
   const parsed = Number(normalized)
@@ -2632,6 +2647,14 @@ function serializeBigIntForJson(value) {
 }
 
 async function createRecordWithServerId(modelDelegate, normalizePayload, payload) {
+  const inventoryModel = modelDelegate === prisma.appInventoryCountRecord ? 'appInventoryCountRecord'
+    : modelDelegate === prisma.appInventoryCountSessionRecord ? 'appInventoryCountSessionRecord' : null
+  if (inventoryModel) {
+    return lockedTransaction(prisma, async (transaction) => {
+      const normalized = normalizePayload({ ...payload, id: await nextInventoryMovementId(transaction) })
+      return normalized ? transaction[inventoryModel].create({ data: normalized }) : null
+    })
+  }
   let lastError = null
   for (let attempt = 0; attempt < 5; attempt += 1) {
     const aggregate = await modelDelegate.aggregate({ _max: { id: true } })

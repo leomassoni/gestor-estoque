@@ -644,6 +644,7 @@ export function ConfirmationModal({
   onCancel,
   onConfirm,
   bringToFront = false,
+  isBusy = false,
 }: {
   title: string
   message: string
@@ -652,6 +653,7 @@ export function ConfirmationModal({
   onCancel: () => void
   onConfirm: () => void
   bringToFront?: boolean
+  isBusy?: boolean
 }) {
   const cancelButtonRef = useRef<HTMLButtonElement | null>(null)
   const confirmButtonRef = useRef<HTMLButtonElement | null>(null)
@@ -669,7 +671,7 @@ export function ConfirmationModal({
     <div
       className={bringToFront ? 'modal-backdrop modal-backdrop-front' : 'modal-backdrop'}
       role="presentation"
-      onClick={onCancel}
+      onClick={isBusy ? undefined : onCancel}
     >
       <section
         className="modal-card modal-card-compact"
@@ -688,11 +690,11 @@ export function ConfirmationModal({
         <p className="confirm-copy">{message}</p>
 
         <div className="modal-actions">
-          <button ref={cancelButtonRef} className="ghost-button" type="button" onClick={onCancel}>
+          <button ref={cancelButtonRef} className="ghost-button" type="button" onClick={onCancel} disabled={isBusy}>
             Cancelar
           </button>
-          <button ref={confirmButtonRef} className={actionClass} type="button" onClick={onConfirm}>
-            {actionLabel}
+          <button ref={confirmButtonRef} className={actionClass} type="button" onClick={onConfirm} disabled={isBusy}>
+            {isBusy ? 'Salvando...' : actionLabel}
           </button>
         </div>
       </section>

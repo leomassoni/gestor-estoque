@@ -672,6 +672,22 @@ model AppProductionDraftRecord {
   @@index([sheetId])
 }
 
+model AppProductionOperationRecord {
+  key        String   @id
+  companyId  Int
+  centerId   Int
+  sheetId    Int
+  draftId    Int
+  status     String
+  startResult Json?
+  finishResult Json?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([companyId, centerId])
+  @@index([draftId])
+}
+
 model AppInventoryStorageLocationRecord {
   companyId Int
   name      String

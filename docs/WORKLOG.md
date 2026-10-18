@@ -2205,3 +2205,49 @@ Registrar um historico resumido do que foi feito, do que falhou e do que ficou p
   - `git diff --check` passou;
   - `npx vite build` passou, gerando `index-B_TATkBt.js`;
   - `npm --prefix server run prisma:generate` passou.
+
+### 2026-10-18 - integridade de producao e consumos da Casa de Mi Madre
+
+- Causas confirmadas:
+  - iniciar/concluir producao dependia de efeitos separados para salvar consumo, entrada e rascunho; um polling podia repor o rascunho ja encerrado;
+  - IDs de sessoes/itens calculados pelo estado do navegador podiam colidir: a primeira baixa era sobrescrita pela entrada de producao;
+  - `0.125` era interpretado como `125`, e `-1.000` como `-1`; o cordial tinha ainda agua importada como `90.625`;
+  - XAROPE SIMPLES tinha rendimento cadastrado de `500 ML`; usuario confirmou `900 ML` para `500 ML` de agua e `500 G` de acucar.
+- Correcao:
+  - fluxo de inicio/conclusao extraido para `src/hooks/useProductionWorkflow.ts`, reduzindo `App.tsx`;
+  - `server/production.js` registra transicoes atomicas e repetiveis sem duplicacao, com registro permanente de operacao e auditoria na mesma transacao;
+  - bloqueado salvamento de rascunho ja concluido, inclusive legado, e removida exclusao remota automatica por ausencia no estado local;
+  - respostas de polling anteriores a uma transicao nao substituem seu resultado;
+  - IDs gerados pelo servidor respeitam sessoes, itens e reservas de movimentos pendentes; contagens e producoes usam a mesma trava de alocacao;
+  - corrigida leitura decimal e preservadas quatro casas decimais nos consumos editaveis;
+  - inicio verifica insumos atuais da ficha, evitando consumo com composicao antiga; confirmacoes ficam bloqueadas durante salvamento.
+- Saneamento online, empresa `13`, centro `7`, producoes de `14 a 17/10/2026`:
+  - rendimento da ficha `595` alterado para `900 ML`;
+  - agua da ficha `1096` normalizada para `90,625 ML` por receita;
+  - anuladas entradas duplicadas `2356`, `2361`, `2371`, `2470`, preservando registros e entradas validas;
+  - consumo de agua `2430` corrigido de `362.500 ML` para `362,5 ML`;
+  - removido rascunho residual `2` de SOLUCAO DE ACIDOS SUMO, cuja entrada `2442` ja existia;
+  - apos confirmacao do usuario, restauradas baixas `2490` (769,23 ML de cachaca da Tulha), `2491` (1.428,57 ML de agua) e `2492` (18 G de eucalipto);
+  - consumo `2467` reclassificado de Monin para `400 ML` de CORDIAL TIMUR ARTESANAL MADRE; ficha atual do NOCTILIA ja estava correta;
+  - logs master `3776` e `3777`; nenhuma contagem de inventario foi apagada ou reaberta.
+- Evidencias:
+  - `backups/madre-production-integrity-20261018T210451Z/snapshot.json`;
+  - `backups/madre-production-repair-20261018T212434Z`;
+  - `backups/madre-confirmed-production-consumption-20261018T212854Z`;
+  - `/home/leomassoni/Downloads/Madre - auditoria de producoes - 2026-10-18.xlsx`;
+  - regressao automatizada: `scripts/test-production-workflow.mjs` e `scripts/test-production-browser.mjs`, apenas em banco local `gestor_estoque_production_regression`.
+- Rollback:
+  - preservar a tabela de operacoes e os registros ja confirmados; nunca repetir entradas para compensar uma resposta de rede perdida;
+  - ajustes de dados tem backup integral anterior e log de antes/depois; eventual reversao deve ser pontual e auditada;
+  - nao restaurar snapshot global `/api/state` nem aplicar backup completo sobre contagens novas.
+- Validacao local aprovada:
+  - `npx tsc -p tsconfig.app.json --noEmit --pretty false`;
+  - `node --check server/server.js` e `node --check server/production.js`;
+  - `git diff --check`;
+  - `npx vite build`, bundle `index-5qsabzCo.js`;
+  - regressao da API: inicio/conclusao concorrentes, repeticao de chamadas, erro de validacao, rascunhos legados, PH/Brix, equivalentes, subprodutos e inventario aberto;
+  - duas sessoes de autores distintos com IDs exclusivos e registros preservados;
+  - smoke no navegador, em copia local: planejar producao, iniciar e concluir na mesma tela, recarregar sem reabrir rascunho, abrir inventario, iniciar contagem, registrar item, sair, retomar e confirmar preservacao de outra contagem;
+  - `unzip -t` da auditoria XLSX passou.
+  - teste visual especifico do cordial Timur: lote de `1000 ML` mostrou `0,5 G` de sal e `362,5 ML` de agua, sem iniciar producao ficticia no online.
+- Deploy: conferir bundle publicado e `401` nas rotas protegidas apos o push. Os testes com criacao de registros foram executados apenas no banco local isolado.

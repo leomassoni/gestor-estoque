@@ -213,7 +213,7 @@ export function parseDecimal(value: string) {
     normalized = compact.replace(/\./g, '').replace(',', '.')
   } else if (compact.includes(',')) {
     normalized = compact.replace(',', '.')
-  } else if (/^\d{1,3}(\.\d{3})+$/.test(compact)) {
+  } else if (/^-?[1-9]\d{0,2}(\.\d{3})+$/.test(compact)) {
     normalized = compact.replace(/\./g, '')
   }
 

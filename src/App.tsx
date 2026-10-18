@@ -9,6 +9,7 @@ import {
   type KeyboardEvent,
 } from 'react'
 import { BillingPanelGate } from './components/BillingPanelGate'
+import { useProductionWorkflow } from './hooks/useProductionWorkflow'
 import { MasterOverviewPanel } from './components/MasterOverviewPanel'
 import { PreparationModeInput } from './components/PreparationModeInput'
 import {
@@ -2658,6 +2659,7 @@ export default function App() {
   const syncedRequisitionNotificationMapRef = useRef<Map<number, string>>(new Map())
   const syncedManualProductionRequestMapRef = useRef<Map<number, string>>(new Map())
   const syncedProductionDraftMapRef = useRef<Map<number, string>>(new Map())
+  const productionMutationRef = useRef({ pending: false, version: 0 })
   const isManualProductionSavingRef = useRef(false)
   const syncedInventoryRecordMapRef = useRef<Map<number, string>>(new Map())
   const syncedInventoryActiveRecordLinkMapRef = useRef<Map<string, string>>(new Map())
@@ -6456,6 +6458,8 @@ export default function App() {
   }
 
   async function refreshAppProductionRecordsFromApi() {
+    const mutationVersion = productionMutationRef.current.version
+    if (productionMutationRef.current.pending) return
     const [manualRequestsResponse, draftsResponse] = await Promise.all([
       fetch('/api/manual-production-requests'),
       fetch('/api/production-drafts'),
@@ -6468,6 +6472,7 @@ export default function App() {
       manualRequestsResponse.json(),
       draftsResponse.json(),
     ])
+    if (productionMutationRef.current.pending || productionMutationRef.current.version !== mutationVersion) return
 
     const nextManualRequests = Array.isArray(manualRequestsData?.manualProductionRequests)
       ? (manualRequestsData.manualProductionRequests as unknown[])
@@ -6502,6 +6507,8 @@ export default function App() {
   }
 
   async function refreshAppInventoryRecordsFromApi() {
+    const mutationVersion = productionMutationRef.current.version
+    if (productionMutationRef.current.pending) throw new Error('Aguarde o salvamento da producao antes de atualizar o inventario.')
     const [
       locationsResponse,
       activeRecordLinksResponse,
@@ -6597,6 +6604,9 @@ export default function App() {
           .filter((item): item is PendingInventoryMovementRecord => item !== null)
       : []
 
+    if (productionMutationRef.current.pending || productionMutationRef.current.version !== mutationVersion) {
+      throw new Error('Uma producao foi atualizada durante a consulta. Atualize o inventario novamente.')
+    }
     const localLocations = loadInventoryStorageLocationsState()
     const localInventories = loadInventoryRecordsState()
     const localActiveRecordLinks = loadInventoryActiveRecordLinksState()
@@ -7140,16 +7150,6 @@ export default function App() {
     if (!response.ok) {
       const errorPayload = (await response.json().catch(() => null)) as { error?: string } | null
       throw new Error(errorPayload?.error || 'Nao foi possivel salvar o rascunho de producao no servidor.')
-    }
-  }
-
-  async function deleteProductionDraftOnApi(draftId: number) {
-    const response = await fetch(`/api/production-drafts/${draftId}`, {
-      method: 'DELETE',
-    })
-    if (!response.ok) {
-      const errorPayload = (await response.json().catch(() => null)) as { error?: string } | null
-      throw new Error(errorPayload?.error || 'Nao foi possivel excluir o rascunho de producao no servidor.')
     }
   }
 
@@ -8590,6 +8590,51 @@ export default function App() {
         : [],
     [productionPreparedData],
   )
+  const { beginProductionDraft, confirmProductionDraft, isProductionSaving } = useProductionWorkflow({
+    draft: productionDraftState, sheet: selectedProductionSheet, center: selectedProductionCenter,
+    byproduct: selectedProductionByproductSheet, byproductSuggestedYield: selectedProductionByproductSuggestedYield,
+    preparedData: productionPreparedData, companyId: currentCompanyId, user: currentAppUser, products, sheets: technicalSheets,
+    isProductVisible: isProductVisibleForCompany, mutationRef: productionMutationRef,
+    resolveProductSheet: (product) => getProductLinkedTechnicalSheet(product, technicalSheets),
+    isProductStockTracked,
+    isSheetStockTracked: (sheet) => isTechnicalSheetStockTracked(sheet, products),
+    onFeedback: setSaveFeedback,
+    onStartConfirmed: () => setIsProductionStartConfirmOpen(false),
+    onFinishConfirmed: () => { setIsProductionFinishConfirmOpen(false); setProductionDraftState(null) },
+    onSaved: (result, previousDraft) => {
+      const nextDraft = result.draft ? normalizeProductionDraftState(result.draft) : null
+      if (nextDraft?.draftId) syncedProductionDraftMapRef.current.set(nextDraft.draftId, JSON.stringify(nextDraft))
+      else if (previousDraft.draftId) syncedProductionDraftMapRef.current.delete(previousDraft.draftId)
+      setProductionInProgressDrafts((current) => [
+        ...(nextDraft ? [nextDraft] : []),
+        ...current.filter((d) => d.draftId !== previousDraft.draftId && d.draftId !== nextDraft?.draftId),
+      ])
+      if (nextDraft) {
+        setProductionDraftState(nextDraft)
+        const removed = previousDraft.manualRequestIds ?? []
+        removed.forEach((id) => syncedManualProductionRequestMapRef.current.delete(id))
+        setManualProductionRequests((current) => current.filter((r) => !removed.includes(r.id)))
+      }
+      const { movement } = result
+      if (movement.pending) {
+        const pending = normalizePendingInventoryMovementRecord(movement.pending)
+        if (pending) {
+          syncedPendingInventoryMovementMapRef.current.set(pending.id, JSON.stringify(pending))
+          setPendingInventoryMovements((current) => [pending, ...current.filter((r) => r.id !== pending.id)])
+        }
+      } else if (movement.session) {
+        const savedSession = normalizeInventoryCountSessionRecord(movement.session)
+        const records = movement.records.map(normalizeInventoryCountRecord).filter((r): r is InventoryCountRecord => r !== null)
+        if (savedSession) {
+          syncedInventoryCountSessionMapRef.current.set(savedSession.id, JSON.stringify(savedSession))
+          setInventoryCountSessions((current) => [savedSession, ...current.filter((s) => s.id !== savedSession.id)])
+        }
+        records.forEach((r) => syncedInventoryCountMapRef.current.set(r.id, JSON.stringify(r)))
+        const ids = new Set(records.map((r) => r.id))
+        setInventoryCounts((current) => [...records, ...current.filter((r) => !ids.has(r.id))])
+      }
+    },
+  })
   const companyRequisitions = useMemo(
     () =>
       requisitions
@@ -17650,19 +17695,15 @@ export default function App() {
     const changedRecords = syncedDrafts.filter(
       (record) => previousById.get(record.draftId as number) !== currentById.get(record.draftId as number),
     )
-    const removedIds = Array.from(previousById.keys()).filter((id) => !currentById.has(id))
 
-    if (changedRecords.length === 0 && removedIds.length === 0) {
+    if (changedRecords.length === 0) {
       return
     }
 
     let isCancelled = false
     ;(async () => {
       try {
-        await Promise.all([
-          ...changedRecords.map((record) => upsertProductionDraftOnApi(record)),
-          ...removedIds.map((id) => deleteProductionDraftOnApi(id)),
-        ])
+        await Promise.all(changedRecords.map((record) => upsertProductionDraftOnApi(record)))
         if (!isCancelled) {
           syncedProductionDraftMapRef.current = currentById
         }
@@ -28402,13 +28443,13 @@ export default function App() {
       confirmedPh: '',
       confirmedBrix: '',
       ingredientOverrides: Object.fromEntries(
-        (baseData?.ingredientMetrics ?? []).map((ingredient) => [ingredient.id, formatDecimal(ingredient.scaledInputQuantity)]),
+        (baseData?.ingredientMetrics ?? []).map((ingredient) => [ingredient.id, formatEditableDecimal(ingredient.scaledInputQuantity)]),
       ),
       ingredientConsumptionOverrides: Object.fromEntries(
         (baseData?.ingredientMetrics ?? [])
           .map((ingredient) => {
             const sourceIngredient = targetSheet?.ingredients.find((item) => item.id === ingredient.id) ?? null
-            return sourceIngredient ? [ingredient.id, { [sourceIngredient.productId]: formatDecimal(ingredient.scaledInputQuantity) }] : null
+            return sourceIngredient ? [ingredient.id, { [sourceIngredient.productId]: formatEditableDecimal(ingredient.scaledInputQuantity) }] : null
           })
           .filter((item): item is [number, Record<string, string>] => item !== null),
       ),
@@ -29727,6 +29768,7 @@ export default function App() {
   }
 
 	  function closeProductionDraft() {
+    if (productionMutationRef.current.pending) return
     const currentDraft = productionDraftState
     setIsProductionStartConfirmOpen(false)
     setIsProductionFinishConfirmOpen(false)
@@ -29738,194 +29780,11 @@ export default function App() {
     setProductionDraftState(null)
   }
 
-  function upsertProductionInProgressDraft(nextDraft: ProductionDraftState) {
-    setProductionInProgressDrafts((current) => {
-      const existingIndex = current.findIndex((draft) => draft.draftId === nextDraft.draftId)
-      if (existingIndex >= 0) {
-        return current.map((draft, index) => (index === existingIndex ? { ...nextDraft } : draft))
-      }
-      return [nextDraft, ...current]
-    })
-  }
-
   function requestStartProductionDraft() {
     if (!productionDraftState) {
       return
     }
     setIsProductionStartConfirmOpen(true)
-  }
-
-  async function beginProductionDraft() {
-    if (!productionDraftState || !selectedProductionSheet || !selectedProductionCenter || currentCompanyId === null) {
-      return
-    }
-
-    const manualRequestIds = productionDraftState.manualRequestIds ?? []
-    let nextManualProductionRequests = manualProductionRequests
-    if (manualRequestIds.length > 0) {
-      try {
-        await Promise.all(manualRequestIds.map((requestId) => deleteManualProductionRequestOnApi(requestId)))
-        nextManualProductionRequests = manualProductionRequests.filter((request) => !manualRequestIds.includes(request.id))
-      } catch (error) {
-        console.error(error)
-        setSaveFeedback({
-          status: 'error',
-          title: 'Falha ao iniciar producao',
-          message: error instanceof Error ? error.message : 'Erro ao retirar a solicitacao planejada da fila no servidor.',
-        })
-        return
-      }
-    }
-
-    const now = new Date().toISOString()
-    const countedAt = getTodayDateInputValue()
-    const movementSessionId = getNextPersistedIntId([
-      ...inventoryCountSessions.map((record) => record.id),
-      ...inventoryCounts.map((record) => record.id),
-    ])
-    let consumptionMovementResult: 'applied' | 'queued' | null = null
-
-    if (!productionDraftState.startedAt && productionPreparedData) {
-      const consumptionSession: InventoryCountSessionRecord = {
-        id: movementSessionId,
-        inventoryId: null,
-        companyId: currentCompanyId,
-        stockCenterId: selectedProductionCenter.id,
-        countedAt,
-        isClosed: true,
-        startedAt: now,
-        startedByUserId: currentAppUser?.id ?? null,
-        startedByUserName: currentAppUser?.fullName || 'Administrador do sistema',
-        closedAt: now,
-        closedByUserId: currentAppUser?.id ?? null,
-        closedByUserName: currentAppUser?.fullName || 'Administrador do sistema',
-      }
-
-      let consumptionRecordOffset = 0
-      const consumptionRecords: InventoryCountRecord[] = productionPreparedData.ingredientMetrics
-        .filter((ingredient) => ingredient.productId.trim() !== '' && ingredient.scaledInputQuantity > 0)
-        .flatMap((ingredient) => {
-          const allocations =
-            ingredient.consumptionAllocations && ingredient.consumptionAllocations.length > 0
-              ? ingredient.consumptionAllocations
-              : [
-                  {
-                    productId: ingredient.productId,
-                    productLabel: ingredient.label,
-                    quantity: ingredient.scaledInputQuantity,
-                    unitLabel: ingredient.unitLabel,
-                    technicalSheetId: null,
-                    technicalSheetKind: null,
-                    stockTracked: true,
-                  } satisfies ProductionIngredientConsumptionAllocation,
-                ]
-
-          return allocations
-            .filter((allocation) => allocation.productId.trim() !== '' && allocation.quantity > 0 && allocation.stockTracked)
-            .flatMap((allocation) => {
-              const linkedProduct =
-                products.find((entry) => entry.id === allocation.productId && isProductVisibleForCompany(entry, currentCompanyId)) ?? null
-              const linkedTechnicalSheet =
-                allocation.technicalSheetId !== null
-                  ? technicalSheets.find((entry) => entry.id === allocation.technicalSheetId) ?? null
-                  : linkedProduct
-                    ? getProductLinkedTechnicalSheet(linkedProduct, technicalSheets)
-                    : null
-
-              if (!linkedProduct && !linkedTechnicalSheet) {
-                return []
-              }
-
-              if (linkedProduct && !isProductStockTracked(linkedProduct)) {
-                return []
-              }
-
-              if (linkedTechnicalSheet && !isTechnicalSheetStockTracked(linkedTechnicalSheet, products)) {
-                return []
-              }
-
-              consumptionRecordOffset += 1
-              return [
-                {
-                  id: movementSessionId + consumptionRecordOffset,
-                  inventoryId: null,
-                  sessionId: movementSessionId,
-                  companyId: currentCompanyId,
-                  stockCenterId: selectedProductionCenter.id,
-                  countedAt,
-                  storageLocation: 'SAIDA PARA PRODUCAO',
-                  technicalSheetId: linkedTechnicalSheet?.id ?? null,
-                  productId: linkedTechnicalSheet ? '' : linkedProduct?.id ?? '',
-                  serviceItemId: '',
-                  packageId: null,
-                  technicalSheetName: allocation.productLabel,
-                  technicalSheetKind: linkedTechnicalSheet ? 'PREPARO' : 'PRODUTO',
-                  recipientItemId: '',
-                  recipientLabel: `PRODUCAO INICIADA • ${selectedProductionSheet.name}`,
-                  closedItemsQuantity: formatDecimal(-allocation.quantity),
-                  hasOpenItems: false,
-                  openItemsGrossWeight: '',
-                  openItemsContainerQuantity: '',
-                  openItemsNetQuantity: '',
-                  totalCountedQuantity: formatDecimal(-allocation.quantity),
-                  totalCountedUnit:
-                    linkedTechnicalSheet?.outputUnit === 'GRAM'
-                      ? 'GRAM'
-                      : linkedTechnicalSheet?.outputUnit === 'UNIT'
-                        ? 'UNIT'
-                        : linkedProduct?.controlUnit === 'GRAM'
-                          ? 'GRAM'
-                          : linkedProduct?.controlUnit === 'UNIT'
-                            ? 'UNIT'
-                            : 'MILLILITER',
-                  createdByUserId: currentAppUser?.id ?? null,
-                  createdByUserName: currentAppUser?.fullName ?? 'Administrador do sistema',
-                } satisfies InventoryCountRecord,
-              ]
-            })
-        })
-
-      if (consumptionRecords.length > 0) {
-        consumptionMovementResult = registerOperationalInventoryMovement(
-          selectedProductionCenter.id,
-          `SAIDA PARA PRODUCAO • ${selectedProductionSheet.name}`,
-          consumptionSession,
-          consumptionRecords,
-        )
-      }
-    }
-
-    const nextDraft: ProductionDraftState = {
-      ...productionDraftState,
-      draftId:
-        productionDraftState.draftId ??
-        getNextPersistedIntId(
-          productionInProgressDrafts
-            .filter((record) => record.draftId !== null)
-            .map((record) => record.draftId as number),
-        ),
-      startedAt: productionDraftState.startedAt || now,
-      startedByUserId: productionDraftState.startedByUserId ?? currentAppUser?.id ?? null,
-      startedByUserName: productionDraftState.startedByUserName || currentAppUser?.fullName || 'Administrador do sistema',
-      consumptionSessionId: productionDraftState.consumptionSessionId ?? (consumptionMovementResult ? movementSessionId : null),
-    }
-
-    if (manualRequestIds.length > 0) {
-      setManualProductionRequests(nextManualProductionRequests)
-      syncedManualProductionRequestMapRef.current = buildEntitySignatureMap(nextManualProductionRequests, (record) => record.id)
-    }
-
-    upsertProductionInProgressDraft(nextDraft)
-    setProductionDraftState(nextDraft)
-    setIsProductionStartConfirmOpen(false)
-    setSaveFeedback({
-      status: 'success',
-      title: 'Producao iniciada',
-      message:
-        consumptionMovementResult === 'queued'
-          ? 'A producao entrou em andamento. Os insumos foram registrados como pendentes porque o centro esta com inventario aberto e serao baixados quando esse inventario for finalizado.'
-          : 'A producao entrou em andamento, os insumos foram retirados do estoque e voce pode fechar o pop-up, iniciar outras producoes e continuar esta depois.',
-    })
   }
 
   function requestFinishProductionDraft() {
@@ -30155,11 +30014,11 @@ export default function App() {
       const nextConsumptionOverrides = { ...current.ingredientConsumptionOverrides }
       ;(baseData?.ingredientMetrics ?? []).forEach((ingredient) => {
         if (!current.manualOverrideIngredientIds.includes(ingredient.id)) {
-          nextOverrides[ingredient.id] = formatDecimal(ingredient.scaledInputQuantity)
+          nextOverrides[ingredient.id] = formatEditableDecimal(ingredient.scaledInputQuantity)
           const sourceIngredient = targetSheet?.ingredients.find((item) => item.id === ingredient.id) ?? null
           if (sourceIngredient) {
             nextConsumptionOverrides[ingredient.id] = {
-              [sourceIngredient.productId]: formatDecimal(ingredient.scaledInputQuantity),
+              [sourceIngredient.productId]: formatEditableDecimal(ingredient.scaledInputQuantity),
             }
           }
         }
@@ -30203,197 +30062,6 @@ export default function App() {
           ? current.manualOverrideIngredientIds
           : [...current.manualOverrideIngredientIds, ingredientId],
       }
-    })
-  }
-
-  function confirmProductionDraft() {
-    if (!productionDraftState || !selectedProductionSheet || !selectedProductionCenter || currentCompanyId === null) {
-      return
-    }
-
-    const finalYield = parseDecimal(productionDraftState.finalYield) ?? 0
-    if (finalYield <= 0) {
-      setSaveFeedback({
-        status: 'error',
-        title: 'Producao incompleta',
-        message: 'Informe um rendimento final valido para confirmar a producao.',
-      })
-      return
-    }
-
-    const requiresPh = Boolean(selectedProductionSheet.targetPh.trim())
-    const requiresBrix = Boolean(selectedProductionSheet.targetBrix.trim())
-    if (requiresPh && !productionDraftState.confirmedPh.trim()) {
-      setSaveFeedback({
-        status: 'error',
-        title: 'PH nao confirmado',
-        message: 'Confirme o valor de PH antes de finalizar a producao.',
-      })
-      return
-    }
-
-    if (requiresBrix && !productionDraftState.confirmedBrix.trim()) {
-      setSaveFeedback({
-        status: 'error',
-        title: 'Brix nao confirmado',
-        message: 'Confirme o valor de Brix antes de finalizar a producao.',
-      })
-      return
-    }
-
-    const byproductYield =
-      selectedProductionByproductSheet === null ? 0 : (parseDecimal(productionDraftState.byproductYield) ?? 0)
-    const generatedOutputLabel =
-      selectedProductionSheet.yieldDifferenceDestination === 'RETURN_TO_STOCK' ? 'Item retornado ao estoque' : 'Subproduto'
-    if (selectedProductionByproductSheet && byproductYield <= 0) {
-      setSaveFeedback({
-        status: 'error',
-        title: `${generatedOutputLabel} nao informado`,
-        message: `Informe a quantidade real gerada de ${selectedProductionByproductSheet.name} antes de confirmar a producao.`,
-      })
-      return
-    }
-
-    if (selectedProductionByproductSheet && !isTechnicalSheetStockTracked(selectedProductionByproductSheet, products)) {
-      setSaveFeedback({
-        status: 'error',
-        title: `${generatedOutputLabel} fora do estoque`,
-        message: `${selectedProductionByproductSheet.name} esta configurado para nao controlar estoque. Ajuste a ficha antes de registrar a producao.`,
-      })
-      return
-    }
-
-    const countedAt = latestInventoryDateByCenterId.get(selectedProductionCenter.id) ?? getTodayDateInputValue()
-    const now = new Date().toISOString()
-    const nextSessionId = getNextPersistedIntId([
-      ...inventoryCountSessions.map((record) => record.id),
-      ...inventoryCounts.map((record) => record.id),
-    ])
-    const nextSession: InventoryCountSessionRecord = {
-      id: nextSessionId,
-      inventoryId: null,
-      companyId: currentCompanyId,
-      stockCenterId: selectedProductionCenter.id,
-      countedAt,
-      isClosed: true,
-      startedAt: productionDraftState.startedAt || now,
-      startedByUserId: productionDraftState.startedByUserId ?? currentAppUser?.id ?? null,
-      startedByUserName: productionDraftState.startedByUserName || currentAppUser?.fullName || 'Administrador do sistema',
-      closedAt: now,
-      closedByUserId: currentAppUser?.id ?? null,
-      closedByUserName: currentAppUser?.fullName ?? 'Administrador do sistema',
-    }
-
-    const productionRecord: InventoryCountRecord = {
-      id: nextSessionId + 1,
-      inventoryId: null,
-      sessionId: nextSessionId,
-      companyId: currentCompanyId,
-      stockCenterId: selectedProductionCenter.id,
-      countedAt,
-      storageLocation: 'ENTRADA DE PRODUCAO',
-      technicalSheetId: selectedProductionSheet.id,
-      productId: '',
-      serviceItemId: '',
-      packageId: null,
-      technicalSheetName: selectedProductionSheet.name,
-      technicalSheetKind: 'PREPARO',
-      recipientItemId: '',
-      recipientLabel: 'PRODUCAO CONFIRMADA',
-      closedItemsQuantity: formatDecimal(finalYield),
-      hasOpenItems: false,
-      openItemsGrossWeight: '',
-      openItemsContainerQuantity: '',
-      openItemsNetQuantity: '',
-      totalCountedQuantity: formatDecimal(finalYield),
-      totalCountedUnit:
-        selectedProductionSheet.outputUnit === 'GRAM'
-          ? 'GRAM'
-          : selectedProductionSheet.outputUnit === 'UNIT'
-            ? 'UNIT'
-            : 'MILLILITER',
-      productionExpectedYield: productionDraftState.desiredYield.trim(),
-      productionFinalYield: formatDecimal(finalYield),
-      productionYieldDifference: formatDecimal(finalYield - (parseDecimal(productionDraftState.desiredYield) ?? 0)),
-      productionTargetPh: selectedProductionSheet.targetPh.trim(),
-      productionConfirmedPh: productionDraftState.confirmedPh.trim(),
-      productionTargetBrix: selectedProductionSheet.targetBrix.trim(),
-      productionConfirmedBrix: productionDraftState.confirmedBrix.trim(),
-      createdByUserId: currentAppUser?.id ?? null,
-      createdByUserName: currentAppUser?.fullName ?? 'Administrador do sistema',
-    }
-    const productionRecords: InventoryCountRecord[] = [productionRecord]
-
-    if (selectedProductionByproductSheet && byproductYield > 0) {
-      productionRecords.push({
-        id: nextSessionId + 2,
-        inventoryId: null,
-        sessionId: nextSessionId,
-        companyId: currentCompanyId,
-        stockCenterId: selectedProductionCenter.id,
-        countedAt,
-        storageLocation: 'ENTRADA DE PRODUCAO',
-        technicalSheetId: selectedProductionByproductSheet.id,
-        productId: '',
-        serviceItemId: '',
-        packageId: null,
-        technicalSheetName: selectedProductionByproductSheet.name,
-        technicalSheetKind: 'PREPARO',
-        recipientItemId: '',
-        recipientLabel:
-          selectedProductionSheet.yieldDifferenceDestination === 'RETURN_TO_STOCK'
-            ? `RETORNO AO ESTOQUE • ${selectedProductionSheet.name}`
-            : `SUBPRODUTO DE PRODUCAO • ${selectedProductionSheet.name}`,
-        closedItemsQuantity: formatDecimal(byproductYield),
-        hasOpenItems: false,
-        openItemsGrossWeight: '',
-        openItemsContainerQuantity: '',
-        openItemsNetQuantity: '',
-        totalCountedQuantity: formatDecimal(byproductYield),
-        totalCountedUnit:
-          selectedProductionByproductSheet.outputUnit === 'GRAM'
-            ? 'GRAM'
-            : selectedProductionByproductSheet.outputUnit === 'UNIT'
-              ? 'UNIT'
-              : 'MILLILITER',
-        productionExpectedYield:
-          selectedProductionByproductSuggestedYield > 0 ? formatDecimal(selectedProductionByproductSuggestedYield) : '',
-        productionFinalYield: formatDecimal(byproductYield),
-        productionYieldDifference:
-          selectedProductionByproductSuggestedYield > 0
-            ? formatDecimal(byproductYield - selectedProductionByproductSuggestedYield)
-            : '',
-        productionTargetPh: '',
-        productionConfirmedPh: '',
-        productionTargetBrix: '',
-        productionConfirmedBrix: '',
-        createdByUserId: currentAppUser?.id ?? null,
-        createdByUserName: currentAppUser?.fullName ?? 'Administrador do sistema',
-      })
-    }
-
-    const productionMovementResult = registerOperationalInventoryMovement(
-      selectedProductionCenter.id,
-      `ENTRADA DE PRODUCAO • ${selectedProductionSheet.name}`,
-      nextSession,
-      productionRecords,
-    )
-    if (productionDraftState.draftId !== null) {
-      setProductionInProgressDrafts((current) => current.filter((draft) => draft.draftId !== productionDraftState.draftId))
-    }
-    setIsProductionFinishConfirmOpen(false)
-    setProductionDraftState(null)
-    setSaveFeedback({
-      status: 'success',
-      title: 'Producao confirmada',
-      message:
-        productionMovementResult === 'queued'
-          ? selectedProductionByproductSheet
-            ? 'O centro produtor esta com inventario aberto. A producao e o item gerado foram registrados como pendentes e serao somados ao estoque quando esse inventario for finalizado.'
-            : 'O centro produtor esta com inventario aberto. A producao foi registrada como pendente e sera somada ao estoque quando esse inventario for finalizado.'
-          : selectedProductionByproductSheet
-            ? 'O pre-preparo e o item gerado foram registrados e somados ao estoque do centro de estoque produtor.'
-            : 'O pre-preparo foi registrado e somado ao estoque do centro de estoque produtor.',
     })
   }
 
@@ -53557,15 +53225,15 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
             </section>
 
             <div className="modal-actions">
-              <button type="button" className="ghost-button" onClick={closeProductionDraft}>
+              <button type="button" className="ghost-button" onClick={closeProductionDraft} disabled={isProductionSaving}>
                 Fechar
               </button>
               {productionDraftState.draftId === null ? (
-                <button type="button" className="primary-button" onClick={requestStartProductionDraft}>
+                <button type="button" className="primary-button" onClick={requestStartProductionDraft} disabled={isProductionSaving}>
                   Iniciar
                 </button>
               ) : (
-                <button type="button" className="primary-button" onClick={requestFinishProductionDraft}>
+                <button type="button" className="primary-button" onClick={requestFinishProductionDraft} disabled={isProductionSaving}>
                   Confirmar producao
                 </button>
               )}
@@ -53582,6 +53250,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
           actionLabel="Iniciar"
           onCancel={() => setIsProductionStartConfirmOpen(false)}
           onConfirm={() => void beginProductionDraft()}
+          isBusy={isProductionSaving}
         />
       ) : null}
 
@@ -53592,7 +53261,8 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
           actionClass="primary-button"
           actionLabel="Confirmar producao"
           onCancel={() => setIsProductionFinishConfirmOpen(false)}
-          onConfirm={confirmProductionDraft}
+          onConfirm={() => void confirmProductionDraft()}
+          isBusy={isProductionSaving}
         />
       ) : null}
 
