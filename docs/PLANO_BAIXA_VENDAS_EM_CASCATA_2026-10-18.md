@@ -273,3 +273,12 @@ Essas decisoes nao impedem implementar e testar o motor em copia local. Nenhum p
 - Feature desabilitada por padrao em todos os centros. Lotes antigos nao sao migrados nem recalculados automaticamente.
 - Validacoes e fronteira de publicacao devem ser consultadas no registro de implementacao em docs/WORKLOG.md.
 - Antes do piloto: validar politicas/rotas das fichas reais, periodo da importacao, eventuais negativos preexistentes e previa do lote. Nenhuma autorizacao de postagem real foi presumida.
+
+## 14. Regra esclarecida pelo usuario - conversoes sem fila (19/10)
+
+- Ausencia de centro produtor pode ser intencional para ocultar uma ficha de conversao da fila; nao e, por si so, uma barreira a cascata.
+- Nao significa saldo zero: consultar o saldo persistido, consumir somente o disponivel e decompor apenas a falta pela composicao.
+- PREPARO sem nenhum centro produtor pode continuar automaticamente pela composicao, sem alterar cadastro, gerar entrada ficticia ou aparecer na fila. Isso tambem vale em centro nao produtor e ficha compartilhada visivel no escopo autorizado.
+- Rotas para outro centro, produtor explicitamente em outro centro, subprodutos/retornos, bloqueio STOCK_ONLY e divergencias negativas anteriores permanecem barreiras.
+- PRODUTO_INTERNO continua somente saldo por padrao; nenhuma liberacao automatica foi ampliada para esse tipo.
+- Regra `CASCADE_V1.1_COMPOSITION_ONLY` participa da assinatura da previa e da auditoria. Uma previa antiga precisa ser atualizada apos a publicacao.

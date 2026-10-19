@@ -25500,7 +25500,7 @@ export default function App() {
       return nextId
     }
 
-    const requisitionsForDemand = [...baseRequisitions, ...supplyRequisitions]
+    const requisitionsForDemand = Array.from(new Map([...baseRequisitions, ...supplyRequisitions].map((record) => [record.id, record])).values())
 
     return distributorCenters.flatMap((center) => {
       const purchaseLines = buildDistributorPurchaseDemandDraftLines(center, requisitionsForDemand)
@@ -28170,7 +28170,7 @@ export default function App() {
 
   function receiveRequisition(requisitionId: number) {
     const targetRequisition = requisitions.find((record) => record.id === requisitionId) ?? null
-    if (!targetRequisition || !canReceiveRequisition(targetRequisition) || currentCompanyId === null) {
+    if (!isInventoryRemoteStateReady || !targetRequisition || !canReceiveRequisition(targetRequisition) || currentCompanyId === null) {
       return
     }
     const draftLines =
@@ -48127,9 +48127,9 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                           type="button"
                           className="primary-button"
                           onClick={generateRequisitionDraft}
-                          disabled={!selectedRequisitionStockCenter}
+                          disabled={!selectedRequisitionStockCenter || !isInventoryRemoteStateReady}
                         >
-                          Montar requisicao
+                          {isInventoryRemoteStateReady ? 'Montar requisicao' : 'Carregando saldos...'}
                         </button>
                       </div>
                     </form>
@@ -48658,7 +48658,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                               >
                                 Cancelar
                               </button>
-                              <button type="button" className="primary-button" onClick={() => startEditSupplyRequisition(record.id)} disabled={!canManageSupplyRequisition(record) || record.status === 'READY_TO_RECEIVE'}>
+                              <button type="button" className="primary-button" onClick={() => startEditSupplyRequisition(record.id)} disabled={!isInventoryRemoteStateReady || !canManageSupplyRequisition(record) || record.status === 'READY_TO_RECEIVE'}>
                                 Enviar
                               </button>
                             </div>
@@ -51812,7 +51812,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
               {supplyEditingRequisitionId !== null ? (
                 <button
                   type="button"
-                  className="primary-button"
+                  className="primary-button" disabled={!isInventoryRemoteStateReady}
                   onClick={() => void moveRequisitionToReceive(supplyEditingRequisitionId)}
                 >
                   Enviar para receber
@@ -51854,7 +51854,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
               <button
                 type="button"
                 className="primary-button"
-                disabled={receiveDraftLines.some((line) => (line.receiptStatus ?? 'PENDING') === 'PENDING')}
+                disabled={!isInventoryRemoteStateReady || receiveDraftLines.some((line) => (line.receiptStatus ?? 'PENDING') === 'PENDING')}
                 onClick={() => receiveRequisition(receiveReviewRequisitionId)}
               >
                 Finalizar conferencia

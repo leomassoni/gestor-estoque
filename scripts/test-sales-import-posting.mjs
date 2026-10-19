@@ -74,7 +74,7 @@ try {
   ]) {
     const data = { ...sourceSheet, id, productId, companyId, ownerCompanyId: companyId, sharedCompanyIds: [],
       companyProductId: '', name: productId, kind: 'PREPARO', outputQuantity, outputUnit, isActive: true,
-      productionCenters: [{ stockCenterId }], supplyRoutes: [], yieldDifferenceDestination: '', yieldDifferenceByproductTechnicalSheetId: null,
+      productionCenters: id === grapesId ? [] : [{ stockCenterId }], supplyRoutes: [], yieldDifferenceDestination: '', yieldDifferenceByproductTechnicalSheetId: null,
       ingredients: [{ id: 1, productId: ingredientId, productLabel: ingredientId, quantity: '500', isActive: true }],
       garnishIngredients: [], imageDataUrl: '' }
     await db.appTechnicalSheetRecord.upsert({ where: { id }, create: data, update: data })
@@ -101,6 +101,9 @@ try {
   }
   console.log('PASS T22 rotas novas exigem autenticacao')
   let p = await preview(9988)
+  assert.equal(p.ruleVersion, 'CASCADE_V1.1_COMPOSITION_ONLY')
+  assert(p.allocations.some((a) => a.path.some((step) => step.technicalSheetId === grapesId)))
+  assert.deepEqual((await db.appTechnicalSheetRecord.findUnique({ where: { id: grapesId } })).productionCenters, [])
   assert.equal(p.settings.enabled, false)
   assert.equal((await confirm(9988, p)).status, 409)
   assert.equal(await db.appSalesPostingOperationRecord.count({ where: { companyId } }), 0)
@@ -170,7 +173,10 @@ try {
   assert.equal(resumed.status, 200, JSON.stringify(resumed.data)); assert.equal(resumed.data.operation.status, 'POSTED')
   console.log('PASS T08 T23 pendencia persistida, regularizacao e retomada apenas do residual')
   await batch(9990, '1')
-  const openInventory = await inventory(9990, '2026-10-16', false)
+  const openResponse = await request('inventories', { ...inventoryTemplate, id: undefined, companyId, stockCenterId,
+    countedAt: '2026-10-16', isClosed: false, startedAt: '2026-10-16T10:00:00Z', closedAt: '' })
+  assert.equal(openResponse.status, 200, JSON.stringify(openResponse.data))
+  const openInventory = openResponse.data.inventoryRecord
   p = await preview(9990); assert.equal(p.pending[0].reason, 'OPEN_INVENTORY')
   assert.equal((await confirm(9990, p)).status, 200)
   assert.equal((await db.appSalesPostingOperationRecord.findUnique({ where: { batchId: 9990 } })).status, 'WAITING_INVENTORY')
@@ -180,7 +186,7 @@ try {
   assert.equal(queued.status, 200, JSON.stringify(queued.data)); assert.equal(queued.data.operation.status, 'POSTED')
   ledger = buildInventoryLedger(await snapshot()); assert.equal(ledger.current.get(`PRODUTO:${rawId}`) ?? 0, 0)
   console.log('PASS T17 T18 intencao sobrevive e respeita novo inventario; nao baixa vendas anteriores novamente')
-  await db.appInventoryRecord.delete({ where: { id: 9990 } })
+  await db.appInventoryRecord.delete({ where: { id: openInventory.id } })
   await batch(9991, '1')
   p = await preview(9991)
   const beforeFailure = await db.appInventoryCountRecord.count({ where: { companyId } })

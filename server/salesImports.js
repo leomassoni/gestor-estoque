@@ -110,7 +110,7 @@ function registerSalesImportRoutes(app, prisma, helpers) {
     plan.fileName = batch.fileName
     const centerRevision = { id: center.id, companyId: center.companyId, name: center.name,
       isActive: center.isActive, isProducer: center.isProducer, userIds: center.userIds }
-    plan.revision = digest({ batch, center: centerRevision, operation, settings, consumptions, inventories, sessions,
+    plan.revision = digest({ engine: plan.engine, ruleVersion: plan.ruleVersion, batch, center: centerRevision, operation, settings, consumptions, inventories, sessions,
       counts, pendingMovements, sheets, products, timing, catalogCompanyIds })
     return { batch, center, operation, settings, consumptions, originalDemands, plan, timing }
   }
@@ -277,7 +277,7 @@ function registerSalesImportRoutes(app, prisma, helpers) {
       if (residualIds.length) await tx.appSalesConsumptionRecord.updateMany({ where: { sourceBatchId: batchId, id: { in: residualIds } },
         data: { stockPostingStatus: 'PENDING', stockMovementId: null, postedAt: '' } })
       await audit(tx, request.auth, batch, `SALES_CASCADE_${action.toUpperCase()}`, {
-        operationId: saved.id, revision: saved.revision, status, allocations, pending: plan.pending, covered: plan.covered, timing,
+        operationId: saved.id, revision: saved.revision, ruleVersion: plan.ruleVersion, status, allocations, pending: plan.pending, covered: plan.covered, timing,
       })
       const result = { operation: { ...saved, receipts: undefined }, plan }
       await tx.appSalesPostingOperationRecord.update({ where: { batchId }, data: {

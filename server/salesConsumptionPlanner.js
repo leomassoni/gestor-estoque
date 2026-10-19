@@ -1,6 +1,7 @@
 const { EPSILON, parseStockDecimal: decimal, buildInventoryLedger, isStockDateKey } = require('./inventoryLedger')
 
 const ENGINE_VERSION = 'CASCADE_V1'
+const RULE_VERSION = 'CASCADE_V1.1_COMPOSITION_ONLY'
 const unitNames = { G: 'GRAM', GR: 'GRAM', ML: 'MILLILITER', UN: 'UNIT' }
 function normalizeUnit(value) { return unitNames[String(value).toUpperCase()] ?? value }
 function sheetKey(sheet) { return `${sheet.kind}:${sheet.id}` }
@@ -66,22 +67,27 @@ function planSalesConsumption({ companyId, center, sheets, products, inventories
           sourceName: sheetById.get(demand.sourceTechnicalSheetId)?.name ?? `FICHA ${demand.sourceTechnicalSheetId}`,
           productId, technicalSheetId: sheet?.id ?? null, kind: sheet?.kind ?? 'PRODUTO', name: sheet?.name ?? product.name,
           key, quantity: used, unit, consumedAt: demand.consumedAt, balanceBefore: before, balanceAfter: before - used,
-          theoretical: nextPath.length > 1, path: nextPath })
+          theoretical: nextPath.length > 1, ruleVersion: RULE_VERSION, path: nextPath })
       }
       shortage -= used
       if (shortage <= EPSILON) return null
     }
     if (!sheet) return { reason: 'MISSING_ITEM', message: 'Composicao nao localizada.', path: nextPath }
     if (generated.has(sheet.id)) return { reason: 'GENERATED_OUTPUT', message: `Regularize a saida real de ${generated.get(sheet.id).name}; nao gerar nem consumir seus insumos novamente.`, path: nextPath }
-    const route = (sheet.supplyRoutes ?? []).find((route) => route.consumerCenterId === center.id)
-    const local = (sheet.productionCenters ?? []).some((p) => p.stockCenterId === center.id)
+    const routes = (sheet.supplyRoutes ?? []).filter((route) => route.consumerCenterId === center.id)
+    const producers = sheet.productionCenters ?? []
+    const local = producers.some((p) => p.stockCenterId === center.id)
+    // No production-center assignment can intentionally hide a conversion from the production queue.
+    const compositionOnly = sheet.kind === 'PREPARO' && producers.length === 0
     const explicitPolicy = policyOverrides[String(sheet.id)]
-    const policy = explicitPolicy ?? (local && sheet.kind === 'PREPARO' ? 'CASCADE_LOCAL' : 'STOCK_ONLY')
-    if (!commercial && (route?.supplierCenterId && route.supplierCenterId !== center.id)) {
+    const policy = explicitPolicy ?? ((local || compositionOnly) && sheet.kind === 'PREPARO' ? 'CASCADE_LOCAL' : 'STOCK_ONLY')
+    if (!commercial && routes.some((route) => route.supplierCenterId && route.supplierCenterId !== center.id)) {
       return { reason: 'RECEIPT_REQUIRED', message: 'Preparo abastecido por outro centro: regularize o recebimento.', path: nextPath }
     }
     if (!commercial && policy !== 'CASCADE_LOCAL') return { reason: 'STOCK_ONLY', message: 'Cascata nao habilitada para esta ficha neste centro; conferir recebimento ou politica.', path: nextPath }
-    if (!commercial && !local && (!center.isProducer || (sheet.productionCenters ?? []).length || sheet.companyId !== companyId)) {
+    const explicitInternalAssembly = sheet.kind === 'PRODUTO_INTERNO' && producers.length === 0 &&
+      center.isProducer && sheet.companyId === companyId && explicitPolicy === 'CASCADE_LOCAL'
+    if (!commercial && !local && !compositionOnly && !explicitInternalAssembly) {
       return { reason: 'NOT_LOCAL', message: 'Origem produtiva local nao confirmada.', path: nextPath }
     }
     if (!commercial && ledger.events.some((event) => event.kind === 'MOVEMENT' && event.key === key &&
@@ -162,9 +168,9 @@ function planSalesConsumption({ companyId, center, sheets, products, inventories
       id: sheet.id, name: sheet.name, kind: sheet.kind, local: (sheet.productionCenters ?? []).some((p) => p.stockCenterId === center.id),
       generated: generated.has(sheet.id), policy: policyOverrides[String(sheet.id)] ?? 'DEFAULT',
     }))
-  return { engine: ENGINE_VERSION, allocations, pending, covered, complete, warnings, policySheets,
+  return { engine: ENGINE_VERSION, ruleVersion: RULE_VERSION, allocations, pending, covered, complete, warnings, policySheets,
     inventory: ledger.latestInventory ? { id: ledger.latestInventory.id, date: ledger.latestInventory.date } : null,
     companyId, stockCenterId: center.id, centerName: center.name }
 }
 
-module.exports = { ENGINE_VERSION, planSalesConsumption, normalizeUnit }
+module.exports = { ENGINE_VERSION, RULE_VERSION, planSalesConsumption, normalizeUnit }
