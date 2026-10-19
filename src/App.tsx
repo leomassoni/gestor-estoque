@@ -10,6 +10,7 @@ import {
 } from 'react'
 import { BillingPanelGate } from './components/BillingPanelGate'
 import { useProductionWorkflow } from './hooks/useProductionWorkflow'
+import { salesPostingRequest, type LegacySalesMovementParams, type SalesPostingPlan } from './domain/salesImports'
 import { MasterOverviewPanel } from './components/MasterOverviewPanel'
 import { PreparationModeInput } from './components/PreparationModeInput'
 import {
@@ -25,6 +26,7 @@ import {
   InventorySummaryPanel,
   LazyPanelBoundary,
   ProductListPanel,
+  SalesImportPostingPanel,
   ServiceItemListPanel,
   StockCenterRegisteredListPanel,
   TechnicalSheetListPanel,
@@ -2824,6 +2826,7 @@ export default function App() {
   const [salesImportCodeColumn, setSalesImportCodeColumn] = useState('')
   const [salesImportQuantityColumn, setSalesImportQuantityColumn] = useState('')
   const [salesImportPostingMode, setSalesImportPostingMode] = useState<SalesImportBatchRecord['postingMode']>('ANALYTICAL_ONLY')
+  const [salesPostingBatchId, setSalesPostingBatchId] = useState<number | null>(null)
   const [salesImportShouldSaveTemplate, setSalesImportShouldSaveTemplate] = useState(false)
   const [salesImportPreviewFilter, setSalesImportPreviewFilter] = useState<'ALL' | 'MATCHED' | 'UNMATCHED' | 'ERROR' | 'IGNORED'>('ALL')
   const [salesImportIgnoredSourceRowKeys, setSalesImportIgnoredSourceRowKeys] = useState<string[]>([])
@@ -37138,327 +37141,32 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
     xlsxModule.writeFile(workbook, fileName)
   }
 
-  function buildSalesImportOperationalMovement(params: {
-    companyId: number
-    stockCenterId: number
-    fileName: string
-    consumptions: SalesConsumptionRecord[]
-    mode?: 'OUT' | 'REVERSAL'
-  }) {
-    const { companyId, consumptions, fileName, mode = 'OUT', stockCenterId } = params
-    const validConsumptions = consumptions.filter((record) => {
-      const quantityConsumed = parseDecimal(record.quantityConsumed) ?? 0
-      return quantityConsumed > 0
+  async function buildSalesImportOperationalMovement(params: LegacySalesMovementParams) {
+    const { buildLegacySalesImportMovement } = await import('./domain/legacySalesPosting')
+    return buildLegacySalesImportMovement(params, {
+      technicalSheets, products, inventoryCountSessions, inventoryCounts, pendingInventoryMovements, currentAppUser,
+      normalizeSalesImportDateKey, isTechnicalSheetVisibleForCompany, isProductStockTracked, isTechnicalSheetStockTracked,
     })
-    if (validConsumptions.length === 0) {
-      return null
-    }
-
-    const groupedByDate = new Map<string, SalesConsumptionRecord[]>()
-    validConsumptions.forEach((consumption) => {
-      const dateKey = normalizeSalesImportDateKey(consumption.consumedAt) ?? getTodayDateInputValue()
-      const currentGroup = groupedByDate.get(dateKey) ?? []
-      groupedByDate.set(dateKey, [...currentGroup, consumption])
-    })
-
-    const usedIds = [
-      ...inventoryCountSessions.map((record) => record.id),
-      ...inventoryCounts.map((record) => record.id),
-      ...pendingInventoryMovements.map((record) => record.id),
-    ]
-    const movementPlan: Array<{
-      session: InventoryCountSessionRecord
-      records: InventoryCountRecord[]
-      consumedAt: string
-      linkedConsumptionIds: number[]
-    }> = []
-    let nextId = getNextPersistedIntId(usedIds)
-    Array.from(groupedByDate.entries())
-      .sort(([left], [right]) => left.localeCompare(right))
-      .forEach(([consumedAt, dateConsumptions], dateIndex) => {
-        const aggregatedByTarget = new Map<
-          string,
-          {
-            linkedTechnicalSheet: TechnicalSheetRecord | null
-            linkedProduct: ProductRecord | null
-            quantityConsumed: number
-            linkedConsumptionIds: number[]
-          }
-        >()
-
-        dateConsumptions.forEach((consumption) => {
-          const linkedTechnicalSheet =
-            technicalSheets.find(
-              (sheet) =>
-                isTechnicalSheetVisibleForCompany(sheet, companyId) &&
-                (sheet.kind === 'PREPARO' || sheet.kind === 'PRODUTO_INTERNO') &&
-                sheet.productId === consumption.ingredientProductId,
-            ) ?? null
-          const linkedProduct =
-            products.find(
-              (product) =>
-                product.companyId === companyId &&
-                product.id === consumption.ingredientProductId,
-            ) ?? null
-
-          if (linkedProduct && !isProductStockTracked(linkedProduct)) {
-            return
-          }
-          if (linkedTechnicalSheet && !isTechnicalSheetStockTracked(linkedTechnicalSheet, products)) {
-            return
-          }
-
-          const aggregationKey = linkedTechnicalSheet
-            ? `${linkedTechnicalSheet.kind}:${linkedTechnicalSheet.id}`
-            : linkedProduct
-              ? `PRODUTO:${linkedProduct.id}`
-              : ''
-          if (!aggregationKey) {
-            return
-          }
-
-          const quantityConsumed = parseDecimal(consumption.quantityConsumed) ?? 0
-          if (quantityConsumed <= 0) {
-            return
-          }
-
-          const current = aggregatedByTarget.get(aggregationKey) ?? {
-            linkedTechnicalSheet,
-            linkedProduct,
-            quantityConsumed: 0,
-            linkedConsumptionIds: [],
-          }
-          aggregatedByTarget.set(aggregationKey, {
-            linkedTechnicalSheet,
-            linkedProduct,
-            quantityConsumed: current.quantityConsumed + quantityConsumed,
-            linkedConsumptionIds: [...current.linkedConsumptionIds, consumption.id],
-          })
-        })
-
-        if (aggregatedByTarget.size === 0) {
-          return
-        }
-
-        const sessionId = nextId
-        nextId += 1
-        const movementTimestamp = new Date(`${consumedAt}T23:59:00.000Z`)
-        movementTimestamp.setUTCSeconds(Math.min(59, mode === 'REVERSAL' ? 30 + dateIndex : dateIndex))
-        const movementTimestampIso = movementTimestamp.toISOString()
-        const session: InventoryCountSessionRecord = {
-          id: sessionId,
-          inventoryId: null,
-          companyId,
-          stockCenterId,
-          countedAt: consumedAt,
-          isClosed: true,
-          startedAt: movementTimestampIso,
-          startedByUserId: currentAppUser?.id ?? null,
-          startedByUserName: currentAppUser?.fullName ?? 'Administrador do sistema',
-          closedAt: movementTimestampIso,
-          closedByUserId: currentAppUser?.id ?? null,
-          closedByUserName: currentAppUser?.fullName ?? 'Administrador do sistema',
-        }
-
-        const linkedConsumptionIds: number[] = []
-        const records: InventoryCountRecord[] = Array.from(aggregatedByTarget.values()).map((entry) => {
-          const recordId = nextId
-          nextId += 1
-          linkedConsumptionIds.push(...entry.linkedConsumptionIds)
-          return {
-            id: recordId,
-            inventoryId: null,
-            sessionId,
-            companyId,
-            stockCenterId,
-            countedAt: consumedAt,
-            storageLocation: mode === 'REVERSAL' ? 'ESTORNO DE VENDAS IMPORTADAS' : 'SAIDA POR VENDAS IMPORTADAS',
-            technicalSheetId: entry.linkedTechnicalSheet?.id ?? null,
-            productId: entry.linkedTechnicalSheet ? '' : entry.linkedProduct?.id ?? '',
-            serviceItemId: '',
-            packageId: null,
-            technicalSheetName: entry.linkedTechnicalSheet?.name ?? entry.linkedProduct?.name ?? 'ITEM IMPORTADO',
-            technicalSheetKind: entry.linkedTechnicalSheet
-              ? (entry.linkedTechnicalSheet.kind as StockCountableKind)
-              : 'PRODUTO',
-            recipientItemId: '',
-            recipientLabel: `${mode === 'REVERSAL' ? 'ESTORNO DE VENDAS IMPORTADAS' : 'VENDAS IMPORTADAS'} • ${fileName}`,
-            closedItemsQuantity: formatDecimal(mode === 'REVERSAL' ? entry.quantityConsumed : -entry.quantityConsumed),
-            hasOpenItems: false,
-            openItemsGrossWeight: '',
-            openItemsContainerQuantity: '',
-            openItemsNetQuantity: '',
-            totalCountedQuantity: formatDecimal(mode === 'REVERSAL' ? entry.quantityConsumed : -entry.quantityConsumed),
-            totalCountedUnit:
-              entry.linkedTechnicalSheet?.outputUnit === 'GRAM'
-                ? 'GRAM'
-                : entry.linkedTechnicalSheet?.outputUnit === 'UNIT'
-                  ? 'UNIT'
-                  : entry.linkedProduct?.controlUnit === 'GRAM'
-                    ? 'GRAM'
-                    : entry.linkedProduct?.controlUnit === 'UNIT'
-                      ? 'UNIT'
-                      : 'MILLILITER',
-            createdByUserId: currentAppUser?.id ?? null,
-            createdByUserName: currentAppUser?.fullName ?? 'Administrador do sistema',
-          } satisfies InventoryCountRecord
-        })
-
-        movementPlan.push({
-          session,
-          records,
-          consumedAt,
-          linkedConsumptionIds,
-        })
-      })
-
-    if (movementPlan.length === 0) {
-      return null
-    }
-
-    return movementPlan
   }
 
   async function postSalesImportBatch(batch: SalesImportBatchRecord) {
-    if (currentCompanyId === null) {
-      return
-    }
-    const targetCenter = stockCenters.find((center) => center.id === batch.stockCenterId && center.companyId === batch.companyId) ?? null
-    if (!targetCenter) {
-      setSaveFeedback({
-        status: 'error',
-        title: 'Centro nao encontrado',
-        message: 'Nao foi possivel localizar o centro de estoque deste lote.',
-      })
-      return
-    }
-
-    const batchConsumptions = currentCompanySalesConsumptions.filter(
-      (consumption) =>
-        consumption.sourceBatchId === batch.id &&
-        consumption.stockPostingStatus !== 'CANCELLED' &&
-        consumption.stockPostingStatus !== 'POSTED',
-    )
-    const movementPlan = buildSalesImportOperationalMovement({
-      companyId: batch.companyId,
-      stockCenterId: batch.stockCenterId,
-      fileName: batch.fileName,
-      consumptions: batchConsumptions,
-    })
-
-    if (!movementPlan || movementPlan.length === 0) {
-      setSaveFeedback({
-        status: 'error',
-        title: 'Sem itens rastreaveis',
-        message: 'Este lote nao possui itens rastreaveis de estoque pendentes para lancamento.',
-      })
-      return
-    }
-
-    const postedMovementSessionIds = new Set<number>()
-    let postingResult: 'applied' | 'queued' | null = null
-    movementPlan.forEach((movement) => {
-      const result = registerOperationalInventoryMovement(
-        batch.stockCenterId,
-        `SAIDA POR VENDAS IMPORTADAS • ${batch.fileName}`,
-        movement.session,
-        movement.records,
-      )
-      postingResult = result
-      if (result === 'applied') {
-        postedMovementSessionIds.add(movement.session.id)
-      }
-    })
-
-    const now = new Date().toISOString()
-    const updatedBatch: SalesImportBatchRecord = {
-      ...batch,
-      status: postingResult === 'queued' ? 'POST_QUEUED' : 'POSTED',
-    }
-    const updatedConsumptions = currentCompanySalesConsumptions
-      .filter((consumption) => consumption.sourceBatchId === batch.id)
-      .map((consumption) => {
-        const dateKey = normalizeSalesImportDateKey(consumption.consumedAt) ?? getTodayDateInputValue()
-        const matchedMovement = movementPlan.find(
-          (movement) => movement.consumedAt === dateKey && movement.linkedConsumptionIds.includes(consumption.id),
-        ) ?? null
-        const sessionId = matchedMovement?.session.id ?? null
-        if (!sessionId) {
-          return consumption
-        }
-
-        return {
-          ...consumption,
-          stockPostingStatus: postedMovementSessionIds.has(sessionId) ? 'POSTED' : 'PENDING',
-          stockMovementId: sessionId,
-          postedAt: postedMovementSessionIds.has(sessionId) ? now : '',
-        } satisfies SalesConsumptionRecord
-      })
-
-    try {
-      const [batchResponse, ...consumptionResponses] = await Promise.all([
-        fetch(`/api/sales-import-batches/${updatedBatch.id}`, {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(updatedBatch),
-        }),
-        ...updatedConsumptions.map((consumption) =>
-          fetch(`/api/sales-consumptions/${consumption.id}`, {
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(consumption),
-          }),
-        ),
-      ])
-      if (!batchResponse.ok || consumptionResponses.some((response) => !response.ok)) {
-        throw new Error('Nao foi possivel atualizar o lote e os consumos desta importacao no servidor.')
-      }
-    } catch (error) {
-      console.error(error)
-      setSaveFeedback({
-        status: 'error',
-        title: 'Saida registrada com alerta',
-        message:
-          error instanceof Error
-            ? `A movimentacao foi iniciada, mas o status final nao foi atualizado no servidor: ${error.message}`
-            : 'A movimentacao foi iniciada, mas o status final nao foi atualizado no servidor.',
-      })
-      return
-    }
-
-    await refreshAppSalesImportRecordsFromApi()
-    registerAuditEvent({
-      companyId: batch.companyId,
-      module: 'IMPORTAR_VENDAS',
-      actionKey: 'POST_SALES_IMPORT_BATCH',
-      actionLabel: 'Lancamento de saida por importacao',
-      targetType: 'SALES_IMPORT_BATCH',
-      targetId: String(batch.id),
-      targetLabel: batch.fileName,
-      summary: `Lote ${batch.fileName} foi lancado como saida de estoque.`,
-      impactSummary:
-        postingResult === 'queued'
-          ? 'Saidas ficaram pendentes por inventario aberto.'
-          : `${updatedConsumptions.filter((consumption) => consumption.stockPostingStatus === 'POSTED').length} consumo(s) postado(s) no estoque.`,
-      severity: 'HIGH',
-      result: 'SUCCESS',
-      details: {
-        stockCenterId: batch.stockCenterId,
-        movementSessions: Array.from(postedMovementSessionIds),
-        postingResult,
-      },
-    })
-    setSaveFeedback({
-      status: 'success',
-      title: postingResult === 'queued' ? 'Saida pendente no inventario' : 'Saida lancada',
-      message:
-        postingResult === 'queued'
-          ? `O centro ${targetCenter.name} esta com inventario aberto. A baixa deste lote foi registrada como pendente e sera aplicada ao final do inventario.`
-          : `A saida oficial de estoque deste lote foi lancada para o centro ${targetCenter.name}.`,
+    const { dispatchSalesImportPosting } = await import('./domain/legacySalesPosting')
+    return dispatchSalesImportPosting(batch, {
+      currentCompanyId, stockCenters, currentCompanySalesConsumptions, setSalesPostingBatchId, setSaveFeedback, buildSalesImportOperationalMovement, registerOperationalInventoryMovement, normalizeSalesImportDateKey, refreshAppSalesImportRecordsFromApi, registerAuditEvent,
     })
   }
 
   async function cancelSalesImportBatch(batch: SalesImportBatchRecord) {
+    const managed = batch.summary.postingEngine === 'CASCADE_V1'
+    if (managed) {
+      try {
+        await salesPostingRequest(batch.id, 'reverse', {})
+        await refreshAppInventoryRecordsFromApi()
+      } catch (error) {
+        setSaveFeedback({ status: 'error', title: 'Falha ao estornar lote', message: error instanceof Error ? error.message : 'Confira as alocacoes antes de repetir o estorno.' })
+        return
+      }
+    }
     const relatedConsumptions = currentCompanySalesConsumptions.filter((consumption) => consumption.sourceBatchId === batch.id)
     const postedSessionIds = new Set(
       relatedConsumptions
@@ -37471,16 +37179,16 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
         .map((consumption) => consumption.stockMovementId as number),
     )
 
-    if (queuedSessionIds.size > 0) {
+    if (!managed && queuedSessionIds.size > 0) {
       setPendingInventoryMovements((current) =>
         current.filter((movement) => !queuedSessionIds.has(movement.session.id)),
       )
     }
 
     let reversalResult: 'applied' | 'queued' | null = null
-    if (postedSessionIds.size > 0) {
+    if (!managed && postedSessionIds.size > 0) {
       const postedConsumptions = relatedConsumptions.filter((consumption) => consumption.stockPostingStatus === 'POSTED')
-      const reversalPlan = buildSalesImportOperationalMovement({
+      const reversalPlan = await buildSalesImportOperationalMovement({
         companyId: batch.companyId,
         stockCenterId: batch.stockCenterId,
         fileName: batch.fileName,
@@ -37511,7 +37219,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
       }))
 
     try {
-      const [batchResponse, ...consumptionResponses] = await Promise.all([
+      const [batchResponse, ...consumptionResponses] = await Promise.all(managed ? [] : [
         fetch(`/api/sales-import-batches/${updatedBatch.id}`, {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
@@ -37525,7 +37233,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
           }),
         ),
       ])
-      if (!batchResponse.ok || consumptionResponses.some((response) => !response.ok)) {
+      if ((!managed && !batchResponse?.ok) || consumptionResponses.some((response) => !response.ok)) {
         throw new Error('Nao foi possivel cancelar o lote e os consumos associados no servidor.')
       }
     } catch (error) {
@@ -37705,6 +37413,10 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
   }
 
   async function reprocessSalesImportBatch(batch: SalesImportBatchRecord) {
+    if (batch.summary.postingEngine === 'CASCADE_V1') {
+      setSalesPostingBatchId(batch.id)
+      return
+    }
     if (processingSalesImportBatchAction?.batchId === batch.id && processingSalesImportBatchAction.action === 'REPROCESS') {
       return
     }
@@ -38753,6 +38465,11 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
   }
 
   async function saveSalesImportDraft() {
+    const { runSalesImportSaveOnce } = await import('./domain/salesImportPersistence')
+    return runSalesImportSaveOnce(saveSalesImportDraftImpl)
+  }
+
+  async function saveSalesImportDraftImpl() {
     setIsSalesImportConfirmationOpen(false)
     if (currentCompanyId === null) {
       setSaveFeedback({
@@ -38919,6 +38636,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
         unmatchedRows: unmatchedRows.length,
         duplicateRows: duplicatedRows.length,
         sourceSheet: salesImportCurrentSheet.name,
+        dateMode: salesImportDateMode,
         coverageMode,
         coverageWeekStartsOn,
         importCode,
@@ -38951,59 +38669,18 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
       startingConsumptionId: nextConsumptionId,
     })
 
-    const movementPlan =
-      postingMode === 'POST_IMMEDIATE'
-        ? buildSalesImportOperationalMovement({
-            companyId: currentCompanyId,
-            stockCenterId: targetCenter.id,
-            fileName: salesImportWorkbookName,
-            consumptions: consumptionsToSave,
-          })
-        : null
-    const normalizedConsumptionsToSave = consumptionsToSave
+    let movementPlan: Awaited<ReturnType<typeof buildSalesImportOperationalMovement>> = null
+    let normalizedConsumptionsToSave: SalesConsumptionRecord[] = consumptionsToSave
 
     try {
-      if (templateToSave) {
-        const templateResponse = await fetch('/api/sales-import-templates', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(templateToSave),
-        })
-        if (!templateResponse.ok) {
-          throw new Error('Nao foi possivel salvar o template da importacao no servidor.')
-        }
-      }
-
-      const batchResponse = await fetch('/api/sales-import-batches', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(batchToSave),
-      })
-      if (!batchResponse.ok) {
-        throw new Error('Nao foi possivel salvar o lote da importacao no servidor.')
-      }
-
-      const rowResponses = await Promise.all(rowsToSave.map((row) =>
-        fetch('/api/sales-import-rows', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(row),
-        }),
-      ))
-      if (rowResponses.some((response) => !response.ok)) {
-        throw new Error('Nao foi possivel salvar uma ou mais linhas da importacao no servidor.')
-      }
-
-      const consumptionResponses = await Promise.all(normalizedConsumptionsToSave.map((consumption) =>
-        fetch('/api/sales-consumptions', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(consumption),
-        }),
-      ))
-      if (consumptionResponses.some((response) => !response.ok)) {
-        throw new Error('Nao foi possivel salvar o consumo calculado desta importacao no servidor.')
-      }
+      const { persistSalesImportSourceRecords } = await import("./domain/salesImportPersistence")
+      const saved = await persistSalesImportSourceRecords(batchToSave, rowsToSave, normalizedConsumptionsToSave, templateToSave)
+      Object.assign(batchToSave, saved.batch)
+      rowsToSave.splice(0, rowsToSave.length, ...saved.rows)
+      normalizedConsumptionsToSave = saved.consumptions
+      movementPlan = postingMode === "POST_IMMEDIATE" ? await buildSalesImportOperationalMovement({
+        companyId: currentCompanyId, stockCenterId: targetCenter.id, fileName: salesImportWorkbookName, consumptions: normalizedConsumptionsToSave,
+      }) : null
     } catch (error) {
       console.error(error)
       setSaveFeedback({
@@ -39014,7 +38691,19 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
       return
     }
 
-    if (postingMode === 'POST_IMMEDIATE' && (!movementPlan || movementPlan.length === 0)) {
+    let cascadeReview = false
+    if (postingMode === 'POST_IMMEDIATE') {
+      try {
+        const { plan } = await salesPostingRequest<{ plan: SalesPostingPlan }>(batchToSave.id, 'details')
+        cascadeReview = plan.settings.enabled
+        if (cascadeReview) setSalesPostingBatchId(batchToSave.id)
+      } catch (error) {
+        setSaveFeedback({ status: 'error', title: 'Importacao salva; baixa nao confirmada', message: error instanceof Error ? error.message : 'Confira o lote antes de lancar o estoque.' })
+        return
+      }
+    }
+
+    if (!cascadeReview && postingMode === 'POST_IMMEDIATE' && (!movementPlan || movementPlan.length === 0)) {
       const updatedBatch: SalesImportBatchRecord = {
         ...batchToSave,
         status: 'POSTED',
@@ -39044,7 +38733,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
 
     let postingResult: 'applied' | 'queued' | null = null
     let postedMovementSessionIds = new Set<number>()
-    if (postingMode === 'POST_IMMEDIATE' && movementPlan && movementPlan.length > 0) {
+    if (!cascadeReview && postingMode === 'POST_IMMEDIATE' && movementPlan && movementPlan.length > 0) {
       movementPlan.forEach((movement) => {
         const result = registerOperationalInventoryMovement(
           targetCenter.id,
@@ -39153,6 +38842,8 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
           ? 'Lote salvo apenas para analise e sugestao de minimo.'
           : postingMode === 'POST_PENDING'
             ? 'Lote salvo com saida pendente de conferencia.'
+            : cascadeReview
+              ? 'Lote salvo; baixa em cascata aguarda conferencia e confirmacao.'
             : postingResult === 'queued'
               ? 'Lote salvo com saida pendente por inventario aberto.'
               : 'Lote salvo com saida imediata de estoque.',
@@ -39183,6 +38874,8 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
           ? `O lote foi registrado para o centro ${targetCenter.name}. ${validRows.length} linha(s) validas entraram na base analitica de consumo e os minimos sugeridos deste centro foram recalculados.${unmatchedSummaryMessage}${ignoredSummaryMessage}`
           : postingMode === 'POST_PENDING'
             ? `O lote foi registrado para o centro ${targetCenter.name}. ${validRows.length} linha(s) validas ficaram prontas para virar saida oficial de estoque depois da conferencia e os minimos sugeridos deste centro foram recalculados.${unmatchedSummaryMessage}${ignoredSummaryMessage}`
+            : cascadeReview
+              ? `O lote e os minimos foram salvos. Confira a previa da cascata para confirmar a baixa de estoque.${unmatchedSummaryMessage}${ignoredSummaryMessage}`
             : !movementPlan || movementPlan.length === 0
               ? `O lote foi registrado para o centro ${targetCenter.name}. Nenhum item rastreavel de estoque foi encontrado para baixa imediata, mas a base de consumo e os minimos sugeridos foram atualizados.${unmatchedSummaryMessage}${ignoredSummaryMessage}`
               : postingResult === 'queued'
@@ -47814,7 +47507,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                                 <td>{formatDateForDisplay(batch.importedAt.slice(0, 10))}</td>
                                 <td>
                                   <span className={`status-badge status-badge-${String(batch.status).toLowerCase()}`}>
-                                    {batch.status === 'IMPORTED'
+                                    {batch.summary.postingStatus === 'PARTIAL' ? 'Parcial com pendencias' : batch.status === 'IMPORTED'
                                       ? 'Apenas analise'
                                       : batch.status === 'READY_TO_POST'
                                         ? 'Pronto para lancar'
@@ -47942,6 +47635,11 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                                   onClick={() => void postSalesImportBatch(selectedSalesImportBatch)}
                                 >
                                   Lancar saida de estoque
+                                </button>
+                              ) : null}
+                              {selectedSalesImportBatch.status !== 'CANCELLED' || selectedSalesImportBatch.summary.postingEngine === 'CASCADE_V1' ? (
+                                <button type="button" className="secondary-button" onClick={() => setSalesPostingBatchId(selectedSalesImportBatch.id)}>
+                                  Conferir baixa em cascata
                                 </button>
                               ) : null}
                               {selectedSalesImportBatch.status !== 'CANCELLED' ? (
@@ -54412,6 +54110,13 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
             <p className="confirm-copy">{saveProgressState.message}</p>
           </section>
         </div>
+      ) : null}
+
+      {salesPostingBatchId !== null ? (
+        <LazyPanelBoundary><SalesImportPostingPanel key={salesPostingBatchId} batchId={salesPostingBatchId}
+          onClose={() => setSalesPostingBatchId(null)}
+          onCommitted={async () => { await refreshAppSalesImportRecordsFromApi(); await refreshAppInventoryRecordsFromApi() }}
+        /></LazyPanelBoundary>
       ) : null}
 
       {saveFeedback ? (

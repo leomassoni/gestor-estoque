@@ -1,5 +1,9 @@
 import { lazy, Suspense, type ReactNode } from 'react'
 
+export const SalesImportPostingPanel = lazy(() =>
+  import('./SalesImportPostingPanel').then((module) => ({ default: module.SalesImportPostingPanel })),
+)
+
 export const ExecutionPlanningList = lazy(() =>
   import('./ExecutionPlanningList').then((module) => ({ default: module.ExecutionPlanningList })),
 )

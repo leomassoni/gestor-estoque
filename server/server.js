@@ -6,6 +6,7 @@ const express = require('express')
 const cors = require('cors')
 const { PrismaClient } = require('@prisma/client')
 const { registerProductionRoutes, saveProductionDraft, lockedTransaction, nextInventoryMovementId } = require('./production')
+const { registerSalesImportRoutes } = require('./salesImports')
 const {
   createBillingAccessMiddleware,
   createTrialSubscriptionForCompany,
@@ -749,6 +750,8 @@ app.delete('/api/companies/:id', async (request, response) => {
     await transaction.appSalesImportBatchRecord.deleteMany({ where: { companyId } })
     await transaction.appSalesImportRowRecord.deleteMany({ where: { companyId } })
     await transaction.appSalesConsumptionRecord.deleteMany({ where: { companyId } })
+    await transaction.appSalesPostingOperationRecord.deleteMany({ where: { companyId } })
+    await transaction.appSalesPostingSettingsRecord.deleteMany({ where: { companyId } })
     await transaction.appBillingEventRecord.deleteMany({ where: { companyId } })
     await transaction.appBillingPaymentRecord.deleteMany({ where: { companyId } })
     await transaction.appCompanySubscriptionRecord.deleteMany({ where: { companyId } })
@@ -1209,6 +1212,12 @@ app.delete('/api/sales-import-templates/:id', async (request, response) => {
   response.json({ ok: true })
 })
 
+registerSalesImportRoutes(app, prisma, {
+  userCanAccessCompany, normalizeInventoryCountPayload, normalizeInventoryCountSessionPayload, serializeBigIntForJson,
+  getCompanyCatalogScopeIds, isTechnicalSheetRecordVisibleForCompany,
+  normalizeSalesImportBatchPayload, normalizeSalesImportRowPayload, normalizeSalesConsumptionPayload,
+})
+
 app.get('/api/sales-import-batches', async (request, response) => {
   const companyId = parseIntegerParam(request.query.companyId)
   const batches = await prisma.appSalesImportBatchRecord.findMany({
@@ -1216,21 +1225,6 @@ app.get('/api/sales-import-batches', async (request, response) => {
     orderBy: [{ createdAtRecord: 'desc' }, { id: 'desc' }],
   })
   response.json({ batches })
-})
-
-app.post('/api/sales-import-batches', async (request, response) => {
-  const batch = normalizeSalesImportBatchPayload(request.body)
-  if (!batch) {
-    response.status(400).json({ error: 'Payload de lote de importacao invalido.' })
-    return
-  }
-
-  const saved = await prisma.appSalesImportBatchRecord.upsert({
-    where: { id: batch.id },
-    create: batch,
-    update: batch,
-  })
-  response.json({ batch: saved })
 })
 
 app.put('/api/sales-import-batches/:id', async (request, response) => {
@@ -1274,21 +1268,6 @@ app.get('/api/sales-import-rows', async (request, response) => {
   response.json({ rows })
 })
 
-app.post('/api/sales-import-rows', async (request, response) => {
-  const row = normalizeSalesImportRowPayload(request.body)
-  if (!row) {
-    response.status(400).json({ error: 'Payload de linha de importacao invalido.' })
-    return
-  }
-
-  const saved = await prisma.appSalesImportRowRecord.upsert({
-    where: { id: row.id },
-    create: row,
-    update: row,
-  })
-  response.json({ row: saved })
-})
-
 app.put('/api/sales-import-rows/:id', async (request, response) => {
   const rowId = parseIntegerParam(request.params.id)
   const row = normalizeSalesImportRowPayload({ ...request.body, id: rowId })
@@ -1312,21 +1291,6 @@ app.get('/api/sales-consumptions', async (request, response) => {
     orderBy: [{ consumedAt: 'desc' }, { id: 'desc' }],
   })
   response.json({ consumptions })
-})
-
-app.post('/api/sales-consumptions', async (request, response) => {
-  const consumption = normalizeSalesConsumptionPayload(request.body)
-  if (!consumption) {
-    response.status(400).json({ error: 'Payload de consumo importado invalido.' })
-    return
-  }
-
-  const saved = await prisma.appSalesConsumptionRecord.upsert({
-    where: { id: consumption.id },
-    create: consumption,
-    update: consumption,
-  })
-  response.json({ consumption: saved })
 })
 
 app.put('/api/sales-consumptions/:id', async (request, response) => {
@@ -1396,7 +1360,10 @@ app.delete('/api/stock-centers/:id', async (request, response) => {
     return
   }
 
-  await prisma.appStockCenterRecord.deleteMany({ where: { id: stockCenterId } })
+  await prisma.$transaction([
+    prisma.appSalesPostingSettingsRecord.deleteMany({ where: { stockCenterId } }),
+    prisma.appStockCenterRecord.deleteMany({ where: { id: stockCenterId } }),
+  ])
   response.json({ ok: true })
 })
 

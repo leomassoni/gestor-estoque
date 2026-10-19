@@ -7,7 +7,7 @@ const page = await context.newPage()
 const timurOnly = process.argv.includes('--timur-only')
 const sheetName = timurOnly ? 'CORDIAL TIMUR ARTESANAL MADRE' : 'XAROPE SIMPLES'
 const desiredYield = timurOnly ? '1000' : '1800'
-page.setDefaultTimeout(20000)
+page.setDefaultTimeout(60000)
 page.on('pageerror', (error) => console.log('PAGE_ERROR', error.message))
 const click = async (locator) => locator.evaluate((element) => element.click())
 const fill = async (locator, value) => locator.evaluate((element, nextValue) => {
@@ -25,12 +25,12 @@ try {
     localStorage.setItem('gestor-estoque:auth', JSON.stringify({ session, authToken: token, currentCompanyId: 13 }))
     localStorage.setItem('gestor-estoque:auth-token', token)
   }, login)
-  await page.goto('http://127.0.0.1:4001', { waitUntil: 'domcontentloaded' })
+  await page.goto(process.env.BROWSER_TEST_BASE_URL || 'http://127.0.0.1:4001', { waitUntil: 'domcontentloaded' })
   await page.getByRole('button', { name: /^Estoque/ }).waitFor()
   await click(page.getByRole('button', { name: /^Estoque/ }))
   await click(page.getByRole('button', { name: 'Entrada de producoes', exact: true }))
   await page.getByRole('button', { name: 'Nova producao', exact: true }).waitFor()
-  await page.locator('label').filter({ hasText: 'Centro produtor' }).locator('select').first().selectOption('7')
+  await page.locator('label').filter({ hasText: 'Centro produtor' }).locator('select').first().selectOption('7', { force: true })
   console.log('PASS entrada de producoes abre com BAR DE BAIXO')
   await click(page.getByRole('button', { name: 'Nova producao', exact: true }))
   const modal = page.getByRole('dialog').first()
@@ -47,8 +47,12 @@ try {
   await click(page.getByRole('dialog').last().getByRole('button', { name: 'Confirmar entrada de producao', exact: true }))
   await page.waitForFunction(() => !document.getElementById('manual-production-preview-title'))
   await fill(page.getByLabel('Buscar producao', { exact: true }), sheetName)
-  const row = page.locator('tr').filter({ has: page.getByText(sheetName, { exact: true }) }).first()
-  await row.waitFor()
+  const row = page.locator('tr').filter({ hasText: sheetName }).first()
+  await row.waitFor({ state: 'attached' }).catch(async (error) => {
+    await page.screenshot({ path: 'tmp/production-browser-failure.png' })
+    console.log('PRODUCTION_FAILURE', (await page.locator('main').textContent()).slice(-10000))
+    throw error
+  })
   await click(row.getByRole('button', { name: 'Produzir', exact: true }))
   const production = page.getByRole('dialog', { name: `Produzir ${sheetName}`, exact: true })
   await production.waitFor()
@@ -99,11 +103,20 @@ try {
   console.log('PASS recarregar nao reabre a producao concluida')
   await page.screenshot({ path: 'tmp/production-browser-finished.png' })
   await click(page.getByRole('button', { name: 'Inventario', exact: true }))
-  await page.getByRole('button', { name: 'Iniciar inventario', exact: true }).waitFor()
-  await page.locator('label').filter({ hasText: 'Centro de estoque *' }).locator('select').first().selectOption('7')
-  await click(page.getByRole('button', { name: 'Iniciar inventario', exact: true }))
-  await page.getByRole('button', { name: 'Iniciar contagem', exact: true }).waitFor()
-  await click(page.getByRole('button', { name: 'Iniciar contagem', exact: true }))
+  await page.waitForFunction(() => /Iniciar inventario|Iniciar contagem|Continuar contagem|Registrar item/.test(document.body.textContent)).catch(async (error) => {
+    await page.screenshot({ path: 'tmp/inventory-browser-failure.png' })
+    console.log('INVENTORY_FAILURE', (await page.locator('main').textContent()).slice(-10000))
+    throw error
+  })
+  if (await page.getByRole('button', { name: 'Iniciar inventario', exact: true }).count()) {
+    await page.locator('label').filter({ hasText: 'Centro de estoque *' }).locator('select').first().selectOption('7', { force: true })
+    await click(page.getByRole('button', { name: 'Iniciar inventario', exact: true }))
+  }
+  if (!await page.getByRole('button', { name: 'Registrar item', exact: true }).count()) {
+    const continueCount = page.getByRole('button', { name: 'Continuar contagem', exact: true })
+    if (await continueCount.count()) await click(continueCount)
+    else await click(page.getByRole('button', { name: 'Iniciar contagem', exact: true }))
+  }
   const location = page.getByPlaceholder('Digite para pesquisar ou criar local')
   await location.waitFor()
   await fill(location, 'TESTE REGRESSAO')

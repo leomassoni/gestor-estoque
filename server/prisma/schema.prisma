@@ -515,6 +515,36 @@ model AppSalesConsumptionRecord {
   @@index([stockPostingStatus])
 }
 
+model AppSalesPostingSettingsRecord {
+  stockCenterId Int      @id
+  companyId     Int
+  enabled       Boolean  @default(false)
+  policies      Json     @default("{}")
+  updatedAt     DateTime @updatedAt
+
+  @@index([companyId])
+}
+
+model AppSalesPostingOperationRecord {
+  id              String   @id @default(cuid())
+  batchId         Int      @unique
+  companyId       Int
+  stockCenterId   Int
+  engine          String
+  status          String
+  revision        Int      @default(0)
+  originalDemands Json
+  residual        Json
+  allocations     Json
+  covered         Json
+  receipts        Json
+  timing          Json
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([companyId, stockCenterId, status])
+}
+
 model AppStockCenterRecord {
   id                      Int      @id
   companyId               Int

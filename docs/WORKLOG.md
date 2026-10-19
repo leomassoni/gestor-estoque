@@ -2251,3 +2251,38 @@ Registrar um historico resumido do que foi feito, do que falhou e do que ficou p
   - `unzip -t` da auditoria XLSX passou.
   - teste visual especifico do cordial Timur: lote de `1000 ML` mostrou `0,5 G` de sal e `362,5 ML` de agua, sem iniciar producao ficticia no online.
 - Deploy: conferir bundle publicado e `401` nas rotas protegidas apos o push. Os testes com criacao de registros foram executados apenas no banco local isolado.
+
+### 2026-10-19 - implementacao da baixa de vendas em cascata
+
+- Escopo autorizado: implementar o plano de 18/10, sem registrar vendas, habilitar centros ou alterar saldos online durante o desenvolvimento.
+- Causa: lancamento legado baixava preparos sem limitar ao saldo e nao representava uma demanda resolvida em varios niveis; persistencia separada e IDs calculados pelo navegador permitiam colisao/gravacao incompleta.
+- Ajustes:
+  - motor puro `server/salesConsumptionPlanner.js`, saldo cronologico `server/inventoryLedger.js` e rotas em `server/salesImports.js`;
+  - consumo do saldo de preparo e decomposicao apenas da falta local; barreiras para recebimento externo, subproduto/retorno, receita invalida, periodo ambiguo e divergencia negativa anterior;
+  - historico analitico preservado, com trilha separada de alocacoes, receitas usadas, residual e estorno exato;
+  - operacao, movimentos, status e log master na mesma transacao; previa consistente somente leitura, revisao contra dados alterados e comandos repetiveis sem duplicar;
+  - IDs de lotes/linhas/consumos novos gerados no servidor, sem sobrescrita; compatibilidade de IDs explicitos livres para clientes antigos;
+  - gravacao inicial de importacao continua por requisicoes separadas, limitada a seis simultaneas; confirmacao bloqueia fonte incompleta;
+  - coordenacao com escritores legados por trava transacional compartilhada no banco; sem remover persistencia, sincronizacao ou recuperacao de contagens;
+  - painel, hook e persistencia extraidos/carregados sob demanda; App.tsx de 60.520 para 60.225 linhas, sem motor recursivo no frontend;
+  - migracoes aditivas, recurso desabilitado por padrao; nenhuma migracao automatica de lotes antigos ou ativacao operacional;
+  - inventario aberto salva intencao; apos consolidar, reabrir conferencia, revalidar e confirmar o residual. Nao aplicar automaticamente alocacao antiga.
+- Validacao ja aprovada em banco local isolado `gestor_estoque_production_regression`:
+  - motor: disponibilidade parcial, Pewen/unidades/gramas, saldo compartilhado, rotas externas, equivalentes, subprodutos, unidades/decimais, ciclos, datas e inventario aberto;
+  - API: 401/403, perfil por permissao, dois lotes concorrentes, mesma chave repetida, previa vencida, erro de auditoria com rollback integral, retomada, estorno apos alterar receita, compatibilidade legada e fonte incompleta;
+  - IDs concorrentes exclusivos e nao reaproveitamento de lote excluido com operacao arquivada;
+  - Prisma gerado e migracoes aplicadas apenas ao banco de teste;
+  - TypeScript sem erros e ESLint direcionado dos novos modulos frontend aprovados.
+- Validacao final local aprovada:
+  - TypeScript, sintaxe de server.js/novos modulos, git diff --check, ESLint direcionado e Vite;
+  - tres suites automatizadas: motor puro, API de cascata e API de producao;
+  - navegador com XLSX real de teste: dois aliases PDV, consumo/minimo, previa, resposta perdida apos commit, retry sem duplicacao, reload, cancelamento e estorno;
+  - navegador desktop/mobile: imagens em tmp/sales-cascade-desktop-preview.png e tmp/sales-cascade-mobile-finished.png, sem sobreposicao ou transbordamento da pagina;
+  - regressao visual de producao (iniciar/concluir direto, nao ressuscitar rascunho) e inventario (abrir/retomar, registrar item, sair/voltar, resumo e outro autor preservado);
+  - main chunk de 1.188,98 KB / gzip 258,08 KB para 1.185,86 KB / gzip 257,72 KB; novo painel 9,65 KB carregado sob demanda. Permanece o aviso preexistente de chunk acima de 500 KB;
+  - motor com 2.000 demandas: 162 ms na ultima execucao local; nao representa SLA do ambiente online;
+  - testes de navegador foram repetidos com build estavel: reconstruir dist enquanto a pagina usava o bundle anterior invalidou um ensaio; esse erro de ambiente nao foi tratado como correcao de inventario.
+- Limite da validacao: venda/minimos/baixa e producao/inventario foram exercitados pelo frontend; compra com fornecedor, suprimento parcial entre empresas, taxa de transferencia e exportacao financeira nao foram repetidos de ponta a ponta nesta entrega. Codigo desses fluxos nao foi alterado. Exigir essa conferencia no piloto antes de ampliar a ativacao.
+- Publicacao preparada com recurso desabilitado por padrao; nenhum lote real ou centro real habilitado. Confirmar bundle e autenticacao apos deploy.
+- Rollback: desabilitar novas baixas por centro; manter consulta/retomada/estorno das operacoes gravadas. Nao devolver lote parcial ao legado, apagar tabelas/migracoes ou restaurar `/api/state` sobre dados novos. Travamento no banco so pode ser retirado com todos os novos confirmadores parados e conferencia de escritores concorrentes.
+- Pendencias operacionais: conferir a previa de lote real e politicas por ficha/centro antes do piloto; nenhuma baixa real foi executada por esta implementacao.
