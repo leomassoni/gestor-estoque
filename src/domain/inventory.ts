@@ -3,6 +3,7 @@ import type {
   ControlUnit,
   InventoryContainerOption,
   InventoryCountRecord,
+  InventoryCountHistoryDraft,
   InventoryCountSessionRecord,
   InventoryCountableItem,
   InventoryRecord,
@@ -34,6 +35,7 @@ import {
   getStockCenterBaseQuantity,
   getTechnicalSheetBaseYield,
 } from './technicalSheets'
+import { buildPreparationContainerOptions, preservePreparationCountQuantity } from './preparationContainers'
 
 export function canManageInventoryCountRecord(
   record: InventoryCountRecord,
@@ -363,8 +365,13 @@ export function buildInventoryRecipientOptionsForContext(params: {
   product: ProductRecord | null
   serviceItem: ServiceItemRecord | null
   serviceItemsById: Map<string, ServiceItemRecord>
+  usePreparationContainerCapacity?: boolean
 }) {
   const { countableItem, product, serviceItem, serviceItemsById, sheet } = params
+
+  if (sheet?.kind === 'PREPARO' && params.usePreparationContainerCapacity !== false) {
+    return buildPreparationContainerOptions(sheet, serviceItemsById)
+  }
 
   if (sheet) {
     const fallbackReferenceQuantity = parseDecimal(sheet.portionSize) ?? getTechnicalSheetBaseYield(sheet)
@@ -523,13 +530,21 @@ export function calculateInventoryTotalCountedQuantityForContext(params: {
   closedItemsQuantity: string
   hasOpenItems: boolean
   openPhysicalQuantity: number
+  requireKnownContainerCapacity?: boolean
+  previousCount?: { record: InventoryCountRecord; draft: InventoryCountHistoryDraft }
 }) {
   const { closedItemsQuantity, countableItem, hasOpenItems, hasRecipientOptions, openPhysicalQuantity, recipient, sheet } = params
+  if (params.previousCount && preservePreparationCountQuantity(params.previousCount.record, params.previousCount.draft)) {
+    return parseDecimal(params.previousCount.record.totalCountedQuantity) ?? 0
+  }
   if (!countableItem) {
     return 0
   }
 
   const closedQuantity = parseNumericInputDecimal(closedItemsQuantity) ?? 0
+  if (params.requireKnownContainerCapacity && closedQuantity > 0 && recipient?.referenceQuantity === 0) {
+    throw new Error('Informe a capacidade do recipiente e a densidade necessaria para a conversao, ou conte sem recipiente.')
+  }
 
   if (countableItem.kind === 'ITEM') {
     return closedQuantity * (recipient?.referenceQuantity ?? 1)

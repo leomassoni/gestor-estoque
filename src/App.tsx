@@ -13,6 +13,8 @@ import { useProductionWorkflow } from './hooks/useProductionWorkflow'
 import { salesPostingRequest, type LegacySalesMovementParams, type SalesPostingPlan } from './domain/salesImports'
 import { MasterOverviewPanel } from './components/MasterOverviewPanel'
 import { PreparationModeInput } from './components/PreparationModeInput'
+import { PreparationStorageRecipientsPanel } from './components/PreparationStorageRecipientsPanel'
+import { getServiceItemSizeFieldLabel, preservePreparationCountQuantity } from './domain/preparationContainers'
 import {
   ExecutionPlanningList,
   InventoryActiveFlowPanel,
@@ -139,7 +141,6 @@ import {
   getProductDensityFactor,
   buildProductPackageLabel,
   expandStockReportRowsByProductPackages,
-  buildServiceItemPackageLabel,
   buildServiceItemInventoryLabel,
   isOperationalInventoryMovementLocation,
   isOutboundOperationalInventoryMovementLocation,
@@ -283,7 +284,6 @@ import type {
   WasteRecord,
   PendingInventoryMovementRecord,
   InventoryFormState,
-  InventoryContainerOption,
   InventoryCountableItem,
   WasteCountableItem,
   WasteMovementEntry,
@@ -10544,94 +10544,10 @@ export default function App() {
     () => new Map(serviceItems.filter((item) => isServiceItemVisibleForCompany(item, currentCompanyId)).map((item) => [item.id, item])),
     [currentCompanyId, isServiceItemVisibleForCompany, serviceItems],
   )
-  const inventoryRecipientOptions = useMemo(() => {
-    if (selectedInventorySheet) {
-      const fallbackReferenceQuantity =
-        parseDecimal(selectedInventorySheet.portionSize) ?? getTechnicalSheetBaseYield(selectedInventorySheet)
-      return [
-        {
-          id: 'PREPARO:NONE',
-          label: 'SEM RECIPIENTE',
-          emptyWeight: 0,
-          referenceQuantity:
-            fallbackReferenceQuantity > 0
-              ? fallbackReferenceQuantity
-              : getTechnicalSheetBaseYield(selectedInventorySheet),
-          packageId: null,
-          isFallbackOption: true,
-        },
-        ...selectedInventorySheet.serviceItems
-          .filter((serviceItem) => serviceItem.isActive)
-          .map<InventoryContainerOption | null>((serviceItem) => {
-            const linkedItem = serviceItemsById.get(serviceItem.itemId) ?? null
-            return linkedItem && linkedItem.isActive
-              ? {
-                  id: linkedItem.id,
-                  label: linkedItem.name,
-                  emptyWeight: parseDecimal(linkedItem.emptyWeight) ?? 0,
-                  referenceQuantity: getTechnicalSheetBaseYield(selectedInventorySheet),
-                  packageId: null,
-                  isFallbackOption: false,
-                }
-              : null
-          })
-          .filter((item): item is InventoryContainerOption => item !== null),
-      ]
-        .sort((a, b) => a.label.localeCompare(b.label, 'pt-BR'))
-    }
-
-    if (selectedInventoryProduct) {
-      return [
-        {
-          id: 'PACKAGE:NONE',
-          label: 'SEM EMBALAGEM',
-          emptyWeight: 0,
-          referenceQuantity: selectedInventoryProduct.controlUnit === 'UNIT' ? 1 : 1000,
-          packageId: null,
-          isFallbackOption: true,
-        },
-        ...selectedInventoryProduct.packages
-          .filter((item) => item.isActive)
-          .map((item) => ({
-            id: `PACKAGE:${item.id}`,
-            label: buildProductPackageLabel(selectedInventoryProduct, item),
-            emptyWeight:
-              parseDecimal(item.packagingWeightGrams) ??
-              calculatePackagingWeight(item, selectedInventoryProduct.controlUnit, getProductDensityFactor(selectedInventoryProduct)) ??
-              0,
-            referenceQuantity: calculateNormalizedPackageQuantity(item, selectedInventoryProduct.controlUnit),
-            packageId: item.id,
-            isFallbackOption: false,
-          })),
-      ]
-        .sort((a, b) => a.label.localeCompare(b.label, 'pt-BR'))
-    }
-
-    if (selectedInventoryServiceItem) {
-      return [
-        {
-          id: 'ITEM:UNIT',
-          label: 'UNIDADE',
-          emptyWeight: 0,
-          referenceQuantity: 1,
-          packageId: null,
-          isFallbackOption: true,
-        },
-        ...selectedInventoryServiceItem.packages
-          .filter((item) => item.isActive)
-          .map((item) => ({
-            id: `ITEM_PACKAGE:${item.id}`,
-            label: buildServiceItemPackageLabel(item),
-            emptyWeight: 0,
-            referenceQuantity: calculateNormalizedPackageQuantity(item, 'UNIT'),
-            packageId: item.id,
-            isFallbackOption: false,
-          })),
-      ].sort((a, b) => a.label.localeCompare(b.label, 'pt-BR'))
-    }
-
-    return []
-  }, [selectedInventoryProduct, selectedInventoryServiceItem, selectedInventorySheet, serviceItemsById])
+  const inventoryRecipientOptions = useMemo(() => buildInventoryRecipientOptionsForContext({
+    countableItem: selectedInventoryCountableItem, sheet: selectedInventorySheet,
+    product: selectedInventoryProduct, serviceItem: selectedInventoryServiceItem, serviceItemsById,
+  }), [selectedInventoryCountableItem, selectedInventoryProduct, selectedInventoryServiceItem, selectedInventorySheet, serviceItemsById])
   const inventoryRecipientIdByLabel = useMemo(
     () =>
       new Map(
@@ -10680,7 +10596,6 @@ export default function App() {
     }
     return 1
   }, [selectedInventoryCountableItem, selectedInventoryProduct, selectedInventorySheet])
-  const inventoryClosedQuantity = parseNumericInputDecimal(inventoryForm.closedItemsQuantity) ?? 0
   const inventoryOpenGrossWeight = parseNumericInputDecimal(inventoryForm.openItemsGrossWeight) ?? 0
   const inventoryOpenContainerQuantity = parseNumericInputDecimal(inventoryForm.openItemsContainerQuantity) ?? 0
   const inventoryOpenNetWeight = useMemo(
@@ -10706,37 +10621,18 @@ export default function App() {
 
     return inventoryDensityFactor > 0 ? inventoryOpenNetWeight / inventoryDensityFactor : 0
   }, [inventoryDensityFactor, inventoryForm.hasOpenItems, inventoryOpenNetWeight, selectedInventoryCountableItem])
-  const inventoryTotalCountedQuantity = useMemo(() => {
-    if (!selectedInventoryCountableItem) {
-      return 0
-    }
-
-    if (selectedInventoryCountableItem.kind === 'ITEM') {
-      return inventoryClosedQuantity * (selectedInventoryRecipient?.referenceQuantity ?? 1)
-    }
-
-    if (selectedInventoryCountableItem.kind === 'PRODUTO') {
-      const closedReferenceQuantity = selectedInventoryRecipient?.referenceQuantity ?? 0
-      const closedCountedQuantity = inventoryClosedQuantity * closedReferenceQuantity
-      return inventoryForm.hasOpenItems === 'true'
-        ? closedCountedQuantity + inventoryOpenPhysicalQuantity
-        : closedCountedQuantity
-    }
-
-    const closedCountedQuantity =
-      inventoryClosedQuantity *
-      (selectedInventoryRecipient?.referenceQuantity ??
-        getInventoryClosedItemReferenceQuantity(selectedInventorySheet!, inventoryHasRecipientOptions))
-    return inventoryForm.hasOpenItems === 'true'
-      ? closedCountedQuantity + inventoryOpenPhysicalQuantity
-      : closedCountedQuantity
-  }, [
-    inventoryClosedQuantity,
+  const inventoryTotalCountedQuantity = useMemo(() => calculateInventoryTotalCountedQuantityForContext({
+    countableItem: selectedInventoryCountableItem, sheet: selectedInventorySheet,
+    hasRecipientOptions: inventoryHasRecipientOptions, recipient: selectedInventoryRecipient,
+    closedItemsQuantity: inventoryForm.closedItemsQuantity, hasOpenItems: inventoryForm.hasOpenItems === 'true',
+    openPhysicalQuantity: inventoryOpenPhysicalQuantity,
+  }), [
+    inventoryForm.closedItemsQuantity,
     inventoryForm.hasOpenItems,
     inventoryHasRecipientOptions,
     inventoryOpenPhysicalQuantity,
     selectedInventoryCountableItem,
-    selectedInventoryRecipient?.referenceQuantity,
+    selectedInventoryRecipient,
     selectedInventorySheet,
   ])
   const wasteRecipientOptions = useMemo(() => {
@@ -10747,6 +10643,7 @@ export default function App() {
     const stockCountableItem = mapWasteCountableItemToInventoryCountableItem(selectedWasteCountableItem)
 
     return buildInventoryRecipientOptionsForContext({
+      usePreparationContainerCapacity: false,
       countableItem: stockCountableItem,
       sheet: selectedWasteSheet?.kind === 'PREPARO' ? selectedWasteSheet : null,
       product: selectedWasteProduct,
@@ -21892,6 +21789,9 @@ export default function App() {
     if ((parseDecimal(inventoryForm.closedItemsQuantity) ?? 0) < 0) {
       nextErrors.closedItemsQuantity = 'Informe uma quantidade valida de itens fechados.'
     }
+    if ((parseNumericInputDecimal(inventoryForm.closedItemsQuantity) ?? 0) > 0 && selectedInventoryRecipient?.referenceQuantity === 0) {
+      nextErrors.closedItemsQuantity = 'Informe a capacidade do recipiente e, se converter g e ml, a densidade da ficha; ou conte sem recipiente.'
+    }
     if (!inventoryForm.hasOpenItems) {
       nextErrors.hasOpenItems = 'Selecione se existem itens abertos.'
     }
@@ -27473,6 +27373,9 @@ export default function App() {
         if (!draft) {
           return record
         }
+        if (draft.storageLocation.trim() && preservePreparationCountQuantity(record, draft)) {
+          return { ...record, storageLocation: normalizeRegistrationText(draft.storageLocation) }
+        }
 
         const countableItem =
           isProductionStockKind(record.technicalSheetKind)
@@ -27546,6 +27449,7 @@ export default function App() {
           densityFactor,
         })
         const totalCountedQuantity = calculateInventoryTotalCountedQuantityForContext({
+          requireKnownContainerCapacity: true,
           countableItem,
           sheet,
           hasRecipientOptions,
@@ -27617,6 +27521,9 @@ export default function App() {
         if (!draft) {
           return record
         }
+        if (draft.storageLocation.trim() && preservePreparationCountQuantity(record, draft)) {
+          return { ...record, storageLocation: normalizeRegistrationText(draft.storageLocation) }
+        }
 
         const countableItem =
           isProductionStockKind(record.technicalSheetKind)
@@ -27685,6 +27592,7 @@ export default function App() {
           densityFactor,
         })
         const totalCountedQuantity = calculateInventoryTotalCountedQuantityForContext({
+          requireKnownContainerCapacity: true,
           countableItem,
           sheet,
           hasRecipientOptions,
@@ -27756,6 +27664,9 @@ export default function App() {
         const draft = currentInventoryCountDrafts[`record-${record.id}`]
         if (!draft) {
           return record
+        }
+        if (draft.storageLocation.trim() && preservePreparationCountQuantity(record, draft)) {
+          return { ...record, storageLocation: normalizeRegistrationText(draft.storageLocation) }
         }
 
         const countableItem =
@@ -27830,6 +27741,7 @@ export default function App() {
           densityFactor,
         })
         const totalCountedQuantity = calculateInventoryTotalCountedQuantityForContext({
+          requireKnownContainerCapacity: true,
           countableItem,
           sheet,
           hasRecipientOptions,
@@ -27912,6 +27824,9 @@ export default function App() {
         if (!row || !draft) {
           return record
         }
+        if (draft.storageLocation.trim() && preservePreparationCountQuantity(record, draft)) {
+          return { ...record, storageLocation: normalizeRegistrationText(draft.storageLocation) }
+        }
 
         const countableItem =
           isProductionStockKind(row.kind)
@@ -27982,6 +27897,7 @@ export default function App() {
           densityFactor,
         })
         const totalCountedQuantity = calculateInventoryTotalCountedQuantityForContext({
+          requireKnownContainerCapacity: true,
           countableItem,
           sheet,
           hasRecipientOptions,
@@ -28097,6 +28013,7 @@ export default function App() {
           densityFactor,
         })
         const totalCountedQuantity = calculateInventoryTotalCountedQuantityForContext({
+          requireKnownContainerCapacity: true,
           countableItem,
           sheet,
           hasRecipientOptions,
@@ -35156,6 +35073,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
               ...item,
               itemLabel: normalizedValue,
               itemId: matchedItem?.id ?? '',
+              quantity: technicalSheetForm.kind === 'PREPARO' ? item.quantity || '1' : item.quantity,
             }
           : item,
       ),
@@ -35472,7 +35390,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
 
   function deleteTechnicalSheetServiceItem(serviceItemId: number) {
     setTechnicalSheetServiceItems((current) =>
-      current.length === 1 ? current : current.filter((item) => item.id !== serviceItemId),
+      current.length === 1 && technicalSheetForm.kind !== 'PREPARO' ? current : current.filter((item) => item.id !== serviceItemId),
     )
     setEditingTechnicalSheetServiceItemId((current) => (current === serviceItemId ? null : current))
   }
@@ -42670,128 +42588,16 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
           </div>
         ) : null}
 
-        <div className="ingredient-stack">
-          <div className="section-heading section-heading-inline">
-            <div>
-              <p className="kicker">Opcional</p>
-              <h2>Recipientes de armazenamento</h2>
-            </div>
-          </div>
-
-          {technicalSheetEditingServiceItem ? (
-            <div className="ingredient-entry-form">
-              <div className="ingredient-row ingredient-row-entry">
-                <div className="field field-wide">
-                  <span>Recipiente</span>
-                  <div className="inline-select-action">
-                    <input
-                      list={technicalSheetServiceItemListId}
-                      value={technicalSheetEditingServiceItem.itemLabel}
-                      onChange={(event) =>
-                        updateTechnicalSheetServiceItemLabel(technicalSheetEditingServiceItem.id, event.target.value)
-                      }
-                      onKeyDown={(event) => handleTechnicalSheetServiceItemEnter(event, technicalSheetEditingServiceItem.id)}
-                      placeholder="DIGITE O RECIPIENTE"
-                    />
-                    {technicalSheetEditingServiceItem.itemId.trim() === '' &&
-                    technicalSheetEditingServiceItem.itemLabel.trim() !== '' ? (
-                      <button
-                        type="button"
-                        className="ghost-button"
-                        onClick={() => openTechnicalSheetServiceItemModalFromDraft(technicalSheetEditingServiceItem.id)}
-                      >
-                        Cadastrar
-                      </button>
-                    ) : null}
-                  </div>
-                </div>
-                <label className="field">
-                  <span>Entrada</span>
-                  <input
-                    value={technicalSheetEditingServiceItem.quantity}
-                    onChange={(event) =>
-                      updateTechnicalSheetServiceItem(technicalSheetEditingServiceItem.id, 'quantity', event.target.value)
-                    }
-                    onKeyDown={(event) => handleTechnicalSheetServiceItemEnter(event, technicalSheetEditingServiceItem.id)}
-                    placeholder="EX.: 1"
-                  />
-                </label>
-                <div className="field hint-card">
-                  <span>Unidade</span>
-                  <strong>UN</strong>
-                </div>
-                <div className="ingredient-entry-actions">
-                  <button
-                    type="button"
-                    className="primary-button"
-                    onClick={() => confirmTechnicalSheetServiceItemEntry(technicalSheetEditingServiceItem.id)}
-                    disabled={
-                      technicalSheetEditingServiceItem.itemLabel.trim() === '' &&
-                      technicalSheetEditingServiceItem.quantity.trim() === ''
-                    }
-                  >
-                    Confirmar
-                  </button>
-                </div>
-              </div>
-            </div>
-          ) : null}
-
-          {technicalSheetRegisteredServiceItems.length > 0 ? (
-            <div className="ingredient-stack">
-              <div className="section-heading section-heading-inline">
-                <div>
-                  <p className="kicker">Itens cadastrados</p>
-                  <h2>Recipientes de armazenamento cadastrados</h2>
-                </div>
-              </div>
-              {technicalSheetRegisteredServiceItems.map((serviceItem) => (
-                <div
-                  key={serviceItem.id}
-                  className={`ingredient-row ingredient-row-summary${serviceItem.isActive ? '' : ' ingredient-row-inactive'}`}
-                >
-                  <div className="field field-wide">
-                    <div className="ingredient-summary-line">
-                      <div className="ingredient-summary-block ingredient-summary-block-wide">
-                        <span>Recipiente</span>
-                        <strong className="ingredient-summary-title">{serviceItem.itemLabel || 'NAO INFORMADO'}</strong>
-                      </div>
-                      <div className="ingredient-summary-block">
-                        <span>Entrada</span>
-                        <strong>{serviceItem.quantity || '0'}</strong>
-                      </div>
-                      <div className="ingredient-summary-block ingredient-summary-unit">
-                        <span>Unidade</span>
-                        <strong>UN</strong>
-                      </div>
-                      <div className="package-actions ingredient-actions">
-                        <button className="icon-button icon-edit" type="button" aria-label="Editar recipiente da ficha" onClick={() => beginTechnicalSheetServiceItemEdit(serviceItem.id)} disabled={!serviceItem.isActive}>
-                          <span aria-hidden="true">✎</span>
-                        </button>
-                        <button className="icon-button icon-disable" type="button" aria-label={serviceItem.isActive ? 'Inativar recipiente da ficha' : 'Ativar recipiente da ficha'} onClick={() => toggleTechnicalSheetServiceItem(serviceItem.id)}>
-                          <span aria-hidden="true">{serviceItem.isActive ? '◐' : '◑'}</span>
-                        </button>
-                        <button className="icon-button icon-delete" type="button" aria-label="Excluir recipiente da ficha" onClick={() => deleteTechnicalSheetServiceItem(serviceItem.id)} disabled={technicalSheetRegisteredServiceItems.length === 1 && !technicalSheetEditingServiceItem}>
-                          <span aria-hidden="true">🗑</span>
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <div className="empty-state">
-              <strong>Nenhum recipiente de armazenamento cadastrado.</strong>
-              <p>Adicione os recipientes em que esse pre-preparo pode ser armazenado.</p>
-            </div>
-          )}
-          <datalist id={technicalSheetServiceItemListId}>
-            {technicalSheetServiceItemOptions.map((item) => (
-              <option key={item.id} value={item.name} />
-            ))}
-          </datalist>
-        </div>
+        <PreparationStorageRecipientsPanel
+          editing={technicalSheetEditingServiceItem} registered={technicalSheetRegisteredServiceItems}
+          options={technicalSheetServiceItemOptions} listId={technicalSheetServiceItemListId}
+          allowEmpty={technicalSheetForm.kind === 'PREPARO'}
+          onAdd={addTechnicalSheetServiceItem} onLabelChange={updateTechnicalSheetServiceItemLabel}
+          onQuantityChange={(id, value) => updateTechnicalSheetServiceItem(id, 'quantity', value)}
+          onKeyDown={handleTechnicalSheetServiceItemEnter} onCreate={openTechnicalSheetServiceItemModalFromDraft}
+          onConfirm={confirmTechnicalSheetServiceItemEntry} onEdit={beginTechnicalSheetServiceItemEdit}
+          onToggle={toggleTechnicalSheetServiceItem} onDelete={deleteTechnicalSheetServiceItem}
+        />
 
         <datalist id={technicalSheetProductListId}>
           {technicalSheetProductOptions.map((item) => (
@@ -43647,7 +43453,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                 <NormalizedTextInput value={serviceItemForm.name} onChange={(value) => updateServiceItemForm('name', value)} commitMode="blur" />
               </label>
               <label className="field">
-                <span>Valor</span>
+                <span>{getServiceItemSizeFieldLabel(serviceItemForm)}</span>
                 <NormalizedTextInput value={serviceItemForm.sizeValue} onChange={(value) => updateServiceItemForm('sizeValue', value)} commitMode="blur" normalize={normalizeDecimalDraftText} placeholder="Ex.: 350" />
               </label>
               <label className="field">
@@ -51490,7 +51296,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                 <input value={serviceItemForm.name} onChange={(event) => updateServiceItemForm('name', event.target.value)} />
               </label>
               <label className="field">
-                <span>Valor</span>
+                <span>{getServiceItemSizeFieldLabel(serviceItemForm)}</span>
                 <input value={serviceItemForm.sizeValue} onChange={(event) => updateServiceItemForm('sizeValue', event.target.value)} placeholder="EX.: 350" />
               </label>
               <label className="field">

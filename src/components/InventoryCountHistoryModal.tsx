@@ -158,6 +158,7 @@ export function InventoryCountHistoryModal({
                     densityFactor,
                   })
                   const totalCountedQuantity = calculateInventoryTotalCountedQuantityForContext({
+                    previousCount: row.record ? { record: row.record, draft } : undefined,
                     countableItem,
                     sheet,
                     hasRecipientOptions: recipientOptions.length > 0,

@@ -153,6 +153,7 @@ export function InventoryCurrentCountSummaryPanel({
                   densityFactor,
                 })
                 const totalCountedQuantity = calculateInventoryTotalCountedQuantityForContext({
+                  previousCount: { record, draft },
                   countableItem,
                   sheet,
                   hasRecipientOptions: recipientOptions.length > 0,

@@ -2,6 +2,7 @@ import type { InventoryContainerOption, InventoryCountableItem, InventoryFormSta
 import { SingleValueAutocomplete } from './common'
 import { InventoryCountMetricsPanel } from './InventoryCountMetricsPanel'
 import { InventoryCountQuantityPanel } from './InventoryCountQuantityPanel'
+import { formatControlUnitShort, parseNumericInputDecimal } from '../utils/core'
 
 export type InventoryCountItemEntryPanelProps = {
   editingInventoryCountId: number | null
@@ -56,6 +57,11 @@ export function InventoryCountItemEntryPanel({
   onDeleteStorageLocation,
   onUpdateField,
 }: InventoryCountItemEntryPanelProps) {
+  const recipient = recipientOptions.find((option) => option.id === inventoryForm.recipientItemId)
+  const directQuantityUnit = selectedCountableItem?.kind === 'PREPARO' && recipient?.isFallbackOption
+    ? formatControlUnitShort(selectedCountableItem.controlUnit) : undefined
+  const invalidCapacity = selectedCountableItem?.kind === 'PREPARO' && recipient?.referenceQuantity === 0 &&
+    (parseNumericInputDecimal(inventoryForm.closedItemsQuantity) ?? 0) > 0
   return (
     <>
       {editingInventoryCountId !== null ? (
@@ -133,11 +139,6 @@ export function InventoryCountItemEntryPanel({
               placeholder="Escolha primeiro o item"
             />
           )}
-          {selectedCountableItem?.kind === 'PREPARO' && !hasRecipientOptions ? (
-            <p className="compact-feedback">
-              Sem recipiente vinculado: cada item fechado sera contado pela porcao base da ficha.
-            </p>
-          ) : null}
           {selectedCountableItem?.kind === 'ITEM' ? (
             <p className="compact-feedback">
               A contagem padrao do item e em unidade, mas voce pode escolher uma embalagem cadastrada.
@@ -146,13 +147,16 @@ export function InventoryCountItemEntryPanel({
           {inventoryErrors.recipientLabel ? (
             <p className="compact-feedback feedback error">{inventoryErrors.recipientLabel}</p>
           ) : null}
+          {invalidCapacity && <p className="compact-feedback feedback error" role="alert">
+            Informe a capacidade do recipiente e a densidade para converter g e ml, ou conte sem recipiente.
+          </p>}
         </label>
       </form>
 
       <InventoryCountMetricsPanel
         isVisible={Boolean(selectedCountableItem)}
         kindLabel={kindLabel}
-        closedReferenceLabel={closedReferenceLabel}
+        closedReferenceLabel={recipient?.referenceQuantity === 0 ? 'CAPACIDADE NAO INFORMADA' : closedReferenceLabel}
         emptyWeightTitle={emptyWeightTitle}
         emptyWeightLabel={emptyWeightLabel}
         minimumLabel={minimumLabel}
@@ -164,6 +168,7 @@ export function InventoryCountItemEntryPanel({
         canHaveOpenItems={canHaveOpenItems}
         openPhysicalQuantityLabel={openPhysicalQuantityLabel}
         totalCountedLabel={totalCountedLabel}
+        directQuantityUnit={directQuantityUnit}
         onUpdateField={onUpdateField}
       />
 
@@ -172,7 +177,7 @@ export function InventoryCountItemEntryPanel({
           type="button"
           className="primary-button"
           onClick={onSave}
-          disabled={selectedSessionIsClosed || isSavingInventoryCount}
+          disabled={selectedSessionIsClosed || isSavingInventoryCount || invalidCapacity}
         >
           {isSavingInventoryCount
             ? 'Salvando item...'

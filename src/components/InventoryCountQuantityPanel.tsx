@@ -6,6 +6,7 @@ type InventoryCountQuantityPanelProps = {
   canHaveOpenItems: boolean
   openPhysicalQuantityLabel: string
   totalCountedLabel: string
+  directQuantityUnit?: string
   onUpdateField: <K extends keyof InventoryFormState>(field: K, value: InventoryFormState[K]) => void
 }
 
@@ -15,23 +16,25 @@ export function InventoryCountQuantityPanel({
   canHaveOpenItems,
   openPhysicalQuantityLabel,
   totalCountedLabel,
+  directQuantityUnit,
   onUpdateField,
 }: InventoryCountQuantityPanelProps) {
   return (
     <>
       <div className="section-heading section-heading-inline stock-center-subheading">
         <div>
-          <p className="kicker">Fechados</p>
-          <h2>Itens fechados</h2>
+          <p className="kicker">{directQuantityUnit ? 'Contagem' : 'Fechados'}</p>
+          <h2>{directQuantityUnit ? 'Quantidade sem recipiente' : 'Itens fechados'}</h2>
         </div>
       </div>
 
       <form className="form-grid company-form-grid" onSubmit={(event) => event.preventDefault()}>
         <label className="field company-field-wide">
-          <span>Quantidade de itens fechados *</span>
+          <span>{directQuantityUnit ? `Quantidade (${directQuantityUnit}) *` : 'Quantidade de itens fechados *'}</span>
           <input
             type="number"
             min="0"
+            step="any"
             value={inventoryForm.closedItemsQuantity}
             onChange={(event) => onUpdateField('closedItemsQuantity', event.target.value)}
             placeholder="0"
