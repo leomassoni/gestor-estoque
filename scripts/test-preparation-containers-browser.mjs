@@ -181,9 +181,17 @@ try {
   const storage = page.locator('.ingredient-stack').filter({ has: page.getByRole('heading', { name: 'Recipientes de armazenamento', exact: true }) }).first()
   await storage.waitFor({ state: 'attached' })
   await click(button('Adicionar recipiente de armazenamento', storage))
-  await storage.getByPlaceholder('DIGITE O RECIPIENTE').fill(recipients[2].name)
+  const recipientInput = storage.getByPlaceholder('DIGITE O RECIPIENTE')
+  await recipientInput.focus()
+  await storage.getByRole('listbox').waitFor()
+  assert(await storage.getByRole('option', { name: recipients[0].name, exact: true }).count())
+  await recipientInput.fill(recipients[2].name.slice(6).toLowerCase())
+  await storage.getByRole('option', { name: recipients[2].name, exact: true }).waitFor()
+  await recipientInput.press('ArrowDown')
+  await recipientInput.press('Enter')
   await click(button('Confirmar', storage))
   await storage.getByPlaceholder('DIGITE O RECIPIENTE').fill(`NOVO RECIPIENTE TESTE ${stamp}`)
+  await storage.getByPlaceholder('DIGITE O RECIPIENTE').press('Tab')
   await click(button('Cadastrar', storage))
   const createRecipient = page.getByRole('dialog', { name: 'Cadastrar recipiente pela ficha tecnica', exact: true })
   await createRecipient.waitFor({ state: 'attached' })
@@ -197,7 +205,7 @@ try {
   const updated = (await api(`technical-sheets/${sheet.id}`)).technicalSheet
   assert.equal(updated.serviceItems.length, 3)
   assert(updated.serviceItems.some((item) => item.itemId === recipients[2].id))
-  console.log('PASS terceiro vinculo salvo, cadastro inline preservado e campo Volume separado do custo')
+  console.log('PASS sugestoes ao focar, filtro maiusculo, selecao por teclado, terceiro vinculo e cadastro inline com Volume')
   for (const path of ['inventory-counts', 'inventory-count-sessions', 'service-items', 'technical-sheets']) {
     assert.equal((await page.request.get(`${base}/api/${path}`)).status(), 401)
   }

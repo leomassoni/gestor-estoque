@@ -1,11 +1,14 @@
-import type { KeyboardEvent } from 'react'
+import { useMemo, type KeyboardEvent } from 'react'
 import type { ServiceItemRecord, TechnicalSheetServiceItem } from '../types/domain'
+import { SingleValueAutocomplete } from './common'
+import type { ServiceItemCatalogStatus } from '../domain/serviceItemCatalog'
 
 type Props = {
   editing: TechnicalSheetServiceItem | null
   registered: TechnicalSheetServiceItem[]
   options: ServiceItemRecord[]
-  listId: string
+  catalogStatus?: ServiceItemCatalogStatus
+  onRetry?: () => void
   allowEmpty: boolean
   onAdd: () => void
   onLabelChange: (id: number, value: string) => void
@@ -18,21 +21,26 @@ type Props = {
   onDelete: (id: number) => void
 }
 
-export function PreparationStorageRecipientsPanel({ editing, registered, options, listId, allowEmpty,
+export function PreparationStorageRecipientsPanel({ editing, registered, options, catalogStatus, onRetry, allowEmpty,
   onAdd, onLabelChange, onQuantityChange, onKeyDown, onCreate, onConfirm, onEdit, onToggle, onDelete }: Props) {
+  const suggestions = useMemo(() => options.map((item) => item.name), [options])
   return <div className="ingredient-stack">
     <div className="section-heading section-heading-inline">
       <div><p className="kicker">Opcional</p><h2>Recipientes de armazenamento</h2></div>
       <button type="button" className="icon-button" aria-label="Adicionar recipiente de armazenamento"
         title="Adicionar recipiente de armazenamento" onClick={onAdd}>+</button>
     </div>
+    {catalogStatus?.isLoading && !options.length && <p role="status">Carregando recipientes...</p>}
+    {catalogStatus?.error && <div role="alert">{catalogStatus.error}
+      <button type="button" className="ghost-button" onClick={onRetry}>Tentar novamente</button></div>}
     {editing && <div className="ingredient-entry-form">
       <div className="ingredient-row ingredient-row-entry">
         <label className="field field-wide">
           <span>Recipiente</span>
           <div className="inline-select-action">
-            <input list={listId} value={editing.itemLabel} onChange={(event) => onLabelChange(editing.id, event.target.value)}
-              onKeyDown={(event) => onKeyDown(event, editing.id)} placeholder="DIGITE O RECIPIENTE" />
+            <SingleValueAutocomplete key={editing.id} value={editing.itemLabel} suggestions={suggestions}
+              onChange={(value) => onLabelChange(editing.id, value)} commitOnInput allowCreate={false}
+              placeholder="DIGITE O RECIPIENTE" />
             {!editing.itemId.trim() && editing.itemLabel.trim() && <button type="button" className="ghost-button"
               onClick={() => onCreate(editing.id)}>Cadastrar</button>}
           </div>
@@ -67,6 +75,5 @@ export function PreparationStorageRecipientsPanel({ editing, registered, options
         </div></div>
       </div>)}
     </div> : <div className="empty-state"><strong>Nenhum recipiente de armazenamento cadastrado.</strong></div>}
-    <datalist id={listId}>{options.map((item) => <option key={item.id} value={item.name} />)}</datalist>
   </div>
 }

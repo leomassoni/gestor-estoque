@@ -15,6 +15,8 @@ import { MasterOverviewPanel } from './components/MasterOverviewPanel'
 import { PreparationModeInput } from './components/PreparationModeInput'
 import { PreparationStorageRecipientsPanel } from './components/PreparationStorageRecipientsPanel'
 import { getServiceItemSizeFieldLabel, preservePreparationCountQuantity } from './domain/preparationContainers'
+import { useServiceItemCatalog } from './hooks/useServiceItemCatalog'
+import { fetchServiceItemForEditing } from './domain/serviceItemCatalog'
 import {
   ExecutionPlanningList,
   InventoryActiveFlowPanel,
@@ -2705,6 +2707,9 @@ export default function App() {
   const [screenMode, setScreenMode] = useState<ScreenMode>('list')
   const [products, setProducts] = useState<ProductRecord[]>(() => loadProductsState())
   const [serviceItems, setServiceItems] = useState<ServiceItemRecord[]>(() => loadServiceItemsState())
+  const serviceItemCatalog = useServiceItemCatalog({ authToken, activeSection,
+    companyScopeKey: getCompanyLinkScopeIds(currentCompanyId).join(','),
+    normalize: normalizeServiceItemRecord, onRecords: setServiceItems })
   const [flavorProfiles, setFlavorProfiles] = useState<FlavorProfileRecord[]>(() => loadFlavorProfilesState())
   const [productSearch, setProductSearch] = useState('')
   const [openColumnMenu, setOpenColumnMenu] = useState<ColumnKey | null>(null)
@@ -19283,11 +19288,16 @@ export default function App() {
     setPackageEditorContext('serviceItem')
   }
 
-  function openEditServiceItemForm(itemId: string) {
-    const item = serviceItems.find((entry) => entry.id === itemId)
-    if (!item) {
+  async function openEditServiceItemForm(itemId: string) {
+    let item: ServiceItemRecord
+    try {
+      item = await fetchServiceItemForEditing(itemId, currentCompanyId, normalizeServiceItemRecord)
+    } catch (error) {
+      setSaveFeedback({ status: 'error', title: 'Falha ao carregar recipiente',
+        message: error instanceof Error ? error.message : 'Tente novamente.' })
       return
     }
+    setServiceItems((current) => current.map((entry) => entry.id === itemId ? item : entry))
 
     setActiveSection('Itens')
     setItemScreenMode('form')
@@ -42590,7 +42600,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
 
         <PreparationStorageRecipientsPanel
           editing={technicalSheetEditingServiceItem} registered={technicalSheetRegisteredServiceItems}
-          options={technicalSheetServiceItemOptions} listId={technicalSheetServiceItemListId}
+          options={technicalSheetServiceItemOptions} catalogStatus={serviceItemCatalog} onRetry={serviceItemCatalog.retry}
           allowEmpty={technicalSheetForm.kind === 'PREPARO'}
           onAdd={addTechnicalSheetServiceItem} onLabelChange={updateTechnicalSheetServiceItemLabel}
           onQuantityChange={(id, value) => updateTechnicalSheetServiceItem(id, 'quantity', value)}
@@ -43351,6 +43361,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
 	              itemSuggestions={serviceItemSuggestions}
 	              openColumnMenu={openItemColumnMenu}
 	              visibleItems={visibleServiceItems}
+	              catalogStatus={serviceItemCatalog} onRetry={serviceItemCatalog.retry}
 	              formatServiceItemSize={formatServiceItemSize}
 	              getServiceItemColumnValue={getServiceItemColumnValue}
 	              onEditItem={openEditServiceItemForm}
@@ -59354,6 +59365,7 @@ function normalizeServiceItemRecord(value: unknown): ServiceItemRecord | null {
       .map((sector) => normalizeRegistrationText(sector))
       .filter(Boolean),
     imageDataUrl: item.imageDataUrl,
+    imageDataUrlOmitted: item.imageDataUrlOmitted === true,
     isActive: item.isActive,
     packages,
   }

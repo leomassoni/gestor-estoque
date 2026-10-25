@@ -300,6 +300,7 @@ export type ServiceItemRecord = {
   subfamily: string
   sectors: string[]
   imageDataUrl: string
+  imageDataUrlOmitted?: boolean
   isActive: boolean
   packages: PackageForm[]
 }

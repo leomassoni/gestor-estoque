@@ -1,6 +1,7 @@
 import type { Dispatch, SetStateAction } from 'react'
 import { NormalizedTextInput } from './NormalizedTextField'
 import { renderItemColumnHeader } from './tableColumnHeaders'
+import type { ServiceItemCatalogStatus } from '../domain/serviceItemCatalog'
 import type {
   ColumnSort,
   ItemColumnKey,
@@ -20,6 +21,8 @@ type ServiceItemListPanelProps = {
   itemSuggestions: string[]
   openColumnMenu: ItemColumnKey | null
   visibleItems: ServiceItemRecord[]
+  catalogStatus?: ServiceItemCatalogStatus
+  onRetry?: () => void
   formatServiceItemSize: (sizeValue: string, sizeUnit: ServiceItemRecord['sizeUnit']) => string
   getServiceItemColumnValue: (item: ServiceItemRecord, key: ItemColumnKey) => string
   onEditItem: (itemId: string) => void
@@ -44,6 +47,8 @@ export function ServiceItemListPanel({
   itemSuggestions,
   openColumnMenu,
   visibleItems,
+  catalogStatus,
+  onRetry,
   formatServiceItemSize,
   getServiceItemColumnValue,
   onEditItem,
@@ -70,6 +75,10 @@ export function ServiceItemListPanel({
           </button>
         </div>
       </div>
+
+      {catalogStatus?.isLoading && <p role="status">Atualizando utensilios e recipientes...</p>}
+      {catalogStatus?.error && <div role="alert">{catalogStatus.error}
+        <button type="button" className="ghost-button" onClick={onRetry}>Tentar novamente</button></div>}
 
       <div className="list-toolbar">
         <label className="field search-field">
@@ -199,7 +208,8 @@ export function ServiceItemListPanel({
               <tr>
                 <td colSpan={visibleColumnCount}>
                   <div className="empty-state empty-state-inline">
-                    <strong>Nenhum item encontrado.</strong>
+                    <strong>{catalogStatus?.isLoading ? 'Carregando itens...' : catalogStatus?.error
+                      ? 'Catalogo indisponivel no momento.' : 'Nenhum item encontrado.'}</strong>
                     <p>Ajuste a pesquisa ou os filtros para exibir outros registros.</p>
                   </div>
                 </td>

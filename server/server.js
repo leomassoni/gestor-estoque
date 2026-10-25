@@ -2327,19 +2327,26 @@ app.get('/api/service-items', async (request, response) => {
   await ensureAppCatalogRecordsSeeded()
   const companyId = parseIntegerParam(request.query.companyId)
   const companyScopeIds = companyId === null ? [] : await getCompanyCatalogScopeIds(companyId)
+  const itemId = typeof request.query.itemId === 'string' ? request.query.itemId.trim() : ''
+  const includeImages = request.query.includeImages !== 'false'
   const serviceItems = await prisma.appServiceItemRecord.findMany({
-    where:
-      companyId === null
-        ? undefined
+    where: {
+      ...(itemId ? { id: itemId } : {}),
+      ...(companyId === null
+        ? {}
         : {
             OR: [
               { ownerCompanyId: { in: companyScopeIds } },
               { companyId: { in: companyScopeIds } },
             ],
-          },
+          }),
+    },
+    ...(includeImages ? {} : { omit: { imageDataUrl: true } }),
     orderBy: [{ name: 'asc' }, { id: 'asc' }],
   })
-  response.json({ serviceItems })
+  response.json({ serviceItems: includeImages ? serviceItems : serviceItems.map((item) => ({
+    ...item, imageDataUrl: '', imageDataUrlOmitted: true,
+  })) })
 })
 
 app.post('/api/service-items', async (request, response) => {
@@ -2371,7 +2378,7 @@ app.put('/api/service-items/:id', async (request, response) => {
     await ensureUniqueServiceItemName(serviceItem)
     const saved = await prisma.appServiceItemRecord.update({
       where: { id: serviceItemId },
-      data: serviceItem,
+      data: request.body?.imageDataUrlOmitted === true ? { ...serviceItem, imageDataUrl: undefined } : serviceItem,
     })
     response.json({ serviceItem: saved })
   } catch (error) {
