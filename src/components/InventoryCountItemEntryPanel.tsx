@@ -58,7 +58,8 @@ export function InventoryCountItemEntryPanel({
   onUpdateField,
 }: InventoryCountItemEntryPanelProps) {
   const recipient = recipientOptions.find((option) => option.id === inventoryForm.recipientItemId)
-  const directQuantityUnit = selectedCountableItem?.kind === 'PREPARO' && recipient?.isFallbackOption
+  const directQuantityUnit = recipient?.isFallbackOption && (selectedCountableItem?.kind === 'PREPARO' ||
+    (selectedCountableItem?.kind === 'PRODUTO' && selectedCountableItem.controlUnit === 'UNIT'))
     ? formatControlUnitShort(selectedCountableItem.controlUnit) : undefined
   const invalidCapacity = selectedCountableItem?.kind === 'PREPARO' && recipient?.referenceQuantity === 0 &&
     (parseNumericInputDecimal(inventoryForm.closedItemsQuantity) ?? 0) > 0

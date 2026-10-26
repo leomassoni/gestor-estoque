@@ -164,6 +164,7 @@ import {
   getStockCenterMinimumColumnValue,
   sortDistinctValues,
 } from './domain/inventory'
+import { canCountOpenInventoryItems, isInventorySessionInOpenInventory } from './domain/inventoryCountSafety'
 import {
   accessProfilesStorageKey,
   auditLogsStorageKey,
@@ -7282,11 +7283,11 @@ export default function App() {
     }
   }
 
-  async function upsertInventoryCountSessionOnApi(session: InventoryCountSessionRecord) {
+  async function upsertInventoryCountSessionOnApi(session: InventoryCountSessionRecord, allowReopen = false) {
     const response = await fetch(`/api/inventory-count-sessions/${session.id}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(session),
+      body: JSON.stringify(allowReopen ? { ...session, __allowReopenClosedSession: true } : session),
     })
     if (!response.ok) {
       const errorPayload = (await response.json().catch(() => null)) as { error?: string } | null
@@ -18562,6 +18563,11 @@ export default function App() {
       return
     }
 
+    if (!isInventorySessionInOpenInventory(selectedSession, inventoryRecordById.get(selectedSession.inventoryId ?? -1))) {
+      setSelectedInventorySessionId(null)
+      return
+    }
+
     if (selectedSession.inventoryId !== null && selectedInventoryId !== selectedSession.inventoryId) {
       return
     }
@@ -18582,7 +18588,7 @@ export default function App() {
         countedAt: selectedSession.countedAt,
       }))
     }
-  }, [currentCompanyId, inventoryCountSessions, inventoryForm.countedAt, inventoryForm.stockCenterId, selectedInventoryRecord, selectedInventorySessionId])
+  }, [currentCompanyId, inventoryCountSessions, inventoryForm.countedAt, inventoryForm.stockCenterId, inventoryRecordById, selectedInventoryRecord, selectedInventorySessionId])
 
   useEffect(() => {
     if (selectedInventoryId !== null || persistedInventoryActiveRecordId === null) {
@@ -18614,6 +18620,9 @@ export default function App() {
         (sessionRecord) =>
           sessionRecord.id === persistedInventoryActiveSessionId &&
           sessionRecord.companyId === currentCompanyId &&
+          sessionRecord.startedByUserId === (currentAppUser?.id ?? null) &&
+          isInventorySessionInOpenInventory(sessionRecord, inventoryRecordById.get(sessionRecord.inventoryId ?? -1)) &&
+          (selectedInventoryId === null || sessionRecord.inventoryId === selectedInventoryId) &&
           !sessionRecord.isClosed,
       ) ?? null
 
@@ -18627,10 +18636,11 @@ export default function App() {
     }
 
     setSelectedInventorySessionId(persistedSession.id)
-  }, [currentCompanyId, getInventoryActiveSessionRestoreKey, inventoryCountSessions, persistedInventoryActiveSessionId, selectedInventorySessionId])
+  }, [currentAppUser?.id, currentCompanyId, getInventoryActiveSessionRestoreKey, inventoryCountSessions, inventoryRecordById, persistedInventoryActiveSessionId, selectedInventoryId, selectedInventorySessionId])
 
   useEffect(() => {
-    if (!selectedInventoryCountSession) {
+    if (!selectedInventoryCountSession || !isInventorySessionInOpenInventory(selectedInventoryCountSession,
+      inventoryRecordById.get(selectedInventoryCountSession.inventoryId ?? -1))) {
       return
     }
 
@@ -18640,7 +18650,7 @@ export default function App() {
     ) {
       setSelectedInventoryId(selectedInventoryCountSession.inventoryId)
     }
-  }, [selectedInventoryCountSession, selectedInventoryId])
+  }, [inventoryRecordById, selectedInventoryCountSession, selectedInventoryId])
 
   useEffect(() => {
     if (!selectedInventoryRecord) {
@@ -18727,6 +18737,7 @@ export default function App() {
           (sessionRecord) =>
             sessionRecord.id === existingLink.sessionId &&
             sessionRecord.companyId === currentCompanyId &&
+            isInventorySessionInOpenInventory(sessionRecord, inventoryRecordById.get(sessionRecord.inventoryId ?? -1)) &&
             !sessionRecord.isClosed,
         )
         if (linkedSessionStillOpen) {
@@ -18737,7 +18748,8 @@ export default function App() {
         companyId: currentCompanyId,
         userKey: inventorySessionUserKey,
         sessionId:
-          selectedInventoryCountSession && !selectedInventoryCountSession.isClosed
+          selectedInventoryCountSession && !selectedInventoryCountSession.isClosed &&
+          isInventorySessionInOpenInventory(selectedInventoryCountSession, inventoryRecordById.get(selectedInventoryCountSession.inventoryId ?? -1))
             ? selectedInventoryCountSession.id
             : null,
       }
@@ -18751,7 +18763,7 @@ export default function App() {
 
 	      return current.map((link, index) => (index === existingIndex ? nextLink : link))
 	    })
-  }, [currentCompanyId, getInventoryActiveSessionRestoreKey, inventoryCountSessions, inventorySessionUserKey, isInventoryRemoteStateReady, selectedInventoryCountSession])
+  }, [currentCompanyId, getInventoryActiveSessionRestoreKey, inventoryCountSessions, inventoryRecordById, inventorySessionUserKey, isInventoryRemoteStateReady, selectedInventoryCountSession])
 
   useEffect(() => {
     if (technicalSheetScreenMode !== 'form' || isTechnicalSheetProductModalOpen) {
@@ -21225,7 +21237,7 @@ export default function App() {
         next.serviceItemId = matchedItem?.kind === 'ITEM' ? matchedItem.serviceItemId : ''
         next.recipientLabel = ''
         next.recipientItemId = ''
-        next.hasOpenItems = matchedItem?.kind === 'ITEM' ? 'false' : ''
+        next.hasOpenItems = canCountOpenInventoryItems(matchedItem) ? '' : 'false'
         next.openItemsGrossWeight = ''
         next.openItemsContainerQuantity = ''
       }
@@ -21802,7 +21814,7 @@ export default function App() {
     if ((parseNumericInputDecimal(inventoryForm.closedItemsQuantity) ?? 0) > 0 && selectedInventoryRecipient?.referenceQuantity === 0) {
       nextErrors.closedItemsQuantity = 'Informe a capacidade do recipiente e, se converter g e ml, a densidade da ficha; ou conte sem recipiente.'
     }
-    if (!inventoryForm.hasOpenItems) {
+    if (canCountOpenInventoryItems(selectedItemFromForm) && !inventoryForm.hasOpenItems) {
       nextErrors.hasOpenItems = 'Selecione se existem itens abertos.'
     }
     if (inventoryForm.hasOpenItems === 'true') {
@@ -22230,7 +22242,7 @@ export default function App() {
       setIsStartingInventoryCountSession(true)
       try {
         if (existingSession.isClosed) {
-          const savedSession = await upsertInventoryCountSessionOnApi(nextSession)
+          const savedSession = await upsertInventoryCountSessionOnApi(nextSession, true)
           nextSessions = inventoryCountSessions.map((sessionRecord) =>
             sessionRecord.id === existingSession.id ? savedSession : sessionRecord,
           )
@@ -22339,7 +22351,7 @@ export default function App() {
           sessionRecord.companyId === currentCompanyId &&
           sessionRecord.startedByUserId === (currentAppUser?.id ?? null),
       ) ?? null
-    if (!targetSession) {
+    if (!targetSession || !isInventorySessionInOpenInventory(targetSession, inventoryRecordById.get(targetSession.inventoryId ?? -1))) {
       return
     }
 
@@ -22353,7 +22365,7 @@ export default function App() {
       }
       setIsStartingInventoryCountSession(true)
       try {
-        const savedSession = await upsertInventoryCountSessionOnApi(nextSession)
+        const savedSession = await upsertInventoryCountSessionOnApi(nextSession, true)
         const savedSessions = inventoryCountSessions.map((sessionRecord) =>
           sessionRecord.id === sessionId ? savedSession : sessionRecord,
         )
@@ -32862,7 +32874,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
     }
 
     const userToSave: AppUserRecord = {
-      id: editingUserId ?? (users.length > 0 ? Math.max(...users.map((item) => item.id)) + 1 : 1),
+      id: editingUserId ?? 0,
       fullName,
       username,
       password,
@@ -32896,7 +32908,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
       const response = await fetch(editingUserId ? `/api/users/${userToSave.id}` : '/api/users', {
         method: editingUserId ? 'PUT' : 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(userToSave),
+        body: JSON.stringify({ ...userToSave, id: editingUserId ?? undefined }),
       })
       if (!response.ok) {
         throw new Error('Nao foi possivel salvar o usuario no servidor.')
@@ -32917,34 +32929,6 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
     setUserCompanyInput('')
     setUserSectorInput('')
     setEditingUserId(null)
-    registerAuditEvent({
-      companyId: userToSave.companyId,
-      module: 'USUARIOS',
-      actionKey: editingUserId ? 'UPDATE_USER' : 'CREATE_USER',
-      actionLabel: editingUserId ? 'Atualizacao de usuario' : 'Cadastro de usuario',
-      targetType: 'USER',
-      targetId: String(userToSave.id),
-      targetLabel: userToSave.fullName,
-      summary: editingUserId ? `Usuario ${userToSave.fullName} foi atualizado.` : `Usuario ${userToSave.fullName} foi cadastrado.`,
-      impactSummary:
-        userToSave.companyIds.length > 1
-          ? `Usuario vinculado a ${userToSave.companyIds.length} empresas.`
-          : 'Permissoes e empresas do usuario foram registradas.',
-      severity: 'HIGH',
-      result: 'SUCCESS',
-      relatedCompanyIds: userToSave.companyIds,
-      details: {
-        username: userToSave.username,
-        role: userToSave.role,
-        companyIds: userToSave.companyIds,
-        memberships: userToSave.memberships.map((membership) => ({
-          companyId: membership.companyId,
-          accessProfileId: membership.accessProfileId,
-          role: membership.role,
-          sectors: membership.sectors,
-        })),
-      },
-    })
     setSaveFeedback({
       status: 'success',
       title: editingUserId ? 'Usuario atualizado com sucesso' : 'Usuario salvo com sucesso',
@@ -46175,9 +46159,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                             },
                           )
                         : '-',
-                    canHaveOpenItems:
-                      selectedInventoryCountableItem?.kind !== 'ITEM' &&
-                      !(selectedInventoryCountableItem?.kind === 'PRODUTO' && selectedInventoryCountableItem.controlUnit === 'UNIT'),
+                    canHaveOpenItems: canCountOpenInventoryItems(selectedInventoryCountableItem),
                     openPhysicalQuantityLabel:
                       selectedInventoryCountableItem && inventoryForm.hasOpenItems === 'true'
                         ? `${formatDecimal(inventoryOpenPhysicalQuantity)} ${formatControlUnitShort(

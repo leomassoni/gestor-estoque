@@ -9,7 +9,7 @@ const base = 'http://127.0.0.1:4001'
 const browser = await chromium.launch({ headless: true })
 const context = await browser.newContext({ viewport: { width: 1440, height: 1000 } })
 const page = await context.newPage()
-page.setDefaultTimeout(90000)
+page.setDefaultTimeout(180000)
 const errors = []
 page.on('pageerror', (error) => errors.push(error.message))
 let token
@@ -50,6 +50,13 @@ try {
   }
   assert(source && itemSource)
   const stamp = Date.now()
+  const { products } = await api('products?companyId=13')
+  const iceSource = products.find((product) => product.controlUnit === 'UNIT' && !product.technicalSheetId)
+  assert(iceSource, 'Fixture de produto UNIT ausente')
+  const ice = (await api('products', { ...iceSource, id: '', companyId: 13, ownerCompanyId: 13,
+    name: `TESTE GELO TRANSLUCIDO ${stamp}`, companyProductId: '',
+    packages: [{ ...iceSource.packages[0], id: 1, internalCode: 'EMB-001', packageQuantity: '100',
+      packageUnit: 'UNIT', isActive: true }] })).product
   const recipients = []
   for (const [capacity, tare] of [[700, 180], [1000, 250], [500, 100]]) {
     const item = (await api('service-items', { ...itemSource, id: `REC-TEST-${stamp}-${capacity}`,
@@ -66,6 +73,16 @@ try {
     startedAt: new Date().toISOString(), startedByUserId: null, startedByUserName: `TESTE RECIPIENTES ${stamp}`,
     closedAt: '', closedByUserId: null, closedByUserName: '' })).inventoryRecord
   assert(inventory)
+  const oldInventory = (await api('inventories', { ...inventory, countedAt: '2026-10-11',
+    startedByUserName: `TESTE ANTIGO ${stamp}` })).inventoryRecord
+  const oldSession = (await api('inventory-count-sessions', { inventoryId: oldInventory.id, companyId: 13,
+    stockCenterId: 7, countedAt: '2026-10-11', isClosed: false, startedAt: new Date().toISOString(),
+    startedByUserId: null, startedByUserName: 'ADMINISTRADOR DO SISTEMA', closedAt: '',
+    closedByUserId: null, closedByUserName: '' })).inventoryCountSession
+  await api(`inventories/${oldInventory.id}`, { ...oldInventory, isClosed: true,
+    closedAt: new Date().toISOString(), closedByUserName: 'ADMINISTRADOR DO SISTEMA' }, 'PUT')
+  await api('inventory-active-record-links/13/system-admin', { inventoryId: inventory.id }, 'PUT')
+  await api('inventory-active-session-links/13/system-admin', { sessionId: oldSession.id }, 'PUT')
   await context.addInitScript(({ token: savedToken, session }) => {
     localStorage.setItem('gestor-estoque:auth', JSON.stringify({ session, authToken: savedToken, currentCompanyId: 13 }))
     localStorage.setItem('gestor-estoque:auth-token', savedToken)
@@ -76,6 +93,8 @@ try {
   await click(page.getByRole('button', { name: /^Estoque/, includeHidden: true }))
   await click(button('Inventario', page.locator('aside')))
   await page.getByRole('heading', { name: 'Participar de inventario existente', exact: true }).waitFor({ state: 'attached' })
+  assert.equal(await page.getByPlaceholder('Digite para pesquisar produto, pre-preparo ou item').count(), 0)
+  console.log('PASS vinculo antigo de sessao aberta em inventario fechado nao e restaurado')
   if (await button('Sair do inventario').count()) {
     await click(button('Sair do inventario'))
     const leave = page.getByRole('dialog', { name: 'Sair do inventario?', exact: true })
@@ -123,6 +142,28 @@ try {
     await feedback()
     console.log('PASS registro persistido', { recipient: record.recipientLabel, quantity: record.totalCountedQuantity })
   }
+  for (const scenario of [{ label: 'SEM EMBALAGEM', input: 'Quantidade (UN) *', quantity: '42', expected: 42 },
+    { label: 'EMB-001', input: 'Quantidade de itens fechados *', quantity: '3', expected: 300 }]) {
+    await choose(page.getByPlaceholder('Digite para pesquisar produto, pre-preparo ou item'), ice.name)
+    const recipientInput = page.getByPlaceholder('Selecione a embalagem do produto')
+    await recipientInput.fill(scenario.label)
+    const option = page.getByRole('option').filter({ hasText: scenario.label }).first()
+    await option.dispatchEvent('mousedown')
+    await labelInput(scenario.input).fill(scenario.quantity)
+    assert.equal(await page.locator('input[name="inventory-open-items"]').count(), 0)
+    const response = page.waitForResponse((res) => res.url().endsWith('/api/inventory-counts') && res.request().method() === 'POST')
+    await click(button('Registrar item'))
+    const result = await response
+    assert.equal(result.status(), 200, await result.text())
+    const record = (await result.json()).inventoryCount
+    assert.equal(record.productId, ice.id)
+    assert.equal(record.hasOpenItems, false)
+    assert.equal(record.totalCountedUnit, 'UNIT')
+    assert.equal(parseStockDecimal(record.totalCountedQuantity), scenario.expected)
+    saved.push(record)
+    await feedback()
+    console.log('PASS gelos UNIT persistidos sem resposta oculta', scenario.label, scenario.expected)
+  }
   const otherSession = (await api('inventory-count-sessions', { companyId: 13, stockCenterId: 7,
     inventoryId: inventory.id, countedAt: '2026-10-20', isClosed: true, startedAt: new Date().toISOString(),
     closedAt: new Date().toISOString(), startedByUserId: 999, closedByUserId: 999,
@@ -148,6 +189,10 @@ try {
   const directRow = countSummary.locator('tr').filter({ has: page.locator('select option[value="PREPARO NONE"]:checked') })
   assert.equal(await directRow.count(), 1)
   assert((await directRow.textContent()).includes('300 ML'))
+  const iceRows = countSummary.locator('tr').filter({ hasText: ice.name })
+  assert.equal(await iceRows.count(), 2)
+  assert((await iceRows.allTextContents()).some(text => text.includes('42 UN')))
+  assert((await iceRows.allTextContents()).some(text => text.includes('3 x 100 UN')))
   console.log('PASS sair/recarregar/retomar com tres recipientes e outro usuario preservado')
   await page.getByRole('heading', { name: 'Resumo da contagem atual', exact: true }).scrollIntoViewIfNeeded()
   await page.screenshot({ path: 'tmp/containers-desktop.png', animations: 'disabled' })
@@ -170,6 +215,7 @@ try {
   const sessions = (await api('inventory-count-sessions?companyId=13')).inventoryCountSessions
   const ledger = buildInventoryLedger({ inventories: [closed], sessions, counts: consolidated })
   assert.equal(ledger.current.get(`PREPARO:${sheet.id}`), 3443)
+  assert.equal(ledger.current.get(`PRODUTO:${ice.id}`), 342)
   assert(consolidated.some((item) => item.id === otherRecord.id))
   console.log('PASS consolidacao multiusuario: 1020 + 2000 + 300 + 123 = 3443 ML')
   await click(page.getByRole('button', { name: /^Cadastros/, includeHidden: true }))

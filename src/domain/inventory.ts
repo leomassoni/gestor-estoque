@@ -426,7 +426,8 @@ export function buildInventoryRecipientOptionsForContext(params: {
           packageId: item.id,
           isFallbackOption: false,
         })),
-    ].sort((left, right) => left.label.localeCompare(right.label, 'pt-BR'))
+    ].map((option) => ({ ...option, id: normalizeRegistrationText(option.id) }))
+      .sort((left, right) => left.label.localeCompare(right.label, 'pt-BR'))
   }
 
   if (serviceItem) {
@@ -449,13 +450,14 @@ export function buildInventoryRecipientOptionsForContext(params: {
           packageId: item.id,
           isFallbackOption: false,
         })),
-    ].sort((left, right) => left.label.localeCompare(right.label, 'pt-BR'))
+    ].map((option) => ({ ...option, id: normalizeRegistrationText(option.id) }))
+      .sort((left, right) => left.label.localeCompare(right.label, 'pt-BR'))
   }
 
   if (countableItem?.kind === 'ITEM') {
     return [
       {
-        id: 'ITEM:UNIT',
+        id: 'ITEM UNIT',
         label: 'UNIDADE',
         emptyWeight: 0,
         referenceQuantity: 1,

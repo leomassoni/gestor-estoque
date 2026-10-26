@@ -7,6 +7,8 @@ const cors = require('cors')
 const { PrismaClient } = require('@prisma/client')
 const { registerProductionRoutes, saveProductionDraft, lockedTransaction, nextInventoryMovementId } = require('./production')
 const { registerSalesImportRoutes } = require('./salesImports')
+const { registerUserManagementRoutes } = require('./userManagement')
+const { assertInventorySessionWritable, lockInventoryRow, deleteInventorySessionWithAudit } = require('./inventorySessionSafety')
 const {
   createBillingAccessMiddleware,
   createTrialSubscriptionForCompany,
@@ -299,7 +301,7 @@ async function requireApiAuth(request, response, next) {
       where: { id: userId },
       include: { memberships: true },
     })
-    if (!user || !user.isActive) {
+    if (!user || !user.isActive || user.username !== payload.username) {
       response.status(401).json({ error: 'Usuario inativo ou inexistente.' })
       return
     }
@@ -874,124 +876,8 @@ app.get('/api/users', async (request, response) => {
   response.json({ users: users.map(sanitizeAppUserRecord) })
 })
 
-app.post('/api/users', async (request, response) => {
-  const user = normalizeUserPayload(request.body)
-  if (!user) {
-    response.status(400).json({ error: 'Payload de usuario invalido.' })
-    return
-  }
-
-  const { memberships, ...userRecord } = user
-  if (!userRecord.password.trim()) {
-    response.status(400).json({ error: 'Senha obrigatoria para novo usuario.' })
-    return
-  }
-  const userRecordToCreate = {
-    ...userRecord,
-    password: '',
-    passwordHash: await hashPassword(userRecord.password),
-  }
-  const saved = await prisma.$transaction(async (transaction) => {
-    const savedUser = await transaction.appUserRecord.upsert({
-      where: { id: userRecordToCreate.id },
-      create: userRecordToCreate,
-      update: userRecordToCreate,
-    })
-    await transaction.appUserCompanyMembershipRecord.deleteMany({ where: { userId: userRecordToCreate.id } })
-    for (const membership of memberships) {
-      await transaction.appUserCompanyMembershipRecord.create({
-        data: {
-          userId: userRecordToCreate.id,
-          companyId: membership.companyId,
-          role: membership.role,
-          sectors: membership.sectors,
-          sectionAccess: membership.sectionAccess,
-          catalogAccess: membership.catalogAccess,
-          recipePanelAccess: membership.recipePanelAccess,
-          accessProfileId: membership.accessProfileId,
-          isActive: membership.isActive,
-        },
-      })
-    }
-    return transaction.appUserRecord.findUnique({
-      where: { id: savedUser.id },
-      include: { memberships: true },
-    })
-  })
-  response.json({ user: sanitizeAppUserRecord(saved) })
-})
-
-app.put('/api/users/:id', async (request, response) => {
-  const userId = parseIntegerParam(request.params.id)
-  const user = normalizeUserPayload({ ...request.body, id: userId })
-  if (userId === null || !user) {
-    response.status(400).json({ error: 'Payload de usuario invalido.' })
-    return
-  }
-
-  const { memberships, ...userRecord } = user
-  const existingUser = await prisma.appUserRecord.findUnique({ where: { id: userId } })
-  const hasNewPassword = userRecord.password.trim() !== ''
-  if (!existingUser && !hasNewPassword) {
-    response.status(400).json({ error: 'Senha obrigatoria para novo usuario.' })
-    return
-  }
-  const userRecordToPersist = hasNewPassword
-    ? {
-        ...userRecord,
-        password: '',
-        passwordHash: await hashPassword(userRecord.password),
-      }
-    : existingUser
-      ? {
-          ...userRecord,
-          password: existingUser.password,
-          passwordHash: existingUser.passwordHash,
-        }
-      : {
-          ...userRecord,
-          password: '',
-          passwordHash: null,
-        }
-  const saved = await prisma.$transaction(async (transaction) => {
-    const savedUser = await transaction.appUserRecord.upsert({
-      where: { id: userId },
-      create: userRecordToPersist,
-      update: userRecordToPersist,
-    })
-    await transaction.appUserCompanyMembershipRecord.deleteMany({ where: { userId } })
-    for (const membership of memberships) {
-      await transaction.appUserCompanyMembershipRecord.create({
-        data: {
-          userId,
-          companyId: membership.companyId,
-          role: membership.role,
-          sectors: membership.sectors,
-          sectionAccess: membership.sectionAccess,
-          catalogAccess: membership.catalogAccess,
-          recipePanelAccess: membership.recipePanelAccess,
-          accessProfileId: membership.accessProfileId,
-          isActive: membership.isActive,
-        },
-      })
-    }
-    return transaction.appUserRecord.findUnique({
-      where: { id: savedUser.id },
-      include: { memberships: true },
-    })
-  })
-  response.json({ user: sanitizeAppUserRecord(saved) })
-})
-
-app.delete('/api/users/:id', async (request, response) => {
-  const userId = parseIntegerParam(request.params.id)
-  if (userId === null) {
-    response.status(400).json({ error: 'Usuario invalido.' })
-    return
-  }
-
-  await prisma.appUserRecord.deleteMany({ where: { id: userId } })
-  response.json({ ok: true })
+registerUserManagementRoutes(app, prisma, {
+  normalizeUserPayload, hashPassword, sanitizeAppUserRecord, getAppUserCompanyIds,
 })
 
 app.get('/api/stock-module-settings', async (request, response) => {
@@ -1882,40 +1768,56 @@ app.post('/api/inventories/:id/close', async (request, response) => {
     return
   }
 
-  const closeSessionIds = openSessions
+  let closeSessionIds = openSessions
     .filter((session) => openSessionActions[String(session.id)] === 'close')
     .map((session) => session.id)
-  const discardSessionIds = openSessions
+  let discardSessionIds = openSessions
     .filter((session) => openSessionActions[String(session.id)] === 'discard')
     .map((session) => session.id)
 
-  const saved = await prisma.$transaction(async (transaction) => {
-    if (discardSessionIds.length > 0) {
-      await transaction.appInventoryCountRecord.deleteMany({ where: { sessionId: { in: discardSessionIds } } })
-      await transaction.appInventoryCountSessionRecord.deleteMany({ where: { id: { in: discardSessionIds } } })
-    }
+  let saved
+  try {
+    saved = await prisma.$transaction(async (transaction) => {
+      await lockInventoryRow(transaction, inventoryId)
+      const currentInventory = await transaction.appInventoryRecord.findUnique({ where: { id: inventoryId } })
+      if (!currentInventory || currentInventory.isClosed) {
+        throw Object.assign(new Error('Inventario inexistente ou ja finalizado. Atualize a revisao.'), { statusCode: 409 })
+      }
+      const currentOpenSessions = await transaction.appInventoryCountSessionRecord.findMany({ where: { inventoryId, isClosed: false } })
+      if (currentOpenSessions.some((session) => !['close', 'discard'].includes(openSessionActions[String(session.id)]))) {
+        throw Object.assign(new Error('Uma contagem foi iniciada durante a revisao. Recarregue a revisao antes de finalizar.'), { statusCode: 409 })
+      }
+      closeSessionIds = currentOpenSessions.filter((session) => openSessionActions[String(session.id)] === 'close').map((session) => session.id)
+      discardSessionIds = currentOpenSessions.filter((session) => openSessionActions[String(session.id)] === 'discard').map((session) => session.id)
+      if (discardSessionIds.length > 0) {
+        await transaction.appInventoryCountRecord.deleteMany({ where: { sessionId: { in: discardSessionIds } } })
+        await transaction.appInventoryCountSessionRecord.deleteMany({ where: { id: { in: discardSessionIds } } })
+      }
 
-    if (closeSessionIds.length > 0) {
-      await transaction.appInventoryCountSessionRecord.updateMany({
-        where: { id: { in: closeSessionIds } },
+      if (closeSessionIds.length > 0) {
+        await transaction.appInventoryCountSessionRecord.updateMany({
+          where: { id: { in: closeSessionIds } },
+          data: {
+            isClosed: true,
+            closedAt: inventory.closedAt,
+            closedByUserId: inventory.closedByUserId,
+            closedByUserName: inventory.closedByUserName,
+          },
+        })
+      }
+
+      return transaction.appInventoryRecord.update({
+        where: { id: inventoryId },
         data: {
-          isClosed: true,
-          closedAt: inventory.closedAt,
-          closedByUserId: inventory.closedByUserId,
-          closedByUserName: inventory.closedByUserName,
+          ...inventory,
+          discardedOpenSessionCount: discardSessionIds.length,
         },
       })
-    }
-
-    return transaction.appInventoryRecord.update({
-      where: { id: inventoryId },
-      data: {
-        ...inventory,
-        discardedOpenSessionCount: discardSessionIds.length,
-      },
     })
-  })
-
+  } catch (error) {
+    response.status(error.statusCode ?? 500).json({ error: error.message })
+    return
+  }
   response.json({
     inventoryRecord: saved,
     closedOpenSessionIds: closeSessionIds,
@@ -2001,8 +1903,13 @@ app.put('/api/inventory-count-sessions/:id', async (request, response) => {
       countedAt: true,
       startedByUserId: true,
       startedByUserName: true,
+      isClosed: true,
     },
   })
+  if (!existing && session.inventoryId !== null) {
+    response.status(404).json({ error: 'Contagem inexistente ou excluida. Atualize os dados; novas contagens devem ser iniciadas pelo fluxo de inventario.' })
+    return
+  }
   if (
     existing &&
     (existing.inventoryId !== session.inventoryId ||
@@ -2018,26 +1925,46 @@ app.put('/api/inventory-count-sessions/:id', async (request, response) => {
     return
   }
 
-  const saved = await prisma.appInventoryCountSessionRecord.upsert({
-    where: { id: sessionId },
-    create: session,
-    update: session,
-  })
-  response.json({ inventoryCountSession: saved })
+  try {
+    const saved = await prisma.$transaction(async (transaction) => {
+      await lockInventoryRow(transaction, session.inventoryId)
+      const current = await transaction.appInventoryCountSessionRecord.findUnique({ where: { id: sessionId } })
+      if (!current && session.inventoryId !== null) {
+        throw Object.assign(new Error('Contagem inexistente ou excluida.'), { statusCode: 404 })
+      }
+      await assertInventorySessionWritable(transaction, session, current, request.body?.__allowReopenClosedSession === true)
+      return transaction.appInventoryCountSessionRecord.upsert({ where: { id: sessionId }, create: session, update: session })
+    })
+    response.json({ inventoryCountSession: saved })
+  } catch (error) {
+    response.status(error.statusCode ?? 500).json({ error: error.message })
+  }
 })
 
 app.post('/api/inventory-count-sessions', async (request, response) => {
-  const saved = await createRecordWithServerId(
-    prisma.appInventoryCountSessionRecord,
-    normalizeInventoryCountSessionPayload,
-    request.body,
-  )
-  if (!saved) {
-    response.status(400).json({ error: 'Payload de sessao de contagem invalido.' })
-    return
+  const session = normalizeInventoryCountSessionPayload({ ...request.body, id: 1 })
+  if (session) {
+    try {
+      await assertInventorySessionWritable(prisma, session, null)
+    } catch (error) {
+      response.status(error.statusCode ?? 500).json({ error: error.message })
+      return
+    }
   }
-
-  response.json({ inventoryCountSession: saved })
+  try {
+    const saved = await createRecordWithServerId(
+      prisma.appInventoryCountSessionRecord,
+      normalizeInventoryCountSessionPayload,
+      request.body,
+    )
+    if (!saved) {
+      response.status(400).json({ error: 'Payload de sessao de contagem invalido.' })
+      return
+    }
+    response.json({ inventoryCountSession: saved })
+  } catch (error) {
+    response.status(error.statusCode ?? 500).json({ error: error.message })
+  }
 })
 
 app.delete('/api/inventory-count-sessions/:id', async (request, response) => {
@@ -2047,10 +1974,7 @@ app.delete('/api/inventory-count-sessions/:id', async (request, response) => {
     return
   }
 
-  await prisma.$transaction(async (transaction) => {
-    await transaction.appInventoryCountRecord.deleteMany({ where: { sessionId } })
-    await transaction.appInventoryCountSessionRecord.deleteMany({ where: { id: sessionId } })
-  })
+  await lockedTransaction(prisma, (transaction) => deleteInventorySessionWithAudit(transaction, sessionId, request.auth))
   response.json({ ok: true })
 })
 
@@ -2085,6 +2009,10 @@ app.put('/api/inventory-counts/:id', async (request, response) => {
       totalCountedQuantity: true,
     },
   })
+  if (!existing && count.inventoryId !== null) {
+    response.status(404).json({ error: 'Item de contagem inexistente ou excluido. Atualize os dados antes de continuar.' })
+    return
+  }
   if (existing && /PRODUCAO DUPLICADA ANULADA|CORRECAO AUDITADA/.test(existing.recipientLabel) &&
       (existing.totalCountedQuantity !== count.totalCountedQuantity || existing.recipientLabel !== count.recipientLabel)) {
     response.status(409).json({ error: 'Esta movimentacao recebeu correcao auditada. Atualize os dados antes de continuar.' })
@@ -2626,6 +2554,10 @@ async function createRecordWithServerId(modelDelegate, normalizePayload, payload
   if (inventoryModel) {
     return lockedTransaction(prisma, async (transaction) => {
       const normalized = normalizePayload({ ...payload, id: await nextInventoryMovementId(transaction) })
+      if (normalized && inventoryModel === 'appInventoryCountSessionRecord') {
+        await lockInventoryRow(transaction, normalized.inventoryId)
+        await assertInventorySessionWritable(transaction, normalized, null)
+      }
       return normalized ? transaction[inventoryModel].create({ data: normalized }) : null
     })
   }
