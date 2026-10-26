@@ -11,6 +11,7 @@ import {
 import { BillingPanelGate } from './components/BillingPanelGate'
 import { useProductionWorkflow } from './hooks/useProductionWorkflow'
 import { salesPostingRequest, type LegacySalesMovementParams, type SalesPostingPlan } from './domain/salesImports'
+import { resolveSalesImportIdentifier } from './domain/salesImportIdentifiers'
 import { MasterOverviewPanel } from './components/MasterOverviewPanel'
 import { PreparationModeInput } from './components/PreparationModeInput'
 import { PreparationStorageRecipientsPanel } from './components/PreparationStorageRecipientsPanel'
@@ -17139,8 +17140,7 @@ export default function App() {
 
     const matchedSheet =
       recipePanelSheetsByTab[tab].find((sheet) => sheet.name === normalizedValue) ??
-      recipePanelSheetsByTab[tab].find((sheet) => sheet.productId === normalizedValue) ??
-      recipePanelSheetsByTab[tab].find((sheet) => technicalSheetMatchesCompanyProductId(sheet, currentCompanyId, normalizedValue))
+      resolveSalesImportIdentifier(recipePanelSheetsByTab[tab], currentCompanyId, normalizedValue).sheet
 
     if (matchedSheet) {
       selectRecipePanelSheet(tab, matchedSheet.id)
@@ -36827,8 +36827,8 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
   ): SalesImportPreviewRow {
     const companyProductId = normalizeRegistrationText(row.companyProductId)
     const consumedAt = String(row.consumedAt ?? '').trim()
-    const matchedSheet =
-      candidateSheets.find((sheet) => technicalSheetMatchesSalesImportIdentifier(sheet, options?.companyId, companyProductId)) ?? null
+    const identifierMatch = resolveSalesImportIdentifier(candidateSheets, options?.companyId, companyProductId)
+    const matchedSheet = identifierMatch.sheet
     const quantity = normalizeSalesImportQuantityValue(
       String(row.quantity ?? '').trim(),
       options?.recoverLegacyThousandthBug === true,
@@ -36849,6 +36849,9 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
     } else if (quantityValue === null || quantityValue <= 0) {
       status = 'ERROR'
       errorMessage = 'Quantidade invalida.'
+    } else if (identifierMatch.ambiguous) {
+      status = 'ERROR'
+      errorMessage = 'Identificador associado a mais de uma ficha. Revise o ID empresa e os codigos alternativos.'
     } else if (!matchedSheet) {
       status = 'UNMATCHED'
       errorMessage = 'Ficha de PRODUTO_INTERNO, EXECUCAO ou VENDA nao encontrada para este identificador.'
@@ -59941,32 +59944,6 @@ function isSalesImportTrackableTechnicalSheetKind(
 ): kind is 'PRODUTO_INTERNO' | 'EXECUCAO' | 'VENDA' {
   return kind === 'PRODUTO_INTERNO' || kind === 'EXECUCAO' || kind === 'VENDA'
 }
-
-function technicalSheetMatchesSalesImportIdentifier(
-  sheet: TechnicalSheetRecord,
-  companyId: number | null | undefined,
-  identifier: string,
-) {
-  const normalizedIdentifier = normalizeRegistrationText(identifier)
-  if (normalizedIdentifier === '') {
-    return false
-  }
-  return (
-    getTechnicalSheetCompanyProductId(sheet, companyId) === normalizedIdentifier ||
-    getTechnicalSheetCompanyProductIdAliases(sheet, companyId).includes(normalizedIdentifier) ||
-    normalizeRegistrationText(sheet.productId) === normalizedIdentifier ||
-    String(sheet.id) === normalizedIdentifier
-  )
-}
-
-function technicalSheetMatchesCompanyProductId(
-  sheet: TechnicalSheetRecord,
-  companyId: number | null | undefined,
-  companyProductId: string,
-) {
-  return technicalSheetMatchesSalesImportIdentifier(sheet, companyId, companyProductId)
-}
-
 
 function buildOpaqueCatalogId(prefix: string) {
   const timePart = Date.now().toString(36).toUpperCase()
