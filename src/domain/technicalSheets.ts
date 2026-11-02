@@ -37,6 +37,28 @@ export function calculateTechnicalSheetIngredientBaseQuantity(ingredient: Techni
   return parseDecimal(ingredient.quantity) ?? 0
 }
 
+export function getTechnicalSheetYieldDifferenceDisplayUnit(
+  sheet: Pick<TechnicalSheetRecord, 'outputUnit' | 'densitySampleVolume' | 'densitySampleWeight'>,
+  ingredients: TechnicalSheetIngredient[],
+  products: ProductRecord[],
+): ControlUnit {
+  const volume = parseDecimal(sheet.densitySampleVolume) ?? 0
+  const weight = parseDecimal(sheet.densitySampleWeight) ?? 0
+  const activeIngredients = ingredients.filter((ingredient) => ingredient.isActive)
+  if (
+    sheet.outputUnit === 'MILLILITER' &&
+    volume > 0 &&
+    Math.abs(weight / volume - 1) < 0.000001 &&
+    activeIngredients.length > 0 &&
+    activeIngredients.every((ingredient) =>
+      products.some((product) => product.id === ingredient.productId && product.controlUnit === 'GRAM'),
+    )
+  ) {
+    return 'GRAM'
+  }
+  return sheet.outputUnit
+}
+
 export function isLegacyImportedProduct(product: ProductRecord | null) {
   return product?.id.startsWith('IMP-') ?? false
 }

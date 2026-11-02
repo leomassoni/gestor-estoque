@@ -116,6 +116,7 @@ import {
   getProductDisplayUnitLabel,
   getStockCenterBaseQuantity,
   getTechnicalSheetBaseYield,
+  getTechnicalSheetYieldDifferenceDisplayUnit,
   getTechnicalSheetYieldUnitLabel,
   isCommercialTechnicalSheetKind,
   isCommercialTechnicalSheetProduct,
@@ -42726,7 +42727,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
         <div className="form-grid" style={{ marginTop: '1rem' }}>
           <div className="field hint-card">
             <span>Diferenca negativa</span>
-            <strong>{formatDecimal(technicalSheetTotals.yieldDifferenceQuantity)} {formatControlUnitShort(technicalSheetForm.outputUnit)}</strong>
+            <strong>{formatDecimal(technicalSheetTotals.yieldDifferenceQuantity)} {formatControlUnitShort(getTechnicalSheetYieldDifferenceDisplayUnit(technicalSheetForm, technicalSheetIngredients, products))}</strong>
           </div>
           <label className="field">
             <span>Destino da diferenca</span>
