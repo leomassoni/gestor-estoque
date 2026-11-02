@@ -8,10 +8,11 @@ import { formatDecimal, formatEditableDecimal, getTodayDateInputValue, parseDeci
 export type ProductionTransitionResult = {
   draft: ProductionDraftState | null
   movement: {
-    result: 'applied' | 'queued'
+    result: 'applied' | 'queued' | 'discarded'
     session: InventoryCountSessionRecord | null
     records: InventoryCountRecord[]
     pending: PendingInventoryMovementRecord | null
+    discardedPendingId?: number | null
   }
 }
 
@@ -35,6 +36,7 @@ type Context = {
   onFeedback: (feedback: SaveFeedback) => void
   onStartConfirmed: () => void
   onFinishConfirmed: () => void
+  onCancelConfirmed: () => void
 }
 
 export function useProductionWorkflow(context: Context) {
@@ -42,11 +44,11 @@ export function useProductionWorkflow(context: Context) {
   const startAttempts = useRef(new Map<string, string>())
   const { draft, sheet, center, companyId, user, mutationRef } = context
 
-  function sessionFor(startedAt: string): InventoryCountSessionRecord {
+  function sessionFor(startedAt: string, countedAt = getTodayDateInputValue()): InventoryCountSessionRecord {
     const now = new Date().toISOString()
     return {
       id: 1, inventoryId: null, companyId: companyId!, stockCenterId: center!.id,
-      countedAt: getTodayDateInputValue(), isClosed: true, startedAt,
+      countedAt, isClosed: true, startedAt,
       startedByUserId: draft?.startedByUserId ?? user?.id ?? null,
       startedByUserName: draft?.startedByUserName || user?.fullName || 'ADMINISTRADOR DO SISTEMA',
       closedAt: now, closedByUserId: user?.id ?? null,
@@ -67,9 +69,9 @@ export function useProductionWorkflow(context: Context) {
     }
   }
 
-  async function commit(phase: 'start' | 'finish', nextDraft: ProductionDraftState,
-    session: InventoryCountSessionRecord, records: InventoryCountRecord[]) {
-    if (mutationRef.current.pending || !draft) return
+  async function commit(phase: 'start' | 'finish' | 'cancel', nextDraft: ProductionDraftState,
+    session?: InventoryCountSessionRecord, records: InventoryCountRecord[] = []): Promise<boolean> {
+    if (mutationRef.current.pending || !draft) return false
     mutationRef.current.pending = true
     mutationRef.current.version += 1
     setIsSaving(true)
@@ -82,17 +84,22 @@ export function useProductionWorkflow(context: Context) {
       if (!response.ok) throw new Error(payload.error || 'Nao foi possivel salvar a producao no servidor.')
       context.onSaved(payload as ProductionTransitionResult, nextDraft)
       if (phase === 'start') context.onStartConfirmed()
-      else context.onFinishConfirmed()
-      context.onFeedback({ status: 'success', title: phase === 'start' ? 'Producao iniciada' : 'Producao confirmada',
-        message: payload.movement.result === 'queued'
+      else if (phase === 'finish') context.onFinishConfirmed()
+      else context.onCancelConfirmed()
+      context.onFeedback({ status: 'success', title: phase === 'start' ? 'Producao iniciada' : phase === 'finish' ? 'Producao confirmada' : 'Inicio cancelado',
+        message: phase === 'cancel'
+          ? 'Inicio encerrado e consumos anteriores estornados na data original, sem nova baixa de estoque.'
+          : payload.movement.result === 'queued'
           ? 'Movimentacao salva no servidor. Sera aplicada ao estoque quando o inventario aberto for finalizado.'
           : phase === 'start' ? 'Producao iniciada e consumo dos insumos salvo no servidor.'
             : 'Producao concluida e entrada em estoque salva no servidor.',
       })
+      return true
     } catch (error) {
       context.onFeedback({ status: 'error', title: 'Falha ao salvar producao',
         message: error instanceof Error ? error.message : 'Tente novamente. A producao continua disponivel para conferencia.',
       })
+      return false
     } finally {
       mutationRef.current.version += 1
       mutationRef.current.pending = false
@@ -101,7 +108,7 @@ export function useProductionWorkflow(context: Context) {
   }
 
   async function beginProductionDraft() {
-    if (!draft || !sheet || !center || companyId === null || !context.preparedData || mutationRef.current.pending) return
+    if (!draft || !sheet || !center || companyId === null || !context.preparedData || mutationRef.current.pending) return false
     const key = `${companyId}:${center.id}:${sheet.id}`
     const startedAt = draft.startedAt || startAttempts.current.get(key) || new Date().toISOString()
     startAttempts.current.set(key, startedAt)
@@ -126,12 +133,12 @@ export function useProductionWorkflow(context: Context) {
         })]
       })
     })
-    await commit('start', { ...draft, companyId, startedAt,
+    return commit('start', { ...draft, companyId, startedAt,
       startedByUserId: user?.id ?? null, startedByUserName: user?.fullName || 'ADMINISTRADOR DO SISTEMA' }, session, records)
   }
 
-  async function confirmProductionDraft() {
-    if (!draft || !sheet || !center || companyId === null || mutationRef.current.pending) return
+  async function confirmProductionDraft(finishedOn: string) {
+    if (!draft || !sheet || !center || companyId === null || mutationRef.current.pending) return false
     const finalYield = parseDecimal(draft.finalYield) ?? 0
     const byproductYield = parseDecimal(draft.byproductYield) ?? 0
     const error = finalYield <= 0 ? 'Informe um rendimento final valido para confirmar a producao.'
@@ -142,9 +149,9 @@ export function useProductionWorkflow(context: Context) {
               ? `${context.byproduct.name} esta configurado para nao controlar estoque.` : ''
     if (error) {
       context.onFeedback({ status: 'error', title: 'Producao incompleta', message: error })
-      return
+      return false
     }
-    const session = sessionFor(draft.startedAt)
+    const session = sessionFor(draft.startedAt, finishedOn)
     const outputRecord = (output: TechnicalSheetRecord, quantity: number, expected: number, label: string) => recordFor(session, {
       storageLocation: 'ENTRADA DE PRODUCAO', technicalSheetId: output.id, technicalSheetName: output.name,
       recipientLabel: label, closedItemsQuantity: formatDecimal(quantity), totalCountedQuantity: formatDecimal(quantity),
@@ -158,9 +165,17 @@ export function useProductionWorkflow(context: Context) {
     const records = [production]
     if (context.byproduct) records.push(outputRecord(context.byproduct, byproductYield, context.byproductSuggestedYield,
       `${sheet.yieldDifferenceDestination === 'RETURN_TO_STOCK' ? 'RETORNO AO ESTOQUE' : 'SUBPRODUTO DE PRODUCAO'} ${sheet.name}`))
-    await commit('finish', { ...draft, companyId }, session, records)
-    startAttempts.current.delete(`${companyId}:${center.id}:${sheet.id}`)
+    const saved = await commit('finish', { ...draft, companyId }, session, records)
+    if (saved) startAttempts.current.delete(`${companyId}:${center.id}:${sheet.id}`)
+    return saved
   }
 
-  return { beginProductionDraft, confirmProductionDraft, isProductionSaving: isSaving }
+  async function cancelProductionDraft() {
+    if (!draft || draft.draftId === null || !center || companyId === null || mutationRef.current.pending) return false
+    const saved = await commit('cancel', draft)
+    if (saved) startAttempts.current.delete(`${companyId}:${center.id}:${draft.sheetId}`)
+    return saved
+  }
+
+  return { beginProductionDraft, confirmProductionDraft, cancelProductionDraft, isProductionSaving: isSaving }
 }

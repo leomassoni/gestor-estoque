@@ -10,6 +10,7 @@ import {
 } from 'react'
 import { BillingPanelGate } from './components/BillingPanelGate'
 import { useProductionWorkflow } from './hooks/useProductionWorkflow'
+import { ProductionDraftActions } from './components/ProductionDraftActions'
 import { salesPostingRequest, type LegacySalesMovementParams, type SalesPostingPlan } from './domain/salesImports'
 import { resolveSalesImportIdentifier } from './domain/salesImportIdentifiers'
 import { MasterOverviewPanel } from './components/MasterOverviewPanel'
@@ -3062,8 +3063,6 @@ export default function App() {
   const [productionPage, setProductionPage] = useState(1)
   const [productionDraftState, setProductionDraftState] = useState<ProductionDraftState | null>(null)
   const [productionInProgressDrafts, setProductionInProgressDrafts] = useState<ProductionDraftState[]>([])
-  const [isProductionStartConfirmOpen, setIsProductionStartConfirmOpen] = useState(false)
-  const [isProductionFinishConfirmOpen, setIsProductionFinishConfirmOpen] = useState(false)
   const [pendingProductionCancelRow, setPendingProductionCancelRow] = useState<ProductionRequestRow | null>(null)
   const [pendingExecutionPlanningCancelRow, setPendingExecutionPlanningCancelRow] = useState<ExecutionProductionPlanningRow | null>(null)
   const [pendingExecutionPlanningBatchCancelRows, setPendingExecutionPlanningBatchCancelRows] = useState<ExecutionProductionPlanningRow[] | null>(null)
@@ -8600,7 +8599,7 @@ export default function App() {
         : [],
     [productionPreparedData],
   )
-  const { beginProductionDraft, confirmProductionDraft, isProductionSaving } = useProductionWorkflow({
+  const { beginProductionDraft, confirmProductionDraft, cancelProductionDraft, isProductionSaving } = useProductionWorkflow({
     draft: productionDraftState, sheet: selectedProductionSheet, center: selectedProductionCenter,
     byproduct: selectedProductionByproductSheet, byproductSuggestedYield: selectedProductionByproductSuggestedYield,
     preparedData: productionPreparedData, companyId: currentCompanyId, user: currentAppUser, products, sheets: technicalSheets,
@@ -8609,8 +8608,9 @@ export default function App() {
     isProductStockTracked,
     isSheetStockTracked: (sheet) => isTechnicalSheetStockTracked(sheet, products),
     onFeedback: setSaveFeedback,
-    onStartConfirmed: () => setIsProductionStartConfirmOpen(false),
-    onFinishConfirmed: () => { setIsProductionFinishConfirmOpen(false); setProductionDraftState(null) },
+    onStartConfirmed: () => {},
+    onFinishConfirmed: () => setProductionDraftState(null),
+    onCancelConfirmed: () => setProductionDraftState(null),
     onSaved: (result, previousDraft) => {
       const nextDraft = result.draft ? normalizeProductionDraftState(result.draft) : null
       if (nextDraft?.draftId) syncedProductionDraftMapRef.current.set(nextDraft.draftId, JSON.stringify(nextDraft))
@@ -8626,6 +8626,10 @@ export default function App() {
         setManualProductionRequests((current) => current.filter((r) => !removed.includes(r.id)))
       }
       const { movement } = result
+      if (movement.discardedPendingId) {
+        syncedPendingInventoryMovementMapRef.current.delete(movement.discardedPendingId)
+        setPendingInventoryMovements((current) => current.filter((item) => item.id !== movement.discardedPendingId))
+      }
       if (movement.pending) {
         const pending = normalizePendingInventoryMovementRecord(movement.pending)
         if (pending) {
@@ -11967,6 +11971,8 @@ export default function App() {
             status:
               event.record.storageLocation === 'ENTRADA DE PRODUCAO'
                 ? 'Producao confirmada'
+                : event.record.storageLocation === 'ESTORNO DE CONSUMO DE PRODUCAO'
+                  ? 'Inicio de producao cancelado'
                 : event.record.storageLocation === 'SAIDA PARA PRODUCAO'
                   ? 'Producao iniciada'
                 : event.record.storageLocation === 'SAIDA PARA REQUISICAO'
@@ -29712,28 +29718,12 @@ export default function App() {
 	  function closeProductionDraft() {
     if (productionMutationRef.current.pending) return
     const currentDraft = productionDraftState
-    setIsProductionStartConfirmOpen(false)
-    setIsProductionFinishConfirmOpen(false)
     if (currentDraft && currentDraft.draftId !== null) {
       setProductionInProgressDrafts((current) =>
         current.map((draft) => (draft.draftId === currentDraft.draftId ? { ...currentDraft } : draft)),
       )
     }
     setProductionDraftState(null)
-  }
-
-  function requestStartProductionDraft() {
-    if (!productionDraftState) {
-      return
-    }
-    setIsProductionStartConfirmOpen(true)
-  }
-
-  function requestFinishProductionDraft() {
-    if (!productionDraftState) {
-      return
-    }
-    setIsProductionFinishConfirmOpen(true)
   }
 
   function requestCancelProductionRow(row: ProductionRequestRow) {
@@ -52724,46 +52714,19 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
               </div>
             </section>
 
-            <div className="modal-actions">
-              <button type="button" className="ghost-button" onClick={closeProductionDraft} disabled={isProductionSaving}>
-                Fechar
-              </button>
-              {productionDraftState.draftId === null ? (
-                <button type="button" className="primary-button" onClick={requestStartProductionDraft} disabled={isProductionSaving}>
-                  Iniciar
-                </button>
-              ) : (
-                <button type="button" className="primary-button" onClick={requestFinishProductionDraft} disabled={isProductionSaving}>
-                  Confirmar producao
-                </button>
-              )}
-            </div>
+            <ProductionDraftActions
+              key={productionDraftState.draftId ?? `new-${productionDraftState.sheetId}`}
+              inProgress={productionDraftState.draftId !== null}
+              startedOn={inventoryCountSessions.find((item) => item.id === productionDraftState.consumptionSessionId)?.countedAt ?? productionDraftState.startedAt.slice(0, 10)}
+              latestInventoryOn={inventoryRecords.filter((item) => item.isClosed && item.companyId === currentCompanyId && item.stockCenterId === productionDraftState.centerId).reduce((latest, item) => item.countedAt > latest ? item.countedAt : latest, '')}
+              isSaving={isProductionSaving}
+              onClose={closeProductionDraft}
+              onStart={beginProductionDraft}
+              onFinish={confirmProductionDraft}
+              onCancel={cancelProductionDraft}
+            />
           </section>
         </div>
-      ) : null}
-
-      {isProductionStartConfirmOpen ? (
-        <ConfirmationModal
-          title="Iniciar producao"
-          message="Deseja iniciar esta producao? Isso significa que ela passara para o status Em producao, podera ser continuada depois e o sistema comecara a contar o tempo gasto ate a confirmacao final."
-          actionClass="primary-button"
-          actionLabel="Iniciar"
-          onCancel={() => setIsProductionStartConfirmOpen(false)}
-          onConfirm={() => void beginProductionDraft()}
-          isBusy={isProductionSaving}
-        />
-      ) : null}
-
-      {isProductionFinishConfirmOpen ? (
-        <ConfirmationModal
-          title="Confirmar producao"
-          message="Deseja mesmo finalizar esta producao? Confirme apenas se voce ja revisou os dados e incluiu todas as informacoes necessarias, pois isso registrara a producao no estoque e encerrara o acompanhamento em andamento."
-          actionClass="primary-button"
-          actionLabel="Confirmar producao"
-          onCancel={() => setIsProductionFinishConfirmOpen(false)}
-          onConfirm={() => void confirmProductionDraft()}
-          isBusy={isProductionSaving}
-        />
       ) : null}
 
       {pendingProductionCancelRow ? (

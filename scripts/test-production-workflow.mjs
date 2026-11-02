@@ -5,6 +5,7 @@ import { parseDecimal } from '../src/utils/core.ts'
 
 const require = createRequire(import.meta.url)
 const { PrismaClient } = require('../server/node_modules/@prisma/client')
+const { buildInventoryLedger } = require('../server/inventoryLedger.js')
 const url = new URL(fs.readFileSync('server/.env', 'utf8').match(/^DATABASE_URL=(.*)$/m)[1].replace(/^['"]|['"]$/g, ''))
 url.pathname = '/gestor_estoque_production_regression'
 assert(['localhost', '127.0.0.1'].includes(url.hostname), 'Use apenas banco local isolado.')
@@ -33,6 +34,8 @@ function makeRecord(quantity, output = false) {
     recipientItemId: '', recipientLabel: output ? 'PRODUCAO CONFIRMADA' : 'PRODUCAO INICIADA TESTE',
     closedItemsQuantity: quantity, totalCountedQuantity: quantity, totalCountedUnit: 'MILLILITER',
     hasOpenItems: false, openItemsGrossWeight: '', openItemsContainerQuantity: '', openItemsNetQuantity: '',
+    productionExpectedYield: '', productionFinalYield: '', productionYieldDifference: '',
+    productionTargetPh: '', productionConfirmedPh: '', productionTargetBrix: '', productionConfirmedBrix: '',
     createdByUserId: null, createdByUserName: 'TESTE' }
 }
 
@@ -116,24 +119,96 @@ try {
   assert.equal(await db.appProductionDraftRecord.count({ where: { companyId: 999 } }), 0)
   assert.equal((await request(`production-drafts/${savedDraft.draftId}`, savedDraft, 'PUT')).status, 409)
   console.log('PASS compatibilidade com rascunhos antigos ja concluidos')
+  const backdated = makeDraft()
+  backdated.startedAt = '2026-10-18T12:00:00.000Z'
+  const backdatedStart = await request('production-transitions/start', {
+    draft: backdated, session: makeSession(backdated.startedAt), records: [makeRecord('-100')],
+  })
+  assert.equal(backdatedStart.status, 200, JSON.stringify(backdatedStart.data))
+  const backdatedSaved = backdatedStart.data.draft
+  const futureSession = { ...makeSession(backdated.startedAt), countedAt: '2099-01-01' }
+  assert.equal((await request('production-transitions/finish', { draft: backdatedSaved, session: futureSession,
+    records: [{ ...makeRecord('1.000', true), countedAt: '2099-01-01' }] })).status, 400)
+  const earlierSession = { ...makeSession(backdated.startedAt), countedAt: '2026-10-17' }
+  assert.equal((await request('production-transitions/finish', { draft: backdatedSaved, session: earlierSession,
+    records: [{ ...makeRecord('1.000', true), countedAt: '2026-10-17' }] })).status, 400)
+  const datedSession = { ...makeSession(backdated.startedAt), countedAt: '2026-10-19' }
+  const datedFinish = await request('production-transitions/finish', { draft: backdatedSaved, session: datedSession,
+    records: [{ ...makeRecord('1.000', true), countedAt: '2026-10-19' }] })
+  assert.equal(datedFinish.status, 200, JSON.stringify(datedFinish.data))
+  assert.equal(datedFinish.data.movement.records[0].countedAt, '2026-10-19')
+  console.log('PASS data de conclusao posterior ao inicio, anterior ao inventario e nao futura')
+
+  const cancelled = makeDraft()
+  cancelled.startedAt = '2026-10-20T12:00:00.000Z'
+  const cancelStart = await request('production-transitions/start', {
+    draft: cancelled, session: { ...makeSession(cancelled.startedAt), countedAt: '2026-10-20' },
+    records: [{ ...makeRecord('-400'), countedAt: '2026-10-20' }],
+  })
+  assert.equal(cancelStart.status, 200, JSON.stringify(cancelStart.data))
+  const cancelSaved = cancelStart.data.draft
+  await db.appInventoryRecord.create({ data: {
+    ...makeSession('2026-10-25T12:00:00.000Z'), id: 998, inventoryId: undefined,
+    countedAt: '2026-10-25', isClosed: true, closedAt: '2026-10-25T13:00:00.000Z',
+  } })
+  await db.appInventoryCountRecord.create({ data: {
+    ...makeRecord('100'), id: 999999, inventoryId: 998, sessionId: 999999, countedAt: '2026-10-25', storageLocation: 'PRATELEIRA',
+  } })
+  const ledgerBalance = async () => {
+    const [inventories, sessions, counts] = await Promise.all([
+      db.appInventoryRecord.findMany({ where: { companyId: 999 } }),
+      db.appInventoryCountSessionRecord.findMany({ where: { companyId: 999 } }),
+      db.appInventoryCountRecord.findMany({ where: { companyId: 999 } }),
+    ])
+    return buildInventoryLedger({ inventories, sessions, counts }).current.get('PRODUTO:TESTE-PRODUTO')
+  }
+  assert.equal(await ledgerBalance(), 100)
+  const cancelResult = await request('production-transitions/cancel', { draft: cancelSaved })
+  assert.equal(cancelResult.status, 200, JSON.stringify(cancelResult.data))
+  assert.equal(cancelResult.data.movement.records[0].countedAt, '2026-10-20')
+  assert.equal(cancelResult.data.movement.records[0].storageLocation, 'ESTORNO DE CONSUMO DE PRODUCAO')
+  assert.equal(cancelResult.data.movement.records[0].totalCountedQuantity, '400')
+  assert.equal(await ledgerBalance(), 100)
+  assert.equal((await request('production-transitions/cancel', { draft: cancelSaved })).status, 200)
+  assert.equal(await db.appInventoryCountRecord.count({ where: { companyId: 999, storageLocation: 'ESTORNO DE CONSUMO DE PRODUCAO' } }), 1)
+  assert.equal((await request('production-transitions/finish', { draft: cancelSaved, session: datedSession,
+    records: [{ ...makeRecord('1.000', true), countedAt: '2026-10-19' }] })).status, 409)
+  assert.equal((await request(`production-drafts/${cancelSaved.draftId}`, cancelSaved, 'PUT')).status, 409)
+  console.log('PASS cancelamento idempotente, estorno historico e saldo do inventario posterior preservado')
+
   await db.appInventoryRecord.create({ data: { ...makeSession(new Date().toISOString()), id: 999, inventoryId: undefined,
-    isClosed: false, closedAt: '', closedByUserId: null, closedByUserName: '' } })
+    countedAt: new Date().toISOString().slice(0, 10), isClosed: false, closedAt: '', closedByUserId: null, closedByUserName: '' } })
   const queuedDraft = makeDraft()
-  const queuedStart = await request('production-transitions/start', { draft: queuedDraft, session: makeSession(queuedDraft.startedAt), records: [makeRecord('-500')] })
+  const queuedDate = new Date().toISOString().slice(0, 10)
+  const queuedSession = { ...makeSession(queuedDraft.startedAt), countedAt: queuedDate }
+  const queuedStart = await request('production-transitions/start', { draft: queuedDraft, session: queuedSession, records: [{ ...makeRecord('-500'), countedAt: queuedDate }] })
   assert.equal(queuedStart.status, 200, JSON.stringify(queuedStart.data))
   assert.equal(queuedStart.data.movement.result, 'queued')
-  const queuedFinishBody = { draft: queuedStart.data.draft, session: makeSession(queuedDraft.startedAt), records: [makeRecord('1.000', true)] }
+  const queuedFinishBody = { draft: queuedStart.data.draft, session: queuedSession, records: [{ ...makeRecord('1.000', true), countedAt: queuedDate }] }
   const queuedFinish = await request('production-transitions/finish', queuedFinishBody)
   assert.equal(queuedFinish.status, 200, JSON.stringify(queuedFinish.data))
   await request('production-transitions/finish', queuedFinishBody)
   assert.equal(await db.appPendingInventoryMovementRecord.count({ where: { companyId: 999 } }), 2)
-  assert.equal(await db.appInventoryCountRecord.count({ where: { companyId: 999 } }), 3)
+  assert.equal(await db.appInventoryCountRecord.count({ where: { companyId: 999 } }), 8)
   const pending = await db.appPendingInventoryMovementRecord.findMany({ where: { companyId: 999 } })
   assert.equal(new Set(pending.map((p) => p.session.id)).size, 2)
   console.log('PASS inventario aberto recebe consumo/entrada pendentes uma unica vez, com IDs exclusivos')
+  const pendingCancelDraft = makeDraft()
+  const pendingCancelStart = await request('production-transitions/start', {
+    draft: pendingCancelDraft, session: { ...makeSession(pendingCancelDraft.startedAt), countedAt: queuedDate },
+    records: [{ ...makeRecord('-25'), countedAt: queuedDate }],
+  })
+  assert.equal(pendingCancelStart.status, 200, JSON.stringify(pendingCancelStart.data))
+  assert.equal(pendingCancelStart.data.movement.result, 'queued')
+  const pendingCancel = await request('production-transitions/cancel', { draft: pendingCancelStart.data.draft })
+  assert.equal(pendingCancel.status, 200)
+  assert.equal(pendingCancel.data.movement.discardedPendingId, pendingCancelStart.data.movement.pending.id)
+  assert.equal(await db.appPendingInventoryMovementRecord.count({ where: { companyId: 999 } }), 2)
+  assert.equal(await db.appInventoryCountRecord.count({ where: { companyId: 999, storageLocation: 'ESTORNO DE CONSUMO DE PRODUCAO' } }), 1)
+  console.log('PASS cancelamento descarta baixa pendente sem criar estorno no livro')
   const pendingIds = pending.flatMap((p) => [p.session.id, ...p.records.map((r) => r.id)])
   const countSessions = await Promise.all(['USUARIO ALFA', 'USUARIO BETA'].map((name) => request('inventory-count-sessions', {
-    ...makeSession(new Date().toISOString()), inventoryId: 999, isClosed: false, startedByUserName: name,
+    ...makeSession(new Date().toISOString()), inventoryId: 999, countedAt: queuedDate, isClosed: false, startedByUserName: name,
     closedAt: '', closedByUserName: '',
   })))
   countSessions.forEach((r) => assert.equal(r.status, 200, JSON.stringify(r.data)))
@@ -142,7 +217,8 @@ try {
   assert.notEqual(sessionA.id, sessionB.id)
   assert(sessionA.id > Math.max(...pendingIds) && sessionB.id > Math.max(...pendingIds))
   const items = await Promise.all([sessionA, sessionB].map((s) => request('inventory-counts', {
-    ...makeRecord('10'), inventoryId: 999, sessionId: s.id, storageLocation: 'TESTE', createdByUserName: s.startedByUserName,
+    ...makeRecord('10'), inventoryId: 999, sessionId: s.id, countedAt: queuedDate,
+    storageLocation: 'TESTE', createdByUserName: s.startedByUserName,
   })))
   items.forEach((r) => assert.equal(r.status, 200, JSON.stringify(r.data)))
   assert.notEqual(items[0].data.inventoryCount.id, items[1].data.inventoryCount.id)

@@ -27,7 +27,7 @@ function inventoryKey(record) {
 function movementSign(location) {
   if (['SAIDA PARA PRODUCAO', 'SAIDA PARA REQUISICAO', 'SAIDA POR VENDAS IMPORTADAS'].includes(location) ||
       location.startsWith('SAIDA POR DESPERDICIO')) return -1
-  if (['ENTRADA DE PRODUCAO', 'ESTORNO DE VENDAS IMPORTADAS', 'RECEBIMENTO DE REQUISICAO'].includes(location)) return 1
+  if (['ENTRADA DE PRODUCAO', 'ESTORNO DE CONSUMO DE PRODUCAO', 'ESTORNO DE VENDAS IMPORTADAS', 'RECEBIMENTO DE REQUISICAO'].includes(location)) return 1
   return 0
 }
 

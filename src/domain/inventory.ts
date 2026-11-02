@@ -313,6 +313,7 @@ export function isOperationalInventoryMovementLocation(value: string) {
   const normalizedValue = normalizeRegistrationText(value)
   return (
     normalizedValue === 'ENTRADA DE PRODUCAO' ||
+    normalizedValue === 'ESTORNO DE CONSUMO DE PRODUCAO' ||
     normalizedValue === 'SAIDA PARA PRODUCAO' ||
     normalizedValue === 'SAIDA PARA REQUISICAO' ||
     normalizedValue === 'SAIDA POR VENDAS IMPORTADAS' ||

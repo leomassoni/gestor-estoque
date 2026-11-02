@@ -5,6 +5,7 @@ const browser = await chromium.launch({ headless: true })
 const context = await browser.newContext({ viewport: { width: 1440, height: 1000 } })
 const page = await context.newPage()
 const timurOnly = process.argv.includes('--timur-only')
+const cancelExisting = process.argv.includes('--cancel-existing')
 const sheetName = timurOnly ? 'CORDIAL TIMUR ARTESANAL MADRE' : 'XAROPE SIMPLES'
 const desiredYield = timurOnly ? '1000' : '1800'
 page.setDefaultTimeout(60000)
@@ -32,6 +33,36 @@ try {
   await page.getByRole('button', { name: 'Nova producao', exact: true }).waitFor()
   await page.locator('label').filter({ hasText: 'Centro produtor' }).locator('select').first().selectOption('7', { force: true })
   console.log('PASS entrada de producoes abre com BAR DE BAIXO')
+  if (cancelExisting) {
+    await fill(page.getByLabel('Buscar producao', { exact: true }), 'XAROPE SIMPLES')
+    const existing = page.locator('tr').filter({ hasText: 'XAROPE SIMPLES' })
+      .filter({ has: page.getByRole('button', { name: /Continuar/ }) }).first()
+    await existing.waitFor({ timeout: 15000 }).catch(async (error) => {
+      console.log('CANCEL_LIST_SCREEN', (await page.locator('main').textContent()).slice(-5000))
+      console.log('CANCEL_LIST_BUTTONS', await page.locator('tr button').allTextContents())
+      throw error
+    })
+    await click(existing.getByRole('button', { name: /Continuar/ }))
+    const production = page.getByRole('dialog', { name: 'Produzir XAROPE SIMPLES', exact: true })
+    await production.waitFor()
+    await click(production.getByRole('button', { name: 'Cancelar inicio', exact: true }))
+    const confirmation = page.getByRole('dialog', { name: 'Cancelar inicio de producao', exact: true })
+    await confirmation.waitFor()
+    const cancelResponse = page.waitForResponse((r) => r.url().includes('/production-transitions/cancel') && r.request().method() === 'POST')
+    await click(confirmation.getByRole('button', { name: 'Cancelar inicio', exact: true }))
+    const response = await cancelResponse
+    const result = await response.json()
+    assert.equal(response.status(), 200, JSON.stringify(result))
+    assert.equal(result.draft, null)
+    await production.waitFor({ state: 'detached' })
+    await page.reload({ waitUntil: 'domcontentloaded' })
+    const drafts = await page.request.get('http://127.0.0.1:4001/api/production-drafts?companyId=13', {
+      headers: { Authorization: `Bearer ${login.token}` },
+    })
+    assert(!(await drafts.json()).productionDrafts.some((d) => d.sheetId === 595 && d.centerId === 7))
+    console.log('PASS cancelamento via navegador persiste e nao reabre o lote')
+    await page.screenshot({ path: 'tmp/production-browser-cancelled.png' })
+  } else {
   await click(page.getByRole('button', { name: 'Nova producao', exact: true }))
   const modal = page.getByRole('dialog').first()
   await modal.waitFor()
@@ -47,7 +78,8 @@ try {
   await click(page.getByRole('dialog').last().getByRole('button', { name: 'Confirmar entrada de producao', exact: true }))
   await page.waitForFunction(() => !document.getElementById('manual-production-preview-title'))
   await fill(page.getByLabel('Buscar producao', { exact: true }), sheetName)
-  const row = page.locator('tr').filter({ hasText: sheetName }).first()
+  const row = page.locator('tr').filter({ hasText: sheetName })
+    .filter({ has: page.getByRole('button', { name: 'Produzir', exact: true }) }).first()
   await row.waitFor({ state: 'attached' }).catch(async (error) => {
     await page.screenshot({ path: 'tmp/production-browser-failure.png' })
     console.log('PRODUCTION_FAILURE', (await page.locator('main').textContent()).slice(-10000))
@@ -76,7 +108,12 @@ try {
   await click(production.getByRole('button', { name: 'Iniciar', exact: true }))
   const startResponse = page.waitForResponse((r) => r.url().includes('/production-transitions/start') && r.request().method() === 'POST')
   await click(page.getByRole('dialog', { name: 'Iniciar producao', exact: true }).getByRole('button', { name: 'Iniciar', exact: true }))
-  const started = await (await startResponse).json()
+  const startedResponse = await startResponse.catch(async (error) => {
+    console.log('START_FAILURE_SCREEN', (await page.locator('main').textContent()).slice(-3000))
+    await page.screenshot({ path: 'tmp/production-browser-start-failure.png' })
+    throw error
+  })
+  const started = await startedResponse.json()
   assert(started.draft?.draftId, JSON.stringify(started))
   await production.getByRole('button', { name: 'Confirmar producao', exact: true }).waitFor()
   await click(production.getByRole('button', { name: 'Confirmar producao', exact: true }))
@@ -163,6 +200,7 @@ try {
   assert(current.some((r) => r.sessionId === otherSession.id))
   console.log('PASS sair, retomar e ver resumo sem descartar a contagem de outro autor')
   await page.screenshot({ path: 'tmp/inventory-production-regression.png' })
+  }
   }
 } finally {
   await browser.close()
