@@ -3432,6 +3432,37 @@ h3 {
   margin: 20px 0 0;
 }
 
+.manual-production-cancel-list {
+  max-height: 240px;
+  overflow-y: auto;
+  margin-top: 16px;
+  border-top: 1px solid rgba(20, 33, 61, 0.12);
+  border-bottom: 1px solid rgba(20, 33, 61, 0.12);
+}
+
+.manual-production-cancel-backdrop {
+  z-index: 1210;
+}
+
+.manual-production-cancel-option {
+  margin: 0;
+  padding: 12px 0;
+  align-items: flex-start;
+}
+
+.manual-production-cancel-option + .manual-production-cancel-option {
+  border-top: 1px solid rgba(20, 33, 61, 0.08);
+}
+
+.manual-production-cancel-option span {
+  min-width: 0;
+}
+
+.manual-production-cancel-option small {
+  display: block;
+  overflow-wrap: anywhere;
+}
+
 .inline-warning-card {
   margin-top: 16px;
   padding: 14px 16px;

@@ -11,6 +11,8 @@ import {
 import { BillingPanelGate } from './components/BillingPanelGate'
 import { useProductionWorkflow } from './hooks/useProductionWorkflow'
 import { ProductionDraftActions } from './components/ProductionDraftActions'
+import { ManualProductionCancellationModal } from './components/ManualProductionCancellationModal'
+import { cancelManualProductionRequestsOnApi, getCancellableManualProductionRequestIdSet } from './domain/manualProductionCancellation'
 import { salesPostingRequest, type LegacySalesMovementParams, type SalesPostingPlan } from './domain/salesImports'
 import { resolveSalesImportIdentifier } from './domain/salesImportIdentifiers'
 import { MasterOverviewPanel } from './components/MasterOverviewPanel'
@@ -5509,6 +5511,7 @@ export default function App() {
 
     const manualRequestIdsBySheetId = new Map<number, number[]>()
     const cancellableManualRequestIdsBySheetId = new Map<number, number[]>()
+    const cancellableManualRequestIds = getCancellableManualProductionRequestIdSet(manualProductionRequests, currentCompanyId)
     const manualRequestedQuantityBySheetId = new Map<number, number>()
     const manualRequestsBySheetId = new Map<number, ManualProductionRequestRecord[]>()
     manualProductionRequests
@@ -5516,7 +5519,7 @@ export default function App() {
       .forEach((request) => {
         manualRequestsBySheetId.set(request.sheetId, [...(manualRequestsBySheetId.get(request.sheetId) ?? []), request])
         manualRequestIdsBySheetId.set(request.sheetId, [...(manualRequestIdsBySheetId.get(request.sheetId) ?? []), request.id])
-        if (!request.isDependencyRequest) {
+        if (cancellableManualRequestIds.has(request.id)) {
           cancellableManualRequestIdsBySheetId.set(
             request.sheetId,
             [...(cancellableManualRequestIdsBySheetId.get(request.sheetId) ?? []), request.id],
@@ -29780,58 +29783,35 @@ export default function App() {
     setPendingExecutionPlanningBatchCancelRows(selectedExecutionPlanningRows)
   }
 
-  async function confirmCancelProductionRow() {
-    if (!pendingProductionCancelRow) {
-      return
-    }
-
+  async function confirmCancelProductionRow(requestIds: number[]) {
+    if (!pendingProductionCancelRow || currentCompanyId === null) return false
     const targetRow = pendingProductionCancelRow
-    const cancellableRequestIds = new Set(targetRow.cancellableManualRequestIds)
-    const rootRequestIds = new Set(
-      manualProductionRequests
-        .filter(
-          (request) =>
-            request.companyId === currentCompanyId &&
-            request.centerId === targetRow.centerId &&
-            cancellableRequestIds.has(request.id),
-        )
-        .map((request) => request.rootRequestId),
-    )
-    if (rootRequestIds.size === 0) {
-      targetRow.cancellableManualRequestIds.forEach((requestId) => rootRequestIds.add(requestId))
-    }
-    const affectedRequests = manualProductionRequests.filter(
-      (request) => request.companyId === currentCompanyId && rootRequestIds.has(request.rootRequestId),
-    )
-    const affectedDependencyRequests = manualProductionRequests.filter(
-      (request) => request.companyId === currentCompanyId && request.isDependencyRequest && rootRequestIds.has(request.rootRequestId),
-    )
-
     try {
-      await Promise.all(affectedRequests.map((request) => deleteManualProductionRequestOnApi(request.id)))
+      const deletedIds = await cancelManualProductionRequestsOnApi({
+        companyId: currentCompanyId, centerId: targetRow.centerId, sheetId: targetRow.sheetId,
+        requestIds,
+      })
+      const deleted = new Set(deletedIds)
       const nextManualProductionRequests = manualProductionRequests.filter(
-        (request) => !(request.companyId === currentCompanyId && rootRequestIds.has(request.rootRequestId)),
+        (request) => !deleted.has(request.id),
       )
       setManualProductionRequests(nextManualProductionRequests)
       syncedManualProductionRequestMapRef.current = buildEntitySignatureMap(nextManualProductionRequests, (record) => record.id)
       setPendingProductionCancelRow(null)
       setSaveFeedback({
         status: 'success',
-        title: 'Producao cancelada',
-        message:
-          affectedDependencyRequests.length > 0
-            ? `A solicitacao manual dessa producao foi retirada da fila junto com ${affectedDependencyRequests.length} producao(oes) dependente(s) vinculada(s) a ela.`
-            : targetRow.statusLabel === 'A produzir'
-              ? 'A solicitacao manual dessa producao foi retirada da fila.'
-              : 'A solicitacao manual vinculada a essa producao foi cancelada.',
+        title: 'Entrada manual cancelada',
+        message: `${deletedIds.length} solicitacao(oes) manual(is) retirada(s) da fila. Minimos e requisicoes permanecem inalterados.`,
       })
+      return true
     } catch (error) {
       console.error(error)
       setSaveFeedback({
         status: 'error',
-        title: 'Falha ao cancelar producao',
-        message: error instanceof Error ? error.message : 'Erro ao cancelar a producao no servidor.',
+        title: 'Falha ao cancelar entrada manual',
+        message: error instanceof Error ? error.message : 'Erro ao cancelar os pedidos manuais no servidor.',
       })
+      return false
     }
   }
 
@@ -49039,7 +49019,8 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                                       type="button"
                                       className="icon-button icon-delete"
                                       onClick={() => requestCancelProductionRow(row)}
-                                      aria-label={`Cancelar producao ${row.sheetName}`}
+                                      aria-label={`Cancelar entrada manual de ${row.sheetName}`}
+                                      title="Cancelar entrada manual"
                                     >
                                       <span aria-hidden="true">×</span>
                                     </button>
@@ -52730,32 +52711,12 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
       ) : null}
 
       {pendingProductionCancelRow ? (
-        (() => {
-          const rootRequestIds = new Set(pendingProductionCancelRow.cancellableManualRequestIds)
-          const affectedDependencies = manualProductionRequests.filter(
-            (request) => request.isDependencyRequest && rootRequestIds.has(request.rootRequestId),
-          )
-          const dependencySummary = affectedDependencies
-            .map((request) => {
-              const sheet = technicalSheets.find((entry) => entry.id === request.sheetId && entry.companyId === currentCompanyId) ?? null
-              return `${sheet?.name ?? `PRE-PREPARO ${request.sheetId}`} (${formatDecimal(parseDecimal(request.desiredYield) ?? 0)})`
-            })
-            .join(', ')
-          return (
-            <ConfirmationModal
-              title="Cancelar producao?"
-              message={
-                affectedDependencies.length > 0
-                  ? `Deseja cancelar esta producao da fila? Isso tambem cancelara automaticamente as producoes dependentes vinculadas a ela: ${dependencySummary}. Se essa linha tambem existir por minimo real do centro, a sugestao automatica continuara aparecendo.`
-                  : 'Deseja cancelar esta producao da fila? Isso remove apenas a solicitacao manual registrada em Entrada de producoes. Se essa linha tambem existir por minimo real do centro, a sugestao automatica continuara aparecendo.'
-              }
-              actionClass="danger-button"
-              actionLabel="Cancelar producao"
-              onCancel={() => setPendingProductionCancelRow(null)}
-              onConfirm={confirmCancelProductionRow}
-            />
-          )
-        })()
+        <ManualProductionCancellationModal
+          row={pendingProductionCancelRow}
+          requests={manualProductionRequests}
+          onCancel={() => setPendingProductionCancelRow(null)}
+          onConfirm={confirmCancelProductionRow}
+        />
       ) : null}
 
       {pendingExecutionPlanningCancelRow ? (

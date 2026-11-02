@@ -6,6 +6,7 @@ const express = require('express')
 const cors = require('cors')
 const { PrismaClient } = require('@prisma/client')
 const { registerProductionRoutes, saveProductionDraft, lockedTransaction, nextInventoryMovementId } = require('./production')
+const { registerManualProductionCancellationRoutes } = require('./manualProductionCancellation')
 const { registerSalesImportRoutes } = require('./salesImports')
 const { registerUserManagementRoutes } = require('./userManagement')
 const { assertInventorySessionWritable, lockInventoryRow, deleteInventorySessionWithAudit } = require('./inventorySessionSafety')
@@ -1497,6 +1498,7 @@ registerProductionRoutes(app, prisma, {
   userCanAccessCompany,
   parseDecimal: parseAppDecimal,
 })
+registerManualProductionCancellationRoutes(app, prisma, { userCanAccessCompany })
 
 app.post('/api/production-drafts', async (request, response) => {
   const draft = normalizeProductionDraftPayload(request.body)

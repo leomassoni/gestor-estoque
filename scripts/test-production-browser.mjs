@@ -6,6 +6,7 @@ const context = await browser.newContext({ viewport: { width: 1440, height: 1000
 const page = await context.newPage()
 const timurOnly = process.argv.includes('--timur-only')
 const cancelExisting = process.argv.includes('--cancel-existing')
+const checkManualCancel = process.argv.includes('--check-manual-cancel')
 const sheetName = timurOnly ? 'CORDIAL TIMUR ARTESANAL MADRE' : 'XAROPE SIMPLES'
 const desiredYield = timurOnly ? '1000' : '1800'
 page.setDefaultTimeout(60000)
@@ -33,7 +34,25 @@ try {
   await page.getByRole('button', { name: 'Nova producao', exact: true }).waitFor()
   await page.locator('label').filter({ hasText: 'Centro produtor' }).locator('select').first().selectOption('7', { force: true })
   console.log('PASS entrada de producoes abre com BAR DE BAIXO')
-  if (cancelExisting) {
+  if (checkManualCancel) {
+    await fill(page.getByLabel('Buscar producao', { exact: true }), 'XAROPE SIMPLES')
+    const cancelButton = page.getByRole('button', { name: 'Cancelar entrada manual de XAROPE SIMPLES' })
+    await cancelButton.waitFor()
+    await click(cancelButton)
+    const confirmation = page.getByRole('dialog', { name: 'Cancelar entrada manual?', exact: true })
+    await confirmation.waitFor()
+    assert.equal(await confirmation.getByRole('checkbox').count(), 2)
+    assert.equal(await confirmation.getByRole('checkbox', { checked: true }).count(), 0)
+    await click(confirmation.getByRole('checkbox').first())
+    assert.match(await confirmation.innerText(), /1\.800 ML da fila/)
+    await page.screenshot({ path: 'tmp/manual-production-cancel-preview.png' })
+    await page.setViewportSize({ width: 390, height: 844 })
+    const bounds = await confirmation.boundingBox()
+    assert(bounds && bounds.x >= 0 && bounds.x + bounds.width <= 390)
+    await page.screenshot({ path: 'tmp/manual-production-cancel-mobile.png' })
+    await click(confirmation.getByRole('button', { name: 'Voltar', exact: true }))
+    console.log('PASS entradas manuais visiveis e confirmacao detalhada sem alterar a fila')
+  } else if (cancelExisting) {
     await fill(page.getByLabel('Buscar producao', { exact: true }), 'XAROPE SIMPLES')
     const existing = page.locator('tr').filter({ hasText: 'XAROPE SIMPLES' })
       .filter({ has: page.getByRole('button', { name: /Continuar/ }) }).first()

@@ -54,7 +54,8 @@ try {
   console.log('PASS decimais fracionarios e milhares positivos/negativos')
   // The dedicated database is disposable; the company scope avoids touching copied operational records.
   for (const table of ['appProductionOperationRecord', 'appProductionDraftRecord', 'appInventoryCountRecord',
-    'appInventoryCountSessionRecord', 'appPendingInventoryMovementRecord', 'appInventoryRecord', 'appAuditLogRecord']) {
+    'appInventoryCountSessionRecord', 'appPendingInventoryMovementRecord', 'appInventoryRecord',
+    'appAuditLogRecord', 'appManualProductionRequestRecord']) {
     await db[table].deleteMany({ where: { companyId: 999 } })
   }
   await db.appStockCenterRecord.upsert({ where: { id: 999 }, update: {}, create: {
@@ -256,6 +257,49 @@ try {
   assert.equal(withByproduct.data.movement.records.length, 2)
   assert.notEqual(withByproduct.data.movement.records[0].id, withByproduct.data.movement.records[1].id)
   console.log('PASS equivalentes, subproduto em unidade distinta, PH/Brix e rejeicao de composicao antiga')
+
+  const manual = (id, patch = {}) => ({ id, companyId: 999, centerId: 999, sheetId: 999,
+    desiredYield: '1.730', createdAt: new Date().toISOString(), createdByUserId: null,
+    createdByUserName: 'TESTE', rootRequestId: id, parentRequestId: null, isDependencyRequest: false,
+    planningSourceKind: 'PREPARO', planningSourceCenterId: 999, planningSourceCenterName: 'TESTE PRODUCAO',
+    planningSourceSheetId: 999, planningSourceSheetName: 'TESTE PRODUCAO', planningSourceQuantityLabel: '1.730 ML',
+    ...patch })
+  const cancelManual = (requestIds, override = {}, authenticated = true) => request('manual-production-requests/cancel', {
+    companyId: 999, centerId: 999, sheetId: 999, requestIds, ...override,
+  }, 'POST', authenticated)
+  const countBeforeManualCancel = await db.appInventoryCountRecord.count({ where: { companyId: 999 } })
+  assert.equal((await cancelManual([900001], {}, false)).status, 401)
+  await db.appManualProductionRequestRecord.createMany({ data: [
+    manual(900001), manual(900002, { sheetId: 998, rootRequestId: 900001,
+      parentRequestId: 900001, isDependencyRequest: true }),
+    manual(900004, { rootRequestId: 900003, parentRequestId: 900003, isDependencyRequest: true }),
+    manual(900005, { sourceRequisitionId: 123 }),
+    manual(900006, { planningSourceKind: 'EXECUCAO' }),
+    manual(900008), manual(900009), manual(900010),
+  ] })
+  const wrongScope = await cancelManual([900001], { centerId: 998 })
+  assert.equal(wrongScope.status, 409)
+  assert.equal((await cancelManual([900005])).status, 409)
+  assert.equal((await cancelManual([900006])).status, 409)
+  const parentCancel = await cancelManual([900001])
+  assert.equal(parentCancel.status, 200, JSON.stringify(parentCancel.data))
+  assert.deepEqual(new Set(parentCancel.data.deletedIds), new Set([900001, 900002]))
+  const orphanCancel = await cancelManual([900004])
+  assert.equal(orphanCancel.status, 200, JSON.stringify(orphanCancel.data))
+  assert.deepEqual(orphanCancel.data.deletedIds, [900004])
+  const partialCancel = await cancelManual([900009])
+  assert.equal(partialCancel.status, 200, JSON.stringify(partialCancel.data))
+  assert.deepEqual(partialCancel.data.deletedIds, [900009])
+  assert(await db.appManualProductionRequestRecord.findUnique({ where: { id: 900010 } }))
+  const activeDraft = await db.appProductionDraftRecord.create({ data: { ...makeDraft(), draftId: 900007 } })
+  assert.equal((await cancelManual([900008])).status, 409)
+  assert(await db.appManualProductionRequestRecord.findUnique({ where: { id: 900008 } }))
+  await db.appProductionDraftRecord.delete({ where: { id: activeDraft.id } })
+  assert.equal((await cancelManual([900008])).status, 200)
+  assert.equal(await db.appInventoryCountRecord.count({ where: { companyId: 999 } }), countBeforeManualCancel)
+  assert.equal(await db.appAuditLogRecord.count({ where: { companyId: 999,
+    actionKey: 'CANCEL_MANUAL_PRODUCTION_REQUEST' } }), 4)
+  console.log('PASS cancelamento manual atomico, dependencia orfa, permissao, auditoria e estoque preservado')
   console.log('ALL PRODUCTION REGRESSION CHECKS PASSED')
 } finally {
   await db.$disconnect()
