@@ -7,6 +7,9 @@ export const SalesImportPostingPanel = lazy(() =>
 export const ExecutionPlanningList = lazy(() =>
   import('./ExecutionPlanningList').then((module) => ({ default: module.ExecutionPlanningList })),
 )
+export const ProductionQueueTable = lazy(() =>
+  import('./ProductionQueueTable').then((module) => ({ default: module.ProductionQueueTable })),
+)
 export const InventoryActiveFlowPanel = lazy(() =>
   import('./InventoryActiveFlowPanel').then((module) => ({ default: module.InventoryActiveFlowPanel })),
 )

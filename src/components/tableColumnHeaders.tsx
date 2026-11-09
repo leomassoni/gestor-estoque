@@ -7,6 +7,7 @@ import type {
   InventorySummaryColumnKey,
   ItemColumnKey,
   PurchaseDemandColumnKey,
+  ProductionColumnKey,
   ReceiveReviewColumnKey,
   RequisitionDraftColumnKey,
   RequisitionFlowColumnKey,
@@ -136,6 +137,10 @@ function isNumericRequisitionFlowColumn(key: RequisitionFlowColumnKey) {
 
 function isNumericPurchaseDemandColumn(key: PurchaseDemandColumnKey) {
   return key === 'current' || key === 'demand' || key === 'purchase'
+}
+
+function isNumericProductionColumn(key: ProductionColumnKey) {
+  return ['priority', 'current', 'useMinimum', 'realMinimum', 'suggestion'].includes(key)
 }
 
 function renderGenericColumnHeader<K extends string>(params: {
@@ -360,6 +365,25 @@ export function renderTechnicalSheetColumnHeader(
     sortLabels: getSortLabels(isNumericTechnicalSheetColumn(key)),
     stickyKey: 'product',
     dragOptions,
+  })
+}
+
+export function renderProductionColumnHeader(
+  key: ProductionColumnKey,
+  label: string,
+  openColumnMenu: ProductionColumnKey | null,
+  setOpenColumnMenu: Dispatch<SetStateAction<ProductionColumnKey | null>>,
+  columnFilters: Partial<Record<ProductionColumnKey, string[]>>,
+  distinctColumnValues: Record<ProductionColumnKey, string[]>,
+  setColumnFilters: Dispatch<SetStateAction<Partial<Record<ProductionColumnKey, string[]>>>>,
+  setColumnVisibility: Dispatch<SetStateAction<Record<ProductionColumnKey, boolean>>>,
+  columnSort: ColumnSort<ProductionColumnKey> | null,
+  setColumnSort: Dispatch<SetStateAction<ColumnSort<ProductionColumnKey> | null>>,
+) {
+  return renderGenericColumnHeader({
+    key, label, openColumnMenu, setOpenColumnMenu, columnFilters, distinctColumnValues,
+    setColumnFilters, setColumnVisibility, columnSort, setColumnSort,
+    sortLabels: getSortLabels(isNumericProductionColumn(key)), stickyKey: 'sheet',
   })
 }
 

@@ -10,6 +10,7 @@ import {
 } from 'react'
 import { BillingPanelGate } from './components/BillingPanelGate'
 import { useProductionWorkflow } from './hooks/useProductionWorkflow'
+import { useProductionQueueTable } from './hooks/useProductionQueueTable'
 import { ProductionDraftActions } from './components/ProductionDraftActions'
 import { ManualProductionCancellationModal } from './components/ManualProductionCancellationModal'
 import { cancelManualProductionRequestsOnApi, getCancellableManualProductionRequestIdSet } from './domain/manualProductionCancellation'
@@ -34,6 +35,7 @@ import {
   InventorySummaryPanel,
   LazyPanelBoundary,
   ProductListPanel,
+  ProductionQueueTable,
   SalesImportPostingPanel,
   ServiceItemListPanel,
   StockCenterRegisteredListPanel,
@@ -279,7 +281,6 @@ import type {
   RequisitionHistoryColumnKey,
   ReceiveReviewColumnKey,
   PurchaseDemandColumnKey,
-  ProductionColumnKey,
   StockCenterRecord,
   StockCenterFormState,
   InventoryStorageLocationRecord,
@@ -1032,29 +1033,6 @@ const defaultReceiveReviewColumnVisibility: Record<ReceiveReviewColumnKey, boole
   actions: true,
 }
 const defaultReceiveReviewColumnFilters: Partial<Record<ReceiveReviewColumnKey, string[]>> = {}
-const productionColumnOptions: Array<[ProductionColumnKey, string]> = [
-  ['sheet', 'Pre-preparo'],
-  ['priority', 'Prioridade'],
-  ['current', 'Estoque atual'],
-  ['useMinimum', 'Minimo de uso'],
-  ['realMinimum', 'Demanda operacional'],
-  ['suggestion', 'Sugestao'],
-  ['source', 'Origem'],
-  ['requestedAt', 'Entrada'],
-  ['status', 'Status'],
-]
-const defaultProductionColumnVisibility: Record<ProductionColumnKey, boolean> = {
-  sheet: true,
-  priority: true,
-  current: true,
-  useMinimum: true,
-  realMinimum: true,
-  suggestion: true,
-  source: true,
-  requestedAt: true,
-  status: true,
-}
-const productionPageSize = 20
 const stockReportColumnOptions: Array<[StockReportColumnKey, string]> = [
   ['main', 'Principal'],
   ['internalId', 'ID interno'],
@@ -3004,8 +2982,6 @@ export default function App() {
   const [receiveReviewColumnFilters, setReceiveReviewColumnFilters] =
     useState<Partial<Record<ReceiveReviewColumnKey, string[]>>>(defaultReceiveReviewColumnFilters)
   const [receiveReviewColumnSort, setReceiveReviewColumnSort] = useState<ColumnSort<ReceiveReviewColumnKey> | null>(null)
-  const [productionColumnVisibility, setProductionColumnVisibility] =
-    useState<Record<ProductionColumnKey, boolean>>(defaultProductionColumnVisibility)
   const [stockReportTab, setStockReportTab] = useState<StockReportTab>('POSICAO')
   const [stockReportSelectorValue, setStockReportSelectorValue] = useState(stockReportTabDefinitions[0]?.label ?? '')
   const [stockReportScrollTop, setStockReportScrollTop] = useState(0)
@@ -3063,7 +3039,6 @@ export default function App() {
   const [manualSupplyDraftLines, setManualSupplyDraftLines] = useState<ManualSupplyDraftLine[]>([])
   const [productionCenterId, setProductionCenterId] = useState('')
   const [productionSearch, setProductionSearch] = useState('')
-  const [productionPage, setProductionPage] = useState(1)
   const [productionDraftState, setProductionDraftState] = useState<ProductionDraftState | null>(null)
   const [productionInProgressDrafts, setProductionInProgressDrafts] = useState<ProductionDraftState[]>([])
   const [pendingProductionCancelRow, setPendingProductionCancelRow] = useState<ProductionRequestRow | null>(null)
@@ -5792,103 +5767,8 @@ export default function App() {
         : null,
     [productionDraftState, productionRequestRows],
   )
-  const visibleProductionRows = useMemo(
-    () =>
-      [...productionRequestRows].sort(
-        (left, right) => left.priority - right.priority || left.sheetName.localeCompare(right.sheetName, 'pt-BR'),
-      ),
-    [productionRequestRows],
-  )
-  const visibleProductionPrioritySummary = useMemo(
-    () =>
-      Array.from(
-        visibleProductionRows.reduce((summary, row) => {
-          summary.set(row.priority, (summary.get(row.priority) ?? 0) + 1)
-          return summary
-        }, new Map<number, number>()),
-      ).sort((left, right) => left[0] - right[0]),
-    [visibleProductionRows],
-  )
-  const hiddenProductionColumns = useMemo(
-    () => productionColumnOptions.filter(([key]) => !productionColumnVisibility[key]),
-    [productionColumnVisibility],
-  )
-  const productionPageCount = Math.max(1, Math.ceil(visibleProductionRows.length / productionPageSize))
-  const currentProductionPage = Math.min(productionPage, productionPageCount)
-  const paginatedProductionRows = useMemo(() => {
-    const startIndex = (currentProductionPage - 1) * productionPageSize
-    return visibleProductionRows.slice(startIndex, startIndex + productionPageSize)
-  }, [currentProductionPage, visibleProductionRows])
-  const productionPaginationStart = visibleProductionRows.length === 0 ? 0 : (currentProductionPage - 1) * productionPageSize + 1
-  const productionPaginationEnd = Math.min(visibleProductionRows.length, currentProductionPage * productionPageSize)
-  const productionPaginationPages = useMemo(() => {
-    if (productionPageCount <= 7) {
-      return Array.from({ length: productionPageCount }, (_, index) => index + 1)
-    }
-
-    const pageSet = new Set(
-      [1, currentProductionPage - 1, currentProductionPage, currentProductionPage + 1, productionPageCount].filter(
-        (page) => page >= 1 && page <= productionPageCount,
-      ),
-    )
-    const pages = Array.from(pageSet).sort((left, right) => left - right)
-    return pages.flatMap((page, index) => {
-      const previousPage = pages[index - 1]
-      return previousPage !== undefined && page - previousPage > 1 ? ['gap' as const, page] : [page]
-    })
-  }, [currentProductionPage, productionPageCount])
-  useEffect(() => {
-    setProductionPage(1)
-  }, [productionCenterId, productionSearch])
-  useEffect(() => {
-    setProductionPage((current) => Math.min(current, productionPageCount))
-  }, [productionPageCount])
-  const productionPaginationControls =
-    visibleProductionRows.length > productionPageSize ? (
-      <nav className="pagination-row" aria-label="Paginas da entrada de producoes">
-        <span className="pagination-range">
-          {formatDecimal(productionPaginationStart)}-{formatDecimal(productionPaginationEnd)} de{' '}
-          {formatDecimal(visibleProductionRows.length)}
-        </span>
-        <div className="pagination-actions">
-          <button
-            type="button"
-            className="ghost-button pagination-button"
-            onClick={() => setProductionPage((current) => Math.max(1, current - 1))}
-            disabled={currentProductionPage <= 1}
-            aria-label="Pagina anterior"
-          >
-            &lt;
-          </button>
-          {productionPaginationPages.map((page, index) =>
-            page === 'gap' ? (
-              <span key={`production-page-gap-${index}`} className="pagination-gap" aria-hidden="true">
-                ...
-              </span>
-            ) : (
-              <button
-                key={page}
-                type="button"
-                className={page === currentProductionPage ? 'primary-button pagination-button' : 'ghost-button pagination-button'}
-                onClick={() => setProductionPage(page)}
-                aria-current={page === currentProductionPage ? 'page' : undefined}
-              >
-                {formatDecimal(page)}
-              </button>
-            ),
-          )}
-          <button
-            type="button"
-            className="ghost-button pagination-button"
-            onClick={() => setProductionPage((current) => Math.min(productionPageCount, current + 1))}
-            disabled={currentProductionPage >= productionPageCount}
-            aria-label="Proxima pagina"
-          >
-            &gt;
-          </button>
-        </div>
-      </nav>
-    ) : null
+  const productionTable = useProductionQueueTable(productionRequestRows, productionCenterId, productionSearch)
+  const visibleProductionRows = productionTable.visibleRows
   const isStockReportSectionActive = activeSection === 'RelatoriosEstoque'
   const reportEligibleStockCenters = useMemo(
     () =>
@@ -48910,137 +48790,14 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                     />
                   </label>
                 </form>
-                {hiddenProductionColumns.length > 0 ? (
-                  <div className="hidden-columns">
-                    <strong>Colunas ocultas</strong>
-                    <div className="hidden-columns-list">
-                      {hiddenProductionColumns.map(([key, label]) => (
-                        <button
-                          key={key}
-                          type="button"
-                          className="ghost-button hidden-column-chip"
-                          onClick={() => setProductionColumnVisibility((current) => ({ ...current, [key]: true }))}
-                        >
-                          {label}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                ) : null}
-
-                {productionRequestRows.length > 0 ? (
-                  <>
-                    <div className="list-summary-row" aria-live="polite">
-                      <span>
-                        {visibleProductionRows.length === productionRequestRows.length
-                          ? `${formatDecimal(visibleProductionRows.length)} producao(oes) na fila`
-                          : `${formatDecimal(visibleProductionRows.length)} de ${formatDecimal(productionRequestRows.length)} producao(oes) exibida(s)`}
-                      </span>
-                      {visibleProductionPrioritySummary.length > 0 ? (
-                        <span>
-                          Prioridades:{' '}
-                          {visibleProductionPrioritySummary
-                            .map(([priority, count]) => `${priority}: ${formatDecimal(count)}`)
-                            .join('; ')}
-                        </span>
-                      ) : null}
-                    </div>
-                    {productionPaginationControls}
-                    <div className="table-wrap">
-                      <table className="product-table">
-                        <thead>
-                          <tr>
-                            {productionColumnVisibility.sheet ? <th className="sticky-product">Pre-preparo</th> : null}
-                            {productionColumnVisibility.priority ? <th>Prioridade</th> : null}
-                            {productionColumnVisibility.current ? <th>Estoque atual</th> : null}
-                            {productionColumnVisibility.useMinimum ? <th>Minimo de uso</th> : null}
-                            {productionColumnVisibility.realMinimum ? <th>Demanda operacional</th> : null}
-                            {productionColumnVisibility.suggestion ? <th>Sugestao</th> : null}
-                            {productionColumnVisibility.source ? <th>Origem</th> : null}
-                            {productionColumnVisibility.requestedAt ? <th>Entrada</th> : null}
-                            {productionColumnVisibility.status ? <th>Status</th> : null}
-                            <th className="sticky-actions">Acoes</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {paginatedProductionRows.map((row) => (
-                            <tr key={`${row.centerId}-${row.sheetId}`}>
-                              {productionColumnVisibility.sheet ? (
-                                <td className="sticky-product-cell">
-                                  <strong>{row.sheetName}</strong>
-                                  <div className="table-cell-support">{row.internalId}</div>
-                                </td>
-                              ) : null}
-                              {productionColumnVisibility.priority ? <td>{String(row.priority)}</td> : null}
-                              {productionColumnVisibility.current ? <td>{row.currentQuantityLabel}</td> : null}
-                              {productionColumnVisibility.useMinimum ? <td>{row.useMinimumLabel}</td> : null}
-                              {productionColumnVisibility.realMinimum ? <td>{row.realMinimumLabel}</td> : null}
-                              {productionColumnVisibility.suggestion ? <td>{row.suggestedProductionLabel}</td> : null}
-                              {productionColumnVisibility.source ? (
-                                <td>
-                                  {row.sourceDetails.length > 0 ? (
-                                    <details className="table-cell-details">
-                                      <summary>{row.sourceLabel}</summary>
-                                      <ul>
-                                        {row.sourceDetails.map((detail, index) => (
-                                          <li key={`${row.centerId}-${row.sheetId}-source-${index}`}>{detail}</li>
-                                        ))}
-                                      </ul>
-                                    </details>
-                                  ) : (
-                                    row.sourceLabel
-                                  )}
-                                </td>
-                              ) : null}
-                              {productionColumnVisibility.requestedAt ? (
-                                <td>
-                                  {row.requestedAtDetails.length > 0 ? (
-                                    <details className="table-cell-details">
-                                      <summary>{row.requestedAtLabel}</summary>
-                                      <ul>
-                                        {row.requestedAtDetails.map((detail, index) => (
-                                          <li key={`${row.centerId}-${row.sheetId}-date-${index}`}>{detail}</li>
-                                        ))}
-                                      </ul>
-                                    </details>
-                                  ) : (
-                                    row.requestedAtLabel
-                                  )}
-                                </td>
-                              ) : null}
-                              {productionColumnVisibility.status ? <td>{row.statusLabel}</td> : null}
-                              <td className="sticky-actions-cell">
-                                <div className="table-actions">
-                                  <button type="button" className="primary-button production-action-button" onClick={() => startProduction(row)}>
-                                    <span aria-hidden="true">▶</span>
-                                    <span>{row.statusLabel === 'Em producao' ? 'Continuar' : 'Produzir'}</span>
-                                  </button>
-                                  {row.cancellableManualRequestIds.length > 0 && row.statusLabel !== 'Em producao' ? (
-                                    <button
-                                      type="button"
-                                      className="icon-button icon-delete"
-                                      onClick={() => requestCancelProductionRow(row)}
-                                      aria-label={`Cancelar entrada manual de ${row.sheetName}`}
-                                      title="Cancelar entrada manual"
-                                    >
-                                      <span aria-hidden="true">×</span>
-                                    </button>
-                                  ) : null}
-                                </div>
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                    {productionPaginationControls}
-                  </>
-                ) : (
-                  <div className="empty-state">
-                    <strong>Nenhuma producao pendente.</strong>
-                    <p>Quando o estoque do centro estiver abaixo do minimo real calculado, a sugestao aparecera aqui.</p>
-                  </div>
-                )}
+                <LazyPanelBoundary>
+                  <ProductionQueueTable
+                    rows={productionRequestRows}
+                    table={productionTable}
+                    onStart={startProduction}
+                    onCancelManual={requestCancelProductionRow}
+                  />
+                </LazyPanelBoundary>
               </>
             ) : (
               <div className="empty-state">
@@ -54663,7 +54420,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
               </label>
 
               <p className="confirm-copy">
-                A exportacao considera o centro produtor selecionado, a busca ativa e somente as producoes visiveis na fila.
+                A exportacao considera o centro produtor e somente as producoes visiveis na fila.
               </p>
             </div>
 
