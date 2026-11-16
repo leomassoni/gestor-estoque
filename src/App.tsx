@@ -18,6 +18,7 @@ import { salesPostingRequest, type LegacySalesMovementParams, type SalesPostingP
 import { buildCurrentSalesMinimumDemandRows } from './domain/salesMinimumDemand'
 import { recalculateSalesMinimumsAfterSheetSave } from './domain/salesMinimumRecalculation'
 import { planProductionRequisitionShortages } from './domain/productionRequisitionPlanner'
+import { calculateRequisitionPackageQuantities } from './domain/requisitionPackageQuantity'
 import { resolveSalesImportIdentifier } from './domain/salesImportIdentifiers'
 import { MasterOverviewPanel } from './components/MasterOverviewPanel'
 import { PreparationModeInput } from './components/PreparationModeInput'
@@ -23731,15 +23732,6 @@ export default function App() {
         const suggestedRealMinimum = row.kind === 'PRODUTO' && row.packageId !== null
           ? getProductPackageMinimumQuantity(effectiveMinimumStock, getRealMinimumQuantityText(effectiveMinimumStock))
           : (parseDecimal(effectiveMinimumStock?.suggestedMinimumQuantity ?? '') ?? 0)
-        const targetRowQuantity = shouldRoundOperationalRow
-          ? roundOperationalPackageQuantity(manualUseMinimum + suggestedRealMinimum)
-          : manualUseMinimum + suggestedRealMinimum
-        const requiredBaseQuantity = targetRowQuantity * row.baseQuantity
-        if (row.kind === 'PRODUTO' && effectiveMinimumStock && !reservedMinimumEntries.has(effectiveMinimumStock)) {
-          const key = buildInventoryAggregationKey({ kind: 'PRODUTO', technicalSheetId: null, productId: row.productId, serviceItemId: '' })
-          directProductMinimumByAggregationKey.set(key, (directProductMinimumByAggregationKey.get(key) ?? 0) + requiredBaseQuantity)
-          reservedMinimumEntries.add(effectiveMinimumStock)
-        }
         const currentBaseQuantity =
           selectedRequisitionCurrentQuantityByKey.get(
             buildInventoryAggregationKey({
@@ -23750,7 +23742,19 @@ export default function App() {
             }),
           ) ?? 0
         const currentRowQuantity = row.baseQuantity > 0 ? currentBaseQuantity / row.baseQuantity : currentBaseQuantity
-        const suggestedQuantity = shouldRoundOperationalRow
+        const rawTargetRowQuantity = manualUseMinimum + suggestedRealMinimum
+        const packageQuantities = row.kind === 'PRODUTO' && row.packageId !== null && row.baseQuantity > 0
+          ? calculateRequisitionPackageQuantities(rawTargetRowQuantity, currentRowQuantity)
+          : null
+        const targetRowQuantity = packageQuantities?.targetPackages ??
+          (shouldRoundOperationalRow ? roundOperationalPackageQuantity(rawTargetRowQuantity) : rawTargetRowQuantity)
+        const requiredBaseQuantity = (packageQuantities ? rawTargetRowQuantity : targetRowQuantity) * row.baseQuantity
+        if (row.kind === 'PRODUTO' && effectiveMinimumStock && !reservedMinimumEntries.has(effectiveMinimumStock)) {
+          const key = buildInventoryAggregationKey({ kind: 'PRODUTO', technicalSheetId: null, productId: row.productId, serviceItemId: '' })
+          directProductMinimumByAggregationKey.set(key, (directProductMinimumByAggregationKey.get(key) ?? 0) + requiredBaseQuantity)
+          reservedMinimumEntries.add(effectiveMinimumStock)
+        }
+        const suggestedQuantity = packageQuantities ? packageQuantities.requestedPackages : shouldRoundOperationalRow
           ? roundOperationalPackageQuantity(Math.max(targetRowQuantity - currentRowQuantity, 0))
           : row.baseQuantity > 0
             ? Math.max(requiredBaseQuantity - currentBaseQuantity, 0) / row.baseQuantity
