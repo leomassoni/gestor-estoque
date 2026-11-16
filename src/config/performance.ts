@@ -3,6 +3,8 @@ export const salesImportPollingSections: readonly string[] = ['ConfiguracoesEsto
 export const inventoryPollingSections: readonly string[] = ['Inventario', 'Desperdicio', 'Requisicoes', 'Suprimentos', 'Compras', 'EntradaProducoes', 'RelatoriosEstoque']
 export const productionPollingSections: readonly string[] = ['EntradaProducoes']
 export const adminPollingSections: readonly string[] = ['PainelMaster']
+export const catalogPollingSections: readonly string[] = ['PainelMaster', 'Inventario']
+export const inventoryCatalogPollingIntervalMs = 300000
 
 export const salesImportBatchHistoryRowHeightPx = 57
 export const salesImportBatchHistoryViewportHeightPx = 456

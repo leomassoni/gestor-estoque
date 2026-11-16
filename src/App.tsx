@@ -15,6 +15,9 @@ import { ProductionDraftActions } from './components/ProductionDraftActions'
 import { ManualProductionCancellationModal } from './components/ManualProductionCancellationModal'
 import { cancelManualProductionRequestsOnApi, getCancellableManualProductionRequestIdSet } from './domain/manualProductionCancellation'
 import { salesPostingRequest, type LegacySalesMovementParams, type SalesPostingPlan } from './domain/salesImports'
+import { buildCurrentSalesMinimumDemandRows } from './domain/salesMinimumDemand'
+import { recalculateSalesMinimumsAfterSheetSave } from './domain/salesMinimumRecalculation'
+import { planProductionRequisitionShortages } from './domain/productionRequisitionPlanner'
 import { resolveSalesImportIdentifier } from './domain/salesImportIdentifiers'
 import { MasterOverviewPanel } from './components/MasterOverviewPanel'
 import { PreparationModeInput } from './components/PreparationModeInput'
@@ -78,6 +81,8 @@ import {
 } from './components/tableColumnHeaders'
 import {
   adminPollingSections,
+  catalogPollingSections,
+  inventoryCatalogPollingIntervalMs,
   inventoryPollingSections,
   productionPollingSections,
   receiveHistoryOverscanRows,
@@ -3807,13 +3812,14 @@ export default function App() {
   function resolveProductionSheetForCenterMinimumByProductId(
     productId: string,
     center: StockCenterRecord,
+    availableSheets: TechnicalSheetRecord[] = technicalSheets,
   ): TechnicalSheetRecord | null {
     const normalizedProductId = productId.trim()
     if (!normalizedProductId) {
       return null
     }
 
-    const candidates = technicalSheets
+    const candidates = availableSheets
       .filter(
         (sheet) =>
           (sheet.kind === 'PREPARO' || sheet.kind === 'PRODUTO_INTERNO') &&
@@ -7912,7 +7918,7 @@ export default function App() {
     }
 
     const triggerLoad = () => {
-      if (isDocumentHiddenForBackgroundRefresh() || !adminPollingSections.includes(activeSection)) {
+      if (isDocumentHiddenForBackgroundRefresh() || !catalogPollingSections.includes(activeSection)) {
         return
       }
       void load()
@@ -7921,7 +7927,7 @@ export default function App() {
     triggerLoad()
     const intervalId = window.setInterval(() => {
       triggerLoad()
-    }, catalogEntityPollingIntervalMs)
+    }, activeSection === 'Inventario' ? inventoryCatalogPollingIntervalMs : catalogEntityPollingIntervalMs)
     const handleFocus = () => {
       triggerLoad()
     }
@@ -23665,6 +23671,8 @@ export default function App() {
             }) satisfies StockCenterMinimumRow,
         ),
     ]
+    const directProductMinimumByAggregationKey = new Map<string, number>()
+    const reservedMinimumEntries = new Set<StockCenterMinimumStock>()
     const baseLines = centerMinimumRows
       .filter((row) => row.kind !== 'ITEM' || row.baseUnit === 'UNIT')
       .filter((row) => {
@@ -23727,6 +23735,11 @@ export default function App() {
           ? roundOperationalPackageQuantity(manualUseMinimum + suggestedRealMinimum)
           : manualUseMinimum + suggestedRealMinimum
         const requiredBaseQuantity = targetRowQuantity * row.baseQuantity
+        if (row.kind === 'PRODUTO' && effectiveMinimumStock && !reservedMinimumEntries.has(effectiveMinimumStock)) {
+          const key = buildInventoryAggregationKey({ kind: 'PRODUTO', technicalSheetId: null, productId: row.productId, serviceItemId: '' })
+          directProductMinimumByAggregationKey.set(key, (directProductMinimumByAggregationKey.get(key) ?? 0) + requiredBaseQuantity)
+          reservedMinimumEntries.add(effectiveMinimumStock)
+        }
         const currentBaseQuantity =
           selectedRequisitionCurrentQuantityByKey.get(
             buildInventoryAggregationKey({
@@ -23851,14 +23864,21 @@ export default function App() {
     const demandContext = buildPreparationDemandContext(center, center.companyId, { includeExternalUseMinimum: false })
     const producedSheets = demandContext?.producedSheets ?? []
 
-    const productionShortageLines = producedSheets.flatMap((sheet) => {
-      const currentQuantity = demandContext?.currentQuantityBySheetId.get(sheet.id) ?? 0
-      const realMinimumQuantity = demandContext?.computeEffectiveMinimum(sheet.id) ?? 0
-      const suggestedProductionQuantity = Math.max(realMinimumQuantity - currentQuantity, 0)
-      if (suggestedProductionQuantity <= 0) {
-        return []
-      }
-      return buildManualProductionShortageLines(center, sheet, suggestedProductionQuantity).shortageLines
+    const productionShortageLines = planProductionRequisitionShortages({
+      sheets: producedSheets,
+      availableByKey: buildAvailableInventoryByAggregationKeyForCenter(center.id),
+      reservedByKey: directProductMinimumByAggregationKey,
+      priority: (sheet) => demandContext?.computePriority(sheet.id) ?? 0,
+      stockKey: (sheet) => buildInventoryAggregationKey({
+        kind: 'PREPARO', technicalSheetId: sheet.id, productId: '', serviceItemId: '',
+      }),
+      directRequiredQuantity: (sheet) =>
+        (demandContext?.useMinimumBySheetId.get(sheet.id) ?? 0) +
+        (demandContext?.realMinimumBySheetId.get(sheet.id) ?? 0) +
+        (demandContext?.operationalDemandBySheetId.get(sheet.id) ?? 0) +
+        (demandContext?.computeByproductSourceDemand(sheet.id) ?? 0),
+      expandShortage: (sheet, shortage, availableByKey) =>
+        buildManualProductionShortageLines(center, sheet, shortage, { availableByAggregationKey: availableByKey }).shortageLines,
     })
 
     const mergedByKey = new Map<string, RequisitionDraftLine>()
@@ -35982,7 +36002,6 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
       setIsSavingTechnicalSheet(false)
       setSaveProgressState(null)
     }
-
     setTechnicalSheets(nextTechnicalSheets)
     setProducts(nextProducts)
 
@@ -35995,6 +36014,25 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
         error instanceof Error
           ? `A ficha tecnica foi salva, mas houve uma falha ao sincronizar os centros de estoque: ${error.message}`
           : 'A ficha tecnica foi salva, mas houve uma falha ao sincronizar os centros de estoque.'
+    }
+
+    if (!postSaveWarning) {
+      try {
+        const recalculatedCenters = await recalculateSalesMinimumsAfterSheetSave({
+          companyIds: [technicalSheetToSave.companyId, ...technicalSheetToSave.sharedCompanyIds],
+          loadCenters: loadStockCenterRecordsSnapshotFromApi,
+          loadSales: loadSalesImportRecordsSnapshotFromApi,
+          rebuildCompany: (centers, companyId, sales) => rebuildSalesImportSuggestedMinimumsForCompanyScope({
+            companyId, baseStockCenters: centers, availableBatches: sales.batches, availableRows: sales.rows,
+            availableConsumptions: sales.consumptions, availableTechnicalSheets: nextTechnicalSheets, availableProducts: nextProducts,
+          }),
+          persistCenters: (before, after) => persistChangedStockCentersOnApi(before, after, { allowSalesImportMinimumPrune: true }),
+        })
+        if (recalculatedCenters) setStockCenters(recalculatedCenters)
+      } catch (error) {
+        console.error(error)
+        postSaveWarning = 'A ficha foi salva, mas os minimos de vendas nao foram atualizados. Revise os minimos antes de gerar requisicoes.'
+      }
     }
 
     if (pendingNestedTechnicalSheetKind === technicalSheetForm.kind) {
@@ -36768,46 +36806,6 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
         stockPostingStatus: (postingMode === 'ANALYTICAL_ONLY' ? 'ANALYTICAL' : 'PENDING') as SalesConsumptionRecord['stockPostingStatus'],
         stockMovementId: null,
         postedAt: '',
-      }))
-    })
-  }
-
-  function buildSalesImportIngredientDemandRows(
-    rows: Array<{
-      consumedAt: string
-      matchedTechnicalSheetId: number | null
-      quantity: string
-      status: SalesImportPreviewRow['status']
-    }>,
-  ) {
-    return rows.flatMap((row) => {
-      if (row.status !== 'MATCHED') {
-        return []
-      }
-
-      const matchedSheet =
-        technicalSheets.find((sheet) => sheet.id === row.matchedTechnicalSheetId && isSalesImportTrackableTechnicalSheetKind(sheet.kind)) ?? null
-      const soldQuantity = parseSalesImportQuantityValue(row.quantity) ?? 0
-      if (!matchedSheet || soldQuantity <= 0) {
-        return []
-      }
-
-      if (matchedSheet.kind === 'PRODUTO_INTERNO') {
-        return [
-          {
-            consumedAt: row.consumedAt,
-            ingredientProductId: matchedSheet.productId,
-            quantityConsumed: getStockCenterBaseQuantity(matchedSheet) * soldQuantity,
-          },
-        ]
-      }
-
-      const baseYield = getTechnicalSheetBaseYield(matchedSheet)
-      const recipeData = buildRecipePanelDataForSheet(matchedSheet, baseYield * soldQuantity, soldQuantity)
-      return [...recipeData.ingredientMetrics, ...recipeData.garnishMetrics].map((ingredient) => ({
-        consumedAt: row.consumedAt,
-        ingredientProductId: ingredient.productId,
-        quantityConsumed: ingredient.scaledInputQuantity,
       }))
     })
   }
@@ -37615,11 +37613,15 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
     availableBatches?: SalesImportBatchRecord[]
     availableRows?: SalesImportRowRecord[]
     availableConsumptions?: SalesConsumptionRecord[]
+    availableTechnicalSheets?: TechnicalSheetRecord[]
+    availableProducts?: ProductRecord[]
   }) {
     const {
       availableBatches,
       availableConsumptions,
       availableRows,
+      availableTechnicalSheets = technicalSheets,
+      availableProducts = products,
       baseStockCenters,
       companyId,
       targetCenterId,
@@ -37647,6 +37649,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
       return workingStockCenters
     }
 
+    const availableSheetById = new Map(availableTechnicalSheets.map((sheet) => [sheet.id, sheet]))
     const relevantDemandRows = activeBatchesForCenter.flatMap((batch) => {
       const persistedConsumptionsForBatch = workingConsumptions
         .filter(
@@ -37660,12 +37663,9 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
           consumedAt: consumption.consumedAt,
           ingredientProductId: consumption.ingredientProductId,
           quantityConsumed: parseDecimal(consumption.quantityConsumed) ?? 0,
+          sourceTechnicalSheetId: consumption.sourceTechnicalSheetId,
         }))
         .filter((row) => row.quantityConsumed > 0)
-
-      if (persistedConsumptionsForBatch.length > 0) {
-        return persistedConsumptionsForBatch
-      }
 
       const matchedRowsForBatch = workingRows.filter(
         (row) =>
@@ -37675,17 +37675,26 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
           row.status === 'MATCHED',
       )
       if (matchedRowsForBatch.length === 0) {
-        return []
+        return persistedConsumptionsForBatch
       }
 
-      return buildSalesImportIngredientDemandRows(
-        matchedRowsForBatch.map((row) => ({
+      const derivableRows = matchedRowsForBatch.filter((row) => {
+        const sheet = row.matchedTechnicalSheetId === null ? null : availableSheetById.get(row.matchedTechnicalSheetId)
+        return sheet?.isActive === true && isSalesImportTrackableTechnicalSheetKind(sheet.kind)
+      })
+      const derivedSheetIds = new Set(derivableRows.map((row) => row.matchedTechnicalSheetId))
+      const historicalFallback = persistedConsumptionsForBatch.filter((row) => !derivedSheetIds.has(row.sourceTechnicalSheetId))
+      const currentDemand = buildCurrentSalesMinimumDemandRows(
+        derivableRows.map((row) => ({
           consumedAt: row.consumedAt,
           matchedTechnicalSheetId: row.matchedTechnicalSheetId,
-          quantity: row.quantity,
+          quantity: parseSalesImportQuantityValue(row.quantity) ?? 0,
           status: row.status,
         })),
+        availableTechnicalSheets,
+        availableProducts,
       )
+      return [...historicalFallback, ...currentDemand]
     })
     const normalizedConsumptionRows = relevantDemandRows
       .map((record) => ({
@@ -37736,7 +37745,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
     }
 
     const stockTrackedProductsById = new Map(
-      products
+      availableProducts
         .filter(
           (product) =>
             product.isActive &&
@@ -37761,7 +37770,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
         return
       }
 
-      const linkedProductionSheet = resolveProductionSheetForCenterMinimumByProductId(record.ingredientProductId, targetCenter)
+      const linkedProductionSheet = resolveProductionSheetForCenterMinimumByProductId(record.ingredientProductId, targetCenter, availableTechnicalSheets)
       if (linkedProductionSheet) {
         const linkedProductionKind = linkedProductionSheet.kind as 'PREPARO' | 'PRODUTO_INTERNO'
         const itemKey = `${linkedProductionKind}:${linkedProductionSheet.id}`
@@ -37877,7 +37886,7 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
       let baseQuantity = 1
       let leadTimeDays = 0
       if ((target.kind === 'PREPARO' || target.kind === 'PRODUTO_INTERNO') && typeof target.technicalSheetId === 'number') {
-        const targetSheet = technicalSheets.find(
+        const targetSheet = availableTechnicalSheets.find(
           (sheet) =>
             sheet.id === target.technicalSheetId &&
             sheet.kind === target.kind &&
@@ -38010,11 +38019,15 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
     availableBatches?: SalesImportBatchRecord[]
     availableRows?: SalesImportRowRecord[]
     availableConsumptions?: SalesConsumptionRecord[]
+    availableTechnicalSheets?: TechnicalSheetRecord[]
+    availableProducts?: ProductRecord[]
   }) {
     const {
       availableBatches = salesImportBatches,
       availableConsumptions = salesConsumptions,
       availableRows = salesImportRows,
+      availableTechnicalSheets = technicalSheets,
+      availableProducts = products,
       baseStockCenters = stockCenters,
       companyId,
     } = params
@@ -38080,6 +38093,8 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
         availableBatches,
         availableRows,
         availableConsumptions,
+        availableTechnicalSheets,
+        availableProducts,
       })
     }, cleanedCenters)
   }
