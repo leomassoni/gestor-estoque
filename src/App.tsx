@@ -3881,9 +3881,15 @@ export default function App() {
           packageId: null,
         })
         const baseQuantity = getStockCenterBaseQuantity(targetSheet)
-        return (
+        const directDemand =
           getMinimumUseQuantityValue(directEntry) * baseQuantity +
           (parseDecimal(getRealMinimumQuantityText(directEntry)) ?? 0) * baseQuantity
+        const aggregationKey = buildInventoryAggregationKey({
+          kind: 'PREPARO', technicalSheetId: targetSheet.id, productId: '', serviceItemId: '',
+        })
+        return getUncoveredProductionQuantity(
+          directDemand,
+          latestInventoryQuantityByCenterAndAggregation.get(`${center.id}:${aggregationKey}`) ?? 0,
         )
       }
 
@@ -3929,7 +3935,13 @@ export default function App() {
         return sum + candidateRequiredOutput * (calculateTechnicalSheetIngredientBaseQuantity(ingredient) / candidateBaseYield)
       }, 0)
 
-      return directDemand + productionContribution
+      const aggregationKey = buildInventoryAggregationKey({
+        kind: 'PREPARO', technicalSheetId: targetSheet.id, productId: '', serviceItemId: '',
+      })
+      return getUncoveredProductionQuantity(
+        directDemand + productionContribution,
+        latestInventoryQuantityByCenterAndAggregation.get(`${center.id}:${aggregationKey}`) ?? 0,
+      )
     }
 
     return stockCenters.reduce((sum, consumerCenter) => {

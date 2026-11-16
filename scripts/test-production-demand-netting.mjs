@@ -26,4 +26,11 @@ assert.equal(Math.ceil(grapesRequired / 500), 1)
 assert.equal(getUncoveredProductionQuantity(11110, 12000), 0)
 assert.equal(getUncoveredProductionQuantity(100, -20), 120)
 
-console.log('PASS: a cascata desconta o estoque de cada preparo antes de calcular suas dependencias')
+const externalParentNeed = getUncoveredProductionQuantity(100, 80)
+const externalChildNeed = getUncoveredProductionQuantity(10 + externalParentNeed * 0.5, 5)
+assert.equal(externalParentNeed, 20)
+assert.equal(externalChildNeed, 15)
+assert.equal(getUncoveredProductionQuantity(100, 100), 0)
+assert.equal(getUncoveredProductionQuantity(10, 15), 0)
+
+console.log('PASS: as cascatas local e externa descontam o estoque de cada preparo antes das dependencias')
