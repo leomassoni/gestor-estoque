@@ -18,6 +18,7 @@ import { salesPostingRequest, type LegacySalesMovementParams, type SalesPostingP
 import { buildCurrentSalesMinimumDemandRows } from './domain/salesMinimumDemand'
 import { recalculateSalesMinimumsAfterSheetSave } from './domain/salesMinimumRecalculation'
 import { planProductionRequisitionShortages } from './domain/productionRequisitionPlanner'
+import { getUncoveredProductionQuantity } from './domain/productionDemand'
 import { calculateRequisitionPackageQuantities } from './domain/requisitionPackageQuantity'
 import { resolveSalesImportIdentifier } from './domain/salesImportIdentifiers'
 import { MasterOverviewPanel } from './components/MasterOverviewPanel'
@@ -4140,7 +4141,10 @@ export default function App() {
           return sum
         }
 
-        const candidateRequiredOutput = computeEffectiveMinimum(candidateSheet.id, nextVisiting)
+        const candidateRequiredOutput = getUncoveredProductionQuantity(
+          computeEffectiveMinimum(candidateSheet.id, nextVisiting),
+          currentQuantityBySheetId.get(candidateSheet.id) ?? 0,
+        )
         const candidateBaseYield = getTechnicalSheetBaseYield(candidateSheet)
         const targetByproductBaseYield = getTechnicalSheetByproductBaseYield(targetSheet, byproductSheet)
         const targetBaseYield = getTechnicalSheetBaseYield(targetSheet)
@@ -4196,7 +4200,10 @@ export default function App() {
           return sum
         }
 
-        const candidateRequiredOutput = computeEffectiveMinimum(candidateSheet.id, nextVisiting)
+        const candidateRequiredOutput = getUncoveredProductionQuantity(
+          computeEffectiveMinimum(candidateSheet.id, nextVisiting),
+          currentQuantityBySheetId.get(candidateSheet.id) ?? 0,
+        )
         const candidateBaseYield = getTechnicalSheetBaseYield(candidateSheet)
         if (candidateRequiredOutput <= 0 || candidateBaseYield <= 0) {
           return sum
