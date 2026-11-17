@@ -1222,6 +1222,17 @@ h3 {
   overflow-y: auto;
 }
 
+.stock-report-table-wrap .product-table thead {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  background: #f6e8d9;
+}
+
+.stock-report-table-wrap .product-table th {
+  top: auto;
+}
+
 .product-table {
   width: 100%;
   border-collapse: separate;
