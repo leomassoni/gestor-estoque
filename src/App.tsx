@@ -22,6 +22,7 @@ import { getUncoveredProductionQuantity } from './domain/productionDemand'
 import { calculateRequisitionPackageQuantities } from './domain/requisitionPackageQuantity'
 import { resolveSalesImportIdentifier } from './domain/salesImportIdentifiers'
 import { MasterOverviewPanel } from './components/MasterOverviewPanel'
+import type { MasterAuditViewState } from './components/MasterAuditPanel'
 import { PreparationModeInput } from './components/PreparationModeInput'
 import { PreparationStorageRecipientsPanel } from './components/PreparationStorageRecipientsPanel'
 import { getServiceItemSizeFieldLabel, preservePreparationCountQuantity } from './domain/preparationContainers'
@@ -39,6 +40,7 @@ import {
   InventoryReviewModal,
   InventorySummaryPanel,
   LazyPanelBoundary,
+  MasterAuditPanel,
   ProductListPanel,
   ProductionQueueTable,
   SalesImportPostingPanel,
@@ -331,7 +333,6 @@ import type {
   StockReportExportState,
   AuditSeverity,
   AuditResult,
-  AuditPanelTab,
   AuditLogRecord,
   StockReportTab,
   StockPositionReportScope,
@@ -2633,6 +2634,9 @@ function getRecipePreparationModeMetrics(data: RecipePanelComputedData) {
 }
 
 export default function App() {
+  const [masterAuditViewState, setMasterAuditViewState] = useState<MasterAuditViewState>({
+    tab: 'AUDITORIA', search: '', severity: 'ALL', moduleFilter: 'ALL', selectedId: null,
+  })
   const productListId = useId()
   const serviceItemListId = useId()
   const technicalSheetListId = useId()
@@ -2801,11 +2805,6 @@ export default function App() {
   const [catalogSharingSaleFees, setCatalogSharingSaleFees] = useState<CatalogSharingSaleFeeRecord[]>([])
   const [catalogSharingSaleFeeDrafts, setCatalogSharingSaleFeeDrafts] = useState<Record<string, string>>({})
   const [auditLogs, setAuditLogs] = useState<AuditLogRecord[]>(() => loadAuditLogsState())
-  const [auditPanelTab, setAuditPanelTab] = useState<AuditPanelTab>('AUDITORIA')
-  const [auditLogSearch, setAuditLogSearch] = useState('')
-  const [auditSeverityFilter, setAuditSeverityFilter] = useState<'ALL' | AuditSeverity>('ALL')
-  const [auditModuleFilter, setAuditModuleFilter] = useState('ALL')
-  const [selectedAuditLogId, setSelectedAuditLogId] = useState<number | null>(null)
   const [salesImportTemplates, setSalesImportTemplates] = useState<SalesImportTemplateRecord[]>([])
   const [salesImportBatches, setSalesImportBatches] = useState<SalesImportBatchRecord[]>([])
   const [salesImportRows, setSalesImportRows] = useState<SalesImportRowRecord[]>([])
@@ -3409,6 +3408,10 @@ export default function App() {
   )
   const currentCompany =
     currentCompanyId === null ? null : companies.find((item) => item.id === currentCompanyId) ?? null
+  const companyNames = useMemo(
+    () => new Map(companies.map((company) => [company.id, company.tradeName])),
+    [companies],
+  )
   const currentCompanyAuditLogs = useMemo(
     () =>
       currentCompanyId === null
@@ -3418,37 +3421,6 @@ export default function App() {
           ),
     [auditLogs, currentCompanyId],
   )
-  const auditModuleSuggestions = useMemo(
-    () => Array.from(new Set(currentCompanyAuditLogs.map((record) => record.module))).sort((a, b) => a.localeCompare(b, 'pt-BR')),
-    [currentCompanyAuditLogs],
-  )
-  const filteredAuditLogs = useMemo(() => {
-    const normalizedSearch = normalizeFreeText(auditLogSearch)
-    return currentCompanyAuditLogs.filter((record) => {
-      const matchesSearch =
-        normalizedSearch === '' ||
-        [
-          record.actorUserName,
-          record.actorUsername,
-          record.module,
-          record.actionLabel,
-          record.targetLabel,
-          record.summary,
-          record.impactSummary,
-        ].some((value) => normalizeFreeText(value).includes(normalizedSearch))
-      const matchesSeverity = auditSeverityFilter === 'ALL' || record.severity === auditSeverityFilter
-      const matchesModule = auditModuleFilter === 'ALL' || record.module === auditModuleFilter
-      const matchesTab =
-        auditPanelTab === 'AUDITORIA'
-          ? true
-          : auditPanelTab === 'ALERTAS'
-            ? record.severity === 'HIGH' || record.severity === 'CRITICAL' || record.result !== 'SUCCESS'
-            : record.impactSummary.trim() !== '' || record.relatedCompanyIds.length > 0
-      return matchesSearch && matchesSeverity && matchesModule && matchesTab
-    })
-  }, [auditLogSearch, auditModuleFilter, auditPanelTab, auditSeverityFilter, currentCompanyAuditLogs])
-  const selectedAuditLog =
-    selectedAuditLogId === null ? null : filteredAuditLogs.find((record) => record.id === selectedAuditLogId) ?? null
   const auditOverview = useMemo(() => {
     const today = getTodayDateInputValue()
     return {
@@ -3463,17 +3435,6 @@ export default function App() {
       actors: new Set(currentCompanyAuditLogs.map((record) => `${record.actorKind}:${record.actorUsername}`)).size,
     }
   }, [currentCompanyAuditLogs])
-  const auditResultLabelByValue: Record<AuditResult, string> = {
-    SUCCESS: 'Sucesso',
-    WARNING: 'Alerta',
-    ERROR: 'Erro',
-  }
-  const auditSeverityLabelByValue: Record<AuditSeverity, string> = {
-    LOW: 'Baixa',
-    MEDIUM: 'Media',
-    HIGH: 'Alta',
-    CRITICAL: 'Critica',
-  }
   function getCompanyLinkScopeIds(companyId: number | null) {
     if (companyId === null) {
       return [] as number[]
@@ -17332,16 +17293,6 @@ export default function App() {
   useEffect(() => {
     saveAuditLogsState(auditLogs)
   }, [auditLogs])
-
-  useEffect(() => {
-    if (selectedAuditLogId === null) {
-      return
-    }
-
-    if (!filteredAuditLogs.some((record) => record.id === selectedAuditLogId)) {
-      setSelectedAuditLogId(filteredAuditLogs[0]?.id ?? null)
-    }
-  }, [filteredAuditLogs, selectedAuditLogId])
 
   useEffect(() => {
     saveProductsState(products)
@@ -49209,206 +49160,14 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
             onFeedback={setSaveFeedback}
           />
 
-          <section className="panel">
-            <div className="section-heading">
-              <div>
-                <p className="kicker">Auditoria</p>
-                <h2>Eventos por empresa</h2>
-              </div>
-            </div>
-
-            <div className="panel-tabs" role="tablist" aria-label="Painel master">
-              <button
-                type="button"
-                className={auditPanelTab === 'AUDITORIA' ? 'panel-tab active' : 'panel-tab'}
-                onClick={() => setAuditPanelTab('AUDITORIA')}
-              >
-                Auditoria
-              </button>
-              <button
-                type="button"
-                className={auditPanelTab === 'ALERTAS' ? 'panel-tab active' : 'panel-tab'}
-                onClick={() => setAuditPanelTab('ALERTAS')}
-              >
-                Alertas
-              </button>
-              <button
-                type="button"
-                className={auditPanelTab === 'IMPACTOS' ? 'panel-tab active' : 'panel-tab'}
-                onClick={() => setAuditPanelTab('IMPACTOS')}
-              >
-                Impactos
-              </button>
-            </div>
-
-            <div className="report-search-row">
-              <label className="field search-field report-search-field">
-                <span>Buscar</span>
-                <NormalizedTextInput
-                  value={auditLogSearch}
-                  onChange={setAuditLogSearch}
-                  commitMode="debounce"
-                  placeholder="Busque usuario, modulo, acao, alvo ou resumo"
-                />
-              </label>
-              <label className="field report-selector-field">
-                <span>Severidade</span>
-                <select value={auditSeverityFilter} onChange={(event) => setAuditSeverityFilter(event.target.value as 'ALL' | AuditSeverity)}>
-                  <option value="ALL">Todas</option>
-                  <option value="LOW">Baixa</option>
-                  <option value="MEDIUM">Media</option>
-                  <option value="HIGH">Alta</option>
-                  <option value="CRITICAL">Critica</option>
-                </select>
-              </label>
-              <label className="field report-selector-field">
-                <span>Modulo</span>
-                <select value={auditModuleFilter} onChange={(event) => setAuditModuleFilter(event.target.value)}>
-                  <option value="ALL">Todos</option>
-                  {auditModuleSuggestions.map((moduleName) => (
-                    <option key={moduleName} value={moduleName}>
-                      {moduleName}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            </div>
-
-            {filteredAuditLogs.length > 0 ? (
-              <div className="selector-list company-management-list">
-                <section className="inner-panel">
-                  <div className="table-wrap">
-                    <table className="product-table">
-                      <thead>
-                        <tr>
-                          <th>Data</th>
-                          <th>Usuario</th>
-                          <th>Modulo</th>
-                          <th>Acao</th>
-                          <th>Alvo</th>
-                          <th>Resultado</th>
-                          <th>Impacto</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {filteredAuditLogs.map((record) => (
-                          <tr
-                            key={record.id}
-                            onClick={() => setSelectedAuditLogId(record.id)}
-                            style={{
-                              cursor: 'pointer',
-                              backgroundColor: selectedAuditLog?.id === record.id ? 'rgba(22, 101, 52, 0.08)' : undefined,
-                            }}
-                          >
-                            <td>
-                              {formatDateForDisplay(record.occurredAt.slice(0, 10))} {formatTimeForDisplay(record.occurredAt)}
-                            </td>
-                            <td>
-                              <strong>{record.actorUserName}</strong>
-                              <br />
-                              <span>{record.actorUsername}</span>
-                            </td>
-                            <td>{record.module}</td>
-                            <td>{record.actionLabel}</td>
-                            <td>{record.targetLabel}</td>
-                            <td>
-                              <span
-                                className={
-                                  record.result === 'SUCCESS'
-                                    ? 'status-pill status-active'
-                                    : record.result === 'WARNING'
-                                      ? 'status-pill status-warning'
-                                      : 'status-pill status-inactive'
-                                }
-                              >
-                                {auditResultLabelByValue[record.result]} • {auditSeverityLabelByValue[record.severity]}
-                              </span>
-                            </td>
-                            <td>{record.impactSummary || '-'}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                </section>
-
-                <section className="inner-panel">
-                  <div className="section-heading">
-                    <div>
-                      <p className="kicker">Detalhe</p>
-                      <h2>{selectedAuditLog?.actionLabel ?? 'Selecione um evento'}</h2>
-                    </div>
-                  </div>
-
-                  {selectedAuditLog ? (
-                    <div className="selector-list company-management-list">
-                      <article className="selector-item">
-                        <div className="selector-main company-card-static">
-                          <strong>{selectedAuditLog.summary}</strong>
-                          <span>
-                            {formatDateForDisplay(selectedAuditLog.occurredAt.slice(0, 10))} {formatTimeForDisplay(selectedAuditLog.occurredAt)}
-                          </span>
-                          <span>Empresa ativa: {getCompanyTradeName(selectedAuditLog.companyId)}</span>
-                        </div>
-                      </article>
-                      <article className="selector-item">
-                        <div className="selector-main company-card-static">
-                          <strong>Ator</strong>
-                          <span>{selectedAuditLog.actorUserName} ({selectedAuditLog.actorUsername})</span>
-                          <span>Perfil: {selectedAuditLog.actorRole}</span>
-                          <span>Origem: {selectedAuditLog.actorKind === 'SYSTEM_ADMIN' ? 'Master' : selectedAuditLog.actorKind === 'APP_USER' ? 'Usuario interno' : 'Sistema'}</span>
-                        </div>
-                      </article>
-                      <article className="selector-item">
-                        <div className="selector-main company-card-static">
-                          <strong>Alvo</strong>
-                          <span>{selectedAuditLog.targetType}</span>
-                          <span>{selectedAuditLog.targetLabel}</span>
-                          <span>ID: {selectedAuditLog.targetId}</span>
-                        </div>
-                      </article>
-                      <article className="selector-item">
-                        <div className="selector-main company-card-static">
-                          <strong>Impacto</strong>
-                          <span>{selectedAuditLog.impactSummary || 'Sem impacto derivado registrado.'}</span>
-                          <span>Resultado: {auditResultLabelByValue[selectedAuditLog.result]}</span>
-                          <span>Severidade: {auditSeverityLabelByValue[selectedAuditLog.severity]}</span>
-                        </div>
-                      </article>
-                      {selectedAuditLog.relatedCompanyIds.length > 0 ? (
-                        <article className="selector-item">
-                          <div className="selector-main company-card-static">
-                            <strong>Empresas relacionadas</strong>
-                            <span>{selectedAuditLog.relatedCompanyIds.map((companyId) => getCompanyTradeName(companyId)).join(', ')}</span>
-                          </div>
-                        </article>
-                      ) : null}
-                      <article className="selector-item">
-                        <div className="selector-main company-card-static">
-                          <strong>Contexto tecnico</strong>
-                          <span>
-                            <pre style={{ margin: 0, whiteSpace: 'pre-wrap', fontFamily: 'inherit' }}>
-                              {JSON.stringify(selectedAuditLog.details, null, 2)}
-                            </pre>
-                          </span>
-                        </div>
-                      </article>
-                    </div>
-                  ) : (
-                    <div className="empty-state">
-                      <strong>Nenhum evento selecionado.</strong>
-                      <p>Escolha um registro da tabela para ver ator, impacto e contexto tecnico.</p>
-                    </div>
-                  )}
-                </section>
-              </div>
-            ) : (
-              <div className="empty-state">
-                <strong>Nenhum evento encontrado.</strong>
-                <p>Ajuste os filtros ou aguarde novos registros da empresa ativa.</p>
-              </div>
-            )}
-          </section>
+          <LazyPanelBoundary>
+            <MasterAuditPanel
+              records={currentCompanyAuditLogs}
+              companyNames={companyNames}
+              initialViewState={masterAuditViewState}
+              onViewStateChange={setMasterAuditViewState}
+            />
+          </LazyPanelBoundary>
         </>
       ) : activeSection === 'Empresa' ? (
         <section className="panel">

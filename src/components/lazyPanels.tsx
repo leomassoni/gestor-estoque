@@ -49,6 +49,9 @@ export const StockCenterRegisteredListPanel = lazy(() =>
 export const TechnicalSheetListPanel = lazy(() =>
   import('./TechnicalSheetListPanel').then((module) => ({ default: module.TechnicalSheetListPanel })),
 )
+export const MasterAuditPanel = lazy(() =>
+  import('./MasterAuditPanel').then((module) => ({ default: module.MasterAuditPanel })),
+)
 
 type LazyPanelBoundaryProps = {
   children: ReactNode
