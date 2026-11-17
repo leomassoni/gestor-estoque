@@ -44,6 +44,7 @@ import {
   ProductListPanel,
   ProductionQueueTable,
   RecipePanel,
+  StockReportTable,
   SalesImportPostingPanel,
   ServiceItemListPanel,
   StockCenterRegisteredListPanel,
@@ -81,7 +82,6 @@ import {
   renderRequisitionFlowColumnHeader,
   renderRequisitionHistoryColumnHeader,
   renderStockCenterMinimumColumnHeader,
-  renderStockReportColumnHeader,
   tableColumnFilterNoneValue,
 } from './components/tableColumnHeaders'
 import {
@@ -3010,8 +3010,6 @@ export default function App() {
   const [stockReportColumnOrder, setStockReportColumnOrder] = useState<StockReportColumnKey[]>(
     stockReportColumnOptions.map(([key]) => key),
   )
-  const [draggedStockReportColumn, setDraggedStockReportColumn] = useState<StockReportColumnKey | null>(null)
-  const [stockReportColumnDropTarget, setStockReportColumnDropTarget] = useState<StockReportColumnKey | null>(null)
   const [stockReportModels, setStockReportModels] = useState<SavedStockReportModel[]>([])
   const [isStockReportBuilderOpen, setIsStockReportBuilderOpen] = useState(false)
   const [stockReportBuilderCenterInputValue, setStockReportBuilderCenterInputValue] = useState('')
@@ -5444,8 +5442,9 @@ export default function App() {
       latestTimestamp: getLatestTimestamp(timestamps),
     }
   }
+  const shouldComputeProductionQueue = activeSection === 'EntradaProducoes' || productionDraftState !== null
   const productionRequestRows = useMemo(() => {
-    if (!selectedProductionCenter) {
+    if (!shouldComputeProductionQueue || !selectedProductionCenter) {
       return [] as ProductionRequestRow[]
     }
 
@@ -5648,7 +5647,7 @@ export default function App() {
         ].some((value) => normalizeFreeText(value).includes(search))
       })
       .sort((a, b) => a.priority - b.priority || a.sheetName.localeCompare(b.sheetName, 'pt-BR'))
-  }, [currentCompanyId, isTechnicalSheetVisibleForCompany, latestInventoryQuantityByCenterAndAggregation, manualProductionRequests, productionInProgressDraftByKey, productionInProgressDrafts, productionSearch, requisitions, selectedProductionCenter, stockCenters, technicalSheets])
+  }, [currentCompanyId, isTechnicalSheetVisibleForCompany, latestInventoryQuantityByCenterAndAggregation, manualProductionRequests, productionInProgressDraftByKey, productionInProgressDrafts, productionSearch, requisitions, selectedProductionCenter, shouldComputeProductionQueue, stockCenters, technicalSheets])
   const executionProductionPlanningRows = useMemo(() => {
     if (currentCompanyId === null) {
       return [] as ExecutionProductionPlanningRow[]
@@ -5758,6 +5757,7 @@ export default function App() {
   const productionTable = useProductionQueueTable(productionRequestRows, productionCenterId, productionSearch)
   const visibleProductionRows = productionTable.visibleRows
   const isStockReportSectionActive = activeSection === 'RelatoriosEstoque'
+  const activeStockReportTab = isStockReportSectionActive ? stockReportTab : null
   const reportEligibleStockCenters = useMemo(
     () =>
       isStockReportSectionActive
@@ -8087,6 +8087,7 @@ export default function App() {
   }, [isStockReportSectionActive, stockReportCenterSuggestions])
   const inventoryAggregationMetadataByKey = useMemo(() => {
     const metadata = new Map<string, StockReportAggregationMetadata>()
+    if (!isStockReportSectionActive) return metadata
 
     technicalSheets
       .filter(
@@ -8139,7 +8140,7 @@ export default function App() {
       })
 
     return metadata
-  }, [currentCompanyId, isServiceItemVisibleForCompany, products, serviceItems, technicalSheets])
+  }, [currentCompanyId, isServiceItemVisibleForCompany, isStockReportSectionActive, products, serviceItems, technicalSheets])
   const manualProductionCenter = useMemo(
     () => productionEligibleCenters.find((center) => String(center.id) === manualProductionCenterId) ?? null,
     [manualProductionCenterId, productionEligibleCenters],
@@ -11559,6 +11560,7 @@ export default function App() {
   }, [currentCompanyId, isServiceItemVisibleForCompany, serviceItems])
   const stockUnitCostByAggregationKey = useMemo(() => {
     const nextMap = new Map<string, number>()
+    if (!isStockReportSectionActive) return nextMap
 
     technicalSheets
       .filter(
@@ -11621,6 +11623,7 @@ export default function App() {
     isProductVisibleForCompany,
     isServiceItemVisibleForCompany,
     isTechnicalSheetVisibleForCompany,
+    isStockReportSectionActive,
     products,
     serviceItemUnitCostById,
     serviceItems,
@@ -11660,6 +11663,10 @@ export default function App() {
   const inventoryMovementTimeline = useMemo(() => {
     const trackedPositions = new Map<number, number>()
     const movementRows: StockReportRow[] = []
+    if (activeStockReportTab !== 'MOVIMENTACOES' && activeStockReportTab !== 'DIVERGENCIA' && activeStockReportTab !== 'PRODUCOES') {
+      return { trackedPositions, movementRows }
+    }
+    const needsMovementRows = activeStockReportTab !== 'PRODUCOES'
 
     reportEligibleStockCenters.forEach((center) => {
       const relevantAggregationKeys = new Set<string>()
@@ -11750,6 +11757,10 @@ export default function App() {
 
             const previousQuantity = balanceByAggregation.get(aggregationKey) ?? 0
             const countedQuantity = countedQuantities.get(aggregationKey) ?? 0
+            if (!needsMovementRows) {
+              balanceByAggregation.set(aggregationKey, countedQuantity)
+              return
+            }
             const movementQuantity = countedQuantity - previousQuantity
             const baseRow: StockReportRow = {
               id: `movement-inventory-${center.id}-${event.inventoryRecord.id}-${aggregationKey}`,
@@ -11810,7 +11821,7 @@ export default function App() {
         const signedMovementQuantity = nextQuantity - previousQuantity
         const metadata = inventoryAggregationMetadataByKey.get(aggregationKey)
 
-        if (metadata) {
+        if (metadata && needsMovementRows) {
           const unitCost = stockUnitCostByAggregationKey.get(aggregationKey) ?? 0
           const baseRow: StockReportRow = {
             id: `movement-${event.record.id}`,
@@ -11895,6 +11906,7 @@ export default function App() {
       movementRows,
     }
   }, [
+    activeStockReportTab,
     currentCompanyId,
     inventoryAggregationMetadataByKey,
     inventoryCountSessionById,
@@ -11906,6 +11918,7 @@ export default function App() {
   ])
   const inventoryTrackedPositionByRecordId = inventoryMovementTimeline.trackedPositions
   const stockWasteEntryReportRows = useMemo(() => {
+    if (activeStockReportTab !== 'DESPERDICIO_LANCAMENTOS') return [] as StockReportRow[]
     return wasteReportEntries
       .filter((entry) => reportStockCenterById.has(entry.record.stockCenterId))
       .map((entry) => {
@@ -11973,6 +11986,7 @@ export default function App() {
           a.main.localeCompare(b.main, 'pt-BR'),
       )
   }, [
+    activeStockReportTab,
     inventoryAggregationMetadataByKey,
     products,
     reportStockCenterById,
@@ -11982,6 +11996,7 @@ export default function App() {
     wasteReportEntries,
   ])
   const stockWasteConsolidatedReportRows = useMemo(() => {
+    if (activeStockReportTab !== 'DESPERDICIO_CONSOLIDADO') return [] as StockReportRow[]
     const grouped = new Map<
       string,
       {
@@ -12119,6 +12134,7 @@ export default function App() {
           a.main.localeCompare(b.main, 'pt-BR'),
       )
   }, [
+    activeStockReportTab,
     inventoryAggregationMetadataByKey,
     products,
     reportStockCenterById,
@@ -12128,7 +12144,7 @@ export default function App() {
     wasteReportEntries,
   ])
   const stockProductionRequirementRows = useMemo(() => {
-    if (currentCompanyId === null) {
+    if (activeStockReportTab !== 'MINIMO_REAL' || currentCompanyId === null) {
       return []
     }
 
@@ -12170,6 +12186,7 @@ export default function App() {
       })
       .sort((a, b) => a.priority - b.priority || a.centerName.localeCompare(b.centerName, 'pt-BR') || a.sheetName.localeCompare(b.sheetName, 'pt-BR'))
   }, [
+    activeStockReportTab,
     currentCompanyId,
     latestInventoryDateByCenterId,
     latestInventoryQuantityByCenterAndAggregation,
@@ -12179,6 +12196,7 @@ export default function App() {
     technicalSheets,
   ])
   const stockPositionReportRows = useMemo(() => {
+    if (activeStockReportTab !== 'POSICAO') return [] as StockReportRow[]
     const rows: StockReportRow[] = []
     const globalQuantityByAggregation = new Map<string, number>()
     const globalMinimumByAggregation = new Map<string, number>()
@@ -12304,6 +12322,7 @@ export default function App() {
         a.secondary.localeCompare(b.secondary, 'pt-BR'),
     )
   }, [
+    activeStockReportTab,
     inventoryAggregationMetadataByKey,
     latestInventoryDateByCenterId,
     latestInventoryQuantityByCenterAndAggregation,
@@ -12313,9 +12332,11 @@ export default function App() {
     stockUnitCostByAggregationKey,
   ])
   const stockMovementReportRows = useMemo(
-    () =>
-      inventoryMovementTimeline.movementRows.sort((a, b) => String(b.sortValues?.date ?? '').localeCompare(String(a.sortValues?.date ?? ''))),
-    [inventoryMovementTimeline.movementRows],
+    () => {
+      if (activeStockReportTab !== 'MOVIMENTACOES') return [] as StockReportRow[]
+      return inventoryMovementTimeline.movementRows.sort((a, b) => String(b.sortValues?.date ?? '').localeCompare(String(a.sortValues?.date ?? '')))
+    },
+    [activeStockReportTab, inventoryMovementTimeline.movementRows],
   )
   const salesImportBatchAuditSummaries = useMemo(() => {
     if (!isStockReportSectionActive) {
@@ -12668,8 +12689,9 @@ export default function App() {
     technicalSheets,
   ])
   const stockImportedSalesAuditReportRows = useMemo(
-    () =>
-      salesImportBatchAuditSummaries
+    () => {
+      if (activeStockReportTab !== 'VENDAS_IMPORTADAS_AUDITORIA') return [] as StockReportRow[]
+      return salesImportBatchAuditSummaries
         .map((group) => {
         const ingredientBreakdownLabel = group.ingredientOrder
           .map((ingredientKey) => {
@@ -12713,10 +12735,12 @@ export default function App() {
           },
         } satisfies StockReportRow
       })
-      .sort((a, b) => String(b.sortValues?.date ?? '').localeCompare(String(a.sortValues?.date ?? '')) || a.main.localeCompare(b.main, 'pt-BR')),
-    [salesImportBatchAuditSummaries],
+      .sort((a, b) => String(b.sortValues?.date ?? '').localeCompare(String(a.sortValues?.date ?? '')) || a.main.localeCompare(b.main, 'pt-BR'))
+    },
+    [activeStockReportTab, salesImportBatchAuditSummaries],
   )
   const stockImportedSalesReportRows = useMemo(() => {
+    if (activeStockReportTab !== 'VENDAS_IMPORTADAS') return [] as StockReportRow[]
     type ConsolidatedSalesImportAggregation = {
       id: string
       main: string
@@ -12857,9 +12881,11 @@ export default function App() {
       })
       .sort((a, b) => String(b.sortValues?.quantity ?? 0).localeCompare(String(a.sortValues?.quantity ?? 0), 'pt-BR', { numeric: true }) || a.main.localeCompare(b.main, 'pt-BR'))
   }, [
+    activeStockReportTab,
     salesImportBatchAuditSummaries,
   ])
   const stockMinimumReportRows = useMemo(() => {
+    if (activeStockReportTab !== 'MINIMOS') return [] as StockReportRow[]
     const rows: StockReportRow[] = []
     const globalCurrentByAggregation = new Map<string, number>()
     const globalMinimumByAggregation = new Map<string, number>()
@@ -13059,6 +13085,7 @@ export default function App() {
         a.main.localeCompare(b.main, 'pt-BR'),
     )
   }, [
+    activeStockReportTab,
     inventoryAggregationMetadataByKey,
     latestInventoryDateByCenterId,
     latestInventoryQuantityByCenterAndAggregation,
@@ -13068,6 +13095,7 @@ export default function App() {
     stockUnitCostByAggregationKey,
   ])
   const stockSuggestedMinimumReportRows = useMemo(() => {
+    if (activeStockReportTab !== 'SUGESTAO_MINIMO') return [] as StockReportRow[]
     const rows: StockReportRow[] = []
 
     reportEligibleStockCenters.forEach((center) => {
@@ -13172,8 +13200,9 @@ export default function App() {
         a.center.localeCompare(b.center, 'pt-BR') ||
         a.main.localeCompare(b.main, 'pt-BR'),
     )
-  }, [products, reportEligibleStockCenters, serviceItems, technicalSheets])
+  }, [activeStockReportTab, products, reportEligibleStockCenters, serviceItems, technicalSheets])
   const stockVariationReportRows = useMemo(() => {
+    if (activeStockReportTab !== 'VARIACAO') return [] as StockReportRow[]
     const rows: StockReportRow[] = []
 
     reportEligibleStockCenters.forEach((center) => {
@@ -13245,8 +13274,9 @@ export default function App() {
     })
 
     return rows.sort((a, b) => String(b.sortValues?.date ?? '').localeCompare(String(a.sortValues?.date ?? '')))
-  }, [inventoryAggregationMetadataByKey, inventorySnapshotByCenterId, productById, reportEligibleStockCenters, stockUnitCostByAggregationKey])
+  }, [activeStockReportTab, inventoryAggregationMetadataByKey, inventorySnapshotByCenterId, productById, reportEligibleStockCenters, stockUnitCostByAggregationKey])
   const stockValuationReportRows = useMemo(() => {
+    if (activeStockReportTab !== 'VALORIZACAO') return [] as StockReportRow[]
     const rows: StockReportRow[] = []
     const globalValueByAggregation = new Map<string, number>()
 
@@ -13340,6 +13370,7 @@ export default function App() {
         a.main.localeCompare(b.main, 'pt-BR'),
     )
   }, [
+    activeStockReportTab,
     inventoryAggregationMetadataByKey,
     latestInventoryDateByCenterId,
     latestInventoryQuantityByCenterAndAggregation,
@@ -13348,8 +13379,9 @@ export default function App() {
     stockUnitCostByAggregationKey,
   ])
   const stockInventoryReportRows = useMemo(
-    () =>
-      inventoryRecords
+    () => {
+      if (activeStockReportTab !== 'INVENTARIOS') return [] as StockReportRow[]
+      return inventoryRecords
         .filter(
           (inventoryRecord) =>
             inventoryRecord.companyId === currentCompanyId &&
@@ -13402,12 +13434,14 @@ export default function App() {
           (a, b) =>
             String(b.sortValues?.date ?? '').localeCompare(String(a.sortValues?.date ?? '')) ||
             a.main.localeCompare(b.main, 'pt-BR'),
-        ),
-    [currentCompanyId, inventoryCountSessions, inventoryCounts, inventoryRecords, reportStockCenterById],
+        )
+    },
+    [activeStockReportTab, currentCompanyId, inventoryCountSessions, inventoryCounts, inventoryRecords, reportStockCenterById],
   )
   const stockInventoryProductsByPackageReportRows = useMemo(
-    () =>
-      inventoryCounts
+    () => {
+      if (activeStockReportTab !== 'INVENTARIO_PRODUTOS') return [] as StockReportRow[]
+      return inventoryCounts
         .filter((record) => {
           if (
             record.companyId !== currentCompanyId ||
@@ -13486,12 +13520,14 @@ export default function App() {
           (a, b) =>
             String(b.sortValues?.date ?? '').localeCompare(String(a.sortValues?.date ?? '')) ||
             a.main.localeCompare(b.main, 'pt-BR'),
-        ),
-    [currentCompanyId, inventoryCounts, inventoryRecords, productById, reportStockCenterById],
+        )
+    },
+    [activeStockReportTab, currentCompanyId, inventoryCounts, inventoryRecords, productById, reportStockCenterById],
   )
   const stockInventoryDivergenceReportRows = useMemo(
-    () =>
-      inventoryMovementTimeline.movementRows
+    () => {
+      if (activeStockReportTab !== 'DIVERGENCIA') return [] as StockReportRow[]
+      return inventoryMovementTimeline.movementRows
         .filter((row) => row.operation === 'INVENTARIO')
         .map((row) => {
           const divergenceQuantity = parseDecimal(row.quantity) ?? 0
@@ -13506,8 +13542,9 @@ export default function App() {
                   : 'Sem divergencia',
           }
         })
-        .sort((a, b) => String(b.sortValues?.date ?? '').localeCompare(String(a.sortValues?.date ?? ''))),
-    [inventoryMovementTimeline.movementRows],
+        .sort((a, b) => String(b.sortValues?.date ?? '').localeCompare(String(a.sortValues?.date ?? '')))
+    },
+    [activeStockReportTab, inventoryMovementTimeline.movementRows],
   )
   const inventoryCountHistoryModalRecords = useMemo(
     () =>
@@ -13715,8 +13752,9 @@ export default function App() {
 	    )
 	  }, [currentInventoryCountSummaryCounts, selectedInventoryCountSession])
   const stockRequisitionReportRows = useMemo(
-    () =>
-      requisitions
+    () => {
+      if (activeStockReportTab !== 'REQUISICOES') return [] as StockReportRow[]
+      return requisitions
         .filter(
           (record) =>
             record.companyId === currentCompanyId &&
@@ -13759,12 +13797,14 @@ export default function App() {
             },
           } satisfies StockReportRow
         })
-        .sort((a, b) => String(b.sortValues?.date ?? '').localeCompare(String(a.sortValues?.date ?? ''))),
-    [currentCompanyId, isSystemAdmin, reportStockCenterById, requisitions, stockUnitCostByAggregationKey],
+        .sort((a, b) => String(b.sortValues?.date ?? '').localeCompare(String(a.sortValues?.date ?? '')))
+    },
+    [activeStockReportTab, currentCompanyId, isSystemAdmin, reportStockCenterById, requisitions, stockUnitCostByAggregationKey],
   )
   const stockTransferReportRows = useMemo(
-    () =>
-      requisitions
+    () => {
+      if (activeStockReportTab !== 'TRANSFERENCIAS') return [] as StockReportRow[]
+      return requisitions
         .filter(
           (record) =>
             record.companyId === currentCompanyId &&
@@ -13846,10 +13886,12 @@ export default function App() {
               },
             ),
         )
-        .sort((a, b) => String(b.sortValues?.date ?? '').localeCompare(String(a.sortValues?.date ?? ''))),
-    [currentCompanyId, inventoryAggregationMetadataByKey, latestInventoryQuantityByCenterAndAggregation, products, reportStockCenterById, requisitions, stockUnitCostByAggregationKey, technicalSheets],
+        .sort((a, b) => String(b.sortValues?.date ?? '').localeCompare(String(a.sortValues?.date ?? '')))
+    },
+    [activeStockReportTab, currentCompanyId, inventoryAggregationMetadataByKey, latestInventoryQuantityByCenterAndAggregation, products, reportStockCenterById, requisitions, stockUnitCostByAggregationKey, technicalSheets],
   )
   const stockIntercompanyTransferReportRows = useMemo(() => {
+    if (activeStockReportTab !== 'TRANSFERENCIAS_INTEREMPRESAS') return [] as StockReportRow[]
     if (!isStockReportSectionActive || currentCompanyId === null) {
       return [] as StockReportRow[]
     }
@@ -14074,6 +14116,7 @@ export default function App() {
       })
       .sort((a, b) => String(b.sortValues?.date ?? '').localeCompare(String(a.sortValues?.date ?? '')))
   }, [
+    activeStockReportTab,
     catalogSharingSaleFees,
     companies,
     currentAppUser,
@@ -14090,6 +14133,7 @@ export default function App() {
     technicalSheets,
   ])
   const stockProductionReportRows = useMemo(() => {
+    if (activeStockReportTab !== 'PRODUCOES') return [] as StockReportRow[]
     const producedRows = inventoryCounts
       .filter(
         (record) =>
@@ -14164,8 +14208,9 @@ export default function App() {
           }) satisfies StockReportRow
         })
     return producedRows.sort((a, b) => String(b.sortValues?.date ?? '').localeCompare(String(a.sortValues?.date ?? '')))
-  }, [currentCompanyId, inventoryAggregationMetadataByKey, inventoryCounts, inventoryTrackedPositionByRecordId, reportStockCenterById, stockUnitCostByAggregationKey, technicalSheets])
+  }, [activeStockReportTab, currentCompanyId, inventoryAggregationMetadataByKey, inventoryCounts, inventoryTrackedPositionByRecordId, reportStockCenterById, stockUnitCostByAggregationKey, technicalSheets])
   const stockInventoryOccurrenceReportRows = useMemo(() => {
+    if (activeStockReportTab !== 'OCORRENCIAS') return [] as StockReportRow[]
     const rows: StockReportRow[] = []
     const currentPendingMovementsByInventoryId = new Map<number, PendingInventoryMovementRecord[]>()
 
@@ -14260,8 +14305,9 @@ export default function App() {
       })
 
     return rows.sort((a, b) => String(b.sortValues?.date ?? '').localeCompare(String(a.sortValues?.date ?? '')))
-  }, [currentCompanyId, inventoryRecords, pendingInventoryMovements, reportStockCenterById])
+  }, [activeStockReportTab, currentCompanyId, inventoryRecords, pendingInventoryMovements, reportStockCenterById])
   const stockInventoryProductivityReportRows = useMemo(() => {
+    if (activeStockReportTab !== 'PRODUTIVIDADE') return [] as StockReportRow[]
     const rows: StockReportRow[] = []
 
     inventoryRecords
@@ -14367,10 +14413,11 @@ export default function App() {
       })
 
     return rows.sort((a, b) => String(b.sortValues?.date ?? '').localeCompare(String(a.sortValues?.date ?? '')))
-  }, [currentCompanyId, inventoryCountSessions, inventoryRecords, reportStockCenterById])
+  }, [activeStockReportTab, currentCompanyId, inventoryCountSessions, inventoryRecords, reportStockCenterById])
   const stockRealMinimumReportRows = useMemo(
-    () =>
-      stockProductionRequirementRows
+    () => {
+      if (activeStockReportTab !== 'MINIMO_REAL') return [] as StockReportRow[]
+      return stockProductionRequirementRows
         .map(
           (row) =>
           ({
@@ -14440,10 +14487,12 @@ export default function App() {
               },
             }) satisfies StockReportRow,
         )
-        .sort((a, b) => a.center.localeCompare(b.center, 'pt-BR') || a.main.localeCompare(b.main, 'pt-BR')),
-    [stockProductionRequirementRows, stockUnitCostByAggregationKey],
+        .sort((a, b) => a.center.localeCompare(b.center, 'pt-BR') || a.main.localeCompare(b.main, 'pt-BR'))
+    },
+    [activeStockReportTab, stockProductionRequirementRows, stockUnitCostByAggregationKey],
   )
   const stockDependencyReportRows = useMemo(() => {
+    if (activeStockReportTab !== 'DEPENDENCIAS') return [] as StockReportRow[]
     const sheetByProductId = new Map(
       technicalSheets
         .filter((sheet) => isTechnicalSheetVisibleForCompany(sheet, currentCompanyId) && sheet.isActive && sheet.kind === 'PREPARO')
@@ -14530,9 +14579,10 @@ export default function App() {
           .filter((row) => row !== null) as StockReportRow[],
       )
       .sort((a, b) => a.main.localeCompare(b.main, 'pt-BR') || a.secondary.localeCompare(b.secondary, 'pt-BR'))
-  }, [currentCompanyId, isTechnicalSheetVisibleForCompany, reportEligibleStockCenters, stockUnitCostByAggregationKey, technicalSheets])
+  }, [activeStockReportTab, currentCompanyId, isTechnicalSheetVisibleForCompany, reportEligibleStockCenters, stockUnitCostByAggregationKey, technicalSheets])
   const stockCoverageReportRows = useMemo(
     () => {
+    if (activeStockReportTab !== 'COBERTURA') return [] as StockReportRow[]
       const producerRows = reportEligibleStockCenters
         .filter((center) => center.isProducer)
         .flatMap((center) =>
@@ -14682,9 +14732,10 @@ export default function App() {
         (a, b) => a.center.localeCompare(b.center, 'pt-BR') || a.secondary.localeCompare(b.secondary, 'pt-BR') || a.main.localeCompare(b.main, 'pt-BR'),
       )
     },
-    [currentCompanyId, isProductVisibleForCompany, isProductStockTracked, isTechnicalSheetVisibleForCompany, products, reportEligibleStockCenters, stockCenters, stockUnitCostByAggregationKey, technicalSheets],
+    [activeStockReportTab, currentCompanyId, isProductVisibleForCompany, isProductStockTracked, isTechnicalSheetVisibleForCompany, products, reportEligibleStockCenters, stockCenters, stockUnitCostByAggregationKey, technicalSheets],
   )
   const stockCommittedReportRows = useMemo(() => {
+    if (activeStockReportTab !== 'COMPROMETIDO') return [] as StockReportRow[]
     const rows: StockReportRow[] = []
 
     committedOutgoingByCenterAndAggregation.forEach((committedQuantity, centerAggregationKey) => {
@@ -14746,6 +14797,7 @@ export default function App() {
         a.main.localeCompare(b.main, 'pt-BR'),
     )
   }, [
+    activeStockReportTab,
     committedOutgoingByCenterAndAggregation,
     inventoryAggregationMetadataByKey,
     latestInventoryDateByCenterId,
@@ -48147,131 +48199,30 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
 
             {!stockReportNeedsCenterSelection && scopedStockReportRows.length > 0 ? (
               <>
-                <div
-                  className="table-wrap stock-report-table-wrap"
-                  onScroll={(event) => setStockReportScrollTop(event.currentTarget.scrollTop)}
-                >
-                  <table className="product-table">
-                    <thead>
-                      <tr>
-                        {orderedVisibleStockReportColumns.map((key) =>
-                          renderStockReportColumnHeader(
-                            key,
-                            getStockReportColumnLabel(key, stockReportTab),
-                            openStockReportColumnMenu,
-                            setOpenStockReportColumnMenu,
-                            stockReportColumnFilters,
-                            distinctStockReportColumnValues,
-                            setStockReportColumnFilters,
-                            setStockReportColumnVisibility,
-                            stockReportColumnSort,
-                            setStockReportColumnSort,
-                            {
-                              draggable: key !== 'main',
-                              isDragging: draggedStockReportColumn === key,
-                              isDropTarget: stockReportColumnDropTarget === key,
-                              onDragStart: () => {
-                                if (key !== 'main') {
-                                  setDraggedStockReportColumn(key)
-                                  setStockReportColumnDropTarget(null)
-                                }
-                              },
-                              onDragEnd: () => {
-                                setDraggedStockReportColumn(null)
-                                setStockReportColumnDropTarget(null)
-                              },
-                              onDragOver: (event) => {
-                                if (key !== 'main' && draggedStockReportColumn && draggedStockReportColumn !== key) {
-                                  event.preventDefault()
-                                  setStockReportColumnDropTarget(key)
-                                }
-                              },
-                              onDragLeave: () => {
-                                if (stockReportColumnDropTarget === key) {
-                                  setStockReportColumnDropTarget(null)
-                                }
-                              },
-                              onDrop: (event) => {
-                                event.preventDefault()
-                                if (!draggedStockReportColumn || draggedStockReportColumn === key || key === 'main') {
-                                  setDraggedStockReportColumn(null)
-                                  setStockReportColumnDropTarget(null)
-                                  return
-                                }
-
-                                setStockReportColumnOrder((current) => {
-                                  const next = current.filter((columnKey) => columnKey !== draggedStockReportColumn)
-                                  const targetIndex = next.indexOf(key)
-                                  if (targetIndex < 0) {
-                                    return current
-                                  }
-                                  next.splice(targetIndex, 0, draggedStockReportColumn)
-                                  return next
-                                })
-                                setDraggedStockReportColumn(null)
-                                setStockReportColumnDropTarget(null)
-                              },
-                            },
-                          ),
-                        )}
-                        {stockReportTab === 'INVENTARIOS' ? <th className="sticky-actions">Acoes</th> : null}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {visibleStockReportRange.topSpacerHeight > 0 ? (
-                        <tr aria-hidden="true">
-                          <td
-                            colSpan={orderedVisibleStockReportColumns.length + (stockReportTab === 'INVENTARIOS' ? 1 : 0)}
-                            style={{ height: `${visibleStockReportRange.topSpacerHeight}px`, padding: 0, border: 0 }}
-                          />
-                        </tr>
-                      ) : null}
-                      {virtualizedStockReportRows.map((row) => (
-                        <tr key={row.id}>
-                          {orderedVisibleStockReportColumns.map((key) =>
-                            key === 'main' ? (
-                              <td key={`${row.id}-${key}`} className="sticky-product-cell"><strong>{row.main}</strong></td>
-                            ) : (
-                              <td key={`${row.id}-${key}`}>{getStockReportColumnValue(row, key) || '-'}</td>
-                            ),
-                          )}
-                          {stockReportTab === 'INVENTARIOS' ? (
-                            <td className="sticky-actions-cell">
-                              <div className="table-actions">
-                                <button
-                                  type="button"
-                                  className="icon-button icon-summary"
-                                  aria-label="Ver resumo do inventario"
-                                  title="Ver resumo do inventario"
-                                  onClick={() => {
-                                    if (typeof row.inventoryId === 'number') {
-                                      const inventoryRecord =
-                                        inventoryRecords.find((item) => item.id === row.inventoryId) ?? null
-                                      if (inventoryRecord) {
-                                        openClosedInventorySummary(inventoryRecord, true)
-                                      }
-                                    }
-                                  }}
-                                  disabled={typeof row.inventoryId !== 'number'}
-                                >
-                                  <span aria-hidden="true">≡</span>
-                                </button>
-                              </div>
-                            </td>
-                          ) : null}
-                        </tr>
-                      ))}
-                      {visibleStockReportRange.bottomSpacerHeight > 0 ? (
-                        <tr aria-hidden="true">
-                          <td
-                            colSpan={orderedVisibleStockReportColumns.length + (stockReportTab === 'INVENTARIOS' ? 1 : 0)}
-                            style={{ height: `${visibleStockReportRange.bottomSpacerHeight}px`, padding: 0, border: 0 }}
-                          />
-                        </tr>
-                      ) : null}
-                    </tbody>
-                  </table>
-                </div>
+                <LazyPanelBoundary>
+                  <StockReportTable
+                    tab={stockReportTab}
+                    columns={orderedVisibleStockReportColumns}
+                    rows={virtualizedStockReportRows}
+                    range={visibleStockReportRange}
+                    distinctColumnValues={distinctStockReportColumnValues}
+                    openColumnMenu={openStockReportColumnMenu}
+                    setOpenColumnMenu={setOpenStockReportColumnMenu}
+                    columnFilters={stockReportColumnFilters}
+                    setColumnFilters={setStockReportColumnFilters}
+                    setColumnVisibility={setStockReportColumnVisibility}
+                    columnSort={stockReportColumnSort}
+                    setColumnSort={setStockReportColumnSort}
+                    setColumnOrder={setStockReportColumnOrder}
+                    onScroll={setStockReportScrollTop}
+                    getColumnLabel={getStockReportColumnLabel}
+                    getColumnValue={getStockReportColumnValue}
+                    onOpenInventorySummary={(inventoryId) => {
+                      const inventoryRecord = inventoryRecords.find((item) => item.id === inventoryId) ?? null
+                      if (inventoryRecord) openClosedInventorySummary(inventoryRecord, true)
+                    }}
+                  />
+                </LazyPanelBoundary>
                 {visibleStockReportRows.length === 0 ? (
                   <div className="empty-state empty-state-inline">
                     <strong>Nenhum registro encontrado.</strong>
