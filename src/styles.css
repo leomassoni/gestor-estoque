@@ -1161,6 +1161,57 @@ h3 {
   height: 1px;
 }
 
+.master-audit-panel,
+.master-audit-panel .selector-list,
+.master-audit-panel .inner-panel,
+.master-audit-panel .table-wrap {
+  min-width: 0;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+
+.master-audit-panel .selector-list {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.master-audit-panel .table-wrap {
+  overflow-x: auto;
+}
+
+.master-audit-panel .product-table {
+  min-width: 0;
+  table-layout: fixed;
+}
+
+.master-audit-panel .product-table th,
+.master-audit-panel .product-table td {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.master-audit-panel .status-pill {
+  max-width: 100%;
+  white-space: normal;
+}
+
+.master-audit-cell-clamp {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+}
+
+.master-audit-panel .header-menu-option span,
+.master-audit-panel pre {
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 1120px) {
+  .master-audit-panel .product-table {
+    min-width: 980px;
+  }
+}
+
 .sales-import-history-table-wrap {
   max-height: 456px;
   overflow-y: auto;

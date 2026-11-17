@@ -143,7 +143,7 @@ function isNumericProductionColumn(key: ProductionColumnKey) {
   return ['priority', 'current', 'useMinimum', 'realMinimum', 'suggestion'].includes(key)
 }
 
-function renderGenericColumnHeader<K extends string>(params: {
+export function renderGenericColumnHeader<K extends string>(params: {
   key: K
   label: string
   openColumnMenu: K | null
