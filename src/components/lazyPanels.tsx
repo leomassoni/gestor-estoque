@@ -52,6 +52,9 @@ export const TechnicalSheetListPanel = lazy(() =>
 export const MasterAuditPanel = lazy(() =>
   import('./MasterAuditPanel').then((module) => ({ default: module.MasterAuditPanel })),
 )
+export const RecipePanel = lazy(() =>
+  import('./RecipePanel').then((module) => ({ default: module.RecipePanel })),
+)
 
 type LazyPanelBoundaryProps = {
   children: ReactNode
