@@ -54,27 +54,8 @@ export function StockReportTable({
   useLayoutEffect(() => {
     const tableWrap = tableWrapRef.current
     if (!tableWrap || rows.length === 0) return
-    let observer: ResizeObserver | null = null
-    const syncScroll = () => {
-      if (scrollPositionRef.current > 0 && tableWrap.scrollHeight <= tableWrap.clientHeight) return
-      if (scrollPositionRef.current > 0 && tableWrap.scrollTop === 0) {
-        tableWrap.scrollTop = scrollPositionRef.current
-      }
-      const actualScrollTop = tableWrap.scrollTop
-      scrollPositionRef.current = actualScrollTop
-      setScrollTop((current) => current === actualScrollTop ? current : actualScrollTop)
-      observer?.disconnect()
-    }
-    syncScroll()
-    if (scrollPositionRef.current > 0 && tableWrap.scrollHeight <= tableWrap.clientHeight) {
-      const table = tableWrap.querySelector('table')
-      if (table) {
-        observer = new ResizeObserver(syncScroll)
-        observer.observe(table)
-      }
-    }
-    return () => observer?.disconnect()
-  }, [rows, scrollPositionRef, scrollTop])
+    tableWrap.scrollTop = Math.min(scrollPositionRef.current, Math.max(0, tableWrap.scrollHeight - tableWrap.clientHeight))
+  }, [tab, rows.length, scrollPositionRef])
 
   return (
     <div
@@ -82,12 +63,8 @@ export function StockReportTable({
       className="table-wrap stock-report-table-wrap"
       onScroll={(event) => {
         const nextScrollTop = event.currentTarget.scrollTop
-        if (nextScrollTop === 0 && scrollPositionRef.current > 0 && event.currentTarget.scrollHeight <= event.currentTarget.clientHeight) {
-          setScrollTop(0)
-          return
-        }
         scrollPositionRef.current = nextScrollTop
-        setScrollTop(nextScrollTop)
+        setScrollTop((current) => current === nextScrollTop ? current : nextScrollTop)
       }}
     >
       <table className="product-table">

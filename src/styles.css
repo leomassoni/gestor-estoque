@@ -1220,6 +1220,8 @@ h3 {
 .stock-report-table-wrap {
   max-height: 560px;
   overflow-y: auto;
+  overflow-anchor: none;
+  content-visibility: visible;
 }
 
 .stock-report-table-wrap .product-table thead {
