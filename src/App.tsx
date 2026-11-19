@@ -101,9 +101,6 @@ import {
   salesImportBatchHistoryRowHeightPx,
   salesImportBatchHistoryViewportHeightPx,
   salesImportPollingSections,
-  stockReportOverscanRows,
-  stockReportRowHeightPx,
-  stockReportViewportHeightPx,
   supplyHistoryOverscanRows,
   supplyHistoryRowHeightPx,
   supplyHistoryViewportHeightPx,
@@ -2991,7 +2988,7 @@ export default function App() {
   const [receiveReviewColumnSort, setReceiveReviewColumnSort] = useState<ColumnSort<ReceiveReviewColumnKey> | null>(null)
   const [stockReportTab, setStockReportTab] = useState<StockReportTab>('POSICAO')
   const [stockReportSelectorValue, setStockReportSelectorValue] = useState(stockReportTabDefinitions[0]?.label ?? '')
-  const [stockReportScrollTop, setStockReportScrollTop] = useState(0)
+  const stockReportScrollPosition = useRef(0)
   const [stockReportSearch, setStockReportSearch] = useState('')
   const [stockReportStartDate, setStockReportStartDate] = useState('')
   const [stockReportEndDate, setStockReportEndDate] = useState('')
@@ -14964,26 +14961,6 @@ export default function App() {
         ]),
       ) as Record<StockReportColumnKey, string[]>,
     [allowedStockReportColumnOptions, scopedStockReportRows],
-  )
-  const visibleStockReportRange = useMemo(() => {
-    const totalRows = visibleStockReportRows.length
-    if (totalRows === 0) {
-      return { startIndex: 0, endIndex: 0, topSpacerHeight: 0, bottomSpacerHeight: 0 }
-    }
-
-    const visibleRowCount = Math.ceil(stockReportViewportHeightPx / stockReportRowHeightPx)
-    const startIndex = Math.max(0, Math.floor(stockReportScrollTop / stockReportRowHeightPx) - stockReportOverscanRows)
-    const endIndex = Math.min(totalRows, startIndex + visibleRowCount + stockReportOverscanRows * 2)
-    return {
-      startIndex,
-      endIndex,
-      topSpacerHeight: startIndex * stockReportRowHeightPx,
-      bottomSpacerHeight: Math.max(0, (totalRows - endIndex) * stockReportRowHeightPx),
-    }
-  }, [stockReportScrollTop, visibleStockReportRows.length])
-  const virtualizedStockReportRows = useMemo(
-    () => visibleStockReportRows.slice(visibleStockReportRange.startIndex, visibleStockReportRange.endIndex),
-    [visibleStockReportRange.endIndex, visibleStockReportRange.startIndex, visibleStockReportRows],
   )
   const orderedVisibleStockReportColumns = useMemo(
     () =>
@@ -48203,8 +48180,8 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                   <StockReportTable
                     tab={stockReportTab}
                     columns={orderedVisibleStockReportColumns}
-                    rows={virtualizedStockReportRows}
-                    range={visibleStockReportRange}
+                    rows={visibleStockReportRows}
+                    scrollPositionRef={stockReportScrollPosition}
                     distinctColumnValues={distinctStockReportColumnValues}
                     openColumnMenu={openStockReportColumnMenu}
                     setOpenColumnMenu={setOpenStockReportColumnMenu}
@@ -48214,7 +48191,6 @@ function getRequisitionStockMovementConfig(line: RequisitionLineRecord) {
                     columnSort={stockReportColumnSort}
                     setColumnSort={setStockReportColumnSort}
                     setColumnOrder={setStockReportColumnOrder}
-                    onScroll={setStockReportScrollTop}
                     getColumnLabel={getStockReportColumnLabel}
                     getColumnValue={getStockReportColumnValue}
                     onOpenInventorySummary={(inventoryId) => {
